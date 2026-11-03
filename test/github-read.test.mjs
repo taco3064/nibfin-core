@@ -43,3 +43,21 @@ test('rejects unsafe identities before network access', async () => {
   await assert.rejects(reader.get('/repos/example/core/../secrets'));
   assert.throws(() => new GitHubReader(''));
 });
+
+test('object collections refuse truncation instead of silently accepting the first page', async () => {
+  const reader = new GitHubReader('fixture', async () => ({ ok: true, json: async () => ({ total_count: 2, jobs: [{ id: 1 }] }) }));
+  await assert.rejects(reader.list('/repos/example/core/actions/runs/1/jobs', 'jobs'), /truncated/);
+});
+
+test('job log redirect strips credentials and refuses unexpected origins', async () => {
+  const calls = [];
+  const reader = new GitHubReader('fixture-secret', async (url, options) => {
+    calls.push({ url, options });
+    if (calls.length === 1) return { status: 302, headers: { get: () => 'https://example.blob.core.windows.net/logs?temporary=fixture' } };
+    return { ok: true, body: (async function* () { yield Buffer.from('job output'); })() };
+  });
+  assert.equal(await reader.jobLogs('example/core', 1), 'job output');
+  assert.equal(calls[1].options.headers, undefined); assert.equal(calls[1].options.redirect, 'error');
+  const unsafe = new GitHubReader('fixture-secret', async () => ({ status: 302, headers: { get: () => 'https://attacker.invalid/log' } }));
+  await assert.rejects(unsafe.jobLogs('example/core', 1), /Untrusted job log origin/);
+});

@@ -1,0 +1,60 @@
+name: Package Core
+
+on:
+  workflow_call:
+    inputs:
+      source_commit:
+        description: Exact public Core commit to package; never a branch or tag
+        required: true
+        type: string
+    outputs:
+      archive_sha256:
+        value: ${{ jobs.package.outputs.archive_sha256 }}
+      manifest_hash:
+        value: ${{ jobs.package.outputs.manifest_hash }}
+      artifact_id:
+        value: ${{ jobs.package.outputs.artifact_id }}
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    # This is a GitHub-hosted build, not a customer Runner requirement.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      archive_sha256: ${{ steps.package.outputs.archive_sha256 }}
+      manifest_hash: ${{ steps.package.outputs.manifest_hash }}
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+    steps:
+      - name: Validate public source request
+        env:
+          SOURCE_COMMIT: ${{ inputs.source_commit }}
+          PUBLIC_REPOSITORY: ${{ !github.event.repository.private }}
+        run: |
+          test "$PUBLIC_REPOSITORY" = true
+          [[ "$SOURCE_COMMIT" =~ ^[a-f0-9]{40}$ ]]
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          repository: taco3064/nibfin-core
+          ref: ${{ inputs.source_commit }}
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version-file: .node-version
+          package-manager-cache: false
+      - name: Build and verify public installation
+        id: package
+        env:
+          SOURCE_COMMIT: ${{ inputs.source_commit }}
+        run: node scripts/package-ci.mjs
+      - name: Upload build output
+        id: upload
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: nibfin-core-${{ inputs.source_commit }}
+          path: distribution/*
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0

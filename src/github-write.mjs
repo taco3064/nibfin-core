@@ -1,0 +1,121 @@
+import { repoPath, issuePath } from './github-read.mjs';
+import { digest, isDigest, isId, isSha, requireThat } from './identity.mjs';
+
+function labels(issue) {
+  requireThat(Array.isArray(issue.labels) && issue.labels.every(label => typeof label.name === 'string' && label.name), 'INVALID_LIVE_LABELS');
+  const names = issue.labels.map(label => label.name).sort();
+  requireThat(new Set(names).size === names.length, 'DUPLICATE_LIVE_LABELS');
+  return names;
+}
+function issueMatches(remote, expected) {
+  requireThat(remote?.node_id === expected.id && remote.number === expected.number && !remote.pull_request &&
+    remote.url === `https://api.github.com${issuePath(expected)}`, 'ISSUE_WRITE_IDENTITY_MISMATCH');
+}
+
+// Trusted Core only. Every method must run inside the durable operation journal.
+// The fresh guard checks the exact operation + target/body digest immediately
+// before the single HTTP mutation. No redirect, retry or response-body logging.
+export class GitHubWriter {
+  #reader; #token; #guard; #fetch;
+  constructor({ reader, token, guard, fetcher = fetch }) {
+    requireThat(typeof reader?.get === 'function' && typeof token === 'string' && token.trim() &&
+      typeof guard === 'function' && typeof fetcher === 'function', 'INVALID_WRITE_ADAPTER');
+    this.#reader = reader; this.#token = token; this.#guard = guard; this.#fetch = fetcher;
+  }
+  async #write(operation, method, path, body) {
+    const targetHash = digest({ operation, method, path, body });
+    const admission = await this.#guard({ operation, targetHash });
+    requireThat(admission?.targetHash === targetHash && isDigest(admission.bindingHash), 'WRITE_ADMISSION_DENIED');
+    let response;
+    try {
+      response = await this.#fetch(`https://api.github.com${path}`, {
+        method, redirect: 'error', signal: AbortSignal.timeout(30000),
+        headers: { Authorization: `Bearer ${this.#token}`, Accept: 'application/vnd.github+json',
+          'Content-Type': 'application/json', 'X-GitHub-Api-Version': '2022-11-28' }, body: JSON.stringify(body),
+      });
+      requireThat(response.ok, 'GITHUB_WRITE_NOT_CONFIRMED');
+      return await response.json();
+    } catch { throw Object.assign(new Error('External effect requires reconciliation'), { code: 'EXTERNAL_EFFECT_UNKNOWN' }); }
+  }
+  async #issue(expected, expectedBodyHash, expectedLabels) {
+    requireThat(isId(expected?.repositoryId) && isDigest(expectedBodyHash) && Array.isArray(expectedLabels), 'INVALID_ISSUE_WRITE');
+    const repository = await this.#reader.repository(expected.repository);
+    requireThat(repository.id === expected.repositoryId && repository.full_name === expected.repository && repository.private === false,
+      'REPOSITORY_WRITE_IDENTITY_MISMATCH');
+    const current = await this.#reader.issue(expected); issueMatches(current, expected);
+    requireThat(current.state === 'open' && digest(current.body) === expectedBodyHash &&
+      digest(labels(current)) === digest([...expectedLabels].sort()), 'STALE_ISSUE_WRITE');
+    return current;
+  }
+  async confirmShape({ issue, expectedBodyHash, expectedLabels, body }) {
+    requireThat(digest(body) === expectedBodyHash && expectedLabels.includes('shaped') &&
+      expectedLabels.includes('scope') && !expectedLabels.includes('delivered'), 'INVALID_SHAPE_REVALIDATION');
+    // Fresh independent author/validator outcomes were checked by the guard.
+    // Confirm current publication without inventing who approved it in the past.
+    const targetHash = digest({ operation: 'publish-shape', method: 'GET', path: issuePath(issue), body });
+    const admission = await this.#guard({ operation: 'publish-shape', targetHash });
+    requireThat(admission?.targetHash === targetHash && isDigest(admission.bindingHash), 'WRITE_ADMISSION_DENIED');
+    const current = await this.#issue(issue, expectedBodyHash, expectedLabels);
+    return { bodyHash: digest(current.body), reference: current.url };
+  }
+  async publishShape({ issue, expectedBodyHash, expectedLabels, body }) {
+    requireThat(typeof body === 'string' && body.trim(), 'EMPTY_SHAPE');
+    const current = await this.#issue(issue, expectedBodyHash, expectedLabels);
+    const names = labels(current);
+    requireThat(names.includes('scope') && !names.includes('shaped') && !names.includes('delivered'), 'INVALID_SHAPE_TRANSITION');
+    const desired = [...names, 'shaped'].sort();
+    await this.#write('publish-shape', 'PATCH', issuePath(issue), { body, labels: desired });
+    const actual = await this.#reader.issue(issue); issueMatches(actual, issue);
+    requireThat(actual.state === 'open' && actual.body === body && digest(labels(actual)) === digest(desired), 'SHAPE_READBACK_UNKNOWN');
+    return { bodyHash: digest(body), reference: actual.url };
+  }
+  async createPullRequest({ repository, repositoryId, headBranch, head, baseBranch, base, title, body }) {
+    requireThat(isId(repositoryId) && isSha(head) && isSha(base) && /^nibfin\/issue-[1-9]\d*-[a-f0-9]{12}$/.test(headBranch) &&
+      typeof baseBranch === 'string' && baseBranch && typeof title === 'string' && title.trim() && typeof body === 'string' && body.trim(), 'INVALID_PR_PUBLICATION');
+    const root = repoPath(repository), repo = await this.#reader.repository(repository);
+    requireThat(repo.id === repositoryId && repo.full_name === repository && repo.private === false && repo.default_branch === baseBranch, 'PR_REPOSITORY_CHANGED');
+    const actualHead = await this.#reader.get(`${root}/branches/${encodeURIComponent(headBranch)}`);
+    const actualBase = await this.#reader.get(`${root}/branches/${encodeURIComponent(baseBranch)}`);
+    requireThat(actualHead.commit?.sha === head && actualBase.commit?.sha === base && actualBase.protected === true, 'PR_BRANCH_IDENTITY_CHANGED');
+    const response = await this.#write('commit-pr', 'POST', `${root}/pulls`, { title, body, head: headBranch, base: baseBranch, draft: false });
+    requireThat(isId(response.number) && typeof response.node_id === 'string' && response.node_id, 'PR_RESPONSE_UNKNOWN');
+    const pr = await this.#reader.get(`${root}/pulls/${response.number}`);
+    requireThat(pr.node_id === response.node_id && pr.number === response.number && pr.state === 'open' && pr.draft === false &&
+      pr.head?.sha === head && pr.head.ref === headBranch && pr.head.repo?.id === repositoryId && pr.base?.sha === base &&
+      pr.base.ref === baseBranch && pr.base.repo?.id === repositoryId && pr.body === body && pr.title === title, 'PR_READBACK_UNKNOWN');
+    return { id: pr.node_id, number: pr.number, head, base, reference: `https://github.com/${repository}/pull/${pr.number}` };
+  }
+  async merge({ repository, repositoryId, number, id, head, base, baseBranch }) {
+    requireThat(isId(repositoryId) && isId(number) && typeof id === 'string' && id && isSha(head) && isSha(base) &&
+      typeof baseBranch === 'string' && baseBranch, 'INVALID_MERGE_TARGET');
+    const root = repoPath(repository), path = `${root}/pulls/${number}`;
+    const current = await this.#reader.get(path);
+    requireThat(current.node_id === id && current.number === number && current.state === 'open' && current.draft === false &&
+      current.merged === false && current.head?.sha === head && current.head.repo?.id === repositoryId &&
+      current.base?.sha === base && current.base.ref === baseBranch && current.base.repo?.id === repositoryId &&
+      current.mergeable === true && current.mergeable_state === 'clean', 'STALE_OR_BLOCKED_MERGE');
+    const branch = await this.#reader.get(`${root}/branches/${encodeURIComponent(baseBranch)}`);
+    requireThat(branch.commit?.sha === base && branch.protected === true, 'MERGE_BASE_CHANGED');
+    const response = await this.#write('merge', 'PUT', `${path}/merge`, { sha: head, merge_method: 'merge' });
+    requireThat(response.merged === true && isSha(response.sha), 'MERGE_RESPONSE_UNKNOWN');
+    const actual = await this.#reader.get(path);
+    requireThat(actual.node_id === id && actual.number === number && actual.state === 'closed' && actual.merged === true &&
+      actual.head?.sha === head && actual.head.repo?.id === repositoryId && actual.base?.repo?.id === repositoryId &&
+      actual.merge_commit_sha === response.sha, 'MERGE_READBACK_UNKNOWN');
+    const commit = await this.#reader.get(`${root}/git/commits/${response.sha}`);
+    requireThat(commit.sha === response.sha && Array.isArray(commit.parents) &&
+      digest(commit.parents.map(parent => parent.sha)) === digest([base, head]), 'MERGE_ANCESTRY_UNKNOWN');
+    return { mergeCommit: response.sha, reference: `https://github.com/${repository}/pull/${number}` };
+  }
+  async closeDelivered({ issue, expectedBodyHash, expectedLabels }) {
+    const current = await this.#issue(issue, expectedBodyHash, expectedLabels);
+    const names = labels(current);
+    requireThat(names.includes('scope') && names.includes('shaped') && !names.includes('delivered'), 'INVALID_CLOSURE_TRANSITION');
+    const desired = [...names, 'delivered'].sort();
+    await this.#write('close', 'PATCH', issuePath(issue), { state: 'closed', state_reason: 'completed', labels: desired });
+    const actual = await this.#reader.issue(issue); issueMatches(actual, issue);
+    requireThat(actual.state === 'closed' && actual.state_reason === 'completed' && digest(actual.body) === expectedBodyHash &&
+      digest(labels(actual)) === digest(desired), 'CLOSURE_READBACK_UNKNOWN');
+    return { reference: actual.url, bodyHash: expectedBodyHash };
+  }
+}
