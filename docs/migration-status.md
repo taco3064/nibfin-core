@@ -3,6 +3,43 @@
 This is source-level implementation evidence for the manual bootstrap. It is not
 a protected Shape, acceptance receipt, release, or proof of a working Runner.
 
+## Current audit and remaining bootstrap work (2026-11-04)
+
+Core #1 is implemented in part, not accepted. PRs #19–#22 are merged; main
+`b73272173e28e431953507450675a293a1187919` passed 152 tests and package/install
+verification. Independent Agent technical review is required. Solo Owner policy
+supports zero GitHub human Required Approvals; configured team approvals still
+apply. No second human account is required.
+
+Post-merge workflow runs may return an empty `pull_requests` array, as observed
+in [run 41666463853](https://github.com/taco3064/nibfin-core/actions/runs/41666463853).
+Closure now requires the trusted pre-merge CI evidence and re-observes the same
+checks, run/attempt, job, workflow and checkout identities. Empty associations
+are tolerated only after merge with exactly matching evidence. Missing prior
+evidence, changed provenance and mismatched nonempty associations deny.
+
+Normal dependency eligibility and fanout require Closed plus `scope`, `shaped`
+and `delivered`. These are current native lifecycle conditions, not proof of
+historical authorization or a grant to execute the downstream Issue. Each target
+still needs its own fresh authorization and source review. No permanent upstream
+receipt archive is introduced. Manual Bootstrap #1 is outside this lifecycle:
+its release/setup gate is resolved by authorized manual cutover and Scope audit,
+not by inventing `delivered` or an unlabeled/Issue-number bypass. Existing native
+edges are not automatically edited by Core.
+
+Remaining work is more than a subscription login:
+
+- Adopt and verify an actual trusted host/caller/approval configuration, then run
+  a real authenticated Agent with independent validation and isolation controls.
+- Verify C14's legal wake-to-execution handoff. `WakeDispatcher` sends Issue
+  identity to a pinned caller; `stage.yml` accepts stage/member routing inputs.
+  The trusted caller must resolve current eligibility and connect these contracts.
+  The reusable workflow and dispatcher tests alone do not prove this integration.
+  There is no standalone wake CLI or installed Issue-event caller yet.
+- Publish a non-placeholder Core version and read back its immutable source and
+  assets. Package CI is not a release. Full external cutover and all three repos'
+  self-delivery proofs remain downstream work, not added Core #1 requirements.
+
 ## Current launcher integration (2026-11-03)
 
 The CLI now exposes `stage <adopted-issue-number> <stage>`, and
@@ -131,7 +168,7 @@ fixtures, credentials, or historical execution evidence is included in this tree
 
 | Workstream | Current module and evidence | Remaining boundary |
 | --- | --- | --- |
-| C01 | Node ESM tooling and CI in PR #19 | Independent approval; saved branch/check protection verified in GitHub settings |
+| C01 | Node ESM tooling and CI in PR #19 | Merged after independent Agent review and required CI; no second human required |
 | C02/C03 | Canonical identities, bounded approval records, frozen raw Scope and live native approval observations | Trusted pin adoption and actual Personal/Organization enforcement proof; pure admission and native observer are implemented |
 | C11/C13 | Durable local intent/read-back/replay handling, exclusive leases and killed-process test; live Runner/job/source observation adapter | Privileged write/read-back and isolated hook adapters implemented; reconciliation and cross-host writer/isolation proof remain |
 | C04 | `github-read.mjs`, `dependencies.mjs`; native paginated reads, cross-repository identity checks, open/changed/inaccessible dependency denials | Native observer connects authenticated admission; authorized downstream wake-up remains |
@@ -171,13 +208,12 @@ may infer authority from their caller-supplied JSON or from aggregate test succe
 See [native authorization boundaries](native-authorization.md) for the provisional
 adapter restrictions, trusted pin acquisition boundary and missing live proof.
 
-On 2026-11-03, the API connection could not read protection settings (HTTP
-403), but Chrome subsequently verified the saved main branch protection rule:
-one independent approval, stale approval dismissal, approval after the latest
-push, the GitHub Actions `verify` check, an up-to-date branch and no administrator
-bypass. Force push and deletion are disabled. The repository currently has no
-collaborators and no registered self-hosted Runner. Independent review and an
-actual supported Agent/isolation demonstration remain unverified.
+The earlier branch setup required a human approval. The Owner subsequently
+corrected the solo configuration, and PRs #19–#22 merged through required CI.
+The connector cannot read administration-only protection settings; merge success
+is not a claim that this connector independently read every protection field.
+Independent Agent technical review remains mandatory; a second human does not.
+Actual supported authenticated Agent execution remains unverified.
 
 GitHub-hosted package and release-preparation jobs need no customer-managed
 Docker, Linux or WSL setup. The provisional container adapter is an implementation
@@ -217,7 +253,8 @@ The privileged write assembly now verifies the credential owner's native GitHub
 identity and repeats admission separately for push and PR creation. Same-member
 Agent roles retain distinct execution/session boundaries; requiring different
 GitHub accounts for each Agent role was an implementation overconstraint and is
-removed. Native independent human approval remains mandatory.
+removed. Human PR approvals follow the actual configured count, including zero
+for the solo Owner; independent Agent validation remains mandatory.
 
 Committed-source packaging produces a deterministic archive and an exact-file
 manifest. Real Git and tar extraction tests verify reproducibility and rejection

@@ -4,7 +4,7 @@ import { readDependencies } from '../src/dependencies.mjs';
 
 const target = { id: 'I_target', repository: 'example/core', repositoryId: 10, number: 2 };
 const upstream = { id: 'I_upstream', repository: 'example/action', repositoryId: 20, number: 7 };
-const remote = (item, state) => ({ node_id: item.id, number: item.number, state,
+const remote = (item, state) => ({ node_id: item.id, number: item.number, state, labels: ['scope', 'shaped', 'delivered'].map(name => ({ name })),
   url: `https://api.github.com/repos/${item.repository}/issues/${item.number}` });
 function fixture() {
   return {
@@ -48,4 +48,20 @@ test('changed graph, foreign issue, duplicate edges and inaccessible reads deny'
 test('duplicate and self prerequisites are rejected', async () => {
   await assert.rejects(readDependencies(fixture(), target, [upstream, upstream]));
   await assert.rejects(readDependencies(fixture(), target, [target]));
+});
+
+test('closed, cancelled or manually tracked work without the full normal lifecycle stays blocked', async () => {
+  for (const labels of [undefined, [], ['scope'], ['scope', 'shaped'], ['delivered'], ['shaped', 'delivered']]) {
+    const reader = fixture();
+    reader.issue = async item => ({ ...remote(item, item.id === target.id ? 'open' : 'closed'),
+      labels: labels?.map(name => ({ name })) });
+    const result = await readDependencies(reader, target, [upstream]);
+    assert.equal(result.ready, false); assert.equal(result.prerequisites[0].completed, false);
+  }
+  // Issue number 1 and a Bootstrap title are not runtime bypass credentials.
+  const bootstrap = { ...upstream, number: 1 };
+  const reader = fixture(); reader.blockedBy = async () => [remote(bootstrap, 'closed')];
+  reader.issue = async item => ({ ...remote(item, item.id === target.id ? 'open' : 'closed'),
+    title: 'Manual Bootstrap', labels: [] });
+  assert.equal((await readDependencies(reader, target, [bootstrap])).ready, false);
 });

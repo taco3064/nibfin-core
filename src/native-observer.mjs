@@ -60,6 +60,7 @@ export function nativeObserver({ reader, config, execution, inspectIsolation, in
         if (stage === 'close') {
           const prior = await store.get(receipts.merge?.artifacts.ciHash);
           expected.mergedCommit = receipts.merge.artifacts.mergeCommit;
+          expected.admittedCI = prior;
           requireThat(isSha(prior.testMerge), 'ORIGINAL_TEST_MERGE_REQUIRED');
           expected.testMerge = prior.testMerge;
           context.pr.mergePreview = prior.testMerge;

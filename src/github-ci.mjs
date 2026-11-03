@@ -38,6 +38,8 @@ export async function readPullRequestCI(reader, expected, now = Date.now()) {
   const pr = await reader.get(prPath);
   const merged = expected.mergedCommit !== undefined;
   if (merged) requireThat(isSha(expected.mergedCommit) && isSha(expected.testMerge) &&
+    expected.admittedCI?.prId === expected.id && expected.admittedCI.head === expected.head &&
+    expected.admittedCI.base === expected.base && expected.admittedCI.testMerge === expected.testMerge &&
     expected.workflows.every(pin => isSha(pin.targetSha) && [expected.head, expected.testMerge].includes(pin.targetSha)), 'INVALID_CLOSURE_CI_PIN');
   const previewSha = merged ? expected.testMerge : pr.merge_commit_sha;
   requireThat(pr.node_id === expected.id && pr.number === expected.number && (merged ? pr.state === 'closed' && pr.merged === true && pr.merge_commit_sha === expected.mergedCommit : pr.state === 'open') && pr.draft === false &&
@@ -80,8 +82,9 @@ export async function readPullRequestCI(reader, expected, now = Date.now()) {
         run.check_suite_id === check.check_suite.id && isId(run.id) && isId(run.run_attempt) &&
         run.status === 'completed' && run.conclusion === 'success' && check.status === 'completed' && check.conclusion === 'success' &&
         check.head_sha === (onMerge.length ? previewSha : expected.head) &&
-        Array.isArray(run.pull_requests) && run.pull_requests.some(link => link.number === expected.number &&
-          link.head?.sha === expected.head && link.base?.sha === expected.base && link.head.repo?.id === expected.repositoryId && link.base.repo?.id === expected.repositoryId),
+        Array.isArray(run.pull_requests) && ((merged && run.pull_requests.length === 0) ||
+          run.pull_requests.some(link => link.number === expected.number &&
+            link.head?.sha === expected.head && link.base?.sha === expected.base && link.head.repo?.id === expected.repositoryId && link.base.repo?.id === expected.repositoryId)),
       'CI_SOURCE_OR_RESULT_MISMATCH');
       const jobs = await reader.list(`${root}/actions/runs/${run.id}/attempts/${run.run_attempt}/jobs`, 'jobs');
       const matchingJobs = jobs.filter(job => job.check_run_url === `https://api.github.com${root}/check-runs/${check.id}`);
@@ -112,7 +115,11 @@ export async function readPullRequestCI(reader, expected, now = Date.now()) {
     (await reader.list(`${root}/rules/branches/${encodeURIComponent(pr.base.ref)}`)).length === 0 &&
     digest(await reader.list(`${root}/commits/${expected.head}/check-runs?filter=latest`, 'check_runs')) === digest(headChecks) &&
     digest(await reader.list(`${root}/commits/${previewSha}/check-runs?filter=latest`, 'check_runs')) === digest(mergeChecks), 'CI_CHANGED_DURING_READ');
-  return { prId: expected.id, head: expected.head, base: expected.base, testedSha, testMerge: previewSha,
+  const evidence = { prId: expected.id, head: expected.head, base: expected.base, testedSha, testMerge: previewSha,
     parents: testedSha === expected.head ? [] : [expected.base, expected.head], checks,
     protectionHash: digest(policy), provenanceHash: digest({ sources, reviewers: reviewers.approved }) };
+  // GitHub may remove run-to-PR associations after merge. Only the exact CI
+  // admitted before our merge may survive that loss; a new green run cannot.
+  if (merged) requireThat(digest(evidence) === digest(expected.admittedCI), 'CLOSURE_CI_CHANGED');
+  return evidence;
 }

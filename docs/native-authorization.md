@@ -18,8 +18,11 @@ The current reader uses a reviewed file at `.nibfin/approvals/ISSUE_NODE_ID.json
 
 1. Read public repository identity and the effective default branch protection.
 2. Require administrator enforcement, no force push/deletion/review bypass, stale
-   review dismissal, last-push approval and strict app-bound Required Checks.
-3. Verify the recorded approval PR, exact head and a two-parent merge commit.
+   strict app-bound Required Checks. Zero human approvals are supported with
+   last-push approval disabled. Positive approval counts require stale-review
+   dismissal and last-push approval in this initial adapter.
+3. Verify the recorded approval PR and exact head. Accept exact two-parent
+   merges or single-commit rewrites with the same immediate base and full tree.
 4. Read the provider rule-suite evidence for that exact merge, repository, branch
    and publishing actor. Active PR and Required Check evaluations must pass;
    bypass, missing evidence and unreadable resources deny.
@@ -28,7 +31,9 @@ The current reader uses a reviewed file at `.nibfin/approvals/ISSUE_NODE_ID.json
    commit must be identical at merge and current head: editing then restoring the
    same bytes does not reactivate the old record.
 6. Re-read independent exact-head reviews and the current repository permissions
-   of reviewers and publisher. Later dismissal, changes requested, self-approval,
+   of reviewers and publisher. Zero-review solo approval requires the actual
+   repository Owner with current admin permission to have merged. Applicable
+   team reviews remain mandatory. Later dismissal, changes requested, self-approval,
    post-merge approval, publisher mismatch and permission loss deny.
 7. Re-read PR, reviews, protection, branch, rule suite and repository identity
    around the observation. Changes deny; no stale-cache fallback exists.
@@ -40,7 +45,7 @@ evidence or expiry revokes usability; immutable prior bytes remain historical
 review evidence rather than a live grant.
 
 The initial adapter intentionally refuses rulesets-only/additional effective
-rules, CODEOWNERS-dependent policy, squash/rebase approval merges, bot publishers,
+rules, CODEOWNERS-dependent policy, multi-commit approval rewrites, bot publishers,
 and unbound status-check apps. These limitations are conservative engineering
 boundaries awaiting native verification, not claims that GitHub lacks those
 capabilities. The rule-suite API's evidence availability also bounds usability;
@@ -56,7 +61,8 @@ independence from a compromised repository administrator.
 
 Pins and adapters must be installed/adopted by trusted Core outside candidate
 worktrees. They cannot be supplied by Issue text, event JSON, Agent output or an
-unreviewed workflow. The adoption path is not yet implemented. A candidate cannot
+unreviewed workflow. Manual host adoption is described in `host-launcher.md`; automated enrollment
+and live adoption validation remain incomplete. A candidate cannot
 change policy/source pins and authorize itself.
 
 The approval reader returns observations, not an execution capability. In
@@ -101,4 +107,5 @@ execution and session IDs must differ for independent verification. The runtime
 binds the acting member to the actual selected Runner; the privileged write
 assembly independently reads the identity of its own GitHub credential before
 every mutation. Credentials never enter an Agent session. Native human PR
-approval still excludes the author/writer and requires current permissions.
+approval, when configured, excludes the author/writer and requires current
+permissions. Zero human approvals do not remove independent Agent role checks.

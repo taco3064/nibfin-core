@@ -1,0 +1,10 @@
+{
+  "source": "https://github.com/taco3064/nibfin-core/actions/runs/41666463853",
+  "description": "Public native response projection observed after PR #22 merged; not a complete authorization fixture.",
+  "event": "pull_request",
+  "pull_requests": [],
+  "head_sha": "e5cd453eb1bd843bb953398fe30f4e0178c8def3",
+  "id": 41666463853,
+  "check_suite_id": 112908589431,
+  "run_attempt": 1
+}
