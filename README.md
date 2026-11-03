@@ -11,6 +11,8 @@ Subsequent implementation is proposed through pull requests with applicable CI a
 ## Development
 
 Use Node.js `24.22.1` (also recorded in `.node-version`) and npm `11.9.0`.
+If your Node installation bundles a different npm, install the pinned tool with
+`npm install --global npm@11.9.0 --ignore-scripts` before installing this project.
 
 ```sh
 npm ci --ignore-scripts
