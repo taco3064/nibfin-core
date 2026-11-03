@@ -6,16 +6,18 @@ import { packageSource, verifyInstalledSource } from '../src/source-package.mjs'
 import { installSource } from '../src/source-install.mjs';
 import { requireThat } from '../src/identity.mjs';
 import { launchStage } from '../src/host-launcher.mjs';
+import { runWakeEntry } from '../src/wake-entry.mjs';
 
 // This entry point never imports a caller-selected adapter or runs candidate code.
 async function main(args) {
   const [command, ...values] = args;
+  if (command === 'resolve-wake' && values.length === 0) return runWakeEntry();
   if (command === 'stage' && values.length === 2) return launchStage(values[0], values[1]);
   if (command === 'contract' && values.length === 0) return consumerContract;
   if (command === 'help' && values.length === 0) {
     return { commands: ['contract', 'pack <repository> <commit> <new-output-directory>',
       'verify <installation> <approved-pin.json>', 'install <archive> <new-directory> <approved-pin.json>',
-      'stage <adopted-issue-number> <stage>'],
+      'stage <adopted-issue-number> <stage>', 'resolve-wake'],
     lifecycle: 'Stage execution requires administrator-adopted host configuration and live native admission.' };
   }
   if (command === 'pack' && values.length === 3) {

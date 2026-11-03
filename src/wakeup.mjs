@@ -24,6 +24,9 @@ export async function observeWake(reader, { approvalPin, workflow, actorId }, cl
     await readMemberPermission(reader, issue.repository, { ...user, type: 'User' }); return true;
   });
   requireThat(route && dependencies.ready, 'WAKE_TARGET_NOT_READY');
+  const entryStage = current.labels.some(label => label.name === 'shaped') ? 'deliver' : 'shape';
+  requireThat(record.operations.includes(entryStage) &&
+    record.roles[entryStage === 'shape' ? 'author' : 'writer'] === route.userId, 'WAKE_ENTRY_NOT_APPROVED');
   const actor = await reader.get('/user');
   requireThat(actor.type === 'User' && actor.id === actorId && actor.id === record.roles.publisher, 'WAKE_ACTOR_CHANGED');
   await readMemberPermission(reader, issue.repository, actor);
@@ -34,7 +37,7 @@ export async function observeWake(reader, { approvalPin, workflow, actorId }, cl
   requireThat(actual.id === workflow.id && actual.path === workflow.path && actual.state === 'active', 'WAKE_WORKFLOW_UNAVAILABLE');
   await readPinnedFile(reader, issue.repository, workflow.path, workflow.commit, workflow.blob);
   return { issue, approvalHash: approval.approvalHash, workflow: { ...workflow, ref: repository.default_branch },
-    actorId, route, stateHash: digest({ body: current.body, labels: current.labels, assignees: current.assignees,
+    actorId, route, entryStage, stateHash: digest({ body: current.body, labels: current.labels, assignees: current.assignees,
       prerequisites: dependencies.prerequisites }) };
 }
 

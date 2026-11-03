@@ -35,7 +35,9 @@ Remaining work is more than a subscription login:
   identity to a pinned caller; `stage.yml` accepts stage/member routing inputs.
   The trusted caller must resolve current eligibility and connect these contracts.
   The reusable workflow and dispatcher tests alone do not prove this integration.
-  There is no standalone wake CLI or installed Issue-event caller yet.
+  A dispatch resolver CLI and reusable wake-to-stage workflow are now implemented
+  (see `wake-entry.md`); live handoff, Issue-event caller integration and automatic
+  later-stage continuation remain unverified/incomplete.
 - Publish a non-placeholder Core version and read back its immutable source and
   assets. Package CI is not a release. Full external cutover and all three repos'
   self-delivery proofs remain downstream work, not added Core #1 requirements.

@@ -13,6 +13,14 @@ export async function readRunnerBinding(reader, expected) {
     typeof expected.jobName === 'string' && expected.jobName &&
     /^\.github\/workflows\/[A-Za-z0-9_.-]+\.ya?ml$/.test(expected.workflowPath), 'INVALID_RUNNER_BINDING');
   const root = repoPath(expected.repository);
+  const reusablePins = expected.reusable ? [expected.reusable] : [];
+  if (expected.wakeWorkflow !== undefined) {
+    const wake = expected.wakeWorkflow;
+    requireThat(expected.reusable?.repository === 'taco3064/nibfin-core' &&
+      expected.reusable.path === '.github/workflows/stage.yml' && wake.repository === expected.reusable.repository &&
+      wake.commit === expected.reusable.commit && wake.path === '.github/workflows/wake.yml', 'INVALID_WAKE_WORKFLOW_CHAIN');
+    reusablePins.push(wake);
+  }
   const repository = await reader.repository(expected.repository);
   requireThat(repository?.id === expected.repositoryId && repository.full_name === expected.repository &&
     repository.private === false && repository.archived === false && repository.disabled === false &&
@@ -28,13 +36,14 @@ export async function readRunnerBinding(reader, expected) {
     run.head_sha === expected.sourceCommit && run.path === expected.workflowPath && run.workflow_id === expected.workflowId &&
     run.actor?.id === expected.actorId && run.triggering_actor?.id === expected.actorId &&
     Array.isArray(run.pull_requests) && run.pull_requests.length === 0 &&
-    Array.isArray(run.referenced_workflows) && run.referenced_workflows.length === (expected.reusable ? 1 : 0), 'UNTRUSTED_ACTIONS_RUN');
-  if (expected.reusable) {
-    const pinned = expected.reusable, actual = run.referenced_workflows[0];
+    Array.isArray(run.referenced_workflows) && run.referenced_workflows.length === reusablePins.length &&
+    new Set(run.referenced_workflows.map(item => item.path)).size === reusablePins.length, 'UNTRUSTED_ACTIONS_RUN');
+  for (const pinned of reusablePins) {
+    const actual = run.referenced_workflows.find(item => item.path === pinned.ref);
     requireThat(isSha(pinned.commit) && isSha(pinned.blob) &&
       /^\.github\/workflows\/[A-Za-z0-9_.-]+\.ya?ml$/.test(pinned.path) &&
       pinned.ref === `${pinned.repository}/${pinned.path}@${pinned.commit}` &&
-      actual.path === pinned.ref && actual.sha === pinned.commit, 'REUSABLE_WORKFLOW_SOURCE_CHANGED');
+      actual?.path === pinned.ref && actual.sha === pinned.commit, 'REUSABLE_WORKFLOW_SOURCE_CHANGED');
     const source = await reader.repository(pinned.repository);
     requireThat(source.full_name === pinned.repository && source.private === false, 'REUSABLE_SOURCE_NOT_PUBLIC');
     await readPinnedFile(reader, pinned.repository, pinned.path, pinned.commit, pinned.blob);
