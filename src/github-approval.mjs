@@ -1,6 +1,7 @@
 import { repoPath } from './github-read.mjs';
 import { digest, gitBlob, isId, isSha, isDigest, requireThat } from './identity.mjs';
 import { validateApprovalRecord } from './approval-record.mjs';
+import { readMergeIdentity } from './github-merge.mjs';
 
 // A deliberately narrow first adapter: merged, same-repository approval PRs
 // targeting a classic protected default branch. Rulesets-only and additional
@@ -117,9 +118,7 @@ export async function readProtectedApproval(reader, pin, now = Date.now()) {
     pr.head?.sha === pin.head && pr.head.repo?.id === pin.repositoryId && pr.head.repo.full_name === pin.repository &&
     pr.base?.sha === pin.base && pr.base.ref === repository.default_branch && pr.base.repo?.id === pin.repositoryId &&
     pr.base.repo.full_name === pin.repository, 'APPROVAL_PR_CHANGED_OR_BLOCKED');
-  const merge = await reader.get(`${root}/git/commits/${pin.merge}`);
-  requireThat(merge.sha === pin.merge && Array.isArray(merge.parents) && merge.parents.length === 2 &&
-    merge.parents[0].sha === pin.base && merge.parents[1].sha === pin.head, 'UNSUPPORTED_APPROVAL_MERGE');
+  await readMergeIdentity(reader, root, pin, 'UNSUPPORTED_APPROVAL_MERGE');
   const suitePath = `${root}/rulesets/rule-suites/${pin.ruleSuiteId}`;
   const suite = await reader.get(suitePath);
   requireThat(suite?.id === pin.ruleSuiteId && suite.repository_id === pin.repositoryId &&

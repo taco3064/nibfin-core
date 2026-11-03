@@ -1,6 +1,7 @@
 import { repoPath } from './github-read.mjs';
 import { digest, isId, isSha, requireThat } from './identity.mjs';
 import { checkProtection, readPinnedFile, readReviewers } from './github-approval.mjs';
+import { readMergeIdentity } from './github-merge.mjs';
 
 // Only the pinned, reviewed workflow's first checkout step may establish this
 // observation. Native step timing and the first exact checkout log marker bound
@@ -47,6 +48,7 @@ export async function readPullRequestCI(reader, expected, now = Date.now()) {
   const branch = await reader.get(branchPath);
   requireThat(branch.protected === true && isSha(branch.commit?.sha), 'CI_BASE_CHANGED');
   if (merged) {
+    await readMergeIdentity(reader, root, { head: expected.head, base: expected.base, merge: expected.mergedCommit }, 'MERGED_CONTENT_CHANGED');
     const ancestry = await reader.get(`${root}/compare/${expected.mergedCommit}...${branch.commit.sha}`);
     requireThat(['ahead', 'identical'].includes(ancestry.status) && ancestry.merge_base_commit?.sha === expected.mergedCommit, 'MERGED_COMMIT_NOT_CURRENT_ANCESTOR');
   } else requireThat(branch.commit.sha === expected.base, 'CI_BASE_CHANGED');
@@ -110,7 +112,7 @@ export async function readPullRequestCI(reader, expected, now = Date.now()) {
     (await reader.list(`${root}/rules/branches/${encodeURIComponent(pr.base.ref)}`)).length === 0 &&
     digest(await reader.list(`${root}/commits/${expected.head}/check-runs?filter=latest`, 'check_runs')) === digest(headChecks) &&
     digest(await reader.list(`${root}/commits/${previewSha}/check-runs?filter=latest`, 'check_runs')) === digest(mergeChecks), 'CI_CHANGED_DURING_READ');
-  return { prId: expected.id, head: expected.head, base: expected.base, testedSha,
+  return { prId: expected.id, head: expected.head, base: expected.base, testedSha, testMerge: previewSha,
     parents: testedSha === expected.head ? [] : [expected.base, expected.head], checks,
     protectionHash: digest(policy), provenanceHash: digest({ sources, reviewers: reviewers.approved }) };
 }

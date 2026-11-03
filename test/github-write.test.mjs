@@ -9,7 +9,7 @@ function fixture() {
     body: 'Raw Scope', labels: [{ name: 'scope' }, { name: 'bug' }] };
   const calls = [], admission = [];
   const config = { token: 'fixture-token', reader: { get: async () => { throw new Error('Unexpected GET'); },
-    repository: async () => ({ id: 10, full_name: 'example/core', private: false }), issue: async () => structuredClone(current) },
+    repository: async () => ({ id: 10, full_name: 'example/core', private: false, default_branch: 'main', allow_merge_commit: true }), issue: async () => structuredClone(current) },
   guard: async target => { admission.push(target); return { ...target, bindingHash: 'a'.repeat(64) }; },
   fetcher: async (url, options) => {
     calls.push({ url, options }); const body = JSON.parse(options.body);
@@ -88,4 +88,32 @@ test('fresh independent Shape revalidation confirms exact current publication wi
   assert.equal(f.calls.length, 0); assert.equal(f.admission.length, 1);
   f.replace({ ...f.current(), body: 'Changed during revalidation' });
   await assert.rejects(writer.confirmShape(request), /STALE_ISSUE_WRITE/);
+});
+
+test('rebase-only delivery binds single-commit tree and base; ambiguous results are not retried', async () => {
+  for (const fault of [undefined, 'tree', 'base', 'history', 'method']) {
+    const f = fixture(), head = '1'.repeat(40), base = '2'.repeat(40), merged = '3'.repeat(40), tree = '4'.repeat(40);
+    let applied = false;
+    f.config.reader.repository = async () => ({ id: 10, full_name: 'example/core', private: false,
+      default_branch: 'main', allow_merge_commit: false, allow_rebase_merge: fault !== 'method' });
+    f.config.reader.get = async path => {
+      if (path.endsWith('/branches/main')) return { protected: true, commit: { sha: base } };
+      if (path.endsWith(`/git/commits/${head}`)) return { sha: head, tree: { sha: tree },
+        parents: [{ sha: fault === 'history' ? '5'.repeat(40) : base }] };
+      if (path.endsWith(`/git/commits/${merged}`)) return { sha: merged,
+        tree: { sha: fault === 'tree' ? '5'.repeat(40) : tree }, parents: [{ sha: fault === 'base' ? '5'.repeat(40) : base }] };
+      assert.ok(path.endsWith('/pulls/7'));
+      return { node_id: 'PR_1', number: 7, state: applied ? 'closed' : 'open', draft: false, merged: applied,
+        mergeable: true, mergeable_state: 'clean', head: { sha: head, repo: { id: 10 } },
+        base: { sha: base, ref: 'main', repo: { id: 10 } }, merge_commit_sha: applied ? merged : null };
+    };
+    f.config.fetcher = async (url, options) => { f.calls.push({ url, options }); applied = true;
+      return { ok: true, json: async () => ({ merged: true, sha: merged }) }; };
+    const result = new GitHubWriter(f.config).merge({ repository: 'example/core', repositoryId: 10,
+      number: 7, id: 'PR_1', head, base, baseBranch: 'main' });
+    if (fault) await assert.rejects(result, /MERGE_ANCESTRY_UNKNOWN|SINGLE_COMMIT_REBASE_REQUIRED|UNSUPPORTED_MERGE_METHOD/);
+    else assert.equal((await result).mergeCommit, merged);
+    assert.equal(f.calls.length, ['history', 'method'].includes(fault) ? 0 : 1);
+    if (f.calls.length) assert.deepEqual(JSON.parse(f.calls[0].options.body), { sha: head, merge_method: 'rebase' });
+  }
 });

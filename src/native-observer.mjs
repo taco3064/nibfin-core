@@ -60,7 +60,9 @@ export function nativeObserver({ reader, config, execution, inspectIsolation, in
         if (stage === 'close') {
           const prior = await store.get(receipts.merge?.artifacts.ciHash);
           expected.mergedCommit = receipts.merge.artifacts.mergeCommit;
-          expected.testMerge = prior.testedSha === saved.head ? expected.mergedCommit : prior.testedSha;
+          requireThat(isSha(prior.testMerge), 'ORIGINAL_TEST_MERGE_REQUIRED');
+          expected.testMerge = prior.testMerge;
+          context.pr.mergePreview = prior.testMerge;
           expected.workflows = expected.workflows.map(pin => ({ ...pin, targetSha: prior.checks.find(check => check.name === pin.context)?.targetSha }));
         }
         context.ci = await readPullRequestCI(reader, expected, clock());

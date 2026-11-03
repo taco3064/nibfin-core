@@ -6,6 +6,22 @@ import { approvalRecord, now } from './approval-fixture.mjs';
 
 import { approvalProviderFixture as fixture } from './github-approval-fixture.mjs';
 
+test('single-commit protected rewrites retain exact approved tree, base and enforcement', async () => {
+  for (const fault of [undefined, 'tree', 'base', 'head', 'history', 'enforcement']) {
+    const f = fixture(), tree = 'a'.repeat(40);
+    f.data[`/git/commits/${f.pin.head}`] = { sha: f.pin.head, tree: { sha: tree }, parents: [{ sha: f.pin.base }] };
+    f.data[`/git/commits/${f.pin.merge}`] = { sha: f.pin.merge, tree: { sha: tree }, parents: [{ sha: f.pin.base }] };
+    if (fault === 'tree') f.data[`/git/commits/${f.pin.merge}`].tree.sha = 'b'.repeat(40);
+    if (fault === 'base') f.data[`/git/commits/${f.pin.merge}`].parents[0].sha = 'b'.repeat(40);
+    if (fault === 'head') f.data[`/git/commits/${f.pin.head}`].sha = 'b'.repeat(40);
+    if (fault === 'history') f.data[`/git/commits/${f.pin.head}`].parents[0].sha = 'b'.repeat(40);
+    if (fault === 'enforcement') f.data['/rulesets/rule-suites/60'].result = 'bypass';
+    const result = readProtectedApproval(f.reader, f.pin, Date.parse('2026-11-03T03:00:00Z'));
+    if (fault) await assert.rejects(result, /UNSUPPORTED_APPROVAL_MERGE|MISSING_OR_BYPASSED_MERGE_ENFORCEMENT/);
+    else assert.deepEqual((await result).record, f.record);
+  }
+});
+
 test('fresh native approval binds exact file bytes, independent permitted reviewer and live classic protections', async () => {
   const f = fixture(); const result = await readProtectedApproval(f.reader, f.pin, now);
   assert.deepEqual(result.record, f.record);
