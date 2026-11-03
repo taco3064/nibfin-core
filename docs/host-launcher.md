@@ -1,5 +1,9 @@
 # Adopted host stage entry
 
+This is the current Linux backend, not a universal host-OS requirement.
+See [host-environments.md](host-environments.md) for the coupling audit,
+Desktop assessment and support limits. Existing security checks remain mandatory.
+
 The installed CLI now executes one bounded stage:
 
 ```sh
