@@ -75,12 +75,29 @@ test('fanout uses current native edges and adopted targets only; graph changes p
   for (const changed of [false, true]) {
     let reads = 0, wakes = 0;
     const reader = { repository: async () => ({ id: upstream.repositoryId, full_name: upstream.repository, private: false }),
-      issue: async () => ({ node_id: upstream.id, number: upstream.number, state: 'closed', url: 'https://api.github.com/repos/example/up/issues/1' }),
+      issue: async () => ({ node_id: upstream.id, number: upstream.number, state: 'closed', labels: ['scope', 'shaped', 'delivered'].map(name => ({ name })), url: 'https://api.github.com/repos/example/up/issues/1' }),
       blocking: async () => { reads++; return changed && reads > 1 ? [] : [edge]; },
       blockedBy: async () => [{ node_id: upstream.id, url: 'https://api.github.com/repos/example/up/issues/1' }] };
     const promise = fanout(reader, upstream, { approvedTarget: async id => id === target.id ? target : null,
       wake: async actual => { assert.deepEqual(actual, target); wakes++; return { status: 'scheduled' }; } });
     if (changed) await assert.rejects(promise, /FANOUT_GRAPH_CHANGED/); else assert.equal((await promise).length, 1);
     assert.equal(wakes, changed ? 0 : 1);
+  }
+});
+
+test('fanout refuses manually closed upstream and rechecks lifecycle before every wake', async () => {
+  const upstream = { id: 'I_up', repository: 'example/up', number: 1, repositoryId: 11 };
+  const target = { id: 'I_down', repository: 'example/down', number: 2, repositoryId: 12 };
+  const url = 'https://api.github.com/repos/example/up/issues/1';
+  for (const revoke of [false, true]) {
+    let reads = 0, wakes = 0;
+    const reader = { repository: async () => ({ id: 11, full_name: upstream.repository, private: false }),
+      issue: async () => ({ node_id: upstream.id, number: 1, state: 'closed', url,
+        labels: revoke && ++reads === 1 ? ['scope', 'shaped', 'delivered'].map(name => ({ name })) : [] }),
+      blocking: async () => [{ node_id: target.id, number: 2, url: 'https://api.github.com/repos/example/down/issues/2' }],
+      blockedBy: async () => [{ node_id: upstream.id, url }] };
+    await assert.rejects(fanout(reader, upstream, { approvedTarget: async () => target,
+      wake: async () => { wakes++; } }), /UPSTREAM_NOT_DELIVERED/);
+    assert.equal(wakes, 0);
   }
 });

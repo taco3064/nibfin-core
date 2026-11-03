@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readPullRequestCI, checkoutIdentity } from '../src/github-ci.mjs';
 import { gitBlob } from '../src/identity.mjs';
 import { now } from './approval-fixture.mjs';
+import mergedRunObservation from './merged-run-observation.json' with { type: 'json' };
 
 function fixture() {
   const head = '1'.repeat(40), base = '2'.repeat(40), preview = '3'.repeat(40), body = '# trusted checkout recipe\n';
@@ -65,7 +66,7 @@ test('CI ties native check app, workflow blob, run attempt, job, checkout and in
 
 test('wrong app/source, unapproved run, stale attempt/head/base, missing review and untrusted runner deny', async () => {
   const mutations = [
-    f => { f.check.app.id = 99; }, f => { f.run.path = '.github/workflows/forged.yml'; },
+    f => { f.run.pull_requests = []; }, f => { f.check.app.id = 99; }, f => { f.run.path = '.github/workflows/forged.yml'; },
     f => { f.run.workflow_id = 99; }, f => { f.run.status = 'waiting'; }, f => { f.check.conclusion = 'neutral'; },
     f => { f.job.run_attempt = 2; }, f => { f.run.head_sha = '9'.repeat(40); }, f => { f.pr.base.sha = '9'.repeat(40); },
     f => { f.data['/pulls/7/reviews'] = []; }, f => { f.job.runner_group_name = 'Custom'; },
@@ -98,7 +99,7 @@ test('closure revalidates the historical PR checks after merge and refuses a mis
   f.data['/branches/main'].commit.sha = current;
   f.data[`/compare/${merge}...${current}`] = { status: 'ahead', merge_base_commit: { sha: merge } };
   f.data[`/git/commits/${merge}`] = { sha: merge, parents: [{ sha: f.expected.base }, { sha: f.expected.head }] };
-  const expected = { ...f.expected, mergedCommit: merge, testMerge: f.preview,
+  const expected = { ...f.expected, mergedCommit: merge, admittedCI: before, testMerge: f.preview,
     workflows: f.expected.workflows.map(pin => ({ ...pin, targetSha: f.expected.head })) };
   // Later push checks on the historical preview cannot replace the admitted PR check.
   f.data[`/commits/${f.preview}/check-runs?filter=latest`] = [{ ...f.check, head_sha: f.preview, status: 'queued' }];
@@ -124,9 +125,18 @@ test('rebase closure retains both head and preview CI identities and rejects cha
     f.data[`/compare/${merge}...${merge}`] = { status: 'identical', merge_base_commit: { sha: merge } };
     for (const sha of [merge, f.expected.head]) f.data[`/git/commits/${sha}`] = {
       sha, tree: { sha: tree }, parents: [{ sha: f.expected.base }] };
-    const expected = { ...f.expected, mergedCommit: merge, testMerge: before.testMerge,
+    const expected = { ...f.expected, mergedCommit: merge, admittedCI: before, testMerge: before.testMerge,
       workflows: f.expected.workflows.map(pin => ({ ...pin, targetSha: before.checks.find(check => check.name === pin.context).targetSha })) };
+    assert.equal(mergedRunObservation.event, f.run.event);
+    f.run.pull_requests = structuredClone(mergedRunObservation.pull_requests);
     assert.deepEqual(await readPullRequestCI(f.reader, expected, now), before);
+    await assert.rejects(readPullRequestCI(f.reader, { ...expected, admittedCI: undefined }, now), /INVALID_CLOSURE_CI_PIN/);
+    f.job.id = 91;
+    await assert.rejects(readPullRequestCI(f.reader, expected, now), /CLOSURE_CI_CHANGED/);
+    f.job.id = 90;
+    f.run.pull_requests = [{ number: 999 }];
+    await assert.rejects(readPullRequestCI(f.reader, expected, now), /CI_SOURCE_OR_RESULT_MISMATCH/);
+    f.run.pull_requests = [];
     f.data[`/git/commits/${merge}`].tree.sha = 'b'.repeat(40);
     await assert.rejects(readPullRequestCI(f.reader, expected, now), /MERGED_CONTENT_CHANGED/);
   }

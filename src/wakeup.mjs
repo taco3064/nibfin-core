@@ -1,6 +1,6 @@
 import { GitHubReader, repoPath } from './github-read.mjs';
 import { readProtectedApproval, readMemberPermission, readPinnedFile } from './github-approval.mjs';
-import { readDependencies } from './dependencies.mjs';
+import { readDependencies, isDeliveredIssue } from './dependencies.mjs';
 import { selectAssignee } from './selection.mjs';
 import { bindRawScope } from './approval-record.mjs';
 import { digest, isId, isSha, requireThat } from './identity.mjs';
@@ -90,6 +90,7 @@ export async function fanout(reader, upstream, { approvedTarget, wake }) {
     requireThat(repository.id === upstream.repositoryId && repository.full_name === upstream.repository && repository.private === false &&
       issue.node_id === upstream.id && issue.number === upstream.number && !issue.pull_request && issue.state === 'closed' &&
       issue.url === `https://api.github.com/repos/${upstream.repository}/issues/${upstream.number}`, 'UPSTREAM_NOT_CLOSED');
+    requireThat(isDeliveredIssue(issue), 'UPSTREAM_NOT_DELIVERED');
   };
   await verifyClosed();
   const before = await reader.blocking(upstream), seen = new Set(), targets = [];
