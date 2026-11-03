@@ -1,5 +1,9 @@
 # Adopted dispatch to stage execution
 
+The current `stage.yml` routes explicitly to the Linux launcher backend.
+This is not a universal Core OS requirement or proof of Desktop support.
+See [host-environments.md](host-environments.md).
+
 `wake.yml` connects the existing `WakeDispatcher` locator payload to the installed
 stage launcher. It is a reusable workflow for a protected default-branch
 `workflow_dispatch` caller. It is not a public Issue-to-command endpoint.

@@ -29,6 +29,10 @@ Use separate reviewed PRs for any fixes, never a direct feature push to main.
 
 ## Establish an actual authorized test environment
 
+The Linux launcher is one backend, not a required user OS. Read
+[host-environments.md](host-environments.md) first. Missing local capabilities
+do not authorize disabling AppArmor or requiring another physical computer.
+
 1. Inspect available local tools/OS and existing logins without printing or
    copying credentials. Do not assume local Codex login alone proves the product
    sandbox works. Current host launcher supports one manually adopted Linux host

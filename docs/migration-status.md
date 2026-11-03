@@ -5,6 +5,29 @@ a protected Shape, acceptance receipt, release, or proof of a working Runner.
 
 ## Current audit and remaining bootstrap work (2026-11-04)
 
+The subsequent host-boundary change was based on freshly fetched main
+`7dab7bcdde44c22b8fe7e6f6f8cb6b28f09e6567` (PRs #19–#24; 160 tests).
+Its five new boundary tests bring pinned Linux verification to 165 passing tests.
+The audit in [host-environments.md](host-environments.md) distinguishes product
+invariants from current Linux mechanisms. Existing Docker security checks remain.
+
+On 2026-11-04, the existing Windows ChatGPT subscription login ran Codex CLI
+`0.166.0-alpha.5.1` in separate ephemeral Author and Validator executions.
+This was a supplied hypothetical README task, with no real Issue, tools or
+GitHub writes. Core rejected the first malformed candidate inventory and the
+independent Validator requested the same correction. One revised Author output
+passed the unchanged result and inventory parsers; a fresh Validator approved it
+with a different native CLI thread ID. This is authenticated **functional**
+evidence, not installed production adapter, Docker or protected Shape evidence.
+The Linux environment factory also refused execution on the actual Windows host.
+
+No Docker Desktop was found in the assessed Windows environment. The local
+Linux environment has rootless Docker but disabled AppArmor. Desktop/container
+security and authenticated protected Runner/OIDC execution remain unverified;
+no replacement host, new test Issue or installation was silently created.
+
+### Earlier source audit
+
 Core #1 is implemented in part, not accepted. PRs #19–#22 are merged; main
 `b73272173e28e431953507450675a293a1187919` passed 152 tests and package/install
 verification. Independent Agent technical review is required. Solo Owner policy
