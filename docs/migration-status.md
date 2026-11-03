@@ -284,8 +284,9 @@ native observer; environment variables alone are not caller proof.
 Wakeup reads native eligibility before and immediately before dispatch. It uses
 the native API version returning the scheduled run identity, then reads that run
 back. Legacy/ambiguous responses remain Pending and are not retried. Fanout
-re-reads the native graph and requires protected predecessor completion. These
-are bounded adapter tests, not the required real token-trigger demonstration.
+re-reads the native graph and requires current Closed + scope/shaped/delivered
+lifecycle eligibility; downstream authorization is separate. These are bounded
+adapter tests, not the required real token-trigger demonstration.
 
 The public CLI can pack committed source, install a digest-pinned archive into a
 new directory and verify exact installed bytes. It does not expose a production

@@ -17,7 +17,7 @@ as a substitute for published-Shape provenance.
 The current reader uses a reviewed file at `.nibfin/approvals/ISSUE_NODE_ID.json`:
 
 1. Read public repository identity and the effective default branch protection.
-2. Require administrator enforcement, no force push/deletion/review bypass, stale
+2. Require administrator enforcement, no force push/deletion/review bypass, and
    strict app-bound Required Checks. Zero human approvals are supported with
    last-push approval disabled. Positive approval counts require stale-review
    dismissal and last-push approval in this initial adapter.
