@@ -26,7 +26,7 @@ try {
     actualContract.stages.includes('close'), 'INSTALLED_CONTRACT_UNAVAILABLE');
   // Resolve the package export map exactly as an installed thin consumer does.
   await command(process.execPath, ['--input-type=module', '-e',
-    "const core = await import('nibfin-core'); if (typeof core.nativeStageExecutor !== 'function' || typeof core.runStageInput !== 'function' || typeof core.installedStageExecutor !== 'function' || typeof core.codexStageExecutor !== 'function') process.exit(1);"],
+    "const core = await import('nibfin-core'); if (typeof core.resolveWakeDispatch !== 'function' || typeof core.nativeStageExecutor !== 'function' || typeof core.runStageInput !== 'function' || typeof core.installedStageExecutor !== 'function' || typeof core.codexStageExecutor !== 'function') process.exit(1);"],
   { cwd: installation });
 } finally { await rm(temporary, { recursive: true, force: true }); }
 await mkdir('distribution', { mode: 0o700 });

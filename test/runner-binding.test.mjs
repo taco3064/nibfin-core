@@ -57,3 +57,27 @@ test('reusable workflow admission binds its public repository, immutable revisio
   f.job.check_run_url = 'https://attacker.invalid/repos/example/core/check-runs/40';
   await assert.rejects(readRunnerBinding(f.reader, f.expected), /JOB_CHECK_IDENTITY_REQUIRED/);
 });
+
+test('wake-to-stage Runner admission verifies both exact reusable sources and rejects extra or missing links', async () => {
+  const f = fixture(), commit = 'b'.repeat(40);
+  const originalGet = f.reader.get, originalRepository = f.reader.repository;
+  f.reader.get = path => originalGet(path.replace('/repos/taco3064/nibfin-core/', '/repos/example/core/'));
+  f.reader.repository = name => name === 'taco3064/nibfin-core' ?
+    { full_name: name, private: false } : originalRepository(name);
+  for (const [key, name] of [['reusable', 'stage'], ['wakeWorkflow', 'wake']]) {
+    const body = `Pinned ${name} workflow\n`, path = `.github/workflows/${name}.yml`;
+    f.expected[key] = { repository: 'taco3064/nibfin-core', path, commit, blob: gitBlob(body),
+      ref: `taco3064/nibfin-core/${path}@${commit}` };
+    f.data[`/contents/${path}?ref=${commit}`] = { type: 'file', path, sha: gitBlob(body), encoding: 'base64',
+      content: Buffer.from(body).toString('base64'), size: Buffer.byteLength(body) };
+  }
+  const chain = [f.expected.wakeWorkflow, f.expected.reusable].map(pin => ({ path: pin.ref, sha: commit }));
+  f.run.referenced_workflows = chain;
+  assert.equal((await readRunnerBinding(f.reader, f.expected)).checkRunId, 40);
+  for (const bad of [chain.slice(1), [...chain, chain[0]], [chain[0], { path: chain[1].path, sha: 'c'.repeat(40) }]]) {
+    f.run.referenced_workflows = bad; await assert.rejects(readRunnerBinding(f.reader, f.expected));
+  }
+  f.run.referenced_workflows = chain;
+  f.data[`/contents/.github/workflows/wake.yml?ref=${commit}`].sha = 'c'.repeat(40);
+  await assert.rejects(readRunnerBinding(f.reader, f.expected), /PINNED_FILE_UNAVAILABLE/);
+});

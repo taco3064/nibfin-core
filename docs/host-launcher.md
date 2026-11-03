@@ -55,6 +55,11 @@ Each Issue record contains:
   installed security policies and Codex version. Both adapters use the same daemon.
 - `ciWorkflows`, `reviewers`: the existing native CI and independent review pins.
 
+When using the nested dispatch bridge, also adopt `runner.wakeWorkflow` for the
+exact `wake.yml` source; `runner.reusable` and the OIDC reusable pin still name
+`stage.yml`. Both source files and the actual nested job name must be verified.
+See [wake-entry.md](wake-entry.md) for the caller and hosted resolver configuration.
+
 Acquire those pins from native provider resources and independently reviewed
 installation decisions. Never derive trusted pins from the incoming token or
 Issue text. The native credential needs the existing observer's repository,

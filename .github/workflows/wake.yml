@@ -1,0 +1,69 @@
+name: Resolve and execute Core wake
+
+on:
+  workflow_call:
+    inputs:
+      core_commit:
+        description: Exact Core commit also pinned by the adopted caller configuration
+        required: true
+        type: string
+    secrets:
+      NIBFIN_WAKE_ADOPTION:
+        required: true
+      NIBFIN_READ_TOKEN:
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  resolve:
+    if: github.event_name == 'workflow_dispatch' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      issue_number: ${{ steps.resolve.outputs.issue_number }}
+      member_id: ${{ steps.resolve.outputs.member_id }}
+      stage: ${{ steps.resolve.outputs.stage }}
+    steps:
+      - name: Check fixed Core reference
+        env:
+          CORE_COMMIT: ${{ inputs.core_commit }}
+          WAKE_ADOPTION: ${{ secrets.NIBFIN_WAKE_ADOPTION }}
+        # Inline trusted workflow code runs before checking out any selected
+        # revision. The read token is not supplied to this step.
+        run: |
+          node --input-type=module <<'NODE'
+          const text = process.env.WAKE_ADOPTION;
+          if (!text || text.length > 262144) process.exit(1);
+          const adopted = JSON.parse(text);
+          if (!/^[a-f0-9]{40}$/.test(process.env.CORE_COMMIT) ||
+              adopted.coreCommit !== process.env.CORE_COMMIT) process.exit(1);
+          NODE
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          repository: taco3064/nibfin-core
+          ref: ${{ inputs.core_commit }}
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version-file: .node-version
+          package-manager-cache: false
+      - name: Resolve current native authority and routing
+        id: resolve
+        env:
+          NIBFIN_CORE_COMMIT: ${{ inputs.core_commit }}
+          NIBFIN_WAKE_ADOPTION: ${{ secrets.NIBFIN_WAKE_ADOPTION }}
+          NIBFIN_READ_TOKEN: ${{ secrets.NIBFIN_READ_TOKEN }}
+        run: node scripts/wake-ci.mjs
+
+  execute:
+    needs: resolve
+    uses: ./.github/workflows/stage.yml
+    with:
+      issue_number: ${{ needs.resolve.outputs.issue_number }}
+      member_id: ${{ needs.resolve.outputs.member_id }}
+      stage: ${{ needs.resolve.outputs.stage }}
+    permissions:
+      contents: read
+      id-token: write

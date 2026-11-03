@@ -8,6 +8,7 @@ export { nativeObserver } from './native-observer.mjs';
 export { nativeWrites } from './native-writes.mjs';
 export { stageHandlers } from './stage-handlers.mjs';
 export { WakeDispatcher, observeWake, fanout } from './wakeup.mjs';
+export { resolveWakeDispatch } from './wake-entry.mjs';
 export { packageSource, verifyInstalledSource } from './source-package.mjs';
 export { installSource } from './source-install.mjs';
 
