@@ -1,0 +1,14 @@
+{
+  "name": "nibfin-core",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Trusted delivery engine, Skills, and reusable workflows for Nibfin",
+  "type": "module",
+  "engines": { "node": "24.22.1", "npm": "11.9.0" },
+  "packageManager": "npm@11.9.0",
+  "scripts": {
+    "check": "node scripts/check.mjs",
+    "test": "node --test test/*.test.mjs",
+    "verify": "npm run check && npm test"
+  }
+}
