@@ -1,5 +1,6 @@
 import { repoPath, issuePath } from './github-read.mjs';
 import { digest, isDigest, isId, isSha, requireThat } from './identity.mjs';
+import { readMergeIdentity } from './github-merge.mjs';
 
 function labels(issue) {
   requireThat(Array.isArray(issue.labels) && issue.labels.every(label => typeof label.name === 'string' && label.name), 'INVALID_LIVE_LABELS');
@@ -96,15 +97,25 @@ export class GitHubWriter {
       current.mergeable === true && current.mergeable_state === 'clean', 'STALE_OR_BLOCKED_MERGE');
     const branch = await this.#reader.get(`${root}/branches/${encodeURIComponent(baseBranch)}`);
     requireThat(branch.commit?.sha === base && branch.protected === true, 'MERGE_BASE_CHANGED');
-    const response = await this.#write('merge', 'PUT', `${path}/merge`, { sha: head, merge_method: 'merge' });
+    const repositoryState = await this.#reader.repository(repository);
+    requireThat(repositoryState.id === repositoryId && repositoryState.full_name === repository &&
+      repositoryState.private === false && repositoryState.default_branch === baseBranch, 'MERGE_REPOSITORY_CHANGED');
+    const method = repositoryState.allow_merge_commit === true ? 'merge' :
+      repositoryState.allow_rebase_merge === true ? 'rebase' : undefined;
+    requireThat(method, 'UNSUPPORTED_MERGE_METHOD');
+    if (method === 'rebase') {
+      const source = await this.#reader.get(`${root}/git/commits/${head}`);
+      requireThat(source?.sha === head && source.parents?.length === 1 && source.parents[0].sha === base &&
+        isSha(source.tree?.sha), 'SINGLE_COMMIT_REBASE_REQUIRED');
+    }
+    const response = await this.#write('merge', 'PUT', `${path}/merge`, { sha: head, merge_method: method });
     requireThat(response.merged === true && isSha(response.sha), 'MERGE_RESPONSE_UNKNOWN');
     const actual = await this.#reader.get(path);
     requireThat(actual.node_id === id && actual.number === number && actual.state === 'closed' && actual.merged === true &&
       actual.head?.sha === head && actual.head.repo?.id === repositoryId && actual.base?.repo?.id === repositoryId &&
       actual.merge_commit_sha === response.sha, 'MERGE_READBACK_UNKNOWN');
-    const commit = await this.#reader.get(`${root}/git/commits/${response.sha}`);
-    requireThat(commit.sha === response.sha && Array.isArray(commit.parents) &&
-      digest(commit.parents.map(parent => parent.sha)) === digest([base, head]), 'MERGE_ANCESTRY_UNKNOWN');
+    const identity = await readMergeIdentity(this.#reader, root, { head, base, merge: response.sha }, 'MERGE_ANCESTRY_UNKNOWN');
+    requireThat(identity === (method === 'merge' ? 'merge' : 'rewrite'), 'MERGE_METHOD_UNKNOWN');
     return { mergeCommit: response.sha, reference: `https://github.com/${repository}/pull/${number}` };
   }
   async closeDelivered({ issue, expectedBodyHash, expectedLabels }) {

@@ -97,6 +97,7 @@ test('closure revalidates the historical PR checks after merge and refuses a mis
   Object.assign(f.pr, { state: 'closed', merged: true, merged_at: '2026-11-03T03:00:00Z', merge_commit_sha: merge });
   f.data['/branches/main'].commit.sha = current;
   f.data[`/compare/${merge}...${current}`] = { status: 'ahead', merge_base_commit: { sha: merge } };
+  f.data[`/git/commits/${merge}`] = { sha: merge, parents: [{ sha: f.expected.base }, { sha: f.expected.head }] };
   const expected = { ...f.expected, mergedCommit: merge, testMerge: f.preview,
     workflows: f.expected.workflows.map(pin => ({ ...pin, targetSha: f.expected.head })) };
   // Later push checks on the historical preview cannot replace the admitted PR check.
@@ -104,4 +105,29 @@ test('closure revalidates the historical PR checks after merge and refuses a mis
   assert.deepEqual(await readPullRequestCI(f.reader, expected, now), before);
   f.data[`/compare/${merge}...${current}`].merge_base_commit.sha = '0'.repeat(40);
   await assert.rejects(readPullRequestCI(f.reader, expected, now), /MERGED_COMMIT_NOT_CURRENT_ANCESTOR/);
+});
+
+test('rebase closure retains both head and preview CI identities and rejects changed merged content', async () => {
+  for (const target of ['head', 'preview']) {
+    const f = fixture(), merge = '8'.repeat(40), tree = 'a'.repeat(40);
+    const tested = target === 'head' ? f.expected.head : f.preview;
+    f.logs(`2026-11-03T02:00:01.000Z [command]/usr/bin/git log -1 --format=%H\n2026-11-03T02:00:01.100Z ${tested}\n`);
+    if (target === 'preview') {
+      f.check.head_sha = f.preview;
+      f.data[`/commits/${f.preview}/check-runs?filter=latest`] = [f.check];
+      f.data[`/commits/${f.expected.head}/check-runs?filter=latest`] = [];
+    }
+    const before = await readPullRequestCI(f.reader, f.expected, now);
+    assert.equal(before.testMerge, f.preview);
+    Object.assign(f.pr, { state: 'closed', merged: true, merged_at: '2026-11-03T03:00:00Z', merge_commit_sha: merge });
+    f.data['/branches/main'].commit.sha = merge;
+    f.data[`/compare/${merge}...${merge}`] = { status: 'identical', merge_base_commit: { sha: merge } };
+    for (const sha of [merge, f.expected.head]) f.data[`/git/commits/${sha}`] = {
+      sha, tree: { sha: tree }, parents: [{ sha: f.expected.base }] };
+    const expected = { ...f.expected, mergedCommit: merge, testMerge: before.testMerge,
+      workflows: f.expected.workflows.map(pin => ({ ...pin, targetSha: before.checks.find(check => check.name === pin.context).targetSha })) };
+    assert.deepEqual(await readPullRequestCI(f.reader, expected, now), before);
+    f.data[`/git/commits/${merge}`].tree.sha = 'b'.repeat(40);
+    await assert.rejects(readPullRequestCI(f.reader, expected, now), /MERGED_CONTENT_CHANGED/);
+  }
 });
