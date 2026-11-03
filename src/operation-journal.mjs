@@ -65,7 +65,7 @@ export class OperationJournal {
     // The binding identifies immutable approval, Scope/Shape, candidate, source,
     // role/session and operation target. All three callbacks belong to trusted
     // Core; none can be supplied by an Agent/worktree or external JSON request.
-    requireThat(operations.includes(request?.operation) && isDigest(request.bindingHash) &&
+    requireThat((operations.includes(request?.operation) || request?.operation === 'release') && isDigest(request.bindingHash) &&
       [admit, perform, readBack].every(value => typeof value === 'function'), 'INVALID_OPERATION_REQUEST');
     const decision = digest({ operation: request.operation, bindingHash: request.bindingHash });
     await this.#prepare();

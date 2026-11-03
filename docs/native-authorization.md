@@ -93,3 +93,12 @@ It is not a cross-host lock or proof that a canceled Actions job killed its host
 process. Cross-host exclusion and authorized reconciliation remain required
 before production assembly. The journal's callbacks are trusted code, not an API
 for executing arbitrary commands from a worktree.
+
+
+GitHub member IDs do not stand in for isolated Agent executions. The same
+approved member may own Author, Validator, Writer and Acceptor executions, but
+execution and session IDs must differ for independent verification. The runtime
+binds the acting member to the actual selected Runner; the privileged write
+assembly independently reads the identity of its own GitHub credential before
+every mutation. Credentials never enter an Agent session. Native human PR
+approval still excludes the author/writer and requires current permissions.

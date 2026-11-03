@@ -28,7 +28,17 @@ export async function readRunnerBinding(reader, expected) {
     run.head_sha === expected.sourceCommit && run.path === expected.workflowPath && run.workflow_id === expected.workflowId &&
     run.actor?.id === expected.actorId && run.triggering_actor?.id === expected.actorId &&
     Array.isArray(run.pull_requests) && run.pull_requests.length === 0 &&
-    Array.isArray(run.referenced_workflows) && run.referenced_workflows.length === 0, 'UNTRUSTED_ACTIONS_RUN');
+    Array.isArray(run.referenced_workflows) && run.referenced_workflows.length === (expected.reusable ? 1 : 0), 'UNTRUSTED_ACTIONS_RUN');
+  if (expected.reusable) {
+    const pinned = expected.reusable, actual = run.referenced_workflows[0];
+    requireThat(isSha(pinned.commit) && isSha(pinned.blob) &&
+      /^\.github\/workflows\/[A-Za-z0-9_.-]+\.ya?ml$/.test(pinned.path) &&
+      pinned.ref === `${pinned.repository}/${pinned.path}@${pinned.commit}` &&
+      actual.path === pinned.ref && actual.sha === pinned.commit, 'REUSABLE_WORKFLOW_SOURCE_CHANGED');
+    const source = await reader.repository(pinned.repository);
+    requireThat(source.full_name === pinned.repository && source.private === false, 'REUSABLE_SOURCE_NOT_PUBLIC');
+    await readPinnedFile(reader, pinned.repository, pinned.path, pinned.commit, pinned.blob);
+  }
   await readMemberPermission(reader, expected.repository, run.actor);
   await readMemberPermission(reader, expected.repository, run.triggering_actor);
   const workflowPath = `${root}/actions/workflows/${expected.workflowId}`;
@@ -42,6 +52,9 @@ export async function readRunnerBinding(reader, expected) {
     job.head_sha === expected.sourceCommit && job.status === 'in_progress' && job.conclusion === null &&
     job.name === expected.jobName && job.runner_id === expected.runnerId && job.runner_name === expected.runnerName &&
     Array.isArray(job.labels) && job.labels.includes('self-hosted') && job.labels.includes(label), 'ACTIONS_JOB_BINDING_MISMATCH');
+  const checkPrefix = `https://api.github.com${root}/check-runs/`;
+  const checkId = typeof job.check_run_url === 'string' && job.check_run_url.startsWith(checkPrefix) ? job.check_run_url.slice(checkPrefix.length) : '';
+  requireThat(/^[1-9][0-9]*$/.test(checkId) && isId(Number(checkId)), 'JOB_CHECK_IDENTITY_REQUIRED');
   const runner = await reader.get(runnerPath);
   requireThat(runner?.id === expected.runnerId && runner.name === expected.runnerName && runner.os === 'linux' &&
     runner.status === 'online' && runner.busy === true && Array.isArray(runner.labels) &&
@@ -54,6 +67,6 @@ export async function readRunnerBinding(reader, expected) {
     digest(await reader.get(runnerPath)) === digest(runner) && digest(await reader.get(workflowPath)) === digest(workflow) &&
     (await reader.repository(expected.repository)).default_branch === repository.default_branch, 'RUNNER_BINDING_CHANGED_DURING_READ');
   return { repositoryId: expected.repositoryId, runId: run.id, attempt: run.run_attempt, jobId: job.id,
-    runnerId: runner.id, memberId: expected.memberId, sourceCommit: expected.sourceCommit,
+    checkRunId: Number(checkId), actorId: run.actor.id, runnerId: runner.id, memberId: expected.memberId, sourceCommit: expected.sourceCommit,
     workflowBlob: expected.workflowBlob, observationHash: digest({ run, job, runner, workflow }) };
 }

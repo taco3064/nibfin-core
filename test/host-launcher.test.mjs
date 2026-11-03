@@ -1,0 +1,89 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { mkdtemp, rm, chmod, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { spawnSync } from 'node:child_process';
+import { acquireHostFence } from '../src/host-fence.mjs';
+import { resolveHostJob, rootOwnedPath, readSingleHost, hostExecution } from '../src/host-launcher.mjs';
+import { runnerProviderFixture } from './runner-binding-fixture.mjs';
+
+async function directory(t) {
+  const root = await mkdtemp(join(tmpdir(), 'nibfin-host-fence-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  return root;
+}
+
+test('native job lookup derives dynamic IDs but retains adopted Runner and source pins', async () => {
+  const f = runnerProviderFixture();
+  f.reader.list = async (path, key) => {
+    assert.equal(path, '/repos/example/core/actions/runs/20/attempts/1/jobs');
+    assert.equal(key, 'jobs'); return [structuredClone(f.job)];
+  };
+  const env = { GITHUB_REPOSITORY: 'example/core', GITHUB_EVENT_NAME: 'workflow_dispatch',
+    RUNNER_ENVIRONMENT: 'self-hosted', GITHUB_RUN_ID: '20', GITHUB_RUN_ATTEMPT: '1' };
+  const adopted = { runner: { ...f.expected, runId: undefined, attempt: undefined, jobId: undefined, actorId: undefined } };
+  const result = await resolveHostJob(f.reader, adopted, env);
+  assert.equal(result.binding.jobId, 30); assert.equal(result.runner.actorId, 3);
+  const execution = hostExecution(result.runner, 'shape');
+  assert.deepEqual(hostExecution(result.runner, 'shape'), execution);
+  assert.notEqual(hostExecution(result.runner, 'validate-shape').id, execution.id);
+  assert.notEqual(hostExecution({ ...result.runner, attempt: 2 }, 'shape').id, execution.id);
+  assert.notEqual(execution.id, execution.sessionId);
+  await assert.rejects(resolveHostJob(f.reader, adopted, { ...env, GITHUB_EVENT_NAME: 'pull_request' }), /INVALID_HOST_CALLER/);
+  await assert.rejects(resolveHostJob(f.reader, { runner: { ...adopted.runner, runnerId: 999 } }, env), /HOST_JOB_NOT_UNIQUE/);
+  f.run.head_sha = 'b'.repeat(40);
+  await assert.rejects(resolveHostJob(f.reader, adopted, env), /UNTRUSTED_ACTIONS_RUN/);
+  f.run.head_sha = f.expected.sourceCommit;
+  f.reader.list = async () => [f.job, { ...f.job, id: 31 }];
+  await assert.rejects(resolveHostJob(f.reader, adopted, env), /HOST_JOB_NOT_UNIQUE/);
+});
+
+test('host-wide fence blocks concurrent Issues and releases only its unchanged identity', async t => {
+  const root = await directory(t), first = await acquireHostFence(root, { issue: 1 });
+  assert.equal(await first.inspect(), await first.inspect());
+  await assert.rejects(acquireHostFence(root, { issue: 2 }), /HOST_EXECUTION_UNRESOLVED/);
+  await first.release();
+  const second = await acquireHostFence(root, { issue: 2 });
+  await writeFile(join(root, 'stage.lock'), 'replacement');
+  await assert.rejects(second.release(), /HOST_FENCE_CHANGED/);
+});
+
+test('a second registered host with the member route is denied even when offline', async () => {
+  const f = runnerProviderFixture();
+  let registered = [f.runner];
+  f.reader.list = async (path, key) => {
+    assert.equal(path, '/repos/example/core/actions/runners'); assert.equal(key, 'runners'); return registered;
+  };
+  assert.match(await readSingleHost(f.reader, f.expected), /^[a-f0-9]{64}$/);
+  registered = [...registered, { ...f.runner, id: 41, status: 'offline', busy: false }];
+  await assert.rejects(readSingleHost(f.reader, f.expected), /HOST_REGISTRATION_NOT_EXCLUSIVE/);
+});
+
+test('an abruptly stopped launcher leaves a durable fence; a new process cannot reclaim it', async t => {
+  const root = await directory(t);
+  const module = new URL('../src/host-fence.mjs', import.meta.url).href;
+  const child = spawnSync(process.execPath, ['--input-type=module', '-e',
+    `import { acquireHostFence } from ${JSON.stringify(module)};
+     await acquireHostFence(process.argv[1], { issue: 1 }); process.kill(process.pid, 'SIGKILL');`, root]);
+  assert.equal(child.signal, 'SIGKILL');
+  await assert.rejects(acquireHostFence(root, { issue: 1 }), /HOST_EXECUTION_UNRESOLVED/);
+});
+
+test('unsafe state and an adoption path under a writable ancestor are refused', async t => {
+  const root = await directory(t);
+  await chmod(root, 0o755);
+  await assert.rejects(acquireHostFence(root, {}), /UNTRUSTED_HOST_STATE/);
+  await writeFile(join(root, 'host.json'), '{}');
+  await assert.rejects(rootOwnedPath(join(root, 'host.json')), /UNTRUSTED_ADOPTION_PATH/);
+});
+
+test('CLI refuses arbitrary stage paths and commands before host or network access', () => {
+  for (const args of [['../1', 'shape'], ['1', 'constructor'], ['1', 'shape', '--config=/tmp/evil']]) {
+    const child = spawnSync(process.execPath, ['bin/nibfin-core.mjs', 'stage', ...args], { encoding: 'utf8' });
+    assert.equal(child.status, 1);
+    const result = JSON.parse(child.stderr);
+    assert.equal(result.status, 'denied');
+    assert.ok(['INVALID_STAGE_REQUEST', 'INVALID_COMMAND'].includes(result.code));
+  }
+});
