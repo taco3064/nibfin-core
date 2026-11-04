@@ -13,8 +13,9 @@ import { tmpdir } from 'node:os';
 import { resolve, join } from 'node:path';
 import { CodexSandbox } from '../src/codex-sandbox.mjs';
 import { digest } from '../src/identity.mjs';
+import { dockerBackend, rootfulSocket } from '../src/docker-backend.mjs';
 
-async function fixture(t, fault) {
+async function fixture(t, fault, rootful = false) {
   const seccomp = JSON.parse(await readFile('src/security/seccomp.json', 'utf8'));
   const root = await mkdtemp(join(tmpdir(), 'nibfin-agent-isolation-'));
   t.after(() => rm(root, { recursive: true, force: true }));
@@ -36,7 +37,7 @@ async function fixture(t, fault) {
   await writeFile(request.auth, '{}');
   const config = {
     docker: '/usr/bin/docker',
-    socket: '/run/user/1000/docker.sock',
+    socket: rootful ? rootfulSocket : '/run/user/1000/docker.sock',
     image: `sha256:${'a'.repeat(64)}`,
     gatewayId: 'c'.repeat(64),
     network: 'nibfin-private',
@@ -47,13 +48,16 @@ async function fixture(t, fault) {
   const host = {
     platform: 'linux',
     uid: 1000,
+    gids: [986],
+    rootOwnedPath: async () => {},
     realpath: async (p) => p,
     lstat: async () => ({
       isSocket: () => true,
       isFile: () => true,
       isDirectory: () => true,
-      uid: 1000,
-      mode: 0o600,
+      uid: rootful ? 0 : 1000,
+      gid: 986,
+      mode: rootful ? 0o660 : 0o600,
       nlink: 1,
     }),
   };
@@ -68,7 +72,10 @@ async function fixture(t, fault) {
     let value;
     if (cmd[0] === 'info')
       value = {
-        SecurityOptions: ['name=rootless', 'name=seccomp,profile=builtin'],
+        SecurityOptions: [
+          'name=seccomp,profile=builtin',
+          ...(rootful ? ['name=userns', 'name=apparmor'] : ['name=rootless']),
+        ],
         CgroupVersion: '2',
         CgroupDriver: 'systemd',
         MemoryLimit: true,
@@ -100,6 +107,7 @@ async function fixture(t, fault) {
             Env: ['PATH=/usr/bin'],
           },
           HostConfig: {
+            UsernsMode: fault === 'gateway-host-userns' ? 'host' : '',
             Privileged: false,
             ReadonlyRootfs: true,
             CapDrop: ['ALL'],
@@ -204,6 +212,12 @@ async function fixture(t, fault) {
           : fault === 'complain-apparmor'
             ? 'codex-security-container (complain)'
             : 'codex-security-container (enforce)';
+      if (rootful)
+        value = JSON.stringify({
+          label: value,
+          uidMap: '0 231072 65536',
+          gidMap: '0 231072 65536',
+        });
     } else if (cmd[0] === 'run') {
       if (fault === 'mapped-cleanup') throw new Error('Cleanup failed');
       value = '';
@@ -216,8 +230,25 @@ async function fixture(t, fault) {
       stderr: Buffer.alloc(0),
     };
   };
-  return { sandbox: new CodexSandbox(config, { host, run }), request, calls };
+  const backend = rootful
+    ? dockerBackend({
+        kind: 'linux-rootful-docker-v1',
+        namespace: { uidStart: 231072, gidStart: 231072, size: 65536 },
+      })
+    : undefined;
+  return { sandbox: new CodexSandbox(config, { host, run, backend }), request, calls };
 }
+
+test('rootful gateway cannot override the adopted user namespace', async (t) => {
+  const positive = await fixture(t, undefined, true);
+  await positive.sandbox.preflight();
+  const changed = await fixture(t, 'gateway-host-userns', true);
+  await assert.rejects(changed.sandbox.preflight(), /AGENT_EGRESS_NOT_ISOLATED/);
+  assert.equal(
+    changed.calls.some((c) => c[0] === 'create'),
+    false,
+  );
+});
 
 test('Agent policy, private outputs and termination are verified', async (t) => {
   const f = await fixture(t);

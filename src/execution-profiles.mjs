@@ -8,6 +8,13 @@ const profiles = Object.freeze({
     hostPlatform: 'linux',
     runnerOS: 'linux',
     containerOS: 'linux',
+    dockerMode: 'rootless',
+  }),
+  'linux-rootful-docker-v1': Object.freeze({
+    hostPlatform: 'linux',
+    runnerOS: 'linux',
+    containerOS: 'linux',
+    dockerMode: 'rootful',
   }),
 });
 

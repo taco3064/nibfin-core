@@ -6,24 +6,13 @@ import { GitHubReader } from './github-read.mjs';
 import { verifyInstalledSource } from './source-package.mjs';
 import { privateHostDirectory } from './host-fence.mjs';
 import { digest, isId, requireThat } from './identity.mjs';
+import { rootOwnedPath } from './host-paths.mjs';
+import { controllerRoute } from './controller-contract.mjs';
+import { verifyControllerSeparation } from './controller-separation.mjs';
+export { rootOwnedPath } from './host-paths.mjs';
 
 export const hostFile = '/etc/nibfin/host.json';
 export const coreRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-
-export async function rootOwnedPath(path) {
-  requireThat(
-    isAbsolute(path) && resolve(path) === path && (await realpath(path)) === path,
-    'UNTRUSTED_ADOPTION_PATH',
-  );
-  for (let current = path; ; current = dirname(current)) {
-    const stat = await lstat(current);
-    requireThat(
-      !stat.isSymbolicLink() && stat.uid === 0 && (stat.mode & 0o022) === 0,
-      'UNTRUSTED_ADOPTION_PATH',
-    );
-    if (current === '/') break;
-  }
-}
 
 export async function boundedHostFile(path, limit, privateFile = false) {
   requireThat(isAbsolute(path) && (await realpath(path)) === path, 'UNTRUSTED_HOST_FILE');
@@ -60,6 +49,7 @@ export async function inspectHostAdoption({ host, hostBytes, adopted }) {
   );
   requireThat(host.installation.directory === coreRoot, 'INVALID_HOST_ADOPTION');
   await verifyHostInstallation(host.installation, adopted.approval);
+  await verifyControllerSeparation(host);
 }
 
 // Fixed administrator-owned backend. Neither entry accepts a host path,
@@ -78,6 +68,7 @@ export async function loadHostAdoption(issueNumber) {
   const hostBytes = await boundedHostFile(hostFile, 256 * 1024);
   const host = JSON.parse(hostBytes),
     adopted = host.issues?.[issueNumber];
+  controllerRoute(host);
   requireThat(
     host.schemaVersion === 1 &&
       host.uid === process.getuid() &&

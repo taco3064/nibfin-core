@@ -17,6 +17,7 @@ import { acquireHostFence, privateHostDirectory } from './host-fence.mjs';
 import { pendingCIObservation } from './github-ci.mjs';
 
 import { loadHostAdoption, inspectHostAdoption } from './host-adoption.mjs';
+import { relayHostCommand } from './host-relay.mjs';
 export { rootOwnedPath } from './host-adoption.mjs';
 
 // Environment identifies candidates to read. Native job and signed OIDC checks
@@ -157,6 +158,8 @@ export async function launchStage(issueNumber, stage, env = process.env) {
       (stage === 'continue' || Object.hasOwn(stages, stage)),
     'INVALID_STAGE_REQUEST',
   );
+  const relayed = await relayHostCommand('stage', [issueNumber, stage], env);
+  if (relayed !== null) return relayed;
   const { host, hostBytes, adopted, token, reader } = await loadHostAdoption(issueNumber);
   const { runner, binding } = await resolveHostJob(reader, adopted, env);
   let execution = hostExecution(runner, stage === 'continue' ? 'shape' : stage);

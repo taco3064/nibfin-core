@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { digest, requireThat } from './identity.mjs';
+import { verifyNamespace } from './docker-backend.mjs';
 
 const profile = 'codex-security-container';
 const readLabel =
@@ -8,7 +9,7 @@ const readLabel =
 
 // Docker's requested/inspect profile may be ignored by an unsupported daemon.
 // This fixed probe has no credentials, host mounts, network or Agent input.
-export async function verifyAppArmor(docker, image) {
+export async function verifyAppArmor(docker, image, namespace) {
   const name = `nibfin-apparmor-${randomUUID()}`;
   try {
     const result = await docker(
@@ -35,13 +36,21 @@ export async function verifyAppArmor(docker, image) {
         '/usr/local/bin/node',
         image,
         '-e',
-        readLabel,
+        namespace
+          ? "const f=require('node:fs'); f.writeSync(1,JSON.stringify({" +
+            "label:f.readFileSync('/proc/self/attr/current','utf8')," +
+            "uidMap:f.readFileSync('/proc/self/uid_map','utf8')," +
+            "gidMap:f.readFileSync('/proc/self/gid_map','utf8')}))"
+          : readLabel,
       ],
       { timeout: 30000 },
     );
-    const label = result.stdout.toString().trim();
+    const output = result.stdout.toString();
+    const proof = namespace ? JSON.parse(output) : { label: output };
+    const label = proof.label?.trim();
     requireThat(label === `${profile} (enforce)`, 'AGENT_APPARMOR_NOT_ENFORCED');
-    return digest({ profile, label });
+    if (namespace) verifyNamespace(proof, namespace);
+    return digest({ profile, label, ...(namespace ? { namespace, proof } : {}) });
   } finally {
     const remaining = async () =>
       (await docker(['ps', '-aq', '--filter', `name=^/${name}$`])).stdout

@@ -21,12 +21,14 @@ retry. An invalid request is refused before configuration or network access.
 ## Administrative adoption contract
 
 This initial launcher supports one manually adopted Linux host per member route,
-using the existing rootless Docker adapter. It is not a general host installer,
+using an explicitly adopted Docker backend. It is not a general host installer,
 automatic enrollment flow, distributed lease, or new product-wide OS requirement.
 The administrator installs the verified package at `/opt/nibfin/core` with
 root-owned, non-Runner-writable code and creates `/etc/nibfin/host.json`. The
 configuration and all ancestors must be root-owned, non-symlinked and not
-group/world writable. Run Core as the configured non-root Runner account.
+group/world writable. Rootless Core runs as the configured non-root Runner.
+The controlled rootful backend requires a separate private controller identity
+and a fixed privilege relay; see [rootful-host.md](rootful-host.md).
 There is no environment variable or request parameter to replace this file.
 
 The adoption file has these fields; credentials are never embedded in it:
@@ -35,6 +37,7 @@ The adoption file has these fields; credentials are never embedded in it:
 | --- | --- |
 | `schemaVersion`, `kind` | `1`, `single-host-linux-v1` |
 | `uid` | Actual non-root controller UID |
+| `runnerUid` | Rootful only: distinct unprivileged Runner UID; see `rootful-host.md` |
 | `runnerId`, `memberId` | Native registered Runner ID and authorized GitHub user ID |
 | `installation` | `{directory: "/opt/nibfin/core", pin}` using the verified public package pin |
 | `stateRoot` | Canonical existing controller-owned 0700 directory; persistent across jobs |
@@ -61,7 +64,7 @@ Each Issue record contains:
   These separately adopt the actual event job and signed `issues` identity,
   pinned to Core's `issue.yml` on the same host/member/repository. They cannot
   replace normal stage identity; see `wake-entry.md`.
-- `isolation`: the existing `linux-rootless-docker-v1` profile with exact Issue
+- `isolation`: an adopted `linux-rootless-docker-v1` or `linux-rootful-docker-v1` profile with exact Issue
   identity, fixed Agent/hook image and socket, dedicated isolated network/proxy,
   installed security policies and Codex version. Both adapters use the same daemon.
 - `ciWorkflows`, `reviewers`: the existing native CI and independent review pins.
