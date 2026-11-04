@@ -1,7 +1,7 @@
 import { repoPath } from './github-read.mjs';
 import { digest, isId, isSha, requireThat } from './identity.mjs';
 import { readMemberPermission, readPinnedFile } from './github-approval.mjs';
-import { readCallerSource } from './caller-source.mjs';
+import { readCallerSource, readCallerContinuity } from './caller-source.mjs';
 
 // Provider-side binding only. The caller is trusted Core, executing from an
 // installed pinned workflow outside the candidate. No event payload, environment
@@ -26,6 +26,9 @@ export async function readRunnerBinding(reader, expected) {
       expected.runnerName &&
       typeof expected.jobName === 'string' &&
       expected.jobName &&
+      ['workflow_dispatch', 'issues'].includes(
+        expected.eventName ?? 'workflow_dispatch',
+      ) &&
       /^\.github\/workflows\/[A-Za-z0-9_.-]+\.ya?ml$/.test(expected.workflowPath),
     'INVALID_RUNNER_BINDING',
   );
@@ -60,19 +63,37 @@ export async function readRunnerBinding(reader, expected) {
   const run = await reader.get(runPath);
   let callerBranch;
   if (expected.sourceAnchor !== undefined) {
-    const pin = { commit: expected.sourceAnchor, path: expected.workflowPath, blob: expected.workflowBlob };
-    const branch = await reader.get(`${root}/branches/${encodeURIComponent(repository.default_branch)}`);
+    const pin = {
+      commit: expected.sourceAnchor,
+      path: expected.workflowPath,
+      blob: expected.workflowBlob,
+    };
+    const branch = await reader.get(
+      `${root}/branches/${encodeURIComponent(repository.default_branch)}`,
+    );
     callerBranch = branch;
     requireThat(branch.protected === true, 'CALLER_BRANCH_UNPROTECTED');
-    await readCallerSource(reader, expected.repository, pin, run.head_sha);
-    await readCallerSource(reader, expected.repository, pin, branch.commit?.sha);
+    const recipe = expected.wakeWorkflow
+      ? {
+          kind: 'wake',
+          coreCommit: expected.wakeWorkflow.commit,
+        }
+      : expected.eventName === 'issues' &&
+          expected.reusable?.path === '.github/workflows/issue.yml'
+        ? {
+            kind: 'issue',
+            coreCommit: expected.reusable.commit,
+          }
+        : undefined;
+    await readCallerSource(reader, expected.repository, pin, run.head_sha, recipe);
+    await readCallerContinuity(reader, expected.repository, pin, branch.commit?.sha);
   }
   requireThat(
     run?.id === expected.runId &&
       run.run_attempt === expected.attempt &&
       run.status === 'in_progress' &&
       run.conclusion === null &&
-      run.event === 'workflow_dispatch' &&
+      run.event === (expected.eventName ?? 'workflow_dispatch') &&
       run.repository?.id === expected.repositoryId &&
       run.repository.full_name === expected.repository &&
       run.head_repository?.id === expected.repositoryId &&
@@ -184,8 +205,15 @@ export async function readRunnerBinding(reader, expected) {
         repository.default_branch,
     'RUNNER_BINDING_CHANGED_DURING_READ',
   );
-  if (callerBranch) requireThat(digest(await reader.get(`${root}/branches/${encodeURIComponent(repository.default_branch)}`)) ===
-    digest(callerBranch), 'CALLER_BRANCH_CHANGED');
+  if (callerBranch)
+    requireThat(
+      digest(
+        await reader.get(
+          `${root}/branches/${encodeURIComponent(repository.default_branch)}`,
+        ),
+      ) === digest(callerBranch),
+      'CALLER_BRANCH_CHANGED',
+    );
   return {
     repositoryId: expected.repositoryId,
     runId: run.id,

@@ -16,33 +16,60 @@ async function fixture(t) {
   await writeFile(join(root, 'scripts', 'sample.mjs'), 'export const value = 1;');
   await writeFile(join(root, 'test', 'sample.test.mjs'), '// syntax-only fixture');
   await writeFile(join(root, '.node-version'), process.versions.node);
-  await writeFile(join(root, 'package.json'), JSON.stringify({
-    type: 'module', engines: { node: process.versions.node },
-  }));
+  await writeFile(
+    join(root, 'package.json'),
+    JSON.stringify({
+      type: 'module',
+      engines: { node: process.versions.node },
+    }),
+  );
+  const git = (args) => {
+    const result = spawnSync('git', args, { cwd: root, encoding: 'utf8' });
+    assert.equal(result.status, 0, result.stderr);
+  };
+  git(['init', '--initial-branch=main']);
+  git(['add', '.']);
+  git([
+    '-c',
+    'user.name=Fixture',
+    '-c',
+    'user.email=fixture@example.invalid',
+    'commit',
+    '-m',
+    'Create checker fixture',
+  ]);
+  git(['update-ref', 'refs/remotes/origin/main', 'HEAD']);
   return root;
 }
 
 function check(root) {
-  return spawnSync(process.execPath, [checker], { cwd: root, encoding: 'utf8' });
+  return spawnSync(process.execPath, [checker], {
+    cwd: root,
+    encoding: 'utf8',
+    env: { ...process.env, GITHUB_EVENT_PATH: '' },
+  });
 }
 
-test('checks nested modules without executing them', async t => {
+test('checks nested modules without executing them', async (t) => {
   const root = await fixture(t);
   await mkdir(join(root, 'src', 'nested'), { recursive: true });
-  await writeFile(join(root, 'src', 'nested', 'valid.mjs'), 'throw new Error("must not run");');
+  await writeFile(
+    join(root, 'src', 'nested', 'valid.mjs'),
+    'throw new Error("must not run");',
+  );
   const result = check(root);
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stdout, /Syntax checked 3/);
 });
 
-test('rejects syntax errors in nested modules', async t => {
+test('rejects syntax errors in nested modules', async (t) => {
   const root = await fixture(t);
   await mkdir(join(root, 'src', 'nested'), { recursive: true });
   await writeFile(join(root, 'src', 'nested', 'invalid.mjs'), 'export const = ;');
   assert.notEqual(check(root).status, 0);
 });
 
-test('rejects missing or malformed package configuration', async t => {
+test('rejects missing or malformed package configuration', async (t) => {
   const root = await fixture(t);
   await rm(join(root, 'package.json'));
   assert.notEqual(check(root).status, 0);
@@ -50,13 +77,13 @@ test('rejects missing or malformed package configuration', async t => {
   assert.notEqual(check(root).status, 0);
 });
 
-test('rejects inconsistent runtime pins', async t => {
+test('rejects inconsistent runtime pins', async (t) => {
   const root = await fixture(t);
   await writeFile(join(root, '.node-version'), '0.0.0');
   assert.notEqual(check(root).status, 0);
 });
 
-test('rejects a missing test directory', async t => {
+test('rejects a missing test directory', async (t) => {
   const root = await fixture(t);
   await rm(join(root, 'test'), { recursive: true });
   assert.notEqual(check(root).status, 0);
