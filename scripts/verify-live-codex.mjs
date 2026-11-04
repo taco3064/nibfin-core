@@ -1,6 +1,6 @@
 // No inference or real login: test the actual CLI's sandbox enforcement only.
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, writeFile, rm, chmod } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, rm, chmod, lstat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -24,6 +24,7 @@ const docker = (args) =>
     timeout: 120000,
   });
 const name = `nibfin-cli-probe-${randomUUID()}`;
+let failure;
 try {
   if (backend.mode === 'rootful') {
     await verifyAppArmor(docker, image, backend.namespace);
@@ -74,9 +75,8 @@ if (control.status !== 37 || control.stdout !== 'CONTROL_EXECUTED') process.exit
 process.exit(result.status === 0 && result.stdout === 'NIBFIN_PROBE_PASSED\\n' ? 0 : 1);
 `;
   await writeFile(join(root, 'input/probe.mjs'), script);
-  const mounts = ['work', 'main', 'input', 'io', 'auth', 'agent-home'].flatMap(part => {
-    const readonly = ['work', 'main', 'input', 'auth'].includes(part)
-      ? ',readonly' : '';
+  const mounts = ['work', 'main', 'input', 'io', 'auth', 'agent-home'].flatMap((part) => {
+    const readonly = ['work', 'main', 'input', 'auth'].includes(part) ? ',readonly' : '';
     return ['--mount', `type=bind,src=${join(root, part)},dst=/${part}${readonly}`];
   });
   await docker([
@@ -122,28 +122,51 @@ process.exit(result.status === 0 && result.stdout === 'NIBFIN_PROBE_PASSED\\n' ?
     process.stderr.write(logs.stderr);
     throw error;
   }
+} catch (error) {
+  failure = error;
 } finally {
-  await docker(['rm', '--force', name]);
-  await docker([
-    'run',
-    '--rm',
-    '--network',
-    'none',
-    '--read-only',
-    '--cap-drop=ALL',
-    '--security-opt=no-new-privileges',
-    '--user',
-    '1000:1000',
-    '--mount',
-    `type=bind,src=${join(root, 'agent-home')},dst=/cleanup`,
-    '--entrypoint',
-    '/bin/sh',
-    image,
-    '-c',
-    'find /cleanup -uid 1000 ! -type l -exec chmod a+rwX {} +',
-  ]);
-  await rm(root, { recursive: true, force: true });
+  try {
+    const remaining = async () =>
+      (await docker(['ps', '-aq', '--filter', `name=^/${name}$`])).stdout
+        .toString()
+        .trim();
+    const id = await remaining();
+    if (id) {
+      assert.match(id, /^[a-f0-9]{12,64}$/);
+      await docker(['rm', '--force', name]);
+    }
+    assert.equal(await remaining(), '', 'Probe termination is unproven');
+    const home = await lstat(join(root, 'agent-home')).catch((error) => {
+      if (error.code !== 'ENOENT') throw error;
+    });
+    if (home)
+      await docker([
+        'run',
+        '--rm',
+        '--network',
+        'none',
+        '--read-only',
+        '--cap-drop=ALL',
+        '--security-opt=no-new-privileges',
+        '--user',
+        '1000:1000',
+        '--mount',
+        `type=bind,src=${join(root, 'agent-home')},dst=/cleanup`,
+        '--entrypoint',
+        '/bin/sh',
+        image,
+        '-c',
+        'find /cleanup -uid 1000 ! -type l -exec chmod a+rwX {} +',
+      ]);
+    await rm(root, { recursive: true, force: true });
+  } catch (cleanup) {
+    throw new AggregateError(
+      [failure, cleanup].filter(Boolean),
+      `Probe cleanup is unresolved; retained ${root}`,
+    );
+  }
 }
+if (failure) throw failure;
 console.log(
   JSON.stringify({
     status: 'passed',
