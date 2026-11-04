@@ -1,0 +1,258 @@
+{
+  "origin": {
+    "note": "Selected public fields for unit regression, not a native execution receipt.",
+    "repository": "taco3064/nibfin-e2e",
+    "pullRequest": 1,
+    "merge": "c83fc8479091343ea459eefbed038c306962534c"
+  },
+  "policy": {
+    "required_status_checks": {
+      "strict": true,
+      "contexts": [
+        "verify"
+      ],
+      "checks": [
+        {
+          "context": "verify",
+          "app_id": 15368
+        }
+      ]
+    },
+    "required_pull_request_reviews": {
+      "dismiss_stale_reviews": true,
+      "require_code_owner_reviews": false,
+      "require_last_push_approval": false,
+      "required_approving_review_count": 0
+    },
+    "required_signatures": {
+      "enabled": false
+    },
+    "enforce_admins": {
+      "enabled": true
+    },
+    "required_linear_history": {
+      "enabled": false
+    },
+    "allow_force_pushes": {
+      "enabled": false
+    },
+    "allow_deletions": {
+      "enabled": false
+    },
+    "block_creations": {
+      "enabled": false
+    },
+    "required_conversation_resolution": {
+      "enabled": true
+    },
+    "lock_branch": {
+      "enabled": false
+    },
+    "allow_fork_syncing": {
+      "enabled": false
+    }
+  },
+  "ruleset": {
+    "id": 26512964,
+    "name": "Nibfin Phase 0 protected main",
+    "target": "branch",
+    "source_type": "Repository",
+    "source": "taco3064/nibfin-e2e",
+    "enforcement": "active",
+    "conditions": {
+      "ref_name": {
+        "exclude": [],
+        "include": [
+          "refs/heads/main"
+        ]
+      }
+    },
+    "rules": [
+      {
+        "type": "pull_request",
+        "parameters": {
+          "required_approving_review_count": 0,
+          "dismiss_stale_reviews_on_push": true,
+          "required_reviewers": [],
+          "require_code_owner_review": false,
+          "require_last_push_approval": false,
+          "required_review_thread_resolution": true,
+          "require_extra_approval_for_unattributed_changes": true,
+          "allowed_merge_methods": [
+            "merge",
+            "squash",
+            "rebase"
+          ]
+        }
+      },
+      {
+        "type": "required_status_checks",
+        "parameters": {
+          "strict_required_status_checks_policy": true,
+          "do_not_enforce_on_create": false,
+          "required_status_checks": [
+            {
+              "context": "verify",
+              "integration_id": 15368
+            }
+          ]
+        }
+      },
+      {
+        "type": "non_fast_forward"
+      },
+      {
+        "type": "deletion"
+      }
+    ],
+    "node_id": "RRS_lACqUmVwb3NpdG9yec5WJN7VzgGUjkQ",
+    "created_at": "2026-11-04T14:40:59.126+08:00",
+    "updated_at": "2026-11-04T14:40:59.266+08:00",
+    "bypass_actors": [],
+    "current_user_can_bypass": "never"
+  },
+  "rules": [
+    {
+      "type": "pull_request",
+      "parameters": {
+        "required_approving_review_count": 0,
+        "dismiss_stale_reviews_on_push": true,
+        "required_reviewers": [],
+        "require_code_owner_review": false,
+        "require_last_push_approval": false,
+        "required_review_thread_resolution": true,
+        "require_extra_approval_for_unattributed_changes": true,
+        "allowed_merge_methods": [
+          "merge",
+          "squash",
+          "rebase"
+        ]
+      },
+      "ruleset_source_type": "Repository",
+      "ruleset_source": "taco3064/nibfin-e2e",
+      "ruleset_id": 26512964
+    },
+    {
+      "type": "required_status_checks",
+      "parameters": {
+        "strict_required_status_checks_policy": true,
+        "do_not_enforce_on_create": false,
+        "required_status_checks": [
+          {
+            "context": "verify",
+            "integration_id": 15368
+          }
+        ]
+      },
+      "ruleset_source_type": "Repository",
+      "ruleset_source": "taco3064/nibfin-e2e",
+      "ruleset_id": 26512964
+    },
+    {
+      "type": "non_fast_forward",
+      "ruleset_source_type": "Repository",
+      "ruleset_source": "taco3064/nibfin-e2e",
+      "ruleset_id": 26512964
+    },
+    {
+      "type": "deletion",
+      "ruleset_source_type": "Repository",
+      "ruleset_source": "taco3064/nibfin-e2e",
+      "ruleset_id": 26512964
+    }
+  ],
+  "suite": {
+    "id": 4896937836,
+    "actor_id": 127829492,
+    "actor_name": "taco3064",
+    "before_sha": "ad7b2a0e34a8b0afcb7ccd9080f40f090e00607b",
+    "after_sha": "c83fc8479091343ea459eefbed038c306962534c",
+    "ref": "refs/heads/main",
+    "repository_id": 1445256917,
+    "repository_name": "nibfin-e2e",
+    "pushed_at": "2026-11-04T14:41:25+08:00",
+    "result": "pass",
+    "rule_evaluations": [
+      {
+        "rule_source": {
+          "type": "protected_branch"
+        },
+        "enforcement": "active",
+        "result": "pass",
+        "rule_type": "required_review_thread_resolution"
+      },
+      {
+        "rule_source": {
+          "type": "protected_branch"
+        },
+        "enforcement": "active",
+        "result": "pass",
+        "rule_type": "deletion"
+      },
+      {
+        "rule_source": {
+          "type": "protected_branch"
+        },
+        "enforcement": "active",
+        "result": "pass",
+        "rule_type": "non_fast_forward"
+      },
+      {
+        "rule_source": {
+          "type": "protected_branch"
+        },
+        "enforcement": "active",
+        "result": "pass",
+        "rule_type": "required_status_checks"
+      },
+      {
+        "rule_source": {
+          "type": "protected_branch"
+        },
+        "enforcement": "active",
+        "result": "pass",
+        "rule_type": "pull_request"
+      },
+      {
+        "rule_source": {
+          "type": "ruleset",
+          "id": 26512964,
+          "name": "Nibfin Phase 0 protected main"
+        },
+        "enforcement": "active",
+        "result": "pass",
+        "rule_type": "deletion"
+      },
+      {
+        "rule_source": {
+          "type": "ruleset",
+          "id": 26512964,
+          "name": "Nibfin Phase 0 protected main"
+        },
+        "enforcement": "active",
+        "result": "pass",
+        "rule_type": "non_fast_forward"
+      },
+      {
+        "rule_source": {
+          "type": "ruleset",
+          "id": 26512964,
+          "name": "Nibfin Phase 0 protected main"
+        },
+        "enforcement": "active",
+        "result": "pass",
+        "rule_type": "required_status_checks"
+      },
+      {
+        "rule_source": {
+          "type": "ruleset",
+          "id": 26512964,
+          "name": "Nibfin Phase 0 protected main"
+        },
+        "enforcement": "active",
+        "result": "pass",
+        "rule_type": "pull_request"
+      }
+    ]
+  }
+}

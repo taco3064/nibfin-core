@@ -12,51 +12,132 @@ import { digest, isDigest, isId, isSha, requireThat } from './identity.mjs';
 // Wiring belongs to installed Core. Config and inspection functions are never
 // selected by the public stage request. Neither GitHub events nor local JSON
 // pretending to be an observation can be passed through this API as authority.
-export function nativeObserver({ reader, config, execution, inspectIsolation, inspectSource, inspectCaller,
-  clock = Date.now, stores = binding => new EvidenceStore(config.stateRoot, binding) }) {
-  requireThat(typeof inspectIsolation === 'function' && typeof inspectSource === 'function' && typeof inspectCaller === 'function', 'TRUSTED_OBSERVERS_REQUIRED');
-  const pinned = structuredClone(config), actor = structuredClone(execution);
-  return async stage => {
+export function nativeObserver({
+  reader,
+  config,
+  execution,
+  inspectIsolation,
+  inspectSource,
+  inspectCaller,
+  clock = Date.now,
+  stores = (binding) => new EvidenceStore(config.stateRoot, binding),
+}) {
+  requireThat(
+    typeof inspectIsolation === 'function' &&
+      typeof inspectSource === 'function' &&
+      typeof inspectCaller === 'function',
+    'TRUSTED_OBSERVERS_REQUIRED',
+  );
+  const pinned = structuredClone(config),
+    actor = structuredClone(execution);
+  return async (stage) => {
     requireThat(Object.hasOwn(stages, stage), 'UNKNOWN_STAGE');
     const approval = await readProtectedApproval(reader, pinned.approval, clock());
     const record = approval.record;
     const observed = await readDependencies(reader, record.issue, record.prerequisites);
     requireThat(observed.ready, 'PREREQUISITES_NOT_READY');
-    const route = await selectAssignee(observed.issue, async user => {
+    const route = await selectAssignee(observed.issue, async (user) => {
       if (user.id !== record.roles.writer) return false;
-      try { await readMemberPermission(reader, record.issue.repository, { ...user, type: 'User' }); return true; }
-      catch (error) { if (error.code === 'MEMBER_PERMISSION_REVOKED') return false; throw error; }
+      try {
+        await readMemberPermission(reader, record.issue.repository, {
+          ...user,
+          type: 'User',
+        });
+        return true;
+      } catch (error) {
+        if (error.code === 'MEMBER_PERMISSION_REVOKED') return false;
+        throw error;
+      }
     });
-    requireThat(route && route.userId === pinned.runner.memberId, 'ASSIGNEE_RUNNER_BINDING_CHANGED');
+    requireThat(
+      route && route.userId === pinned.runner.memberId,
+      'ASSIGNEE_RUNNER_BINDING_CHANGED',
+    );
     const runner = await readRunnerBinding(reader, pinned.runner);
     const caller = await inspectCaller(runner);
-    requireThat(caller?.repositoryId === runner.repositoryId && caller.runId === runner.runId && caller.attempt === runner.attempt &&
-      caller.checkRunId === runner.checkRunId && caller.actorId === runner.actorId && caller.sourceCommit === runner.sourceCommit &&
-      caller.expiresAt > clock() && isDigest(caller.identityHash), 'AUTHENTICATED_CALLER_REQUIRED');
-    const source = await inspectSource(); requireThat(digest(source) === digest(record.source), 'INSTALLED_SOURCE_CHANGED');
-    const store = stores(evidenceBinding({ approval })), receipts = await store.load();
+    requireThat(
+      caller?.repositoryId === runner.repositoryId &&
+        caller.runId === runner.runId &&
+        caller.attempt === runner.attempt &&
+        caller.checkRunId === runner.checkRunId &&
+        caller.actorId === runner.actorId &&
+        caller.sourceCommit === runner.sourceCommit &&
+        caller.expiresAt > clock() &&
+        isDigest(caller.identityHash),
+      'AUTHENTICATED_CALLER_REQUIRED',
+    );
+    const source = await inspectSource();
+    requireThat(digest(source) === digest(record.source), 'INSTALLED_SOURCE_CHANGED');
+    const store = stores(evidenceBinding({ approval })),
+      receipts = await store.load();
     const main = await readCurrentMain(reader, record.issue);
-    const context = { approval, main, issue: observed.issue, dependencies: { ready: true, identities: record.prerequisites },
-      route, runner, source, receipts, execution: actor };
+    const context = {
+      approval,
+      main,
+      issue: observed.issue,
+      dependencies: { ready: true, identities: record.prerequisites },
+      route,
+      runner,
+      source,
+      receipts,
+      execution: actor,
+    };
     if (receipts.shape?.outcome === 'ready') {
-      const body = await store.get(receipts.shape.artifacts.shapeHash); context.shape = { body, hash: digest(body) };
+      const body = await store.get(receipts.shape.artifacts.shapeHash);
+      context.shape = { body, hash: digest(body) };
     }
-    if (receipts.deliver?.outcome === 'ready') context.candidate = await store.get(receipts.deliver.artifacts.candidateHash);
+    if (receipts.deliver?.outcome === 'ready')
+      context.candidate = await store.get(receipts.deliver.artifacts.candidateHash);
     if (receipts['commit-pr']?.outcome === 'published') {
-      const saved = receipts['commit-pr'].artifacts; requireThat(isId(saved.prNumber) && isSha(saved.head), 'INVALID_PR_RECEIPT');
-      const root = repoPath(record.issue.repository), pr = await reader.get(`${root}/pulls/${saved.prNumber}`);
-      requireThat(pr.node_id === saved.prId && pr.number === saved.prNumber && pr.head?.sha === saved.head &&
-        pr.head.repo?.id === record.issue.repositoryId && pr.base.repo?.id === record.issue.repositoryId, 'PR_RECEIPT_IDENTITY_CHANGED');
+      const saved = receipts['commit-pr'].artifacts;
+      requireThat(isId(saved.prNumber) && isSha(saved.head), 'INVALID_PR_RECEIPT');
+      const root = repoPath(record.issue.repository),
+        pr = await reader.get(`${root}/pulls/${saved.prNumber}`);
+      requireThat(
+        pr.node_id === saved.prId &&
+          pr.number === saved.prNumber &&
+          pr.head?.sha === saved.head &&
+          pr.head.repo?.id === record.issue.repositoryId &&
+          pr.base.repo?.id === record.issue.repositoryId,
+        'PR_RECEIPT_IDENTITY_CHANGED',
+      );
       const commit = await reader.get(`${root}/git/commits/${pr.head.sha}`);
-      requireThat(commit.sha === pr.head.sha && isSha(commit.tree?.sha), 'PR_HEAD_TREE_UNAVAILABLE');
-      requireThat(Array.isArray(commit.parents) && commit.parents.length === 1 &&
-        commit.parents[0].sha === context.candidate?.base, 'PR_REBASED_HISTORY_REQUIRED');
-      context.pr = { id: pr.node_id, number: pr.number, repositoryId: record.issue.repositoryId,
-        head: pr.head.sha, headBranch: pr.head.ref, base: pr.base.sha, baseBranch: pr.base.ref, tree: commit.tree.sha, state: pr.state,
-        merged: pr.merged, mergePreview: pr.merge_commit_sha, ...(pr.merged ? { mergeCommit: pr.merge_commit_sha } : {}) };
+      requireThat(
+        commit.sha === pr.head.sha && isSha(commit.tree?.sha),
+        'PR_HEAD_TREE_UNAVAILABLE',
+      );
+      requireThat(
+        Array.isArray(commit.parents) &&
+          commit.parents.length === 1 &&
+          commit.parents[0].sha === context.candidate?.base,
+        'PR_REBASED_HISTORY_REQUIRED',
+      );
+      context.pr = {
+        id: pr.node_id,
+        number: pr.number,
+        repositoryId: record.issue.repositoryId,
+        head: pr.head.sha,
+        headBranch: pr.head.ref,
+        base: pr.base.sha,
+        baseBranch: pr.base.ref,
+        tree: commit.tree.sha,
+        state: pr.state,
+        merged: pr.merged,
+        mergePreview: pr.merge_commit_sha,
+        ...(pr.merged ? { mergeCommit: pr.merge_commit_sha } : {}),
+      };
       if (['review-pr', 'merge', 'close'].includes(stage)) {
-        const expected = { repository: record.issue.repository, repositoryId: record.issue.repositoryId, id: pr.node_id,
-          number: pr.number, head: saved.head, base: saved.base, workflows: pinned.ciWorkflows, reviewers: pinned.reviewers };
+        const expected = {
+          repository: record.issue.repository,
+          repositoryId: record.issue.repositoryId,
+          id: pr.node_id,
+          number: pr.number,
+          head: saved.head,
+          base: saved.base,
+          workflows: pinned.ciWorkflows,
+          reviewers: pinned.reviewers,
+          ruleset: pinned.approval.ruleset,
+        };
         if (stage === 'close') {
           const prior = await store.get(receipts.merge?.artifacts.ciHash);
           expected.mergedCommit = receipts.merge.artifacts.mergeCommit;
@@ -64,12 +145,20 @@ export function nativeObserver({ reader, config, execution, inspectIsolation, in
           requireThat(isSha(prior.testMerge), 'ORIGINAL_TEST_MERGE_REQUIRED');
           expected.testMerge = prior.testMerge;
           context.pr.mergePreview = prior.testMerge;
-          expected.workflows = expected.workflows.map(pin => ({ ...pin, targetSha: prior.checks.find(check => check.name === pin.context)?.targetSha }));
+          expected.workflows = expected.workflows.map((pin) => ({
+            ...pin,
+            targetSha: prior.checks.find((check) => check.name === pin.context)
+              ?.targetSha,
+          }));
         }
         context.ci = await readPullRequestCI(reader, expected, clock());
       }
     }
-    context.isolation = await inspectIsolation(stage, { issue: record.issue, execution: actor, runner });
+    context.isolation = await inspectIsolation(stage, {
+      issue: record.issue,
+      execution: actor,
+      runner,
+    });
     return context;
   };
 }

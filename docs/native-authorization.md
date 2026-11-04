@@ -25,7 +25,10 @@ The current reader uses a reviewed file at `.nibfin/approvals/ISSUE_NODE_ID.json
    merges or single-commit rewrites with the same immediate base and full tree.
 4. Read the provider rule-suite evidence for that exact merge, repository, branch
    and publishing actor. Active PR and Required Check evaluations must pass;
-   bypass, missing evidence and unreadable resources deny.
+   bypass, missing evidence and unreadable resources deny. An absent
+   `evaluation_result` matches the observed response when GitHub omits that field;
+   every recorded evaluation must still be active and pass. An explicit failed,
+   null or unknown result is refused.
 5. Verify the file's Git blob at PR head, merge commit and current protected head.
    The approval merge must remain an ancestor. The most recent file-changing
    commit must be identical at merge and current head: editing then restoring the
@@ -44,8 +47,9 @@ Environment/PR approval is imposed. Deletion, edit, supersession, loss of native
 evidence or expiry revokes usability; immutable prior bytes remain historical
 review evidence rather than a live grant.
 
-The initial adapter intentionally refuses rulesets-only/additional effective
-rules, CODEOWNERS-dependent policy, multi-commit approval rewrites, bot publishers,
+The initial adapter intentionally refuses rulesets-only protection, unknown
+additional effective rules, CODEOWNERS-dependent policy, multi-commit approval
+rewrites, bot publishers,
 and unbound status-check apps. These limitations are conservative engineering
 boundaries awaiting native verification, not claims that GitHub lacks those
 capabilities. The rule-suite API's evidence availability also bounds usability;
@@ -56,6 +60,35 @@ The full native policy response is pinned, so changes (including stricter rules)
 require trusted re-adoption. The administrator who can rewrite protections is
 inside the GitHub trust root. This adapter does not reproduce an offline signer's
 independence from a compromised repository administrator.
+
+## Explicit equivalent ruleset adoption
+
+A pure classic configuration may provide no usable Rule Suite. The controlled
+test repository's protected foundation merge demonstrated an actual mixed suite:
+[PR #1](https://github.com/taco3064/nibfin-e2e/pull/1), merge
+`c83fc8479091343ea459eefbed038c306962534c`, suite `4896937836`, with active
+classic and ruleset evaluations passing under Owner actor `127829492`.
+This is native protection evidence, not an approval for the later Scope Issue.
+
+The optional administrator-installed approval pin `ruleset: {id, hash}` adopts
+one exact repository ruleset; `hash` covers its full native GET response. It
+must target only the named default branch, be active, have no bypass actors and
+contain exactly PR, strict app-bound required-check, deletion and non-fast-forward
+rules. Its review/check/thread policy must match the retained classic protection.
+CODEOWNERS, required team reviewers, unknown parameters and unknown effective
+rules remain refused. No Issue, Agent or workflow input may choose this pin.
+
+`readProtection` is the shared reader for approval and delivery CI. Its combined
+hash binds the classic response, effective rules and adopted ruleset. Adopt
+that returned hash as `protectionHash`; do not reuse the legacy classic-only
+digest. Both current protection and the actual historical merge suite are
+re-read. Each required classic and adopted-ruleset enforcement entry must be
+present and pass. Adding a ruleset cannot prove an earlier merge retroactively.
+
+An unadopted ruleset still denies. Legacy pure-classic pins retain their original
+hash and strict refusal of effective rulesets. Changed policy, ruleset bytes,
+source, actor or suite requires reconciliation/re-adoption; green CI alone is
+never a replacement for native historical merge enforcement.
 
 ## Trusted pins and remaining admission work
 

@@ -4,10 +4,26 @@ import { readPullRequestCI, checkoutIdentity } from '../src/github-ci.mjs';
 import { gitBlob } from '../src/identity.mjs';
 import { now } from './approval-fixture.mjs';
 import mergedRunObservation from './merged-run-observation.json' with { type: 'json' };
+import { rulesetFixture } from './ruleset-fixture.mjs';
 
 function checkoutLog(sha, marker = '[command]/usr/bin/git log -1 --format=%H') {
   return `2026-11-03T02:00:01.000Z ${marker}\n` + `2026-11-03T02:00:01.100Z ${sha}\n`;
 }
+
+test('CI uses the same adopted protection and refuses ruleset drift', async () => {
+  const f = fixture(),
+    adopted = rulesetFixture(f.policy);
+  f.expected.ruleset = adopted.pin;
+  f.data[`/rulesets/${adopted.value.id}`] = adopted.value;
+  f.data['/rules/branches/main'] = adopted.rules;
+  const result = await readPullRequestCI(f.reader, f.expected, now);
+  assert.equal(result.protectionHash, adopted.hash);
+  adopted.value.bypass_actors.push({ actor_type: 'RepositoryRole', actor_id: 5 });
+  await assert.rejects(
+    readPullRequestCI(f.reader, f.expected, now),
+    /RULESET_NOT_ADOPTED/,
+  );
+});
 
 function fixture() {
   const head = '1'.repeat(40),

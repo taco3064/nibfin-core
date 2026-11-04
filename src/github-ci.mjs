@@ -1,6 +1,7 @@
 import { repoPath } from './github-read.mjs';
 import { digest, isId, isSha, requireThat } from './identity.mjs';
-import { checkProtection, readPinnedFile, readReviewers } from './github-approval.mjs';
+import { readPinnedFile, readReviewers } from './github-approval.mjs';
+import { readProtection } from './github-protection.mjs';
 import { readMergeIdentity } from './github-merge.mjs';
 
 const pendingObservations = Object.freeze([
@@ -141,12 +142,13 @@ export async function readPullRequestCI(reader, expected, now = Date.now()) {
       'MERGED_COMMIT_NOT_CURRENT_ANCESTOR',
     );
   } else requireThat(branch.commit.sha === expected.base, 'CI_BASE_CHANGED');
-  const policy = checkProtection(await reader.get(`${branchPath}/protection`));
-  requireThat(
-    (await reader.list(`${root}/rules/branches/${encodeURIComponent(pr.base.ref)}`))
-      .length === 0,
-    'UNSUPPORTED_EFFECTIVE_RULES',
+  const protection = await readProtection(
+    reader,
+    expected.repository,
+    pr.base.ref,
+    expected.ruleset,
   );
+  const { policy } = protection;
   requireThat(
     policy.required_status_checks.checks.length === expected.workflows.length &&
       policy.required_status_checks.checks.every((check) =>
@@ -331,11 +333,10 @@ export async function readPullRequestCI(reader, expected, now = Date.now()) {
   requireThat(
     digest(await reader.get(prPath)) === digest(pr) &&
       digest(await reader.get(branchPath)) === digest(branch) &&
-      digest(await reader.get(`${branchPath}/protection`)) === digest(policy) &&
+      (await readProtection(reader, expected.repository, pr.base.ref, expected.ruleset))
+        .hash === protection.hash &&
       digest(await reader.list(`${root}/pulls/${expected.number}/reviews`)) ===
         digest(reviewers.reviews) &&
-      (await reader.list(`${root}/rules/branches/${encodeURIComponent(pr.base.ref)}`))
-        .length === 0 &&
       digest(
         await reader.list(
           `${root}/commits/${expected.head}/check-runs?filter=latest`,
@@ -358,7 +359,7 @@ export async function readPullRequestCI(reader, expected, now = Date.now()) {
     testMerge: previewSha,
     parents: testedSha === expected.head ? [] : [expected.base, expected.head],
     checks,
-    protectionHash: digest(policy),
+    protectionHash: protection.hash,
     provenanceHash: digest({ sources, reviewers: reviewers.approved }),
   };
   // GitHub may remove run-to-PR associations after merge. Only the exact CI
