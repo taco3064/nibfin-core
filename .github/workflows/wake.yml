@@ -63,7 +63,7 @@ jobs:
     with:
       issue_number: ${{ needs.resolve.outputs.issue_number }}
       member_id: ${{ needs.resolve.outputs.member_id }}
-      stage: ${{ needs.resolve.outputs.stage }}
+      stage: continue
     permissions:
       contents: read
       id-token: write

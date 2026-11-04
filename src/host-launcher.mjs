@@ -11,7 +11,10 @@ import { verifyInstalledSource } from './source-package.mjs';
 import { codexStageExecutor } from './codex-stage.mjs';
 import { CandidateWorkspace } from './workspace.mjs';
 import { command } from './process.mjs';
-import { stages } from './stages.mjs';
+import { stages, evidenceBinding } from './stages.mjs';
+import { EvidenceStore } from './evidence-store.mjs';
+import { continueStages } from './stage-continuation.mjs';
+import { setTimeout } from 'node:timers/promises';
 import { digest, isId, requireThat } from './identity.mjs';
 import { acquireHostFence, privateHostDirectory } from './host-fence.mjs';
 
@@ -54,7 +57,8 @@ export async function resolveHostJob(reader, adopted, env) {
     job.runner_name === runner.runnerName && job.status === 'in_progress');
   requireThat(matches.length === 1, 'HOST_JOB_NOT_UNIQUE');
   const run = await reader.get(`${repoPath(runner.repository)}/actions/runs/${runId}`);
-  Object.assign(runner, { runId, attempt, jobId: matches[0].id, actorId: run.actor?.id });
+  Object.assign(runner, { runId, attempt, jobId: matches[0].id, actorId: run.actor?.id,
+    sourceAnchor: adopted.runner.sourceCommit, sourceCommit: run.head_sha });
   const binding = await readRunnerBinding(reader, runner);
   return { runner, binding };
 }
@@ -93,7 +97,7 @@ async function idleContainers(profile) {
 // command, credential or execution identity can be provided by a request.
 export async function launchStage(issueNumber, stage, env = process.env) {
   requireThat(/^[1-9][0-9]*$/.test(issueNumber) && isId(Number(issueNumber)) &&
-    typeof stage === 'string' && Object.hasOwn(stages, stage), 'INVALID_STAGE_REQUEST');
+    typeof stage === 'string' && (stage === 'continue' || Object.hasOwn(stages, stage)), 'INVALID_STAGE_REQUEST');
   requireThat(process.platform === 'linux' && process.getuid() > 0, 'UNSUPPORTED_STAGE_HOST');
   await rootOwnedPath(hostFile); await rootOwnedPath(coreRoot);
   const hostBytes = await boundedFile(hostFile, 256 * 1024), host = JSON.parse(hostBytes);
@@ -109,7 +113,7 @@ export async function launchStage(issueNumber, stage, env = process.env) {
   const token = (await boundedFile(host.tokenFile, 16384, true)).trim();
   const reader = new GitHubReader(token);
   const { runner, binding } = await resolveHostJob(reader, adopted, env);
-  const execution = hostExecution(runner, stage);
+  let execution = hostExecution(runner, stage === 'continue' ? 'shape' : stage);
   const caller = { pin: adopted.caller, requestUrl: env.ACTIONS_ID_TOKEN_REQUEST_URL,
     requestToken: env.ACTIONS_ID_TOKEN_REQUEST_TOKEN };
   await actionsCaller({ ...caller, executionId: execution.id })(binding);
@@ -148,13 +152,24 @@ export async function launchStage(issueNumber, stage, env = process.env) {
       const main = await readCurrentMain(reader, approval.record.issue);
       await new CandidateWorkspace(workspaceRoot, approval.record.issue).prepare(main.head);
     }
-    const executor = await codexStageExecutor({ installation: host.installation, caller,
-      config: { approval: adopted.approval, runner, stateRoot: join(root, 'receipts'),
-        ciWorkflows: adopted.ciWorkflows, reviewers: adopted.reviewers }, execution,
-      workspaceRoot, agentStateRoot: join(root, 'agent'), authFile: host.authFile,
-      model: host.model, isolation: adopted.isolation, inspectWriter, token });
-    const result = await executor.run({ schemaVersion: 1, stage });
-    if (result.status !== 'pending') { await inspectWriter(); await fence.release(); }
+    const execute = async current => {
+      execution = hostExecution(runner, current);
+      requireThat(approval.record.roles[execution.role] === runner.memberId,
+        'HOST_APPROVAL_MISMATCH');
+      const executor = await codexStageExecutor({ installation: host.installation, caller,
+        config: { approval: adopted.approval, runner, stateRoot: join(root, 'receipts'),
+          ciWorkflows: adopted.ciWorkflows, reviewers: adopted.reviewers }, execution,
+        workspaceRoot, agentStateRoot: join(root, 'agent'), authFile: host.authFile,
+        model: host.model, isolation: adopted.isolation, inspectWriter, token });
+      return executor.run({ schemaVersion: 1, stage: current });
+    };
+    const result = stage === 'continue' ? await continueStages({
+      store: new EvidenceStore(join(root, 'receipts'), evidenceBinding({ approval })),
+      execute, inspect: inspectWriter, wait: setTimeout,
+    }) : await execute(stage);
+    if (result.status !== 'pending' || result.code === 'CI_WAITING') {
+      await inspectWriter(); await fence.release();
+    }
     return result;
   } catch {
     // Do not turn partial preparation or an unknown container/write into a retry.

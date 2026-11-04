@@ -4,6 +4,7 @@ import { readDependencies, isDeliveredIssue } from './dependencies.mjs';
 import { selectAssignee } from './selection.mjs';
 import { bindRawScope } from './approval-record.mjs';
 import { digest, isId, isSha, requireThat } from './identity.mjs';
+import { readCallerSource } from './caller-source.mjs';
 
 // Runs on a trusted hosted preflight, before selecting a self-hosted Runner.
 // Events only locate an adopted Issue identity. No event field grants authority.
@@ -32,11 +33,12 @@ export async function observeWake(reader, { approvalPin, workflow, actorId }, cl
   await readMemberPermission(reader, issue.repository, actor);
   const repository = await reader.repository(issue.repository);
   const branch = await reader.get(`${root}/branches/${encodeURIComponent(repository.default_branch)}`);
-  requireThat(branch.protected === true && branch.commit?.sha === workflow.commit, 'WAKE_WORKFLOW_SOURCE_CHANGED');
+  requireThat(branch.protected === true, 'WAKE_WORKFLOW_SOURCE_CHANGED');
+  const commit = await readCallerSource(reader, issue.repository, workflow, branch.commit?.sha);
   const actual = await reader.get(`${root}/actions/workflows/${workflow.id}`);
   requireThat(actual.id === workflow.id && actual.path === workflow.path && actual.state === 'active', 'WAKE_WORKFLOW_UNAVAILABLE');
   await readPinnedFile(reader, issue.repository, workflow.path, workflow.commit, workflow.blob);
-  return { issue, approvalHash: approval.approvalHash, workflow: { ...workflow, ref: repository.default_branch },
+  return { issue, approvalHash: approval.approvalHash, workflow: { ...workflow, commit, ref: repository.default_branch },
     actorId, route, entryStage, stateHash: digest({ body: current.body, labels: current.labels, assignees: current.assignees,
       prerequisites: dependencies.prerequisites }) };
 }
@@ -109,6 +111,18 @@ export async function fanout(reader, upstream, { approvedTarget, wake }) {
   }
   requireThat(digest(await reader.blocking(upstream)) === digest(before), 'FANOUT_GRAPH_CHANGED');
   const results = [];
-  for (const target of targets) { await verifyClosed(); results.push({ issueId: target.id, result: await wake(target) }); }
+  for (const target of targets) {
+    try { await verifyClosed(); }
+    catch (error) {
+      if (results.length === 0) throw error;
+      results.push({ issueId: target.id, result: { status: 'denied', code: 'FANOUT_AUTHORITY_CHANGED' } });
+      break;
+    }
+    let result;
+    try { result = await wake(target); }
+    catch { result = { status: 'pending', code: 'FANOUT_EFFECT_UNKNOWN' }; }
+    results.push({ issueId: target.id, result });
+    if (result.status !== 'scheduled') break;
+  }
   return results;
 }

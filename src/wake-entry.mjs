@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { GitHubReader, repoPath } from './github-read.mjs';
 import { observeWake } from './wakeup.mjs';
 import { digest, isId, isSha, requireThat } from './identity.mjs';
+import { readCallerSource } from './caller-source.mjs';
 
 // Adoption is supplied by the protected caller's administrator, never dispatch
 // inputs. A dispatch supplies only a locator; all routing is freshly resolved.
@@ -27,7 +28,7 @@ export async function resolveWakeDispatch(reader, adoption, event, invocation, c
     requireThat(run.id === invocation.runId && run.run_attempt === invocation.attempt &&
       run.event === 'workflow_dispatch' && run.status === 'in_progress' &&
       run.workflow_id === selected.workflow.id && run.path === selected.workflow.path &&
-      run.head_sha === selected.workflow.commit && run.head_branch === event.repository.default_branch &&
+      run.head_branch === event.repository.default_branch &&
       run.repository?.id === pin.repositoryId && run.head_repository?.id === pin.repositoryId &&
       run.actor?.id === selected.actorId && run.triggering_actor?.id === selected.actorId &&
       Array.isArray(run.referenced_workflows) && run.referenced_workflows.length >= 1 && run.referenced_workflows.length <= 2 &&
@@ -36,6 +37,7 @@ export async function resolveWakeDispatch(reader, adoption, event, invocation, c
         workflow.path === `taco3064/nibfin-core/.github/workflows/${name}.yml@${adoption.coreCommit}`) &&
         workflow.sha === adoption.coreCommit) && run.referenced_workflows.some(workflow =>
         workflow.path === `taco3064/nibfin-core/.github/workflows/wake.yml@${adoption.coreCommit}`), 'UNTRUSTED_WAKE_CALLER');
+    await readCallerSource(reader, pin.repository, selected.workflow, run.head_sha);
     return digest({ id: run.id, attempt: run.run_attempt, source: run.head_sha,
       actor: run.actor.id, workflow: run.workflow_id, path: run.path });
   };

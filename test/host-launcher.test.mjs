@@ -16,6 +16,7 @@ async function directory(t) {
 
 test('native job lookup derives dynamic IDs but retains adopted Runner and source pins', async () => {
   const f = runnerProviderFixture();
+  f.data['/branches/main'] = { protected: true, commit: { sha: f.expected.sourceCommit } };
   f.reader.list = async (path, key) => {
     assert.equal(path, '/repos/example/core/actions/runs/20/attempts/1/jobs');
     assert.equal(key, 'jobs'); return [structuredClone(f.job)];
@@ -33,8 +34,18 @@ test('native job lookup derives dynamic IDs but retains adopted Runner and sourc
   await assert.rejects(resolveHostJob(f.reader, adopted, { ...env, GITHUB_EVENT_NAME: 'pull_request' }), /INVALID_HOST_CALLER/);
   await assert.rejects(resolveHostJob(f.reader, { runner: { ...adopted.runner, runnerId: 999 } }, env), /HOST_JOB_NOT_UNIQUE/);
   f.run.head_sha = 'b'.repeat(40);
-  await assert.rejects(resolveHostJob(f.reader, adopted, env), /UNTRUSTED_ACTIONS_RUN/);
+  await assert.rejects(resolveHostJob(f.reader, adopted, env));
   f.run.head_sha = f.expected.sourceCommit;
+  const anchor = f.expected.sourceCommit, head = 'b'.repeat(40), path = f.expected.workflowPath;
+  f.data[`/compare/${anchor}...${head}`] = { status: 'ahead', merge_base_commit: { sha: anchor } };
+  f.data[`/contents/${path}?ref=${head}`] = f.data[`/contents/${path}?ref=${anchor}`];
+  for (const ref of [anchor, head]) f.data[`/commits?sha=${ref}&path=${encodeURIComponent(path)}&per_page=1`] = [{ sha: anchor }];
+  f.run.head_sha = head; f.job.head_sha = head; f.data['/branches/main'].commit.sha = head;
+  const advanced = await resolveHostJob(f.reader, adopted, env);
+  assert.equal(advanced.runner.sourceAnchor, anchor);
+  assert.equal(advanced.binding.sourceCommit, head);
+  f.data[`/commits?sha=${head}&path=${encodeURIComponent(path)}&per_page=1`] = [{ sha: head }];
+  await assert.rejects(resolveHostJob(f.reader, adopted, env), /CALLER_REVOKED_OR_SUPERSEDED/);
   f.reader.list = async () => [f.job, { ...f.job, id: 31 }];
   await assert.rejects(resolveHostJob(f.reader, adopted, env), /HOST_JOB_NOT_UNIQUE/);
 });

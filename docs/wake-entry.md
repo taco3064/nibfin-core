@@ -87,9 +87,72 @@ changes, the pre-checkout guard and the full two-workflow Runner source chain.
 Package CI verifies the installed resolver export. These are reproducible code
 checks, not a live authenticated workflow/Agent claim.
 
-This bridge starts one authorized stage. It does not automatically advance every
-later stage, resume unknown execution, or manufacture missing validator receipts.
-Native Issue-event observation/fanout remains the existing Core API, to be wired
-by the authorized thin caller; this workflow accepts legal Dispatch only. Its
-actual provider handoff and authenticated host execution must be verified before
-C14 is accepted. See `local-verification-handoff.md`.
+The Dispatch bridge now invokes `stage <issue> continue`. The installed host
+holds one Writer fence and follows the existing ordered stage definitions.
+Each stage constructs a separate role execution, re-enters native admission,
+and reads its persisted receipt before continuing. Successful receipt prefixes
+are not executed again; malformed, failed or stale prerequisites stop. There is
+no parallel phase store. Existing single-stage calls remain available.
+
+Only explicit pre-effect nonterminal CI observations wait (five-second reads,
+ten-minute limit). A known CI timeout is Pending after clean host inspection;
+an unknown effect retains the fence. Failed checks, changed authority and
+arbitrary observation failures do not enter that wait loop. Later dispatches
+still need current authorization and valid receipts; no stale-lock recovery or
+cross-member handoff is added.
+
+## Hosted Issue-event entry
+
+An administrator may install a separate protected caller:
+
+```yaml
+name: Nibfin Issue wake
+on:
+  issues:
+    types: [labeled, assigned, reopened, closed]
+permissions:
+  contents: read
+concurrency:
+  group: nibfin-event-${{ github.repository_id }}-${{ github.event.issue.number }}
+  cancel-in-progress: false
+jobs:
+  wake:
+    uses: taco3064/nibfin-core/.github/workflows/issue.yml@CORE_COMMIT
+    with:
+      core_commit: CORE_COMMIT
+    secrets:
+      NIBFIN_WAKE_ADOPTION: ${{ secrets.NIBFIN_WAKE_ADOPTION }}
+      NIBFIN_WAKE_TOKEN: ${{ secrets.NIBFIN_WAKE_TOKEN }}
+```
+
+The adoption adds `eventWorkflow: {id, path, commit, blob}` for this exact caller.
+The dispatch credential is the approved publisher with native authorization
+reads and Actions dispatch permission, never an Agent/model credential. The
+hosted job verifies its native run, protected caller source and Issue identity;
+it reuses `observeWake`, `WakeDispatcher`, the existing operation journal and
+native fanout. Only `scope` label events are considered. Closed events re-read
+native delivered status and both dependency directions before waking adopted
+downstream work. Unadopted targets never acquire authority.
+
+No target repository checkout or Issue-selected command executes in that job.
+An event rerun (attempt > 1) is refused: an unknown dispatch must be reconciled
+against native runs, not blindly replayed. The hosted journal is per invocation,
+not a permanent queue or cross-host SSOT. Distinct events can schedule duplicate
+runs; native concurrency and the protected host's fence/receipt checks prevent
+repeated delivery. Install the Dispatch caller's existing per-Issue concurrency
+as shown above. GITHUB_TOKEN Issue writes do not imply event recursion: a Scope
+publisher using it must choose the existing explicit Dispatch handoff, not both.
+
+These additions have local contract coverage only. Actual authenticated event,
+Runner/OIDC, Agent execution and complete external delivery remain unverified
+until exercised on an authorized adopted host. See `local-verification-handoff.md`.
+
+
+Caller adoption commits are ancestry anchors. Ordinary protected main commits
+may advance only if the adopted caller blob and its latest file-changing commit
+remain identical at the anchor, actual Run source and current main. Rewrites,
+caller edits (including edit-then-restore), missing history and changed immutable
+Core/reusable pins deny. OIDC always authenticates the actual Run source; a later
+main commit never replaces the running Job's identity. Failed stage receipts or
+rebase requirements stop for authorized correction; this change does not add
+automatic repair or stale-lock recovery.

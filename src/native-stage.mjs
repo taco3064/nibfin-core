@@ -29,7 +29,9 @@ export function nativeStageExecutor({ reader, config, execution, inspectIsolatio
       const stage = request.stage;
       let initial;
       try { initial = await observeNative(stage); }
-      catch { return { schemaVersion: 1, stage, status: 'denied', code: 'LIVE_OBSERVATION_UNAVAILABLE' }; }
+      catch (error) { return { schemaVersion: 1, stage,
+        status: error.code === 'CI_WAITING' ? 'pending' : 'denied',
+        code: error.code === 'CI_WAITING' ? 'CI_WAITING' : 'LIVE_OBSERVATION_UNAVAILABLE' }; }
       const binding = evidenceBinding(initial), bindingHash = digest(binding);
       const store = new EvidenceStore(pinned.stateRoot, binding);
       const observe = async currentStage => {
