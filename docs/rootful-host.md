@@ -105,3 +105,19 @@ reconciled. Do not retry blindly or delete a lock based on job/PID age.
 
 References: [Docker socket authority](https://docs.docker.com/engine/install/linux-postinstall/),
 [user namespace remapping](https://docs.docker.com/engine/security/userns-remap/).
+
+## Cross-identity cancellation diagnostic
+
+On 2026-11-04, installed Core `d09d95d` reproduced an unbounded transport:
+after a 250 ms timeout, the caller still had not exited at an independent
+four-second deadline, while controller UID 999 and its synthetic fence survived.
+The original SIGKILL-only path could not forward cancellation through sudo and
+waited indefinitely for inherited pipes to close.
+
+The bounded candidate sent SIGTERM through actual sudo; a deliberately ignoring
+controller retained its fence, while the caller reported PROCESS_TIMEOUT and
+actually exited after 1,255 ms. An independent root supervisor verified process
+identities, retired the temporary exact sudo rule, reconciled/killed the known
+probe processes and removed its temporary files. No GitHub, model or socket
+operations occurred. This proves transport/fence behavior, not authenticated
+stage execution or automatic recovery of a real Issue.

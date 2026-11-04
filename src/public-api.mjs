@@ -11,15 +11,32 @@ export { WakeDispatcher, observeWake, fanout } from './wakeup.mjs';
 export { resolveWakeDispatch } from './wake-entry.mjs';
 export { packageSource, verifyInstalledSource } from './source-package.mjs';
 export { installSource } from './source-install.mjs';
+export { command } from './process.mjs';
 
-export { releaseAssets, planRelease, ReleaseDraft, verifyPublishedRelease } from './release.mjs';
+export {
+  releaseAssets,
+  planRelease,
+  ReleaseDraft,
+  verifyPublishedRelease,
+} from './release.mjs';
 
 export const interfaceVersion = 1;
 export const consumerContract = Object.freeze({
   schemaVersion: interfaceVersion,
   requestKeys: Object.freeze(['schemaVersion', 'stage']),
-  stages: Object.freeze(['shape', 'validate-shape', 'publish-shape', 'deliver', 'pre-accept-hooks',
-    'accept', 'post-accept-hooks', 'commit-pr', 'review-pr', 'merge', 'close']),
+  stages: Object.freeze([
+    'shape',
+    'validate-shape',
+    'publish-shape',
+    'deliver',
+    'pre-accept-hooks',
+    'accept',
+    'post-accept-hooks',
+    'commit-pr',
+    'review-pr',
+    'merge',
+    'close',
+  ]),
   outcomes: Object.freeze(['completed', 'denied', 'pending']),
   eventAuthority: false,
   requiresPrivateKairo: false,

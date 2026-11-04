@@ -92,10 +92,12 @@ separate requirements; the entry's existence does not establish those outcomes.
 
 The verified installation includes upstream security profiles under
 `src/security`, with their source revision and license. Host adoption must load
-that exact AppArmor profile. The adapter uses a rootless Docker daemon with
+that exact AppArmor profile. The adapter uses an explicitly adopted Docker backend with
 cgroup resource enforcement, a pinned image containing Codex CLI 0.138.0, an
 isolated internal network and the fixed egress proxy. It rejects absent or changed
 container policy; no privileged or unconfined fallback exists.
+The controlled rootful backend additionally requires the identity/socket and
+user-namespace boundary in [rootful-host.md](rootful-host.md).
 
 Each work/main/input/output/session mount must have its own canonical,
 controller-owned parent with mode 0700. Mapped UID access applies below that
@@ -118,3 +120,26 @@ OIDC configuration. New github.com repositories use
 customized repositories may differ. Do not infer the trusted subject from an
 incoming token, accept both formats automatically, or remove the independent
 repository/owner ID checks. A changed subject requires trusted adoption read-back.
+
+## Bounded process transport for verified consumers
+
+The public `command` export is the shared trusted host process primitive. It is
+not an Issue/Workflow JSON interface or an authorization adapter. Consumers must
+verify the exact installed Core source before importing this helper, select a
+fixed absolute executable/argv in their reviewed code, and supply an explicit
+restricted environment. No shell or inherited credentials are used.
+
+Options retain `cwd`, `env`, `input`, positive `timeout` and output `limit`.
+`allowedExitCodes` defaults to `[0]` and must be a nonempty bounded list of
+integers 0 through 255. A thin stage consumer may use `[0, 1, 2]` to read Core's
+completed/denied/Pending JSON. This whitelist changes transport decoding only;
+the consumer must still enforce the Core outcome/exit/receipt contract.
+Successful transport returns Buffer `stdout`, Buffer `stderr` and `exitCode`.
+
+Timeout or output overflow first requests SIGTERM. After a fixed one-second
+grace, Core attempts SIGKILL and settles the transport independently of `close`,
+closing its local pipes and unreferencing remaining handles. A leader already
+observed to exit is not signalled again. Partial output is not returned with
+transport failure. A settled caller does not prove that another UID, a detached
+descendant or external operation terminated. Stage consumers must return Pending
+and preserve fences/journals until actual effects and processes are reconciled.
