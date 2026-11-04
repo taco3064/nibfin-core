@@ -24,7 +24,10 @@ root-owned `/usr/bin/getfacl`; unreadable membership/ACL evidence fails closed.
 Before initial adoption, stop and reconcile old Runner processes and establish
 a clean service start with no Docker membership. A process snapshot cannot
 repair previous privilege exposure or atomically stop a privileged forking
-process. The root-owned Runner service must prohibit privilege escalation.
+process. The root-owned Runner service grants no Docker access or general sudo.
+Its only allowed identity transition is the exact launcher described below.
+Runner-level `NoNewPrivileges=yes` would block that setuid sudo transition;
+do not claim it is active. All container no-new-privileges controls remain required.
 Socket access is effectively host-root authority: user namespace remapping
 restricts containers, not the daemon's authority. Do not share this daemon
 with unrelated workloads or grant its group to workflow processes.
