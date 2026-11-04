@@ -18,6 +18,13 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 0
+      - name: Fetch the exact push comparison base
+        if: >-
+          github.event_name == 'push' &&
+          github.event.before != '0000000000000000000000000000000000000000'
+        env:
+          SOURCE_BEFORE: ${{ github.event.before }}
+        run: git fetch --no-tags origin "$SOURCE_BEFORE"
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version-file: .node-version
