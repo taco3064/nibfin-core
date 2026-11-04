@@ -1,0 +1,12 @@
+#!/bin/sh
+set -eu
+test "$#" -eq 0
+cd /opt/nibfin/core
+version=$(/bin/cat .node-version)
+case "$version" in ''|*[!0-9.]*) exit 1 ;; esac
+runtime="/opt/nibfin/tools/node-v${version}-linux-x64/bin"
+exec /usr/bin/env -i \
+  PATH="$runtime:/usr/bin:/bin" \
+  LANG=C.UTF-8 NIBFIN_INVOKER_UID="${SUDO_UID:-}" \
+  "$runtime/node" \
+  /opt/nibfin/core/bin/nibfin-controller.mjs

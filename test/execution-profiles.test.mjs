@@ -40,10 +40,7 @@ test('unimplemented Desktop profiles and caller-selected adapters deny', () => {
   const now = Date.parse('2026-11-03T12:00:00Z');
   for (const name of ['docker-desktop', '/tmp/adapter.mjs', 'constructor']) {
     context.isolation.profile = name;
-    assert.equal(
-      decideStage('shape', context, now).code,
-      'UNVERIFIED_EXECUTION_BACKEND',
-    );
+    assert.equal(decideStage('shape', context, now).code, 'UNVERIFIED_EXECUTION_BACKEND');
     assert.throws(
       () => codexEnvironment({ kind: name }, '/installed'),
       /UNVERIFIED_EXECUTION_BACKEND/,
@@ -52,11 +49,9 @@ test('unimplemented Desktop profiles and caller-selected adapters deny', () => {
   assert.equal(Object.isFrozen(executionProfile('linux-rootless-docker-v1')), true);
 });
 
-test('the existing Linux backend retains writer, execution and observation gates', () => {
+test('both Linux backends retain the same writer and execution gates', () => {
   const now = Date.parse('2026-11-03T12:00:00Z');
-  const context = stageFixture();
-  assert.equal(decideStage('shape', context, now).status, 'allowed');
-  for (const mutation of [
+  const mutations = [
     (c) => {
       c.isolation.writerStatus = 'unknown';
     },
@@ -66,10 +61,18 @@ test('the existing Linux backend retains writer, execution and observation gates
     (c) => {
       c.isolation.observationHash = '';
     },
-  ]) {
-    const changed = structuredClone(context);
-    mutation(changed);
-    assert.equal(decideStage('shape', changed, now).status, 'denied');
+  ];
+  for (const profile of ['linux-rootless-docker-v1', 'linux-rootful-docker-v1']) {
+    const context = stageFixture();
+    context.isolation.profile = profile;
+    assert.equal(decideStage('shape', context, now).status, 'allowed');
+    for (const mutation of mutations) {
+      const changed = structuredClone(context);
+      mutation(changed);
+      assert.equal(decideStage('shape', changed, now).status, 'denied');
+    }
+    context.runner.os = 'windows';
+    assert.equal(decideStage('shape', context, now).status, 'denied');
   }
 });
 

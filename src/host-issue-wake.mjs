@@ -16,6 +16,7 @@ import { actionsCaller } from './actions-identity.mjs';
 import { readProtectedApproval } from './github-approval.mjs';
 import { dispatchIssueWake } from './issue-wake.mjs';
 import { digest, requireThat } from './identity.mjs';
+import { relayHostCommand } from './host-relay.mjs';
 
 export function hostWakeAdoption(host, adopted) {
   const event = adopted.eventRunner,
@@ -54,7 +55,9 @@ export function hostWakeAdoption(host, adopted) {
 
 // Fixed installed entry only. The hosted resolver supplies a locator, never
 // token, storage, adapter, executable or authority configuration.
-export async function launchIssueWake(issueNumber, env = process.env) {
+export async function launchIssueWake(issueNumber, env = process.env, eventBytes) {
+  const relayed = await relayHostCommand('dispatch-event', [issueNumber], env);
+  if (relayed !== null) return relayed;
   const context = await loadHostAdoption(issueNumber);
   const { host, hostBytes, adopted, reader, token } = context;
   const adoption = hostWakeAdoption(host, adopted);
@@ -112,7 +115,13 @@ export async function launchIssueWake(issueNumber, env = process.env) {
       await readSingleHost(reader, runner);
     };
     await inspect();
-    const event = JSON.parse(await boundedHostFile(env.GITHUB_EVENT_PATH, 1048576));
+    requireThat(
+      host.runnerUid === undefined || typeof eventBytes === 'string',
+      'CONTROLLER_EVENT_TRANSPORT_REQUIRED',
+    );
+    const event = JSON.parse(
+      eventBytes ?? (await boundedHostFile(env.GITHUB_EVENT_PATH, 1048576)),
+    );
     requireThat(
       String(event.issue?.number) === issueNumber &&
         event.issue.node_id === approval.record.issue.id,

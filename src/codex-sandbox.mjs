@@ -19,7 +19,12 @@ import {
   privateMountParent,
   cleanupAgentMounts,
 } from './agent-mounts.mjs';
-import { rootlessInfo } from './sandbox.mjs';
+import {
+  dockerBackend,
+  validDockerEndpoint,
+  verifyDockerSocket,
+  dockerInfo,
+} from './docker-backend.mjs';
 import { verifyAppArmor } from './apparmor-proof.mjs';
 import { digest, sha256, requireThat } from './identity.mjs';
 
@@ -46,18 +51,20 @@ export class CodexSandbox {
   #config;
   #run;
   #host;
+  #backend;
   constructor(
     config,
     {
       run = command,
+      backend,
       host = { platform: process.platform, uid: process.getuid?.(), lstat, realpath },
     } = {},
   ) {
+    this.#backend = dockerBackend(backend);
     requireThat(
       config &&
-        isAbsolute(config.docker) &&
         /^(?:[A-Za-z0-9._:/-]+@)?sha256:[a-f0-9]{64}$/.test(config.image) &&
-        /^\/run\/user\/[1-9]\d*\/docker\.sock$/.test(config.socket) &&
+        validDockerEndpoint(config, this.#backend) &&
         /^[a-f0-9]{64}$/.test(config.gatewayId) &&
         /^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/.test(config.network) &&
         !['host', 'bridge', 'none', 'default'].includes(config.network) &&
@@ -90,21 +97,11 @@ export class CodexSandbox {
   }
   async preflight() {
     const c = this.#config;
-    requireThat(
-      this.#host.platform === 'linux' &&
-        this.#host.uid > 0 &&
-        c.socket === `/run/user/${this.#host.uid}/docker.sock`,
-      'UNSUPPORTED_AGENT_HOST',
+    await verifyDockerSocket(c.socket, this.#backend, this.#host);
+    const daemon = dockerInfo(
+      await this.#inspect(['info', '--format', '{{json .}}']),
+      this.#backend,
     );
-    const socket = await this.#host.lstat(c.socket);
-    requireThat(
-      socket.isSocket() &&
-        socket.uid === this.#host.uid &&
-        (socket.mode & 0o007) === 0 &&
-        (await this.#host.realpath(c.socket)) === c.socket,
-      'UNTRUSTED_AGENT_DOCKER',
-    );
-    const daemon = rootlessInfo(await this.#inspect(['info', '--format', '{{json .}}']));
     const images = await this.#inspect(['image', 'inspect', c.image]);
     requireThat(
       images.length === 1 &&
@@ -114,6 +111,7 @@ export class CodexSandbox {
     const apparmor = await verifyAppArmor(
       (args, options) => this.#docker(args, options),
       c.image,
+      this.#backend.namespace,
     );
     const networks = await this.#inspect(['network', 'inspect', c.network]),
       gateways = await this.#inspect(['inspect', c.gatewayId]);
@@ -138,6 +136,7 @@ export class CodexSandbox {
         gateway.HostConfig?.Privileged === false &&
         gateway.HostConfig.ReadonlyRootfs === true &&
         !gateway.HostConfig.PidMode &&
+        (this.#backend.mode !== 'rootful' || !gateway.HostConfig.UsernsMode) &&
         digest(gateway.HostConfig.CapDrop) === digest(['ALL']) &&
         !gateway.HostConfig.CapAdd?.length &&
         digest(gateway.HostConfig.SecurityOpt) === digest(['no-new-privileges']) &&
@@ -337,6 +336,7 @@ export class CodexSandbox {
           digest(observed.Config.Entrypoint) === digest(['/usr/local/bin/node']) &&
           digest(observed.Config.Cmd) === digest(['/input/bootstrap.mjs']) &&
           host.Privileged === false &&
+          (this.#backend.mode !== 'rootful' || !host.UsernsMode) &&
           host.ReadonlyRootfs === true &&
           host.NetworkMode === c.network &&
           host.IpcMode === 'none' &&

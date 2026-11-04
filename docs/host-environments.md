@@ -34,6 +34,7 @@ Linux preflights and mandatory probes still run unchanged.
 | Windows + Docker Desktop Linux containers | Candidate only. On 2026-11-04, local assessment found no Docker CLI, Desktop in standard machine/per-user locations, Docker service or process. No Desktop container test was possible. |
 | macOS + Docker Desktop Linux containers | Candidate only; neither a backend nor an actual macOS host was tested. |
 | Local WSL Linux | Owner-authorized AppArmor activation and persistent securityfs mounting verified across a WSL restart on 2026-11-04. Hooks probes passed. The actual rootless container retained an unconfined label and Codex could read a freshly mounted `/proc`; Agent execution is denied. See the observations below. |
+| Linux + controlled rootful Docker | Explicit backend with separate Runner/controller identities and remapped container UIDs. Actual WSL Hooks and Codex denial probes passed without credentials; authenticated Runner/OIDC and full delivery remain unverified. See `rootful-host.md`. |
 | Windows Codex subscription CLI | Agent role functionality is separate from container isolation, native admission and protected delivery. |
 
 Desktop's Linux VM does not prove rootless equivalence, host ACL isolation,
@@ -77,7 +78,9 @@ contents were not printed. The diagnostic is not an Agent completion or E2E.
 
 An attempted AppArmor proc-mount restriction could not remedy an unapplied
 profile. Its temporary profile and Docker compatibility override were removed;
-neither is shipped here. A synthetic storage probe also survived an actual WSL
+neither was retained as a rootless workaround. The separately adopted rootful
+backend now ships and verifies that restriction; see
+[rootful-host.md](rootful-host.md). A synthetic storage probe also survived an actual WSL
 shutdown/restart with an unchanged durable fence and unknown-effect Pending;
 this proves local storage behavior only, not a native delivery or crash recovery
 of an actual Issue. Original work, login material and Docker configuration were

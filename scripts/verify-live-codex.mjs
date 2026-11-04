@@ -8,21 +8,34 @@ import { codexPlan } from '../src/codex-plan.mjs';
 import { sandboxProbeArguments } from '../src/codex-bootstrap.mjs';
 import { digest } from '../src/identity.mjs';
 import { command } from '../src/process.mjs';
+import { liveDockerProfile } from './live-docker-profile.mjs';
+import { verifyAppArmor } from '../src/apparmor-proof.mjs';
 
 const image = process.env.NIBFIN_CODEX_TEST_IMAGE;
 assert.match(image ?? '', /^sha256:[a-f0-9]{64}$/);
 const seccomp = process.env.NIBFIN_CODEX_TEST_SECCOMP;
 assert.ok(seccomp?.startsWith('/'));
 const root = await mkdtemp(join(tmpdir(), 'nibfin-live-codex-'));
-const socket = `unix:///run/user/${process.getuid()}/docker.sock`;
-const docker = args => command('/usr/bin/docker', ['--host', socket, ...args], {
-  env: { PATH: '/usr/bin:/bin', HOME: '/nonexistent', DOCKER_CONFIG: '/nonexistent' }, timeout: 120000 });
+const { socket: path, backend } = liveDockerProfile();
+const socket = `unix://${path}`;
+const docker = (args) =>
+  command('/usr/bin/docker', ['--host', socket, ...args], {
+    env: { PATH: '/usr/bin:/bin', HOME: '/nonexistent', DOCKER_CONFIG: '/nonexistent' },
+    timeout: 120000,
+  });
 const name = `nibfin-cli-probe-${randomUUID()}`;
 try {
+  if (backend.mode === 'rootful') {
+    await verifyAppArmor(docker, image, backend.namespace);
+  }
   const content = 'Synthetic isolation probe; never invoke a model.';
-  const plan = codexPlan('shape', { model: 'probe-only', context: {},
-    skill: { identity: 'shape', content, hash: digest(content) } });
-  for (const part of ['work', 'main', 'input', 'io', 'auth', 'agent-home']) await mkdir(join(root, part));
+  const plan = codexPlan('shape', {
+    model: 'probe-only',
+    context: {},
+    skill: { identity: 'shape', content, hash: digest(content) },
+  });
+  for (const part of ['work', 'main', 'input', 'io', 'auth', 'agent-home'])
+    await mkdir(join(root, part));
   // Test-only writable mounts stay beneath the private 0700 host parent.
   for (const part of ['io', 'agent-home']) await chmod(join(root, part), 0o777);
   await writeFile(join(root, 'auth/auth.json'), 'synthetic-sentinel');
@@ -42,42 +55,101 @@ for (const args of [['--version'], ['sandbox', '--help']]) {
   const help = spawnSync('/usr/local/bin/codex', args, { encoding: 'utf8' });
   process.stderr.write(help.stdout ?? ''); process.stderr.write(help.stderr ?? '');
 }
-const result = spawnSync('/usr/local/bin/codex', ${JSON.stringify(sandboxProbeArguments(plan, '127.0.0.1'))},
-  { env: { PATH: '/usr/local/bin:/usr/bin:/bin', HOME: '/tmp/tool-home', CODEX_HOME: '/agent-home' }, encoding: 'utf8' });
+const probeArgs = ${JSON.stringify(sandboxProbeArguments(plan, '127.0.0.1'))};
+const environment = { PATH: '/usr/local/bin:/usr/bin:/bin',
+  HOME: '/tmp/tool-home', CODEX_HOME: '/agent-home' };
+const result = spawnSync('/usr/local/bin/codex', probeArgs,
+  { env: environment, encoding: 'utf8' });
 writeSync(1, result.stdout ?? ''); writeSync(2, result.stderr ?? '');
-writeSync(2, JSON.stringify({ probeExitCode: result.status, signal: result.signal, stdout: result.stdout }) + '\\n');
+writeSync(2, JSON.stringify({ probeExitCode: result.status,
+  signal: result.signal, stdout: result.stdout }) + '\\n');
 const controlArgs = ${JSON.stringify(sandboxProbeArguments(plan, '1.1.1.1'))};
-controlArgs[controlArgs.length - 2] = "require('node:fs').writeSync(1, 'CONTROL_EXECUTED'); process.exit(37)";
+controlArgs[controlArgs.length - 2] =
+  "require('node:fs').writeSync(1, 'CONTROL_EXECUTED'); " + 'process.exit(37)';
 const control = spawnSync('/usr/local/bin/codex', controlArgs,
-  { env: { PATH: '/usr/local/bin:/usr/bin:/bin', HOME: '/tmp/tool-home', CODEX_HOME: '/agent-home' }, encoding: 'utf8' });
-writeSync(2, JSON.stringify({ controlExitCode: control.status, stdout: control.stdout, stderr: control.stderr }) + '\\n');
+  { env: environment, encoding: 'utf8' });
+writeSync(2, JSON.stringify({ controlExitCode: control.status,
+  stdout: control.stdout, stderr: control.stderr }) + '\\n');
 if (control.status !== 37 || control.stdout !== 'CONTROL_EXECUTED') process.exit(2);
 process.exit(result.status === 0 && result.stdout === 'NIBFIN_PROBE_PASSED\\n' ? 0 : 1);
 `;
   await writeFile(join(root, 'input/probe.mjs'), script);
-  const mounts = ['work', 'main', 'input', 'io', 'auth', 'agent-home'].flatMap(part => ['--mount',
-    `type=bind,src=${join(root, part)},dst=/${part}${['work', 'main', 'input', 'auth'].includes(part) ? ',readonly' : ''}`]);
-  await docker(['create', '--pull=never', '--name', name, '--read-only', '--network', 'none', '--ipc', 'none',
-    '--cap-drop=ALL', '--security-opt=no-new-privileges', '--security-opt', `seccomp=${seccomp}`,
-    '--security-opt=apparmor=codex-security-container', '--pids-limit=256', '--memory=4g', '--cpus=2', '--user', '1000:1000',
-    '--tmpfs', '/tmp:rw,nosuid,nodev,size=512m,mode=1777', '--workdir', '/session', ...mounts,
-    '--mount', `type=bind,src=${join(root, 'input/requirements.toml')},dst=/etc/codex/requirements.toml,readonly`,
-    '--entrypoint', '/usr/local/bin/node', image, '/input/probe.mjs']);
+  const mounts = ['work', 'main', 'input', 'io', 'auth', 'agent-home'].flatMap(part => {
+    const readonly = ['work', 'main', 'input', 'auth'].includes(part)
+      ? ',readonly' : '';
+    return ['--mount', `type=bind,src=${join(root, part)},dst=/${part}${readonly}`];
+  });
+  await docker([
+    'create',
+    '--pull=never',
+    '--name',
+    name,
+    '--read-only',
+    '--network',
+    'none',
+    '--ipc',
+    'none',
+    '--cap-drop=ALL',
+    '--security-opt=no-new-privileges',
+    '--security-opt',
+    `seccomp=${seccomp}`,
+    '--security-opt=apparmor=codex-security-container',
+    '--pids-limit=256',
+    '--memory=4g',
+    '--cpus=2',
+    '--user',
+    '1000:1000',
+    '--tmpfs',
+    '/tmp:rw,nosuid,nodev,size=512m,mode=1777',
+    '--workdir',
+    '/session',
+    ...mounts,
+    '--mount',
+    `type=bind,src=${join(root, 'input/requirements.toml')},` +
+      'dst=/etc/codex/requirements.toml,readonly',
+    '--entrypoint',
+    '/usr/local/bin/node',
+    image,
+    '/input/probe.mjs',
+  ]);
   try {
     const result = await docker(['start', '--attach', name]);
     console.log(result.stdout.toString());
   } catch (error) {
     // The fixed probe uses synthetic sentinels only; container logs contain no login.
     const logs = await docker(['logs', name]);
-    process.stderr.write(logs.stdout); process.stderr.write(logs.stderr);
+    process.stderr.write(logs.stdout);
+    process.stderr.write(logs.stderr);
     throw error;
   }
 } finally {
   await docker(['rm', '--force', name]);
-  await docker(['run', '--rm', '--network', 'none', '--read-only', '--cap-drop=ALL', '--security-opt=no-new-privileges',
-    '--user', '1000:1000', '--mount', `type=bind,src=${join(root, 'agent-home')},dst=/cleanup`, '--entrypoint', '/bin/sh', image,
-    '-c', 'find /cleanup -uid 1000 ! -type l -exec chmod a+rwX {} +']);
+  await docker([
+    'run',
+    '--rm',
+    '--network',
+    'none',
+    '--read-only',
+    '--cap-drop=ALL',
+    '--security-opt=no-new-privileges',
+    '--user',
+    '1000:1000',
+    '--mount',
+    `type=bind,src=${join(root, 'agent-home')},dst=/cleanup`,
+    '--entrypoint',
+    '/bin/sh',
+    image,
+    '-c',
+    'find /cleanup -uid 1000 ! -type l -exec chmod a+rwX {} +',
+  ]);
   await rm(root, { recursive: true, force: true });
 }
-console.log(JSON.stringify({ status: 'passed', kind: 'real-codex-sandbox-probe', image,
-  cleanupVerified: true, authenticatedAgentVerified: false }));
+console.log(
+  JSON.stringify({
+    status: 'passed',
+    kind: 'real-codex-sandbox-probe',
+    image,
+    cleanupVerified: true,
+    authenticatedAgentVerified: false,
+  }),
+);
