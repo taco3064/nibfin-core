@@ -1,6 +1,7 @@
 import { repoPath } from './github-read.mjs';
 import { digest, isId, isSha, requireThat } from './identity.mjs';
 import { readMemberPermission, readPinnedFile } from './github-approval.mjs';
+import { readCallerSource } from './caller-source.mjs';
 
 // Provider-side binding only. The caller is trusted Core, executing from an
 // installed pinned workflow outside the candidate. No event payload, environment
@@ -57,6 +58,15 @@ export async function readRunnerBinding(reader, expected) {
   const jobPath = `${root}/actions/jobs/${expected.jobId}`;
   const runnerPath = `${root}/actions/runners/${expected.runnerId}`;
   const run = await reader.get(runPath);
+  let callerBranch;
+  if (expected.sourceAnchor !== undefined) {
+    const pin = { commit: expected.sourceAnchor, path: expected.workflowPath, blob: expected.workflowBlob };
+    const branch = await reader.get(`${root}/branches/${encodeURIComponent(repository.default_branch)}`);
+    callerBranch = branch;
+    requireThat(branch.protected === true, 'CALLER_BRANCH_UNPROTECTED');
+    await readCallerSource(reader, expected.repository, pin, run.head_sha);
+    await readCallerSource(reader, expected.repository, pin, branch.commit?.sha);
+  }
   requireThat(
     run?.id === expected.runId &&
       run.run_attempt === expected.attempt &&
@@ -174,6 +184,8 @@ export async function readRunnerBinding(reader, expected) {
         repository.default_branch,
     'RUNNER_BINDING_CHANGED_DURING_READ',
   );
+  if (callerBranch) requireThat(digest(await reader.get(`${root}/branches/${encodeURIComponent(repository.default_branch)}`)) ===
+    digest(callerBranch), 'CALLER_BRANCH_CHANGED');
   return {
     repositoryId: expected.repositoryId,
     runId: run.id,

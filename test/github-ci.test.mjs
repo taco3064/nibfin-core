@@ -141,3 +141,18 @@ test('rebase closure retains both head and preview CI identities and rejects cha
     await assert.rejects(readPullRequestCI(f.reader, expected, now), /MERGED_CONTENT_CHANGED/);
   }
 });
+
+
+test('only native nonterminal CI waits; failed or foreign results remain denied', async () => {
+  const f = fixture();
+  Object.assign(f.run, { status: 'in_progress', conclusion: null });
+  Object.assign(f.check, { status: 'in_progress', conclusion: null });
+  f.pr.mergeable_state = 'blocked';
+  await assert.rejects(readPullRequestCI(f.reader, f.expected, now), /CI_WAITING/);
+  f.run.head_sha = '9'.repeat(40);
+  await assert.rejects(readPullRequestCI(f.reader, f.expected, now), /CI_SOURCE_OR_RESULT_MISMATCH/);
+  f.run.head_sha = f.expected.head;
+  Object.assign(f.run, { status: 'completed', conclusion: 'failure' });
+  Object.assign(f.check, { status: 'completed', conclusion: 'failure' });
+  await assert.rejects(readPullRequestCI(f.reader, f.expected, now), /CI_SOURCE_OR_RESULT_MISMATCH/);
+});

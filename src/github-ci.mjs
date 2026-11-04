@@ -45,7 +45,9 @@ export async function readPullRequestCI(reader, expected, now = Date.now()) {
   requireThat(pr.node_id === expected.id && pr.number === expected.number && (merged ? pr.state === 'closed' && pr.merged === true && pr.merge_commit_sha === expected.mergedCommit : pr.state === 'open') && pr.draft === false &&
     pr.head?.sha === expected.head && pr.head.repo?.id === expected.repositoryId && pr.base?.sha === expected.base &&
     pr.base.repo?.id === expected.repositoryId && pr.base.ref === repository.default_branch &&
-    (merged || pr.mergeable === true && pr.mergeable_state === 'clean') && isSha(previewSha), 'CI_PR_NOT_ELIGIBLE');
+    (merged || pr.mergeable === null || pr.mergeable === true &&
+      ['clean', 'blocked', 'unstable'].includes(pr.mergeable_state)) &&
+    (isSha(previewSha) || !merged && pr.mergeable === null && previewSha === null), 'CI_PR_NOT_ELIGIBLE');
   const branchPath = `${root}/branches/${encodeURIComponent(pr.base.ref)}`;
   const branch = await reader.get(branchPath);
   requireThat(branch.protected === true && isSha(branch.commit?.sha), 'CI_BASE_CHANGED');
@@ -60,6 +62,7 @@ export async function readPullRequestCI(reader, expected, now = Date.now()) {
     policy.required_status_checks.checks.every(check => expected.workflows.some(pin => pin.context === check.context && pin.appId === check.app_id)),
   'REQUIRED_CHECK_SOURCE_CHANGED');
   const reviewers = await readReviewers(reader, root, expected.repository, pr, policy, expected.reviewers, now);
+  if (!merged && pr.mergeable === null) requireThat(false, 'CI_WAITING');
   const preview = await reader.get(`${root}/git/commits/${previewSha}`);
   requireThat(preview.sha === previewSha && digest(preview.parents?.map(parent => parent.sha)) === digest([expected.base, expected.head]), 'INVALID_PROVIDER_TEST_MERGE');
   const headChecks = await reader.list(`${root}/commits/${expected.head}/check-runs?filter=latest`, 'check_runs');
@@ -70,6 +73,7 @@ export async function readPullRequestCI(reader, expected, now = Date.now()) {
     const onMerge = merged && pin.targetSha === expected.head ? [] : mergeChecks.filter(check => check.name === pin.context && check.app?.id === pin.appId);
     if (merged && pin.targetSha === previewSha && previewSha !== expected.head) requireThat(onMerge.length > 0, 'MERGED_CHECK_EVIDENCE_MISSING');
     const candidates = onMerge.length ? onMerge : headChecks.filter(check => check.name === pin.context && check.app?.id === pin.appId);
+    if (!merged && candidates.length === 0) requireThat(false, 'CI_WAITING');
     const matches = [];
     for (const check of candidates) {
       requireThat(isId(check.id) && isId(check.check_suite?.id), 'INVALID_CHECK_IDENTITY');
@@ -77,6 +81,13 @@ export async function readPullRequestCI(reader, expected, now = Date.now()) {
       requireThat(runs.length === 1, 'AMBIGUOUS_CHECK_RUN_SOURCE');
       const run = runs[0];
       if (run.event !== 'pull_request') continue;
+      if (!merged && run.repository?.id === expected.repositoryId &&
+        run.head_repository?.id === expected.repositoryId && run.head_sha === expected.head &&
+        run.workflow_id === pin.workflowId && run.path === pin.path &&
+        run.check_suite_id === check.check_suite.id &&
+        ['queued', 'in_progress', 'waiting', 'pending'].includes(run.status) &&
+        ['queued', 'in_progress', 'waiting', 'pending'].includes(check.status) &&
+        run.conclusion === null && check.conclusion === null) requireThat(false, 'CI_WAITING');
       requireThat(run.repository?.id === expected.repositoryId && run.head_repository?.id === expected.repositoryId &&
         run.head_sha === expected.head && run.workflow_id === pin.workflowId && run.path === pin.path &&
         run.check_suite_id === check.check_suite.id && isId(run.id) && isId(run.run_attempt) &&
@@ -109,6 +120,7 @@ export async function readPullRequestCI(reader, expected, now = Date.now()) {
     }
     requireThat(matches.length === 1, 'MISSING_OR_AMBIGUOUS_REQUIRED_CHECK'); checks.push(matches[0]);
   }
+  requireThat(merged || pr.mergeable_state === 'clean', 'CI_PR_NOT_ELIGIBLE');
   requireThat(digest(await reader.get(prPath)) === digest(pr) && digest(await reader.get(branchPath)) === digest(branch) &&
     digest(await reader.get(`${branchPath}/protection`)) === digest(policy) &&
     digest(await reader.list(`${root}/pulls/${expected.number}/reviews`)) === digest(reviewers.reviews) &&

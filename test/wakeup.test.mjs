@@ -101,3 +101,20 @@ test('fanout refuses manually closed upstream and rechecks lifecycle before ever
     assert.equal(wakes, 0);
   }
 });
+
+
+test('fanout stops on unknown dispatch and preserves the Pending result', async () => {
+  const upstream = { id: 'I_up', repository: 'example/up', number: 1, repositoryId: 11 };
+  const url = 'https://api.github.com/repos/example/up/issues/1';
+  const targets = [2, 3].map(number => ({ id: `I_${number}`, number, repository: 'example/down', repositoryId: 12 }));
+  const edges = targets.map(item => ({ node_id: item.id, number: item.number,
+    url: `https://api.github.com/repos/example/down/issues/${item.number}` }));
+  const reader = { repository: async () => ({ id: 11, full_name: upstream.repository, private: false }),
+    issue: async () => ({ node_id: upstream.id, number: 1, state: 'closed', url,
+      labels: ['scope', 'shaped', 'delivered'].map(name => ({ name })) }),
+    blocking: async () => edges, blockedBy: async () => [{ node_id: upstream.id, url }] };
+  let calls = 0;
+  const results = await fanout(reader, upstream, { approvedTarget: async id => targets.find(item => item.id === id),
+    wake: async () => { calls++; return { status: 'pending', code: 'DISPATCH_RESULT_UNKNOWN' }; } });
+  assert.equal(calls, 1); assert.equal(results[0].result.status, 'pending');
+});

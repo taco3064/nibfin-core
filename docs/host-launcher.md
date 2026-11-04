@@ -11,7 +11,8 @@ The installed CLI now executes one bounded stage:
 ```
 
 The first argument selects an already adopted Issue. It supplies no authority.
-Stage names are those returned by `contract`. JSON output retains interface v1:
+Stage names are those returned by `contract`; `continue` drives their existing
+ordered contract under one host fence, with a distinct execution per role. JSON output retains interface v1:
 `completed` exits 0, `denied` exits 1, and `pending` exits 2. There is no automatic
 retry. An invalid request is refused before configuration or network access.
 

@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { observeIssueEvent, fanoutOutcome } from '../src/issue-wake.mjs';
 import { resolveWakeDispatch } from '../src/wake-entry.mjs';
 import { approvalProviderFixture } from './github-approval-fixture.mjs';
 import { approvalRecord, now } from './approval-fixture.mjs';
@@ -87,4 +88,36 @@ test('fixed workflow rejects a substituted Core revision before checkout or toke
     assert.equal(child.status === 0, success);
     assert.equal(child.stdout.length, 0);
   }
+});
+
+
+test('Issue events are hosted locators bound to adopted caller source; reruns and forks deny', async () => {
+  const f = fixture();
+  f.adoption.eventWorkflow = f.adoption.issues[0].workflow;
+  f.invocation.eventName = 'issues'; f.run.event = 'issues';
+  f.run.referenced_workflows[0].path =
+    `taco3064/nibfin-core/.github/workflows/issue.yml@${f.adoption.coreCommit}`;
+  const event = { repository: f.repo, action: 'labeled', label: { name: 'scope' }, issue: f.issue };
+  const observe = () => observeIssueEvent(f.reader, f.adoption, event, f.invocation);
+  assert.deepEqual(await observe(), { repository: 'example/core', repositoryId: 10,
+    number: 2, id: 'I_target' });
+  for (const action of ['assigned', 'reopened', 'closed']) { event.action = action; await observe(); }
+  event.action = 'labeled'; event.label.name = 'shaped';
+  await assert.rejects(observe(), /UNSUPPORTED_ISSUE_EVENT/);
+  event.label.name = 'scope'; f.invocation.attempt = 2;
+  await assert.rejects(observe(), /INVALID_ISSUE_WAKE/);
+  f.invocation.attempt = 1; f.run.head_repository = { id: 999 };
+  await assert.rejects(observe(), /UNTRUSTED_ISSUE_EVENT_RUN/);
+  f.run.head_repository = f.repo; f.run.head_sha = 'b'.repeat(40);
+  await assert.rejects(observe());
+});
+
+
+test('fanout preserves unknown and denied dispatch results at the CLI boundary', () => {
+  const results = [{ issueId: 'I_one', result: { status: 'scheduled', runId: 1 } },
+    { issueId: 'I_two', result: { status: 'pending', code: 'DISPATCH_RESULT_UNKNOWN' } }];
+  assert.equal(fanoutOutcome(results).status, 'pending');
+  assert.deepEqual(fanoutOutcome(results).results, results);
+  results[1].result.status = 'denied';
+  assert.equal(fanoutOutcome(results).status, 'denied');
 });

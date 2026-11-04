@@ -1,9 +1,10 @@
 import { digest, requireThat } from './identity.mjs';
 import { decideStage, stages } from './stages.mjs';
 
-const success = Object.freeze({ shape: 'ready', 'validate-shape': 'approved', 'publish-shape': 'published',
+export const stageSuccess = Object.freeze({ shape: 'ready', 'validate-shape': 'approved', 'publish-shape': 'published',
   deliver: 'ready', 'pre-accept-hooks': 'passed', accept: 'accepted', 'post-accept-hooks': 'passed',
   'commit-pr': 'published', 'review-pr': 'approved', merge: 'merged', close: 'closed' });
+const success = stageSuccess;
 
 // Construct only in trusted installed Core. Adapters are code-owned and cannot be
 // overridden by a stage request, event, Issue or worktree. No arbitrary command

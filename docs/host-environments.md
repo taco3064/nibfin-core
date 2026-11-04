@@ -49,9 +49,9 @@ Official references: [GitHub Runner requirements](https://docs.github.com/en/act
 
 ## Remaining Core #1 work
 
-C14 still needs legal Issue-event/Dispatch integration, actual Runner/OIDC and
-independent Agent stages, and later-stage continuation. The bridge starts one
-stage. A legal test Issue and approval are required; manual #1 cannot substitute.
+C14 now includes hosted Issue-event/Dispatch wiring and bounded stage
+continuation under the existing host fence. Actual Runner/OIDC, independent
+authenticated Agent stages and complete external execution remain unverified. A legal test Issue and approval are required; manual #1 cannot substitute.
 C17 still needs sufficient runtime evidence, reviewed source, authorized formal
 publication and publisher/source/asset read-back. Phase 0 needs one safe route,
 not an all-OS matrix or three-repository self-delivery E2E.

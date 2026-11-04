@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { continueStages } from '../src/stage-continuation.mjs';
 import { StageRuntime } from '../src/stage-runtime.mjs';
 import { stageHandlers } from '../src/stage-handlers.mjs';
 import { EvidenceStore } from '../src/evidence-store.mjs';
@@ -42,10 +43,10 @@ test('bounded lifecycle composes stage gates, handlers, persistent artifacts and
   };
   const runtime = new StageRuntime({ observe, handlers, receipts: store, journal: new OperationJournal(root, initial.approval.record.issue), clock: () => now });
   assert.equal((await runtime.run({ schemaVersion: 1, stage: 'deliver' })).status, 'denied');
-  for (const stage of Object.keys(stages)) {
-    const result = await runtime.run({ schemaVersion: 1, stage });
-    assert.equal(result.status, 'completed', `${stage}: ${JSON.stringify(result)}`);
-  }
+  const continuation = () => continueStages({ store, execute: stage => runtime.run({ schemaVersion: 1, stage }),
+    inspect: async () => {}, wait: async () => { throw new Error('No CI latency in fixture'); } });
+  assert.equal((await continuation()).status, 'completed');
+  assert.equal((await continuation()).code, 'DELIVERY_ALREADY_RECORDED');
   assert.equal(publications, 1); assert.equal(issue.state, 'closed'); assert.ok(issue.labels.some(label => label.name === 'delivered'));
   const receipts = await store.load(); assert.equal(Object.keys(receipts).length, Object.keys(stages).length);
   assert.equal(receipts.close.artifacts.mergeCommit, receipts.merge.artifacts.mergeCommit);
