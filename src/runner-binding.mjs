@@ -184,12 +184,12 @@ export async function readRunnerBinding(reader, expected) {
     'JOB_CHECK_IDENTITY_REQUIRED',
   );
   const runner = await reader.get(runnerPath);
+  const runnerOS = typeof runner?.os === 'string' ? runner.os.toLowerCase() : '';
   requireThat(
     runner?.id === expected.runnerId &&
       runner.name === expected.runnerName &&
-      typeof runner.os === 'string' &&
-      /^[a-z][a-z0-9-]{0,31}$/.test(runner.os) &&
-      (expected.os === undefined || runner.os === expected.os) &&
+      /^[a-z][a-z0-9-]{0,31}$/.test(runnerOS) &&
+      (expected.os === undefined || runnerOS === expected.os) &&
       runner.status === 'online' &&
       runner.busy === true &&
       Array.isArray(runner.labels) &&
@@ -226,7 +226,7 @@ export async function readRunnerBinding(reader, expected) {
     checkRunId: Number(checkId),
     actorId: run.actor.id,
     runnerId: runner.id,
-    os: runner.os,
+    os: runnerOS,
     memberId: expected.memberId,
     sourceCommit: expected.sourceCommit,
     workflowBlob: expected.workflowBlob,
