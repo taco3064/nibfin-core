@@ -8,7 +8,7 @@ import { callerRecipe } from './caller-recipes.mjs';
 // Installed Core, reusable workflow and approval source pins never advance here.
 export async function readCallerSource(reader, repository, workflow, current, recipe) {
   await readCallerContinuity(reader, repository, workflow, current);
-  if (current !== workflow.commit) {
+  if (current !== workflow.commit || recipe?.kind === 'action-wake') {
     requireThat(recipe, 'CALLER_EXACT_COMMIT_REQUIRED');
     const source = await readPinnedFile(
       reader,
@@ -18,7 +18,8 @@ export async function readCallerSource(reader, repository, workflow, current, re
       workflow.blob,
     );
     requireThat(
-      source.replaceAll('\r\n', '\n') === callerRecipe(recipe.kind, recipe.coreCommit),
+      source.replaceAll('\r\n', '\n') ===
+        callerRecipe(recipe.kind, recipe.coreCommit, recipe),
       'CALLER_NOT_FIXED_RECIPE',
     );
   }

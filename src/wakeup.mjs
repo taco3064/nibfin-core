@@ -9,6 +9,7 @@ import { selectAssignee } from './selection.mjs';
 import { bindRawScope } from './approval-record.mjs';
 import { digest, isId, isSha, requireThat } from './identity.mjs';
 import { readCallerSource } from './caller-source.mjs';
+import { wakeRecipe } from './caller-recipes.mjs';
 
 // Runs on a trusted hosted preflight, before selecting a self-hosted Runner.
 // Events only locate an adopted Issue identity. No event field grants authority.
@@ -71,7 +72,7 @@ export async function observeWake(
     issue.repository,
     workflow,
     branch.commit?.sha,
-    { kind: 'wake', coreCommit: record.source.commit },
+    wakeRecipe(record.source.commit, workflow, route.userId),
   );
   const actual = await reader.get(`${root}/actions/workflows/${workflow.id}`);
   requireThat(

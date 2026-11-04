@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { GitHubReader } from './github-read.mjs';
 import { verifyInstalledSource } from './source-package.mjs';
 import { privateHostDirectory } from './host-fence.mjs';
-import { digest, isId, requireThat } from './identity.mjs';
+import { digest, isId, isSha, requireThat } from './identity.mjs';
 import { rootOwnedPath } from './host-paths.mjs';
 import { controllerRoute } from './controller-contract.mjs';
 import { verifyControllerSeparation } from './controller-separation.mjs';
@@ -83,6 +83,15 @@ export async function loadHostAdoption(issueNumber) {
       adopted.runner?.memberId === host.memberId,
     'ISSUE_NOT_ADOPTED',
   );
+  if (adopted.runner.actionCommit !== undefined) {
+    requireThat(
+      isSha(adopted.runner.actionCommit) &&
+        adopted.runner.actionCoreCommit === host.installation.pin.commit &&
+        !adopted.runner.reusable &&
+        !adopted.runner.wakeWorkflow,
+      'INVALID_ACTION_HOST_ADOPTION',
+    );
+  }
   await inspectHostAdoption({ host, hostBytes, adopted });
   await privateHostDirectory(host.stateRoot);
   await privateHostDirectory(dirname(host.tokenFile));
