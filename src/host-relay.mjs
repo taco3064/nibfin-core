@@ -6,6 +6,8 @@ import { requireThat, isId } from './identity.mjs';
 import {
   contextKeys,
   controllerProgram,
+  controllerRelayProgram,
+  controllerRelayArguments,
   controllerRoute,
   validateControllerRequest,
 } from './controller-contract.mjs';
@@ -48,8 +50,8 @@ export async function relayHostCommand(operation, values, env = process.env) {
 export async function relayControllerRequest(request, uid, run = command) {
   try {
     const result = await run(
-      '/usr/bin/sudo',
-      ['-n', '-u', `#${uid}`, '--', controllerProgram],
+      controllerRelayProgram,
+      controllerRelayArguments(uid),
       {
         cwd: coreRoot,
         env: { PATH: '/usr/bin:/bin', LANG: 'C.UTF-8' },

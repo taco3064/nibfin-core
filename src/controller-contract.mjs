@@ -1,6 +1,12 @@
 import { requireThat, isId } from './identity.mjs';
 
 export const controllerProgram = '/opt/nibfin/core/bin/nibfin-controller';
+export const controllerRelayProgram = '/usr/bin/sudo';
+
+export function controllerRelayArguments(uid) {
+  return ['-n', '-u', `#${uid}`, '--', controllerProgram];
+}
+
 export const contextKeys = Object.freeze([
   'GITHUB_REPOSITORY',
   'GITHUB_RUN_ID',
