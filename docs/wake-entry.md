@@ -101,58 +101,48 @@ arbitrary observation failures do not enter that wait loop. Later dispatches
 still need current authorization and valid receipts; no stale-lock recovery or
 cross-member handoff is added.
 
-## Hosted Issue-event entry
+## Issue-event entry and durable dispatch
 
-An administrator may install a separate protected caller:
+Install the exact `issue` caller rendered from `src/caller-recipes.json` with
+`callerRecipe('issue', coreCommit)`. The same source defines the `wake` caller.
+These complete codeless templates are the only callers allowed to run at a later
+protected-main commit. Do not add checkout, local actions, scripts, extra jobs or
+mutable references. Custom callers require their exact adopted commit. Caller
+edits, including edit-then-restore, revoke continuity.
 
-```yaml
-name: Nibfin Issue wake
-on:
-  issues:
-    types: [labeled, assigned, reopened, closed]
-permissions:
-  contents: read
-concurrency:
-  group: nibfin-event-${{ github.repository_id }}-${{ github.event.issue.number }}
-  cancel-in-progress: false
-jobs:
-  wake:
-    uses: taco3064/nibfin-core/.github/workflows/issue.yml@CORE_COMMIT
-    with:
-      core_commit: CORE_COMMIT
-    secrets:
-      NIBFIN_WAKE_ADOPTION: ${{ secrets.NIBFIN_WAKE_ADOPTION }}
-      NIBFIN_WAKE_TOKEN: ${{ secrets.NIBFIN_WAKE_TOKEN }}
-```
+The hosted resolve job verifies the native Issue event and current approval,
+then emits only Issue/member locators. It performs no dispatch and has no
+persistent journal. Its configured token needs native authorization reads;
+its historical secret name does not grant permission to write.
 
-The adoption adds `eventWorkflow: {id, path, commit, blob}` for this exact caller.
-The dispatch credential is the approved publisher with native authorization
-reads and Actions dispatch permission, never an Agent/model credential. The
-hosted job verifies its native run, protected caller source and Issue identity;
-it reuses `observeWake`, `WakeDispatcher`, the existing operation journal and
-native fanout. Only `scope` label events are considered. Closed events re-read
-native delivered status and both dependency directions before waking adopted
-downstream work. Unadopted targets never acquire authority.
+The second job invokes only the fixed installed `dispatch-event <issue>` entry.
+It checks the administrator-adopted event Runner/job, signed OIDC, protected
+source, current approval, publisher role and single-host identity. It holds the
+same host-wide fence as stages and uses the existing OperationJournal under
+private persistent `stateRoot/wake`. No workflow input selects its token,
+directory, command, adapter or security policy.
 
-No target repository checkout or Issue-selected command executes in that job.
-An event rerun (attempt > 1) is refused: an unknown dispatch must be reconciled
-against native runs, not blindly replayed. The hosted journal is per invocation,
-not a permanent queue or cross-host SSOT. Distinct events can schedule duplicate
-runs; native concurrency and the protected host's fence/receipt checks prevent
-repeated delivery. Install the Dispatch caller's existing per-Issue concurrency
-as shown above. GITHUB_TOKEN Issue writes do not imply event recursion: a Scope
-publisher using it must choose the existing explicit Dispatch handoff, not both.
+Add `eventWorkflow: {id, path, commit, blob}` to the hosted adoption. Add
+`eventRunner` and `eventCaller` to the fixed host Issue record: they use the same
+repository, member and registered Runner as its stage record;
+`eventRunner.reusable` names this Core's exact `issue.yml`, and the signed
+`eventCaller.eventName` is exactly `issues`. Adopt the actual full event job
+name. Normal stage callers still admit only `workflow_dispatch`.
 
-These additions have local contract coverage only. Actual authenticated event,
-Runner/OIDC, Agent execution and complete external delivery remain unverified
-until exercised on an authorized adopted host. See `local-verification-handoff.md`.
+Opened, edited, assigned, unassigned, reopened, unlabeled and closed events may
+resolve current state. Labeled events only consider `scope`. Closed fanout
+rechecks actual delivered status and both native dependency directions. Target
+adoption is resolved independently of eligibility: one known unready target
+does not prevent a ready sibling. Unknown effects stop fanout and retain the
+journal/fence; identical completed dispatch decisions are never posted again.
+Reruns remain refused. No journal is deleted to enable automatic retries.
 
+GITHUB_TOKEN Issue writes do not imply event recursion. Such a Scope publisher
+must explicitly use the adopted Dispatch handoff; do not assume a label change
+will start the Issue workflow. Each stage re-enters native admission and reads
+its receipt under the same host fence. Failed evidence requires authorized
+correction; this entry does not add automatic repair or cross-host recovery.
 
-Caller adoption commits are ancestry anchors. Ordinary protected main commits
-may advance only if the adopted caller blob and its latest file-changing commit
-remain identical at the anchor, actual Run source and current main. Rewrites,
-caller edits (including edit-then-restore), missing history and changed immutable
-Core/reusable pins deny. OIDC always authenticates the actual Run source; a later
-main commit never replaces the running Job's identity. Failed stage receipts or
-rebase requirements stop for authorized correction; this change does not add
-automatic repair or stale-lock recovery.
+Tests and package installation establish reproducible code behavior only.
+Actual event, Runner/OIDC, authenticated Agent/container execution and full
+external delivery remain unverified until exercised on a lawful adopted host.

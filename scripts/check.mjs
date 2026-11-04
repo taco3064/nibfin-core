@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile, readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { checkChangedSourceLimits } from './source-limits.mjs';
 
 // Check syntax without importing or executing project modules.
 async function modules(directory, optional = false) {
@@ -16,13 +17,14 @@ async function modules(directory, optional = false) {
   for (const entry of entries) {
     const path = join(directory, entry.name);
     assert(!entry.isSymbolicLink(), `Unsupported symbolic link: ${path}`);
-    if (entry.isDirectory()) files.push(...await modules(path));
+    if (entry.isDirectory()) files.push(...(await modules(path)));
     else if (/\.(mjs|cjs|js)$/.test(entry.name)) files.push(path);
   }
   return files.sort();
 }
 
 try {
+  await checkChangedSourceLimits();
   const pkg = JSON.parse(await readFile('package.json', 'utf8'));
   const version = (await readFile('.node-version', 'utf8')).trim();
   assert.match(version, /^\d+\.\d+\.\d+$/, 'Node version must be exact');
@@ -37,7 +39,10 @@ try {
     }
     files.push(...found);
   }
-  assert(files.some(file => /\.test\.mjs$/.test(file)), 'No tests discovered');
+  assert(
+    files.some((file) => /\.test\.mjs$/.test(file)),
+    'No tests discovered',
+  );
   for (const file of files) {
     const result = spawnSync(process.execPath, ['--check', file], { stdio: 'inherit' });
     if (result.error) throw result.error;

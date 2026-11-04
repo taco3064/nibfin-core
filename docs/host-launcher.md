@@ -12,7 +12,9 @@ The installed CLI now executes one bounded stage:
 
 The first argument selects an already adopted Issue. It supplies no authority.
 Stage names are those returned by `contract`; `continue` drives their existing
-ordered contract under one host fence, with a distinct execution per role. JSON output retains interface v1:
+ordered contract under one host fence, with a distinct execution per role.
+Continuation output uses `stage: continue`, with the actual `terminalStage` and
+its persisted receipt hash. JSON output retains interface v1:
 `completed` exits 0, `denied` exits 1, and `pending` exits 2. There is no automatic
 retry. An invalid request is refused before configuration or network access.
 
@@ -55,6 +57,10 @@ Each Issue record contains:
   reusable-job prefix; adopt the observed full name, not an assumed short name.
 - `caller`: the exact OIDC repository/owner IDs, subject, ref, workflow ref and
   reusable source pin. These must agree with the adopted runner contract.
+- `eventRunner`, `eventCaller`: required only for native Issue-event dispatch.
+  These separately adopt the actual event job and signed `issues` identity,
+  pinned to Core's `issue.yml` on the same host/member/repository. They cannot
+  replace normal stage identity; see `wake-entry.md`.
 - `isolation`: the existing `linux-rootless-docker-v1` profile with exact Issue
   identity, fixed Agent/hook image and socket, dedicated isolated network/proxy,
   installed security policies and Codex version. Both adapters use the same daemon.
@@ -93,6 +99,9 @@ Core prepares the Issue workspace from freshly read main, keeping Git metadata
 outside the Agent mount. Later stages reuse that workspace and receipts; they
 never reset an existing workspace. Approval/source changes still invalidate
 stage evidence through the existing native executor.
+Workspace creation also writes its authority binding into the existing evidence
+store. An existing workspace without that current binding stops Pending; changed
+Scope, approval or Core source cannot silently reuse it.
 
 Before any workspace mutation, a host-wide exclusive file is created and synced.
 It serializes all Issues on that host. Every writer inspection confirms its
@@ -100,8 +109,10 @@ identity, exactly one registered Runner with the member route (including offline
 registrations), and the absence of all containers except the adopted egress
 gateway on the dedicated daemon. Agent/hook preflights remain mandatory.
 
-Only a known non-Pending result followed by a clean host inspection releases the
-fence. Exceptions, timeouts, process death, unknown writes or leftover containers
+Only a known non-Pending result or an explicit pre-effect CI observation timeout,
+followed by a clean host inspection, releases the fence. Nonterminal native CI,
+not-yet-registered checks and unknown mergeability have distinct pending codes.
+Exceptions, process death, unknown writes or leftover containers
 retain `stage.lock`; a subsequent job returns Pending. Never delete it based on
 a PID, age, canceled job or apparent offline Runner. An administrator must first
 reconcile previous processes, containers and native writes. Moving/replacing the

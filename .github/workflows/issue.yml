@@ -21,6 +21,9 @@ jobs:
     if: github.event_name == 'issues'
     runs-on: ubuntu-24.04
     timeout-minutes: 5
+    outputs:
+      issue_number: ${{ steps.resolve.outputs.issue_number }}
+      member_id: ${{ steps.resolve.outputs.member_id }}
     steps:
       - name: Check fixed Core reference
         env:
@@ -45,10 +48,41 @@ jobs:
         with:
           node-version-file: .node-version
           package-manager-cache: false
-      - name: Dispatch through current native authority
+      - name: Resolve current native authority without dispatch
         id: resolve
         env:
           NIBFIN_CORE_COMMIT: ${{ inputs.core_commit }}
           NIBFIN_WAKE_ADOPTION: ${{ secrets.NIBFIN_WAKE_ADOPTION }}
           NIBFIN_WAKE_TOKEN: ${{ secrets.NIBFIN_WAKE_TOKEN }}
-        run: node bin/nibfin-core.mjs dispatch-event
+        run: node scripts/issue-ci.mjs
+
+  dispatch:
+    needs: resolve
+    runs-on:
+      - self-hosted
+      - linux
+      - '${{ format(''nibfin-user-{0}'', needs.resolve.outputs.member_id) }}'
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      # No target checkout or hosted credential reaches the trusted host.
+      - name: Dispatch with the installed Core and persistent journal
+        working-directory: /opt/nibfin/core
+        env:
+          NIBFIN_ISSUE: ${{ needs.resolve.outputs.issue_number }}
+        shell: bash --noprofile --norc -e {0}
+        run: |
+          exec /usr/bin/env -i \
+            PATH=/usr/bin:/bin LANG=C.UTF-8 \
+            GITHUB_REPOSITORY="$GITHUB_REPOSITORY" \
+            GITHUB_RUN_ID="$GITHUB_RUN_ID" \
+            GITHUB_RUN_ATTEMPT="$GITHUB_RUN_ATTEMPT" \
+            GITHUB_EVENT_NAME="$GITHUB_EVENT_NAME" \
+            GITHUB_EVENT_PATH="$GITHUB_EVENT_PATH" \
+            RUNNER_ENVIRONMENT="$RUNNER_ENVIRONMENT" \
+            ACTIONS_ID_TOKEN_REQUEST_URL="$ACTIONS_ID_TOKEN_REQUEST_URL" \
+            ACTIONS_ID_TOKEN_REQUEST_TOKEN="$ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            /usr/bin/node /opt/nibfin/core/bin/nibfin-core.mjs \
+            dispatch-event "$NIBFIN_ISSUE"
