@@ -1,10 +1,10 @@
-import { lstat, readdir, readFile } from 'node:fs/promises';
+import { lstat, realpath, readdir, readFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { command } from './process.mjs';
 import { requireThat } from './identity.mjs';
 import { controllerRoute } from './controller-contract.mjs';
 import { rootOwnedPath } from './host-paths.mjs';
-import { rootfulSocket } from './docker-backend.mjs';
+import { rootfulSocket, verifyDockerSocket } from './docker-backend.mjs';
 
 export function requirePlainAcl(text) {
   const rows = text.split('\n').filter((line) => line.length > 0);
@@ -47,11 +47,17 @@ export async function verifyControllerSeparation(host) {
   for (const executable of ['/usr/bin/id', '/usr/bin/getfacl']) {
     await rootOwnedPath(executable);
   }
-  const socket = await lstat(rootfulSocket);
-  requireThat(
-    socket.isSocket() && socket.uid === 0 && socket.gid > 0,
-    'UNTRUSTED_ROOTFUL_DOCKER_SOCKET',
+  await verifyDockerSocket(
+    rootfulSocket,
+    { mode: 'rootful' },
+    {
+      platform: process.platform,
+      uid: process.getuid(),
+      lstat,
+      realpath,
+    },
   );
+  const socket = await lstat(rootfulSocket);
   const options = { env: { PATH: '/usr/bin:/bin', LANG: 'C' } };
   const account = await command('/usr/bin/id', ['-G', String(host.runnerUid)], options);
   requireRunnerGroups(account.stdout.toString(), socket.gid);
