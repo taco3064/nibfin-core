@@ -2,7 +2,8 @@ import { lstat, realpath, readdir, readFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { command } from './process.mjs';
 import { requireThat } from './identity.mjs';
-import { controllerRoute } from './controller-contract.mjs';
+import { controllerRoute, controllerRelayProgram } from './controller-contract.mjs';
+import { controllerParentGuard } from './controller-parent.mjs';
 import { rootOwnedPath } from './host-paths.mjs';
 import { rootfulSocket, verifyDockerSocket } from './docker-backend.mjs';
 
@@ -44,7 +45,7 @@ export function verifyRunnerProcess(status, runnerUid, socketGid) {
 // A removed supplementary group can persist until a process is restarted.
 export async function verifyControllerSeparation(host) {
   if (!controllerRoute(host)) return;
-  for (const executable of ['/usr/bin/id', '/usr/bin/getfacl']) {
+  for (const executable of ['/usr/bin/id', '/usr/bin/getfacl', controllerRelayProgram]) {
     await rootOwnedPath(executable);
   }
   await verifyDockerSocket(
@@ -65,12 +66,15 @@ export async function verifyControllerSeparation(host) {
     const acl = await command('/usr/bin/getfacl', ['-cp', path], options);
     requirePlainAcl(acl.stdout.toString());
   }
+  const parent = await controllerParentGuard(host);
   for (const pid of (await readdir('/proc')).filter((name) => /^\d+$/.test(name))) {
     try {
       const status = await readFile(`/proc/${pid}/status`, 'utf8');
-      verifyRunnerProcess(status, host.runnerUid, socket.gid);
+      if (Number(pid) === parent?.pid) parent.verifyStatus(status);
+      else verifyRunnerProcess(status, host.runnerUid, socket.gid);
     } catch (error) {
       if (error.code !== 'ENOENT' && error.code !== 'ESRCH') throw error;
     }
   }
+  await parent?.check();
 }

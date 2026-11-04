@@ -49,6 +49,17 @@ shell, Node, `env`, Docker, arbitrary arguments or environment preservation.
 The launcher clears inherited environment, selects the installed runtime and
 passes only the sudo-provided invoker UID to its fixed JavaScript entry.
 
+Linux sudo can retain the Runner real UID in a privileged monitor while its
+effective, saved and filesystem UIDs are root. Admission distinguishes only
+the current controller's kernel-proven direct parent: exact UID tuple
+`[runnerUid, 0, 0, 0]`, no tracer, matching controller GIDs/groups and the
+fixed relay argv. PID, start time and parent relationship are checked before
+and after the process scan. Missing or changing evidence fails closed.
+This relies on the existing trusted host-root boundary, not executable names
+or argv authentication; the controller cannot necessarily read a root process's
+`/proc/<pid>/exe`. Every other process carrying any Runner UID retains the
+socket-group rejection, including another simultaneous sudo monitor.
+
 The existing CLI relays a bounded stage request or raw Issue-event bytes on
 stdin. It cannot select privileged files, modules, commands, sockets or policy.
 Only seven native Actions identity/context fields cross the boundary. These
@@ -90,6 +101,13 @@ The production adapter passed its sandbox probe, refused synthetic missing
 login and cleaned its containers. The Runner identity was denied socket
 access. These observations used public source and synthetic authentication.
 They do not prove an authenticated role, native Runner/OIDC or complete E2E.
+
+A later credential-free diagnostic exercised the existing fixed sudo launcher
+with empty stdin and inspected its waiting controller child from controller
+UID 999. The candidate parent guard verified the actual kernel relationship;
+the ordinary Runner scan still rejected that monitor without the specific
+parent exception. Both processes exited, with no stage state or Agent request.
+This validates the observed process classification, not a protected delivery.
 
 The public image recipe is `src/security/agent.Dockerfile`. Adopt the actual
 immutable image ID observed on the target daemon; a tag is not an image pin.
