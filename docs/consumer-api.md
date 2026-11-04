@@ -121,6 +121,22 @@ customized repositories may differ. Do not infer the trusted subject from an
 incoming token, accept both formats automatically, or remove the independent
 repository/owner ID checks. A changed subject requires trusted adoption read-back.
 
+## Source cache modes on Windows
+
+The pinned manifest authenticates each file's declared Git mode (`100644` or
+`100755`) on every OS. Node on Windows does not round-trip POSIX execute bits:
+the real CLI cache test observed identical launcher bytes but mode `100644`
+for the declared `100755` Linux launcher. Windows source verification therefore
+validates declared modes against the authenticated manifest, alongside complete
+file-set, content/size/hash, canonical-path, regular-file and link checks.
+POSIX hosts additionally retain their actual executable-class comparison.
+
+This is source-cache verification, not Windows executable/ACL attestation or
+trusted host adoption. Protected stage/backend eligibility is unchanged. The
+Windows filesystem smoke test does not establish a Windows container backend.
+
+Reference: [Node 24 filesystem permission caveats](https://nodejs.org/docs/latest-v24.x/api/fs.html#fschmodpath-mode-callback).
+
 ## Bounded process transport for verified consumers
 
 The public `command` export is the shared trusted host process primitive. It is
