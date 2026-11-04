@@ -2,6 +2,7 @@ import { repoPath } from './github-read.mjs';
 import { digest, isId, isSha, requireThat } from './identity.mjs';
 import { readMemberPermission, readPinnedFile } from './github-approval.mjs';
 import { readCallerSource, readCallerContinuity } from './caller-source.mjs';
+import { wakeRecipe } from './caller-recipes.mjs';
 
 // Provider-side binding only. The caller is trusted Core, executing from an
 // installed pinned workflow outside the candidate. No event payload, environment
@@ -73,18 +74,21 @@ export async function readRunnerBinding(reader, expected) {
     );
     callerBranch = branch;
     requireThat(branch.protected === true, 'CALLER_BRANCH_UNPROTECTED');
-    const recipe = expected.wakeWorkflow
-      ? {
-          kind: 'wake',
-          coreCommit: expected.wakeWorkflow.commit,
-        }
-      : expected.eventName === 'issues' &&
-          expected.reusable?.path === '.github/workflows/issue.yml'
-        ? {
-            kind: 'issue',
-            coreCommit: expected.reusable.commit,
-          }
-        : undefined;
+    const recipe =
+      expected.actionCommit !== undefined
+        ? wakeRecipe(expected.actionCoreCommit, expected, expected.memberId)
+        : expected.wakeWorkflow
+          ? {
+              kind: 'wake',
+              coreCommit: expected.wakeWorkflow.commit,
+            }
+          : expected.eventName === 'issues' &&
+              expected.reusable?.path === '.github/workflows/issue.yml'
+            ? {
+                kind: 'issue',
+                coreCommit: expected.reusable.commit,
+              }
+            : undefined;
     await readCallerSource(reader, expected.repository, pin, run.head_sha, recipe);
     await readCallerContinuity(reader, expected.repository, pin, branch.commit?.sha);
   }

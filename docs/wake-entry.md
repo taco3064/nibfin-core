@@ -81,6 +81,32 @@ reusable references. The signed OIDC caller pin still names the innermost
 
 ## Verified scope and remaining work
 
+### Fixed Action continuation caller
+
+`caller-recipes.json` also owns the `action-wake` recipe. It accepts the same
+three Issue/repository locator inputs as `WakeDispatcher`, routes to one fixed
+member Runner and invokes an immutable `nibfin-act` commit with `stage: continue`.
+It has no shell steps, checkout, role policy or subscription/write secrets.
+The protected Issue-event entry still observes eligibility before dispatch;
+the installed Core still independently admits every subsequent stage.
+
+An administrator adopting this caller sets `runner.actionCommit` to that exact
+reviewed Action commit and `runner.actionCoreCommit` to the installed Core pin.
+Do not set `runner.reusable` or `runner.wakeWorkflow` for this direct Action
+caller. Its native job and OIDC pins identify the actual caller job, not a
+Core reusable workflow. The event job retains its separate `issue.yml` pins.
+Hosted wake adoption includes `workflow.actionCommit`; Core renders the exact
+recipe with the approved writer's native user ID and approval's Core source.
+An ordinary main advance is permitted only with the same complete recipe and
+unchanged file history. Altered Action/Core/member pins or edited/restored
+callers fail the existing source checks. Inputs cannot select any of these pins.
+
+The Action must independently verify that its packaged Core pin matches the
+administrator-installed Core. Render/install consumers must adopt the new
+three-recipe inventory at immutable compatible revisions. Existing `wake` and
+`issue` recipes remain byte-compatible; older pinned consumers continue using
+their original source. This wiring is not authenticated E2E evidence.
+
 Tests exercise the real resolver with native-provider fixtures, both entry
 stages, locator/source/actor/permission/label/dependency rejection, run-attempt
 changes, the pre-checkout guard and the full two-workflow Runner source chain.

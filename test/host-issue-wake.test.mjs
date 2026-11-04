@@ -30,6 +30,12 @@ test('event entry derives only fixed host adoption and a distinct execution', ()
   assert.equal(result.coreCommit, commit);
   assert.deepEqual(result.issues[0].approvalPin, adopted.approval);
   assert.equal(result.issues[0].actorId, host.memberId);
+  const actionAdopted = structuredClone(adopted);
+  actionAdopted.runner.actionCommit = 'd'.repeat(40);
+  const actionHost = { ...host, issues: { 2: actionAdopted } };
+  const actionWake = hostWakeAdoption(actionHost, actionAdopted);
+  assert.equal(actionWake.issues[0].workflow.actionCommit, 'd'.repeat(40));
+  assert.equal(actionWake.eventWorkflow.actionCommit, undefined);
   const event = hostWakeExecution(runner);
   assert.equal(event.role, 'publisher');
   assert.notEqual(event.id, hostExecution(runner, 'publish-shape').id);

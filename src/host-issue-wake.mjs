@@ -40,6 +40,7 @@ export function hostWakeAdoption(host, adopted) {
     path: runner.workflowPath,
     commit: runner.sourceCommit,
     blob: runner.workflowBlob,
+    ...(runner.actionCommit ? { actionCommit: runner.actionCommit } : {}),
   });
   return {
     schemaVersion: 1,
