@@ -22,15 +22,20 @@ const publicCodes = new Set([
   'WAKE_WORKFLOW_SOURCE_CHANGED',
 ]);
 const publicHttpStatuses = new Set([401, 403, 404, 429, 500, 502, 503, 504]);
+const fallbackCode = 'WAKE_RESOLUTION_FAILED';
 
 function diagnosticCode(error) {
-  if (!(error instanceof Error)) return 'WAKE_RESOLUTION_FAILED';
-  const code = Object.getOwnPropertyDescriptor(error, 'code')?.value;
-  if (publicCodes.has(code)) return code;
-  const status = Object.getOwnPropertyDescriptor(error, 'status')?.value;
-  return publicHttpStatuses.has(status)
-    ? `GITHUB_READ_HTTP_${status}`
-    : 'WAKE_RESOLUTION_FAILED';
+  try {
+    if (!(error instanceof Error)) return fallbackCode;
+    const code = Object.getOwnPropertyDescriptor(error, 'code')?.value;
+    if (publicCodes.has(code)) return code;
+    const status = Object.getOwnPropertyDescriptor(error, 'status')?.value;
+    return publicHttpStatuses.has(status)
+      ? `GITHUB_READ_HTTP_${status}`
+      : fallbackCode;
+  } catch {
+    return fallbackCode;
+  }
 }
 
 export async function routingOutput(resolve, keys) {

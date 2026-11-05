@@ -78,3 +78,18 @@ test('accessor errors do not execute getters while formatting a denial', async (
   assert.equal(JSON.parse(result.stderr.trim().split('\n')[1]).code,
     'WAKE_RESOLUTION_FAILED');
 });
+
+test('failing proxy inspection cannot leak an unhandled exception', async (t) => {
+  const secret = 'PRIVATE_INSPECTION_SENTINEL';
+  for (const trap of ['getPrototypeOf', 'getOwnPropertyDescriptor']) {
+    const result = await invoke(t,
+      `throw new Proxy(new Error(${JSON.stringify(secret)}),{` +
+      `${trap}(){throw new Error(${JSON.stringify(secret)})}});`);
+    assert.equal(result.status, 1);
+    assert.equal(result.stdout, '');
+    assert.equal(result.output, 'existing=value\n');
+    assert.ok(!result.stderr.includes(secret));
+    assert.equal(JSON.parse(result.stderr.trim().split('\n')[1]).code,
+      'WAKE_RESOLUTION_FAILED');
+  }
+});
