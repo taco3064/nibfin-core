@@ -81,7 +81,21 @@ export function dockerInfo(info, backend = dockerBackend()) {
           security.some((x) => x === 'name=apparmor' || x.startsWith('name=apparmor,')),
     'DOCKER_BACKEND_NOT_ENFORCED',
   );
-  return digest(info);
+  // Fresh checks bind daemon identity, configuration and enforced capabilities.
+  // SystemTime, open descriptors and other live telemetry are not configuration;
+  // hashing them would invalidate every second pre-effect admission observation.
+  const fields = [
+    'ID', 'Name', 'DockerRootDir', 'ServerVersion', 'KernelVersion',
+    'OperatingSystem', 'OSVersion', 'OSType', 'Architecture', 'Driver',
+    'CgroupDriver', 'CgroupVersion', 'SecurityOptions', 'MemoryLimit',
+    'SwapLimit', 'PidsLimit', 'CpuCfsPeriod', 'CpuCfsQuota', 'CPUShares', 'CPUSet',
+    'OomKillDisable', 'IPv4Forwarding', 'BridgeNfIptables', 'BridgeNfIp6tables',
+    'DefaultRuntime', 'Runtimes', 'InitBinary', 'LiveRestoreEnabled',
+    'ExperimentalBuild', 'Debug', 'Containerd',
+  ];
+  return digest(Object.fromEntries(
+    fields.filter((key) => Object.hasOwn(info, key)).map((key) => [key, info[key]]),
+  ));
 }
 
 export function rootlessInfo(info) {
