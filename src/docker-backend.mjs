@@ -92,10 +92,15 @@ export function dockerInfo(info, backend = dockerBackend()) {
     'OomKillDisable', 'IPv4Forwarding', 'BridgeNfIptables', 'BridgeNfIp6tables',
     'DefaultRuntime', 'Runtimes', 'InitBinary', 'LiveRestoreEnabled',
     'ExperimentalBuild', 'Debug', 'Containerd',
+    'ContainerdCommit', 'RuncCommit', 'InitCommit',
   ];
-  return digest(Object.fromEntries(
+  const identity = Object.fromEntries(
     fields.filter((key) => Object.hasOwn(info, key)).map((key) => [key, info[key]]),
-  ));
+  );
+  // Firewall diagnostics include a reload timestamp; the selected driver is policy.
+  if (Object.hasOwn(info, 'FirewallBackend'))
+    identity.FirewallBackend = { Driver: info.FirewallBackend?.Driver ?? null };
+  return digest(identity);
 }
 
 export function rootlessInfo(info) {
