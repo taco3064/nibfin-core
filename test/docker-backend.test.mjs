@@ -73,6 +73,10 @@ test('daemon security identity excludes telemetry but binds configuration', () =
     Driver: 'overlayfs',
     DefaultRuntime: 'runc',
     Runtimes: { runc: { path: 'runc' } },
+    ContainerdCommit: { ID: 'containerd-source', Expected: 'containerd-source' },
+    RuncCommit: { ID: 'runc-source', Expected: 'runc-source' },
+    InitCommit: { ID: 'init-source', Expected: 'init-source' },
+    FirewallBackend: { Driver: 'iptables', Info: { ReloadedAt: 'earlier' } },
   };
   const original = dockerInfo(observed, backend);
   assert.equal(dockerInfo({
@@ -84,6 +88,7 @@ test('daemon security identity excludes telemetry but binds configuration', () =
     Containers: 5,
     ContainersRunning: 1,
     Images: 3,
+    FirewallBackend: { Driver: 'iptables', Info: { ReloadedAt: 'later' } },
   }, backend), original);
   for (const [key, value] of [
     ['ID', 'other-daemon'],
@@ -93,6 +98,10 @@ test('daemon security identity excludes telemetry but binds configuration', () =
     ['Driver', 'other-storage'],
     ['DefaultRuntime', 'other-runtime'],
     ['Runtimes', { runc: { path: '/other-runtime' } }],
+    ['ContainerdCommit', { ID: 'other-source', Expected: 'containerd-source' }],
+    ['RuncCommit', { ID: 'other-source', Expected: 'runc-source' }],
+    ['InitCommit', { ID: 'other-source', Expected: 'init-source' }],
+    ['FirewallBackend', { Driver: 'nftables', Info: { ReloadedAt: 'earlier' } }],
     ['SecurityOptions', [...info.SecurityOptions, 'new-security-option']],
   ]) {
     assert.notEqual(dockerInfo({ ...observed, [key]: value }, backend), original);
