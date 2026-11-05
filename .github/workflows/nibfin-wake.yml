@@ -1,0 +1,23 @@
+name: Nibfin adopted Action wake
+# Core source: 608332be6e3edb60b357a996cfcf3d3831f6b5d5
+on:
+  workflow_dispatch:
+    inputs:
+      issue_number: { required: true, type: string }
+      issue_id: { required: true, type: string }
+      repository_id: { required: true, type: string }
+permissions:
+  contents: read
+  id-token: write
+concurrency:
+  group: nibfin-${{ github.repository_id }}-${{ inputs.issue_number }}
+  cancel-in-progress: false
+jobs:
+  adopted-stage:
+    runs-on: [self-hosted, Linux, nibfin-user-127829492]
+    steps:
+      - uses: "taco3064/nibfin-act@\
+          20a3804f6626f28b4a5378056bffe53cef58d507"
+        with:
+          issue-number: ${{ inputs.issue_number }}
+          stage: continue
