@@ -15,3 +15,17 @@ test('whole-file limits include existing lines and Unicode characters', () => {
     /SOURCE_FILE_LIMIT/,
   );
 });
+
+test('JSON and YAML data are exempt from both source limits', () => {
+  const json = JSON.stringify({ wide: 'x'.repeat(91), many: Array(1001).fill(1) },
+    null, 2);
+  const yaml = `wide: ${'x'.repeat(91)}\nmany:\n${'  - item\n'.repeat(1001)}`;
+  for (const path of ['record.json', 'record.JSON']) {
+    assert.doesNotThrow(() => sourceLimits(path, json));
+  }
+  for (const path of ['workflow.yml', 'workflow.yaml', 'workflow.YAML']) {
+    assert.doesNotThrow(() => sourceLimits(path, yaml));
+  }
+  assert.throws(() => sourceLimits('program.mjs', json), /SOURCE_FILE_LIMIT/);
+  assert.throws(() => sourceLimits('program.js', yaml), /SOURCE_FILE_LIMIT/);
+});
