@@ -63,6 +63,47 @@ test('kernel maps root and tools into the adopted subordinate range', () => {
   }
 });
 
+test('daemon security identity excludes telemetry but binds configuration', () => {
+  const observed = {
+    ...info,
+    ID: 'adopted-daemon',
+    DockerRootDir: '/var/lib/nibfin-engine',
+    ServerVersion: '29.9.1',
+    KernelVersion: 'adopted-kernel',
+    Driver: 'overlayfs',
+    DefaultRuntime: 'runc',
+    Runtimes: { runc: { path: 'runc' } },
+  };
+  const original = dockerInfo(observed, backend);
+  assert.equal(dockerInfo({
+    ...observed,
+    SystemTime: '2026-11-05T03:43:00Z',
+    NFd: 99,
+    NGoroutines: 250,
+    NEventsListener: 2,
+    Containers: 5,
+    ContainersRunning: 1,
+    Images: 3,
+  }, backend), original);
+  for (const [key, value] of [
+    ['ID', 'other-daemon'],
+    ['DockerRootDir', '/other-root'],
+    ['ServerVersion', 'other-version'],
+    ['KernelVersion', 'other-kernel'],
+    ['Driver', 'other-storage'],
+    ['DefaultRuntime', 'other-runtime'],
+    ['Runtimes', { runc: { path: '/other-runtime' } }],
+    ['SecurityOptions', [...info.SecurityOptions, 'new-security-option']],
+  ]) {
+    assert.notEqual(dockerInfo({ ...observed, [key]: value }, backend), original);
+  }
+  const rootless = { ...observed,
+    SecurityOptions: ['name=rootless', 'name=seccomp,profile=builtin'] };
+  assert.equal(dockerInfo(rootless), dockerInfo({ ...rootless, SystemTime: 'later' }));
+  assert.throws(() => dockerInfo({ ...observed, CgroupVersion: '1' }, backend));
+  assert.throws(() => dockerInfo({ ...observed, CgroupDriver: 'cgroupfs' }, backend));
+});
+
 test('only the private root-owned socket and controller group are accepted', async () => {
   const stat = { uid: 0, gid: 986, mode: 0o660, isSocket: () => true };
   const host = {
