@@ -5,7 +5,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { codexPlan } from '../src/codex-plan.mjs';
-import { sandboxProbeArguments } from '../src/codex-bootstrap.mjs';
+import {
+  sandboxProbeArguments, subscriptionStatusArguments,
+} from '../src/codex-bootstrap.mjs';
 import { digest } from '../src/identity.mjs';
 import { command } from '../src/process.mjs';
 import { liveDockerProfile } from './live-docker-profile.mjs';
@@ -47,6 +49,19 @@ try {
 import { mkdirSync, readFileSync, writeSync } from 'node:fs';
 import { createServer } from 'node:net';
 mkdirSync('/tmp/tool-home', { recursive: true });
+mkdirSync('/tmp/empty-codex-home', { recursive: true });
+const loginEnvironment = { PATH: '/usr/local/bin:/usr/bin:/bin',
+  HOME: '/tmp/tool-home', CODEX_HOME: '/tmp/empty-codex-home' };
+const plain = spawnSync('/usr/local/bin/codex', ['login', 'status'],
+  { env: loginEnvironment, encoding: 'utf8' });
+if (plain.status !== 1 ||
+    !/undefined profile .nibfin./.test(plain.stderr)) process.exit(4);
+const statusArgs = ${JSON.stringify(subscriptionStatusArguments(plan))};
+const configured = spawnSync('/usr/local/bin/codex', statusArgs,
+  { env: loginEnvironment, encoding: 'utf8' });
+if (configured.status !== 1 ||
+    !/not logged in/i.test(configured.stderr + configured.stdout)) process.exit(5);
+writeSync(2, 'MANAGED_LOGIN_PROFILE_CHECK_PASSED\\n');
 for (const path of ['/auth/auth.json', '/agent-home/auth.json', '/io/probe-sentinel']) {
   if (readFileSync(path, 'utf8') !== 'synthetic-sentinel') process.exit(3);
 }
