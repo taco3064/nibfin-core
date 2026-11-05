@@ -114,6 +114,14 @@ immutable image ID observed on the target daemon; a tag is not an image pin.
 It includes Git for the existing applicable Hooks. Never import private user
 images or login material into a build context.
 
+Keep the distribution's `ca-certificates` package in the Agent image. Node's
+built-in trust store can make an HTTPS probe pass while Codex loads zero system
+roots and rejects the same upstream TLS connection. Before adopting an image,
+check the actual system CA bundle and Codex provider transport, in addition to
+the existing isolation probes. An unauthenticated HTTP response proves transport
+only; it does not verify a logged-in Agent or a protected delivery. Never disable
+certificate validation or copy private host trust material to mask this failure.
+
 Before adoption, independently review the installed source and privilege rule,
 verify private credential access and real Runner invocation, and test failure
 and cancellation across sudo. A canceled or timed-out relay is not evidence
