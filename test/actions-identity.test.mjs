@@ -109,6 +109,58 @@ test(
   },
 );
 
+test('direct callers accept only absent or exact signed self-source pairs', async () => {
+  const f = fixture();
+  f.payload.job_workflow_ref = f.expected.workflowRef;
+  f.payload.job_workflow_sha = f.expected.sourceCommit;
+  const proof = await verifyActionsIdentity(f.token(), f.expected, {
+    fetcher: f.fetcher,
+    now,
+  });
+  assert.equal(proof.sourceCommit, f.expected.sourceCommit);
+  for (const pair of [
+    { job_workflow_ref: f.expected.workflowRef },
+    { job_workflow_sha: f.expected.sourceCommit },
+    { job_workflow_ref: null, job_workflow_sha: null },
+    { job_workflow_ref: '', job_workflow_sha: '' },
+    { job_workflow_ref: null },
+    { job_workflow_sha: '' },
+    {
+      job_workflow_ref: 'foreign/workflow@refs/heads/main',
+      job_workflow_sha: f.expected.sourceCommit,
+    },
+    { job_workflow_ref: f.expected.workflowRef, job_workflow_sha: 'b'.repeat(40) },
+  ]) {
+    const rejected = fixture();
+    Object.assign(rejected.payload, pair);
+    await assert.rejects(
+      verifyActionsIdentity(rejected.token(), rejected.expected, {
+        fetcher: rejected.fetcher,
+        now,
+      }),
+      /UNEXPECTED_REUSABLE_WORKFLOW/,
+    );
+  }
+});
+
+test('reusable callers require their separately adopted exact source', async () => {
+  const f = fixture();
+  f.expected.reusable = {
+    ref: `example/reusable/.github/workflows/stage.yml@${'b'.repeat(40)}`,
+    commit: 'b'.repeat(40),
+  };
+  f.payload.job_workflow_ref = f.expected.workflowRef;
+  f.payload.job_workflow_sha = f.expected.sourceCommit;
+  const options = { fetcher: f.fetcher, now };
+  await assert.rejects(
+    verifyActionsIdentity(f.token(), f.expected, options),
+    /OIDC_REUSABLE_SOURCE_MISMATCH/,
+  );
+  f.payload.job_workflow_ref = f.expected.reusable.ref;
+  f.payload.job_workflow_sha = f.expected.reusable.commit;
+  assert.equal((await verifyActionsIdentity(f.token(), f.expected, options)).runId, 30);
+});
+
 test(
   'signed foreign jobs, forks, stale tokens, wrong ' +
     'audience/source and unexpected reusable workflows ' +

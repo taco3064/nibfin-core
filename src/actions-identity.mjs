@@ -133,7 +133,10 @@ export async function verifyActionsIdentity(
     );
   } else
     requireThat(
-      !payload.job_workflow_ref && !payload.job_workflow_sha,
+      (!Object.hasOwn(payload, 'job_workflow_ref') &&
+        !Object.hasOwn(payload, 'job_workflow_sha')) ||
+        (payload.job_workflow_ref === expected.workflowRef &&
+          payload.job_workflow_sha === expected.sourceCommit),
       'UNEXPECTED_REUSABLE_WORKFLOW',
     );
   return {
