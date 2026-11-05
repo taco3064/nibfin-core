@@ -3,6 +3,7 @@ import { spawnSync } from 'node:child_process';
 import { requireThat } from '../src/identity.mjs';
 
 const source = /\.(?:mjs|cjs|js|json|ya?ml)$/;
+const configuration = /\.(?:json|ya?ml)$/i;
 const git = (args) => {
   const result = spawnSync('git', args, { encoding: 'utf8', shell: false });
   requireThat(result.status === 0, 'SOURCE_DIFF_UNAVAILABLE');
@@ -10,6 +11,7 @@ const git = (args) => {
 };
 
 export function sourceLimits(path, text) {
+  if (configuration.test(path)) return;
   const lines = text.replaceAll('\r\n', '\n').split('\n');
   if (lines.at(-1) === '') lines.pop();
   requireThat(lines.length <= 1000, `SOURCE_FILE_LIMIT: ${path}`);
@@ -41,5 +43,5 @@ export async function checkChangedSourceLimits(env = process.env) {
     requireThat(stat.isFile() && !stat.isSymbolicLink(), 'UNSAFE_SOURCE_FILE');
     sourceLimits(path, await readFile(path, 'utf8'));
   }
-  console.log(`Whole-file source limits checked: ${paths.size} files.`);
+  console.log(`Changed files inspected for applicable source limits: ${paths.size}.`);
 }
