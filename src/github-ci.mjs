@@ -13,6 +13,11 @@ const pendingObservations = Object.freeze([
 // Missing checks and unknown mergeability are not claims of observed running CI.
 export const pendingCIObservation = (code) => pendingObservations.includes(code);
 
+const checkoutCommands = [
+  '[command]/usr/bin/git log -1 --format=%H',
+  String.raw`[command]"C:\Program Files\Git\bin\git.exe" log -1 --format=%H`,
+];
+
 // Only the pinned, reviewed workflow's first checkout step may establish this
 // observation. Native step timing and the first exact checkout log marker bound
 // the region before any candidate test command runs. Logs alone grant nothing.
@@ -37,9 +42,7 @@ export function checkoutIdentity(logs, step) {
     .filter((line) => Date.parse(line[1]) >= start && Date.parse(line[1]) < end + 1000);
   const markers = lines
     .map((line, index) => ({ line, index }))
-    .filter(({ line }) =>
-      /^\[command\]\/usr\/bin\/git log -1 --format=%H\r?$/.test(line[2]),
-    );
+    .filter(({ line }) => checkoutCommands.includes(line[2].replace(/\r$/, '')));
   requireThat(markers.length === 1, 'AMBIGUOUS_CHECKOUT_LOG');
   const sha = lines[markers[0].index + 1]?.[2].trim();
   requireThat(isSha(sha), 'CHECKOUT_SHA_UNAVAILABLE');
