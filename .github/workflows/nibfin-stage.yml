@@ -11,7 +11,7 @@ jobs:
   adopted-stage:
     runs-on: [self-hosted, nibfin-user-127829492]
     steps:
-      - uses: taco3064/nibfin-act@20a3804f6626f28b4a5378056bffe53cef58d507
+      - uses: taco3064/nibfin-act@19a577f580703c75446208d325eab593b68e6b53
         with:
           issue-number: ${{ inputs.issue-number }}
           stage: ${{ inputs.stage }}
