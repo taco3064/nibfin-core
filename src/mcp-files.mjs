@@ -6,8 +6,14 @@ import { requireThat } from './identity.mjs';
 
 const aclScript = `
 $ErrorActionPreference='Stop'
-[Console]::InputEncoding=[Text.UTF8Encoding]::new($false)
-$request=[Console]::In.ReadToEnd() | ConvertFrom-Json
+$values=[Console]::In.ReadToEnd().Split('|')
+if($values.Length -ne 3) {throw 'Invalid ACL request'}
+$paths=@(
+  @{path=[Text.Encoding]::UTF8.GetString(
+    [Convert]::FromBase64String($values[0]));private=($values[2] -eq '1')},
+  @{path=[Text.Encoding]::UTF8.GetString(
+    [Convert]::FromBase64String($values[1]));private=$false}
+)
 $current=[Security.Principal.WindowsIdentity]::GetCurrent().User.Value
 $trusted=@($current,'S-1-5-18','S-1-5-32-544')
 $writes=[Security.AccessControl.FileSystemRights]::Write -bor
@@ -15,8 +21,10 @@ $writes=[Security.AccessControl.FileSystemRights]::Write -bor
   [Security.AccessControl.FileSystemRights]::DeleteSubdirectoriesAndFiles -bor
   [Security.AccessControl.FileSystemRights]::ChangePermissions -bor
   [Security.AccessControl.FileSystemRights]::TakeOwnership
-foreach($item in $request.paths) {
-  $acl=Get-Acl -LiteralPath $item.path
+foreach($item in $paths) {
+  $acl=if([IO.Directory]::Exists($item.path)) {
+    [IO.Directory]::GetAccessControl($item.path)
+  } else {[IO.File]::GetAccessControl($item.path)}
   $owner=$acl.GetOwner([Security.Principal.SecurityIdentifier]).Value
   if($owner -notin $trusted) {throw 'Untrusted owner'}
   foreach($entry in $acl.GetAccessRules($true,$true,
@@ -35,8 +43,8 @@ foreach($item in $request.paths) {
 export async function protectWindowsMcpDirectory(path, run = command) {
   const script = `
 $ErrorActionPreference='Stop'
-[Console]::InputEncoding=[Text.UTF8Encoding]::new($false)
-$path=[Console]::In.ReadToEnd() | ConvertFrom-Json
+$path=[Text.Encoding]::UTF8.GetString(
+  [Convert]::FromBase64String([Console]::In.ReadToEnd()))
 $current=[Security.Principal.WindowsIdentity]::GetCurrent().User
 $acl=[Security.AccessControl.DirectorySecurity]::new()
 $acl.SetOwner($current)
@@ -47,11 +55,12 @@ foreach($sid in @($current.Value,'S-1-5-18','S-1-5-32-544')) {
     'FullControl','ContainerInherit,ObjectInherit','None','Allow')
   $acl.AddAccessRule($rule)
 }
-Set-Acl -LiteralPath $path -AclObject $acl
+[IO.Directory]::SetAccessControl($path,$acl)
 `;
   await run('C:/Windows/System32/WindowsPowerShell/v1.0/powershell.exe',
     ['-NoProfile', '-NonInteractive', '-Command', script],
-    { input: JSON.stringify(path), env: { SystemRoot: 'C:/Windows' },
+    { input: Buffer.from(path).toString('base64'),
+      env: { SystemRoot: 'C:/Windows' },
       timeout: 15000, limit: 1024 });
   await verifyMcpPath(path, { directory: true, run });
 }
@@ -76,9 +85,9 @@ export async function verifyMcpPath(path, {
     try { result = await run(
       'C:/Windows/System32/WindowsPowerShell/v1.0/powershell.exe',
       ['-NoProfile', '-NonInteractive', '-Command', aclScript],
-      { input: JSON.stringify({ paths: [
-        { path, private: privateAccess }, { path: dirname(path), private: false },
-      ] }),
+      { input: [Buffer.from(path).toString('base64'),
+        Buffer.from(dirname(path)).toString('base64'), privateAccess ? '1' : '0']
+        .join('|'),
         env: { SystemRoot: 'C:/Windows' }, timeout: 15000, limit: 1024 },
     ); } catch (error) {
       error.mcpPhase = 'WINDOWS_MCP_ACL_QUERY';
