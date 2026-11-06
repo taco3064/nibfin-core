@@ -342,6 +342,23 @@ test(
   },
 );
 
+test('native Windows checkout requires the exact command in the trusted step', () => {
+  const f = fixture(), step = f.job.steps[1];
+  const marker = String.raw`[command]"C:\Program Files\Git\bin\git.exe"` +
+    ' log -1 --format=%H';
+  const valid = checkoutLog(f.preview, marker);
+  assert.equal(checkoutIdentity(valid, step), f.preview);
+  for (const changed of [
+    marker.replace('C:', 'D:'), marker.replace('Git\\bin', 'Other\\bin'),
+    marker + ' && echo spoofed', marker.replace('--format=%H', '--format=%s'),
+  ]) assert.throws(() => checkoutIdentity(checkoutLog(f.preview, changed), step),
+    /AMBIGUOUS_CHECKOUT_LOG/);
+  assert.throws(() => checkoutIdentity(valid + checkoutLog(f.preview), step),
+    /AMBIGUOUS_CHECKOUT_LOG/);
+  assert.throws(() => checkoutIdentity(valid.replaceAll(
+    '2026-11-03T02:00:', '2026-11-03T02:02:'), step));
+});
+
 test(
   'closure revalidates the historical PR checks after ' +
     'merge and refuses a missing merge ancestor',
