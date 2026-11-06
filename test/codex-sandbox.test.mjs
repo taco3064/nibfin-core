@@ -275,7 +275,7 @@ test('rootful gateway cannot override the adopted user namespace', async (t) => 
   );
 });
 
-test('MCP gateway ignores Env order but rejects additions and duplicate keys', async t => {
+test('MCP gateway rejects added or duplicate Env keys, tolerates order', async t => {
   const reordered = await fixture(t, 'gateway-env-order', true, true);
   await reordered.sandbox.preflight();
   for (const fault of ['gateway-env-extra', 'gateway-env-duplicate']) {
