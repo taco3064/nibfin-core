@@ -56,7 +56,8 @@ export async function codexStageExecutor({
     coreRoot,
   );
   const inheritedAgent = withUserMcp(agentSandbox, mcpSource,
-    source => loadUserMcp(source, { discoveryRoot: agentStateRoot }));
+    source => loadUserMcp(source, { discoveryRoot: agentStateRoot,
+      memberId: adopted.runner.memberId }));
   const agent = new CodexRoleAgent(
     {
       stateRoot: agentStateRoot,

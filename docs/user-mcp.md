@@ -17,6 +17,17 @@ canonical, private native Codex configuration directory; `uid` is its owner.
 The controller must already have legitimate access to that source. This change
 does not grant access to another user's home or Windows credential manager.
 
+Alternatively, an adopted Linux controller can select a private exported source:
+
+```json
+{ "kind": "delegated-http-v1", "file": "/private/mcp/delegation.json" }
+```
+
+The expected member comes from the trusted adopted Runner binding. The capsule's
+self-declared member, platform and source hash are metadata, not authentication.
+Authority comes from Owner-operated export/import and the private file selected
+by administrator-owned host adoption. Workflow inputs cannot select this source.
+
 Only the native resolved `mcp_servers` configuration is imported. Native
 `app-server` `config/read` supplies the full policies, including per-tool approval
 rules omitted by `mcp get --json`. The reader accepts user and trusted system
@@ -35,10 +46,57 @@ delegated. This is version-specific compatibility, not a universal cache format.
 The original refresh token/cache is never copied, rotated or overwritten.
 Delegated access tokens must have enough remaining lifetime for the bounded
 execution. Native keyring-only OAuth, ChatGPT-authenticated MCP, desktop connector
-OAuth, cross-OS source export and STDIO server isolation are not implemented by
-this boundary. They receive explicit diagnostics; required servers deny execution.
+OAuth and STDIO server isolation are not implemented by this boundary. They
+receive explicit diagnostics; required servers deny execution.
 An existing desktop Notion connection does not establish native CLI OAuth.
 Users must not paste credentials into Issues, PRs, logs or chat.
+
+## Owner-operated Windows delegation
+
+The bootstrap commands are:
+
+```text
+export-mcp <codex> <settings-home> <auth-home> <member-id> <new-private-file>
+import-mcp <member-id> <new-private-file> (private stdin only)
+```
+
+Export resolves the original user configuration afresh and reads matching native
+credentials from the separately enrolled private authentication home. It exports
+normalized HTTPS settings and current access headers only. OAuth registration,
+client secrets, refresh tokens, model authentication and unrelated user settings
+are not transferred. Native `o_auth` and `oauth` inventory spellings are recognized.
+
+The capsule expires no later than the delegated access token or eight hours after
+export. It must have at least 31 minutes remaining on import. Its expiry remains
+bound to the role profile and is checked again before execution. No automatic
+OAuth refresh, credential-store rotation or perpetual installation grant is
+created. Expired delegation denies execution and requires controlled renewal;
+this change does not establish an automatic native refresh integration.
+
+Windows ownership/DACL, canonical paths, parent write authority, reparse points
+and hard links are checked. Only the current owner, SYSTEM and Administrators may
+read the private source/output. Original public settings may be readable by other
+accounts but must not be writable by them. The exporter never prints the capsule;
+its command result contains metadata only. Transfer must use the approved private
+pipe and controller-owned destination, never an Issue, chat or Workflow input.
+
+Windows native configuration reading uses a small shipped C# helper, built with
+the existing Microsoft .NET Framework compiler in an owner-only temporary
+directory. No SDK, service or execution-policy change is installed. The helper
+assigns the suspended CLI to a non-breakaway Job Object before resuming it. It
+terminates the job and proves zero active processes before emitting its dedicated
+termination marker. Native stderr cannot forge that marker. Unknown termination
+denies export and preserves recovery resources; verified temporary helpers retire.
+The current adapter requires the standard `C:/Windows` system layout and existing
+.NET Framework compiler; other Windows layouts and macOS export are unverified.
+
+Import accepts only the exact capsule schema and compatible native version. It
+reapplies the same profile restrictions and writes a new controller-private file;
+it does not overwrite an existing source or activate a host route. Runtime loading
+still performs guarded catalog discovery and all container/egress preflights.
+Source export, cross-host credential transfer, runtime/gateway adoption and service
+activation remain distinct authorized operations. Run verified bootstrap code,
+never a Candidate checkout, to perform these operations.
 
 ## Role and isolation policy
 
@@ -92,9 +150,10 @@ delivery from these tests.
 
 ## Remaining integration gates
 
-- Native Windows configuration and existing authenticated connector reuse need
-  a legitimate cross-boundary source/delegation mechanism, without copying an
-  entire user home or exposing refresh credentials to Agent commands.
+- The Windows file-delegation path needs approved real credential transfer and
+  adopted protected-role validation. Unit tests do not establish that result.
+- Desktop/keyring-only authentication and automatic native refresh integration
+  remain unverified; current file-cache delegation is explicitly bounded.
 - Actual provider login, role tool availability, read-only rejection, private
   path denial and gateway behavior must be exercised on the adopted candidate.
 - The previously blocked Shape requires legal correction/re-authorization;

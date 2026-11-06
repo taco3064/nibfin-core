@@ -125,6 +125,10 @@ function inheritedHttp(name, original, options) {
   server.tools = Object.fromEntries(Object.entries(server.tools ?? {}).map(
     ([tool, policy]) => {
       requireThat(plain(policy), 'INVALID_USER_MCP_TOOL_POLICY');
+      requireThat(Object.keys(policy).every(key =>
+        ['approval_mode', 'enabled'].includes(key)) &&
+        (policy.enabled === undefined || typeof policy.enabled === 'boolean'),
+      'INVALID_USER_MCP_TOOL_POLICY');
       return [tool, {
         ...policy, approval_mode: approval(policy.approval_mode ??
           original.default_tools_approval_mode),
@@ -147,6 +151,8 @@ export function inheritUserMcp(configuration, {
   let expiresAt = null;
   for (const [name, original] of Object.entries(configuration)) {
     requireThat(/^[A-Za-z0-9_-]+$/.test(name) && plain(original),
+      'INVALID_USER_MCP_SERVER');
+    requireThat(!['__proto__', 'constructor', 'prototype'].includes(name),
       'INVALID_USER_MCP_SERVER');
     if (original.enabled === false) {
       servers[name] = disabledMcpServer();

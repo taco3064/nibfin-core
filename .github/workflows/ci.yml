@@ -45,6 +45,10 @@ jobs:
           node-version-file: .node-version
           package-manager-cache: false
       - run: node --test test/source-mode.test.mjs
+      - name: Verify native Windows MCP process and source boundaries
+        run: >-
+          node --test test/mcp-source.test.mjs test/mcp-resolve.test.mjs
+          test/mcp-windows.test.mjs
 
   package:
     uses: ./.github/workflows/package.yml
