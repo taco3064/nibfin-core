@@ -4,6 +4,7 @@ import { generateKeyPairSync, sign } from 'node:crypto';
 import {
   verifyActionsIdentity,
   requestActionsIdentity,
+  actionsCaller,
 } from '../src/actions-identity.mjs';
 
 const { privateKey, publicKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
@@ -273,4 +274,43 @@ test('issues OIDC requires an explicit adopted event entry', async () => {
   f.expected.eventName = 'pull_request';
   f.payload.event_name = 'pull_request';
   await assert.rejects(verifyActionsIdentity(f.token(), f.expected, options));
+});
+
+function delayedCaller(configure) {
+  const f = fixture();
+  const executionId = '00000000-0000-4000-8000-000000000001';
+  f.payload.aud = `nibfin:10:${executionId}`;
+  configure(f.payload);
+  let current = now;
+  const caller = actionsCaller({
+    pin: f.expected, executionId, clock: () => current,
+    requestUrl: 'https://vstoken.actions.githubusercontent.com/token',
+    requestToken: 'synthetic-request-credential',
+    fetcher: async (url, options) => {
+      if (url.startsWith('https://vstoken.'))
+        return { ok: true, text: async () => JSON.stringify({ value: f.token() }) };
+      const response = await f.fetcher(url, options);
+      if (url.endsWith('/jwks')) current = now + 2000;
+      return response;
+    },
+  });
+  return () => caller(f.expected);
+}
+
+test('expiry during signing-key retrieval cannot authorize a caller', async () => {
+  const call = delayedCaller(payload => { payload.exp = now / 1000 + 1; });
+  await assert.rejects(call(), { code: 'OIDC_EXPIRED' });
+});
+
+test('activation uses verification time without permitting future claims', async () => {
+  const active = delayedCaller(payload => {
+    payload.iat = now / 1000 + 1;
+    payload.nbf = now / 1000 + 1;
+  });
+  assert.equal((await active()).runId, 30);
+  const future = delayedCaller(payload => {
+    payload.iat = now / 1000 + 3;
+    payload.nbf = now / 1000 + 3;
+  });
+  await assert.rejects(future(), { code: 'OIDC_ISSUED_IN_FUTURE' });
 });

@@ -1,6 +1,7 @@
 import { digest, requireThat } from './identity.mjs';
 import { decideStage, stages } from './stages.mjs';
 import { pendingMcpObservation } from './mcp-pending.mjs';
+import { observationFailureCode } from './observation-failure.mjs';
 
 export const stageSuccess = Object.freeze({
   shape: 'ready',
@@ -69,7 +70,7 @@ export class StageRuntime {
         schemaVersion: 1,
         status: pendingMcpObservation(error.code) ? 'pending' : 'denied',
         code: pendingMcpObservation(error.code)
-          ? error.code : 'LIVE_OBSERVATION_UNAVAILABLE',
+          ? error.code : observationFailureCode(error),
         stage,
       };
     }
