@@ -115,7 +115,10 @@ async function fixture(t, fault, rootful = false, mcp = false) {
             Entrypoint: ['node'],
             Cmd: ['/proxy.mjs'],
             Env: ['PATH=/usr/bin', ...(mcp ?
-              ['NIBFIN_MCP_POLICY_DIRECTORY=/mcp-policy'] : [])],
+              ['NIBFIN_MCP_POLICY_DIRECTORY=/mcp-policy'] : [])]
+              .sort()
+              .concat(fault === 'gateway-env-extra' ? ['FOREIGN=1'] : [])
+              .concat(fault === 'gateway-env-duplicate' ? ['PATH=/usr/bin'] : []),
           },
           HostConfig: {
             UsernsMode: fault === 'gateway-host-userns' ? 'host' : '',
@@ -270,6 +273,15 @@ test('rootful gateway cannot override the adopted user namespace', async (t) => 
     changed.calls.some((c) => c[0] === 'create'),
     false,
   );
+});
+
+test('MCP gateway ignores Env order but rejects additions and duplicate keys', async t => {
+  const reordered = await fixture(t, 'gateway-env-order', true, true);
+  await reordered.sandbox.preflight();
+  for (const fault of ['gateway-env-extra', 'gateway-env-duplicate']) {
+    const changed = await fixture(t, fault, true, true);
+    await assert.rejects(changed.sandbox.preflight(), /AGENT_EGRESS_NOT_ISOLATED/);
+  }
 });
 
 test('Agent policy, private outputs and termination are verified', async (t) => {
