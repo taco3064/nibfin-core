@@ -28,6 +28,7 @@ import {
 import { verifyAppArmor } from './apparmor-proof.mjs';
 import { digest, sha256, requireThat } from './identity.mjs';
 import { privateMcpToml } from './mcp-profile.mjs';
+import { sameContainerEnvironment } from './container-environment.mjs';
 import {
   acquireMcpEgress, verifyMcpPolicyDirectory,
   mcpPolicyEnvironment, mcpPolicyMount,
@@ -120,7 +121,8 @@ export class CodexSandbox {
     );
     const networks = await this.#inspect(['network', 'inspect', c.network]),
       gateways = await this.#inspect(['inspect', c.gatewayId]);
-    requireThat(networks.length === 1 && gateways.length === 1, 'AMBIGUOUS_AGENT_EGRESS');
+    requireThat(networks.length === 1 && gateways.length === 1,
+      'AMBIGUOUS_AGENT_EGRESS');
     const network = networks[0],
       gateway = gateways[0],
       ip = gateway.NetworkSettings?.Networks?.[c.network]?.IPAddress;
@@ -141,7 +143,8 @@ export class CodexSandbox {
       network.Name === c.network &&
         network.Driver === 'bridge' &&
         network.Internal === true &&
-        network.Options?.['com.docker.network.bridge.gateway_mode_ipv4'] === 'isolated' &&
+        network.Options?.['com.docker.network.bridge.gateway_mode_ipv4'] ===
+          'isolated' &&
         gateway.Id === c.gatewayId &&
         gateway.State?.Running === true &&
         gateway.Config?.Image === c.image &&
@@ -154,7 +157,7 @@ export class CodexSandbox {
         digest(gateway.HostConfig.SecurityOpt) === digest(['no-new-privileges']) &&
         digest(gateway.Config.Entrypoint) === digest(['node']) &&
         digest(gateway.Config.Cmd) === digest(['/proxy.mjs']) &&
-        digest(gateway.Config.Env ?? []) === digest(gatewayEnvironment) &&
+        sameContainerEnvironment(gateway.Config.Env, gatewayEnvironment) &&
         gateway.Mounts?.length === 1 + extraMounts.length &&
         gateway.Mounts.some(mount => mount.Source === c.proxyScript &&
           mount.Destination === '/proxy.mjs' &&
@@ -224,7 +227,8 @@ export class CodexSandbox {
       'apparmor=codex-security-container',
     ];
     const bootstrap = await readFile(join(c.coreRoot, 'src/codex-bootstrap.mjs'));
-    await writeFile(join(input, 'bootstrap.mjs'), bootstrap, { flag: 'wx', mode: 0o400 });
+    await writeFile(join(input, 'bootstrap.mjs'), bootstrap,
+      { flag: 'wx', mode: 0o400 });
     await writeFile(
       join(input, 'invocation.json'),
       JSON.stringify({
@@ -343,15 +347,8 @@ export class CodexSandbox {
       const host = observed.HostConfig;
       const observedEnv = observed.Config?.Env ?? [];
       requireThat(
-        observedEnv.length === Object.keys(expectedEnv).length &&
-          observedEnv.every(
-            (entry) =>
-              entry.includes('=') &&
-              expectedEnv[entry.slice(0, entry.indexOf('='))] ===
-                entry.slice(entry.indexOf('=') + 1),
-          ) &&
-          new Set(observedEnv.map((entry) => entry.slice(0, entry.indexOf('=')))).size ===
-            observedEnv.length,
+        sameContainerEnvironment(observedEnv, Object.entries(expectedEnv)
+          .map(([key, value]) => `${key}=${value}`)),
         'AGENT_ENVIRONMENT_CHANGED',
       );
       requireThat(
