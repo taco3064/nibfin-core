@@ -14,8 +14,9 @@ import { resolve, join } from 'node:path';
 import { CodexSandbox } from '../src/codex-sandbox.mjs';
 import { digest } from '../src/identity.mjs';
 import { dockerBackend, rootfulSocket } from '../src/docker-backend.mjs';
+import { inheritUserMcp } from '../src/mcp-profile.mjs';
 
-async function fixture(t, fault, rootful = false) {
+async function fixture(t, fault, rootful = false, mcp = false) {
   const seccomp = JSON.parse(await readFile('src/security/seccomp.json', 'utf8'));
   const root = await mkdtemp(join(tmpdir(), 'nibfin-agent-isolation-'));
   t.after(() => rm(root, { recursive: true, force: true }));
@@ -45,6 +46,15 @@ async function fixture(t, fault, rootful = false) {
     coreRoot: resolve('.'),
     proxyScript: resolve('src/egress-proxy.mjs'),
   };
+  if (mcp) {
+    config.mcpPolicyDirectory = join(root, 'mcp-policy');
+    await mkdir(config.mcpPolicyDirectory, { mode: 0o755 });
+    request.mcp = inheritUserMcp({ notion: {
+      url: 'https://mcp.notion.com/mcp',
+      http_headers: { Authorization: 'Bearer private-mcp-token' },
+    } });
+    request.plan.mcpPolicyHash = request.mcp.policyHash;
+  }
   const host = {
     platform: 'linux',
     uid: 1000,
@@ -104,7 +114,8 @@ async function fixture(t, fault, rootful = false) {
             Image: config.image,
             Entrypoint: ['node'],
             Cmd: ['/proxy.mjs'],
-            Env: ['PATH=/usr/bin'],
+            Env: ['PATH=/usr/bin', ...(mcp ?
+              ['NIBFIN_MCP_POLICY_DIRECTORY=/mcp-policy'] : [])],
           },
           HostConfig: {
             UsernsMode: fault === 'gateway-host-userns' ? 'host' : '',
@@ -114,6 +125,8 @@ async function fixture(t, fault, rootful = false) {
             SecurityOpt: ['no-new-privileges'],
           },
           Mounts: [
+            ...(mcp ? [{ Type: 'bind', Source: config.mcpPolicyDirectory,
+              Destination: '/mcp-policy', RW: false }] : []),
             {
               Type: 'bind',
               Source: config.proxyScript,
@@ -127,6 +140,14 @@ async function fixture(t, fault, rootful = false) {
         },
       ];
     else if (cmd[0] === 'create') {
+      if (mcp) {
+        assert.ok(!JSON.stringify(cmd).includes('private-mcp-token'));
+        const invocation = await readFile(join(request.input, 'invocation.json'));
+        assert.ok(!invocation.toString().includes('private-mcp-token'));
+        const policy = JSON.parse(await readFile(
+          join(config.mcpPolicyDirectory, 'current.json'), 'utf8'));
+        assert.deepEqual(policy.hosts, ['mcp.notion.com']);
+      }
       exists = true;
       container = {
         Id: 'b'.repeat(64),
@@ -236,7 +257,8 @@ async function fixture(t, fault, rootful = false) {
         namespace: { uidStart: 231072, gidStart: 231072, size: 65536 },
       })
     : undefined;
-  return { sandbox: new CodexSandbox(config, { host, run, backend }), request, calls };
+  return { sandbox: new CodexSandbox(config, { host, run, backend }),
+    request, calls, config };
 }
 
 test('rootful gateway cannot override the adopted user namespace', async (t) => {
@@ -317,4 +339,18 @@ test('ignored or non-enforcing AppArmor denies before credential copies', async 
       assert.deepEqual(await readdir(path), []);
     }
   }
+});
+
+test('MCP private mount and egress lease retire only after proven termination', {
+  skip: process.platform !== 'linux',
+}, async t => {
+  const f = await fixture(t, undefined, false, true);
+  assert.equal((await f.sandbox.execute(f.request)).status, 'completed');
+  assert.deepEqual(await readdir(f.config.mcpPolicyDirectory), []);
+  const mounts = f.calls.find(c => c[0] === 'create')
+    .filter(v => v.startsWith('type=bind'));
+  assert.ok(mounts.some(v => v.includes('dst=/auth/mcp.toml,readonly')));
+  const uncertain = await fixture(t, 'cleanup', false, true);
+  assert.equal((await uncertain.sandbox.execute(uncertain.request)).status, 'pending');
+  assert.deepEqual(await readdir(uncertain.config.mcpPolicyDirectory), ['current.json']);
 });

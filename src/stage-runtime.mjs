@@ -1,5 +1,6 @@
 import { digest, requireThat } from './identity.mjs';
 import { decideStage, stages } from './stages.mjs';
+import { pendingMcpObservation } from './mcp-pending.mjs';
 
 export const stageSuccess = Object.freeze({
   shape: 'ready',
@@ -63,24 +64,28 @@ export class StageRuntime {
     let context;
     try {
       context = structuredClone(await this.#observe(stage));
-    } catch {
+    } catch (error) {
       return {
         schemaVersion: 1,
-        status: 'denied',
-        code: 'LIVE_OBSERVATION_UNAVAILABLE',
+        status: pendingMcpObservation(error.code) ? 'pending' : 'denied',
+        code: pendingMcpObservation(error.code)
+          ? error.code : 'LIVE_OBSERVATION_UNAVAILABLE',
         stage,
       };
     }
     const decision = decideStage(stage, context, this.#clock());
     if (decision.status !== 'allowed') return decision;
     const frozenContextHash = digest(context);
-    let result, receiptHash, receipt;
+    let result, receiptHash, receipt, admissionError;
     try {
       const outcome = await this.#journal.run(
         { operation: decision.operation, bindingHash: decision.requestHash },
         {
           admit: async () => {
-            const fresh = decideStage(stage, await this.#observe(stage), this.#clock());
+            let fresh;
+            try {
+              fresh = decideStage(stage, await this.#observe(stage), this.#clock());
+            } catch (error) { admissionError = error; throw error; }
             requireThat(
               fresh.status === 'allowed' && fresh.requestHash === decision.requestHash,
               'ADMISSION_CHANGED',
@@ -143,6 +148,8 @@ export class StageRuntime {
           },
         },
       );
+      if (pendingMcpObservation(admissionError?.code))
+        return { schemaVersion: 1, stage, status: 'pending', code: admissionError.code };
       if (outcome.status !== 'completed') return { schemaVersion: 1, stage, ...outcome };
       return {
         schemaVersion: 1,

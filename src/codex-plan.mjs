@@ -6,7 +6,9 @@ import { candidateRuntimeContract } from './candidate-contract.mjs';
 // Fixed paths belong to the isolated image contract, never the candidate. The
 // controller starts in /session, outside /work, to avoid candidate configuration
 // discovery. Configuration alone is not proof that a host enforces this policy.
-export function codexPlan(stage, { model, threadId = null, skill, context }) {
+export function codexPlan(stage, {
+  model, threadId = null, skill, context, mcpPolicyHash = null,
+}) {
   const identity = skillIdentity(stage);
   requireThat(
     typeof model === 'string' && /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,99}$/.test(model) &&
@@ -15,6 +17,8 @@ export function codexPlan(stage, { model, threadId = null, skill, context }) {
     'INVALID_CODEX_PLAN',
   );
   requireThat(threadId === null, 'CROSS_EXECUTION_RESUME_FORBIDDEN');
+  requireThat(mcpPolicyHash === null || /^[a-f0-9]{64}$/.test(mcpPolicyHash),
+    'INVALID_USER_MCP_POLICY');
   const writable = stage === 'deliver';
   const config = {
     model, approval_policy: 'never', default_permissions: 'nibfin',
@@ -61,7 +65,8 @@ export function codexPlan(stage, { model, threadId = null, skill, context }) {
     '',
   ].join('\n');
   const args = [
-    ...settings, 'exec', '--ignore-user-config', '--json', '--skip-git-repo-check',
+    ...settings, 'exec', ...(mcpPolicyHash ? [] : ['--ignore-user-config']),
+    '--json', '--skip-git-repo-check',
     '--output-schema', '/input/result-schema.json',
     '--output-last-message', '/io/result.json', '-',
   ];
@@ -86,7 +91,8 @@ export function codexPlan(stage, { model, threadId = null, skill, context }) {
     `${skill.content}\n\nBOUND CONTEXT:\n${JSON.stringify(context)}`;
   return {
     args, config, settings, requirements, schema: resultSchema, prompt,
-    expectedThread: threadId, writable, policyHash: digest({ config, requirements }),
+    expectedThread: threadId, writable, mcpPolicyHash,
+    policyHash: digest({ config, requirements }),
     cwd: '/session',
     environment: {
       CODEX_HOME: '/agent-home', HOME: '/session', PATH: '/usr/local/bin:/usr/bin:/bin',

@@ -8,7 +8,8 @@ import { pathToFileURL } from 'node:url';
 export const denialProbe = `
 const fs = require('node:fs');
 const paths = ['/auth/auth.json', '/agent-home/auth.json',
-  '/io/probe-sentinel', '/proc/1/environ'];
+  '/auth/mcp.toml', '/agent-home/config.toml',
+  '/agent-home/.credentials.json', '/io/probe-sentinel', '/proc/1/environ'];
 for (const path of paths) {
   try {
     fs.readFileSync(path);
@@ -81,6 +82,9 @@ export async function bootstrap() {
     throw new Error('MANAGED_PROFILE_UNSUPPORTED');
   await mkdir('/tmp/tool-home', { recursive: true, mode: 0o700 });
   await copyFile('/auth/auth.json', '/agent-home/auth.json');
+  if (plan.mcpPolicyHash) {
+    await copyFile('/auth/mcp.toml', '/agent-home/config.toml');
+  }
   await writeFile('/io/probe-sentinel',
     'Private Core output must not be visible to tools', { mode: 0o600 });
   // Confirm controller access before requiring the tool sandbox to deny it.

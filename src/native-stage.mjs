@@ -7,6 +7,7 @@ import { OperationJournal } from './operation-journal.mjs';
 import { evidenceBinding, stages } from './stages.mjs';
 import { digest, requireThat } from './identity.mjs';
 import { pendingCIObservation } from './github-ci.mjs';
+import { pendingMcpObservation } from './mcp-pending.mjs';
 
 export function validStageRequest(request) {
   return (
@@ -67,8 +68,9 @@ export function nativeStageExecutor({
         return {
           schemaVersion: 1,
           stage,
-          status: pendingCIObservation(error.code) ? 'pending' : 'denied',
-          code: pendingCIObservation(error.code)
+          status: pendingCIObservation(error.code) || pendingMcpObservation(error.code)
+            ? 'pending' : 'denied',
+          code: pendingCIObservation(error.code) || pendingMcpObservation(error.code)
             ? error.code
             : 'LIVE_OBSERVATION_UNAVAILABLE',
         };
