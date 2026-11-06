@@ -1,31 +1,45 @@
 import { spawn } from 'node:child_process';
 import { homedir } from 'node:os';
 
-// Temporary CI diagnosis: no credentials, configuration changes or MCP calls.
-const script = `
+// Temporary credential-free CI diagnosis; retire after the failure is understood.
+const jsonScript = `
 [Console]::Error.WriteLine('MARK_START')
-$data=[Console]::In.ReadToEnd() | ConvertFrom-Json
-[Console]::Error.WriteLine('MARK_READ')
+$raw=[Console]::In.ReadToEnd()
+[Console]::Error.WriteLine('MARK_RAW')
+$data=$raw | ConvertFrom-Json
+[Console]::Error.WriteLine('MARK_JSON')
 $acl=Get-Acl -LiteralPath $data.path
 [Console]::Error.WriteLine('MARK_ACL')
 $rules=$acl.GetAccessRules($true,$true,[Security.Principal.SecurityIdentifier])
 [Console]::Error.WriteLine('MARK_RULES')
 [Console]::Write('OK')
 `;
-const base = { SystemRoot: 'C:\\Windows', WINDIR: 'C:\\Windows',
-  USERPROFILE: homedir(), TEMP: process.env.TEMP, TMP: process.env.TMP,
-  PATH: 'C:\\Windows\\System32;C:\\Windows\\System32\\WindowsPowerShell\\v1.0' };
-for (const [name, env, windowsHide] of [
-  ['minimal-visible', { SystemRoot: 'C:/Windows' }, false],
-  ['minimal-hidden', { SystemRoot: 'C:/Windows' }, true],
-  ['os-base-hidden', base, true],
-  ['inherited-hidden', process.env, true],
+const nativeScript = `
+[Console]::Error.WriteLine('MARK_START')
+$raw=[Console]::In.ReadToEnd()
+[Console]::Error.WriteLine('MARK_RAW')
+$path=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($raw))
+$acl=[IO.Directory]::GetAccessControl($path)
+[Console]::Error.WriteLine('MARK_ACL')
+$rules=$acl.GetAccessRules($true,$true,[Security.Principal.SecurityIdentifier])
+[Console]::Error.WriteLine('MARK_RULES')
+[Console]::Write('OK')
+`;
+const minimal = { SystemRoot: 'C:/Windows' };
+const systemModules = { ...minimal,
+  PSModulePath: 'C:/Windows/System32/WindowsPowerShell/v1.0/Modules' };
+for (const [name, env, script, input] of [
+  ['minimal-json', minimal, jsonScript, JSON.stringify({ path: homedir() })],
+  ['minimal-native', minimal, nativeScript, Buffer.from(homedir()).toString('base64')],
+  ['system-modules-json', systemModules, jsonScript,
+    JSON.stringify({ path: homedir() })],
+  ['inherited-json', process.env, jsonScript, JSON.stringify({ path: homedir() })],
 ]) {
   const started = Date.now();
   const result = await new Promise(resolve => {
     const child = spawn('C:/Windows/System32/WindowsPowerShell/v1.0/powershell.exe',
       ['-NoProfile', '-NonInteractive', '-Command', script],
-      { env, windowsHide, stdio: ['pipe', 'pipe', 'pipe'] });
+      { env, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
     let text = '', output = '', finished = false;
     const finish = code => {
       if (finished) return;
@@ -42,7 +56,7 @@ for (const [name, env, windowsHide] of [
     child.stdin.on('error', () => {});
     child.on('close', finish);
     child.on('error', () => finish('unavailable'));
-    child.stdin.end(JSON.stringify({ path: homedir() }));
+    child.stdin.end(input);
   });
   console.log(JSON.stringify({ name, ...result }));
 }
