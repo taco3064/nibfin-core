@@ -9,6 +9,7 @@ import { launchStage } from '../src/host-launcher.mjs';
 import { runWakeEntry } from '../src/wake-entry.mjs';
 import { runIssueWake } from '../src/issue-wake.mjs';
 import { launchIssueWake } from '../src/host-issue-wake.mjs';
+import { exportUserMcp, importUserMcp } from '../src/mcp-transfer.mjs';
 
 // This entry point never imports a caller-selected adapter or runs candidate code.
 async function main(args) {
@@ -20,6 +21,13 @@ async function main(args) {
   if (command === 'stage' && values.length === 2)
     return launchStage(values[0], values[1]);
   if (command === 'contract' && values.length === 0) return consumerContract;
+  if (command === 'export-mcp' && values.length === 5) {
+    const [codex, home, authenticationHome, member, output] = values;
+    return exportUserMcp({ codex, home, authenticationHome,
+      memberId: Number(member), output });
+  }
+  if (command === 'import-mcp' && values.length === 2)
+    return importUserMcp(process.stdin, Number(values[0]), values[1]);
   if (command === 'help' && values.length === 0) {
     return {
       commands: [
@@ -31,6 +39,8 @@ async function main(args) {
         'resolve-wake',
         'resolve-event',
         'dispatch-event <adopted-issue-number>',
+        'export-mcp <codex> <settings-home> <auth-home> <member-id> <new-private-file>',
+        'import-mcp <member-id> <new-private-file> (private stdin only)',
       ],
       lifecycle:
         'Stage execution requires administrator-adopted host configuration ' +

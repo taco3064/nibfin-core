@@ -2,7 +2,7 @@ import { readFile, lstat } from 'node:fs/promises';
 import { spawnSync } from 'node:child_process';
 import { requireThat } from '../src/identity.mjs';
 
-const source = /\.(?:mjs|cjs|js|json|ya?ml)$/;
+const source = /\.(?:mjs|cjs|js|cs|json|ya?ml)$/;
 const configuration = /\.(?:json|ya?ml)$/i;
 const git = (args) => {
   const result = spawnSync('git', args, { encoding: 'utf8', shell: false });
