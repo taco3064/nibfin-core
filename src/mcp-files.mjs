@@ -40,6 +40,11 @@ foreach($item in $paths) {
 [Console]::Out.Write('MCP_ACL_VERIFIED')
 `;
 
+function quietFileScript(body) {
+  return `$ErrorActionPreference='Stop'\ntry {\n${body}\n} catch {\n` +
+    "[Console]::Error.Write('MCP_WINDOWS_FILESYSTEM_REJECTED');exit 1\n}";
+}
+
 export async function protectWindowsMcpDirectory(path, run = command) {
   const script = `
 $ErrorActionPreference='Stop'
@@ -58,7 +63,7 @@ foreach($sid in @($current.Value,'S-1-5-18','S-1-5-32-544')) {
 [IO.Directory]::SetAccessControl($path,$acl)
 `;
   await run('C:/Windows/System32/WindowsPowerShell/v1.0/powershell.exe',
-    ['-NoProfile', '-NonInteractive', '-Command', script],
+    ['-NoProfile', '-NonInteractive', '-Command', quietFileScript(script)],
     { input: Buffer.from(path).toString('base64'),
       env: { SystemRoot: 'C:/Windows' },
       timeout: 15000, limit: 1024 });
@@ -84,7 +89,7 @@ export async function verifyMcpPath(path, {
     let result;
     try { result = await run(
       'C:/Windows/System32/WindowsPowerShell/v1.0/powershell.exe',
-      ['-NoProfile', '-NonInteractive', '-Command', aclScript],
+      ['-NoProfile', '-NonInteractive', '-Command', quietFileScript(aclScript)],
       { input: [Buffer.from(path).toString('base64'),
         Buffer.from(dirname(path)).toString('base64'), privateAccess ? '1' : '0']
         .join('|'),
