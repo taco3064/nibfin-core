@@ -1,5 +1,6 @@
 import { createPublicKey, verify } from 'node:crypto';
 import { digest, isId, isSha, requireThat } from './identity.mjs';
+import { validateActionsTime } from './actions-time.mjs';
 
 const issuer = 'https://token.actions.githubusercontent.com';
 function decode(part) {
@@ -17,7 +18,7 @@ function decode(part) {
 export async function verifyActionsIdentity(
   token,
   expected,
-  { fetcher = fetch, now = Date.now() } = {},
+  { fetcher = fetch, now, clock = Date.now } = {},
 ) {
   requireThat(
     typeof token === 'string' &&
@@ -86,18 +87,9 @@ export async function verifyActionsIdentity(
       ),
     'OIDC_SIGNATURE_INVALID',
   );
-  const seconds = Math.floor(now / 1000);
-  requireThat(
-    [payload.iat, payload.nbf, payload.exp].every(Number.isSafeInteger) &&
-      payload.iat <= seconds &&
-      payload.nbf <= seconds &&
-      seconds < payload.exp &&
-      payload.iat <= payload.exp &&
-      payload.exp - payload.iat <= 600 &&
-      typeof payload.jti === 'string' &&
-      payload.jti,
-    'OIDC_EXPIRED_OR_INACTIVE',
-  );
+  // The caller clock is read after both key requests and signature validation.
+  // Explicit now remains a trusted deterministic test input, never workflow data.
+  validateActionsTime(payload, now === undefined ? clock() : now);
   requireThat(
     payload.iss === issuer &&
       payload.aud === expected.audience &&
@@ -221,7 +213,7 @@ export function actionsCaller({
         checkRunId: runner.checkRunId,
         sourceCommit: runner.sourceCommit,
       },
-      { fetcher, now: clock() },
+      { fetcher, clock },
     );
   };
 }

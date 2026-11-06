@@ -8,6 +8,7 @@ import { evidenceBinding, stages } from './stages.mjs';
 import { digest, requireThat } from './identity.mjs';
 import { pendingCIObservation } from './github-ci.mjs';
 import { pendingMcpObservation } from './mcp-pending.mjs';
+import { observationFailureCode } from './observation-failure.mjs';
 
 export function validStageRequest(request) {
   return (
@@ -72,7 +73,7 @@ export function nativeStageExecutor({
             ? 'pending' : 'denied',
           code: pendingCIObservation(error.code) || pendingMcpObservation(error.code)
             ? error.code
-            : 'LIVE_OBSERVATION_UNAVAILABLE',
+            : observationFailureCode(error),
         };
       }
       const binding = evidenceBinding(initial),
