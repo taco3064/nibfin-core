@@ -66,16 +66,18 @@ test('Windows private file rejects broad access, hard links and directory juncti
       { code: 'UNTRUSTED_USER_MCP_SOURCE' });
     const script = `
 $ErrorActionPreference='Stop'
-$path=[Console]::In.ReadToEnd() | ConvertFrom-Json
-$acl=Get-Acl -LiteralPath $path
+$path=[Text.Encoding]::UTF8.GetString(
+  [Convert]::FromBase64String([Console]::In.ReadToEnd()))
+$acl=[IO.File]::GetAccessControl($path)
 $users=[Security.Principal.SecurityIdentifier]::new('S-1-5-32-545')
 $acl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new(
   $users,'Read','Allow'))
-Set-Acl -LiteralPath $path -AclObject $acl
+[IO.File]::SetAccessControl($path,$acl)
 `;
     await command('C:/Windows/System32/WindowsPowerShell/v1.0/powershell.exe',
       ['-NoProfile', '-NonInteractive', '-Command', script],
-      { input: JSON.stringify(file), env: { SystemRoot: 'C:/Windows' } });
+      { input: Buffer.from(file).toString('base64'),
+        env: { SystemRoot: 'C:/Windows' } });
     await assert.rejects(readPrivateMcpJson(file), { code: 'PROCESS_FAILED' });
   });
 
