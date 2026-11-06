@@ -6,6 +6,7 @@ import { requireThat } from './identity.mjs';
 
 const aclScript = `
 $ErrorActionPreference='Stop'
+[Console]::InputEncoding=[Text.UTF8Encoding]::new($false)
 $request=[Console]::In.ReadToEnd() | ConvertFrom-Json
 $current=[Security.Principal.WindowsIdentity]::GetCurrent().User.Value
 $trusted=@($current,'S-1-5-18','S-1-5-32-544')
@@ -18,12 +19,12 @@ foreach($item in $request.paths) {
   $acl=Get-Acl -LiteralPath $item.path
   $owner=$acl.GetOwner([Security.Principal.SecurityIdentifier]).Value
   if($owner -notin $trusted) {throw 'Untrusted owner'}
-  foreach($entry in $acl.Access) {
+  foreach($entry in $acl.GetAccessRules($true,$true,
+    [Security.Principal.SecurityIdentifier])) {
     if($entry.AccessControlType -ne 'Allow') {continue}
     if(-not $item.private -and ($entry.PropagationFlags -band
       [Security.AccessControl.PropagationFlags]::InheritOnly)) {continue}
-    $sid=$entry.IdentityReference.Translate(
-      [Security.Principal.SecurityIdentifier]).Value
+    $sid=$entry.IdentityReference.Value
     if($sid -notin $trusted -and ($item.private -or
       ($entry.FileSystemRights -band $writes))) {throw 'Untrusted access'}
   }
@@ -34,6 +35,7 @@ foreach($item in $request.paths) {
 export async function protectWindowsMcpDirectory(path, run = command) {
   const script = `
 $ErrorActionPreference='Stop'
+[Console]::InputEncoding=[Text.UTF8Encoding]::new($false)
 $path=[Console]::In.ReadToEnd() | ConvertFrom-Json
 $current=[Security.Principal.WindowsIdentity]::GetCurrent().User
 $acl=[Security.AccessControl.DirectorySecurity]::new()
@@ -70,14 +72,18 @@ export async function verifyMcpPath(path, {
     stat.isFile() && stat.nlink === 1 && !stat.isSymbolicLink(),
   'UNTRUSTED_USER_MCP_SOURCE');
   if (process.platform === 'win32') {
-    const result = await run(
+    let result;
+    try { result = await run(
       'C:/Windows/System32/WindowsPowerShell/v1.0/powershell.exe',
       ['-NoProfile', '-NonInteractive', '-Command', aclScript],
       { input: JSON.stringify({ paths: [
         { path, private: privateAccess }, { path: dirname(path), private: false },
       ] }),
         env: { SystemRoot: 'C:/Windows' }, timeout: 15000, limit: 1024 },
-    );
+    ); } catch (error) {
+      error.mcpPhase = 'WINDOWS_MCP_ACL_QUERY';
+      throw error;
+    }
     requireThat(result.stdout.toString() === 'MCP_ACL_VERIFIED',
       'UNTRUSTED_USER_MCP_SOURCE');
   } else {

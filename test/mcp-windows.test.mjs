@@ -52,6 +52,9 @@ test('Windows private file rejects broad access, hard links and directory juncti
     const file = join(root, 'credential.json');
     await writeFile(file, '{"testOnly":true}');
     assert.deepEqual(await readPrivateMcpJson(file), { testOnly: true });
+    const unicode = join(root, '權限.json');
+    await writeFile(unicode, '{"unicodePath":true}');
+    assert.deepEqual(await readPrivateMcpJson(unicode), { unicodePath: true });
     await link(file, join(root, 'linked.json'));
     await assert.rejects(readPrivateMcpJson(file),
       { code: 'UNTRUSTED_USER_MCP_SOURCE' });
