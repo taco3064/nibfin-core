@@ -49,6 +49,9 @@ jobs:
         run: >-
           node --test test/mcp-source.test.mjs test/mcp-resolve.test.mjs
           test/mcp-windows.test.mjs
+      - name: Diagnose Windows MCP preflight transport on failure
+        if: failure()
+        run: node scripts/diagnose-windows-mcp.mjs
 
   package:
     uses: ./.github/workflows/package.yml
