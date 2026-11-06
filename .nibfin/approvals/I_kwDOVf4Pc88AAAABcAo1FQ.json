@@ -12,6 +12,16 @@
   },
   "prerequisites": [],
   "operations": [
+    "shape",
+    "validate-shape",
+    "publish-shape",
+    "deliver",
+    "hooks",
+    "accept",
+    "commit-pr",
+    "review-pr",
+    "merge",
+    "close",
     "wake"
   ],
   "roles": {
