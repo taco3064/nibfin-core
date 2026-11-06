@@ -22,16 +22,20 @@ export async function prepareWindowsMcpReader({ build = command } = {}) {
         'WINDOWS_MCP_READER_CLEANUP_REQUIRED');
       await rm(root, { recursive: true });
   };
+  let phase = 'WINDOWS_MCP_PRIVATE_DIRECTORY';
   try {
     await protectWindowsMcpDirectory(root);
     const source = fileURLToPath(new URL('./mcp-windows-job.cs', import.meta.url));
+    phase = 'WINDOWS_MCP_COMPILATION';
     await build('C:/Windows/Microsoft.NET/Framework64/v4.0.30319/csc.exe',
       ['/nologo', '/target:exe', '/platform:anycpu', `/out:${executable}`, source],
       { env: { SystemRoot: 'C:/Windows', TEMP: root, TMP: root },
         timeout: 15000, limit: 16384 });
+    phase = 'WINDOWS_MCP_EXECUTABLE_ACL';
     await verifyMcpPath(executable);
     return { executable, hash: sha256(await readFile(executable)), root, release };
   } catch (error) {
+    error.mcpPhase ??= phase;
     // Known failed compiler exit has never launched the MCP reader. Unknown
     // compiler termination or unverified private state must remain inspectable.
     if (['PROCESS_FAILED', 'PROCESS_UNAVAILABLE'].includes(error.code)) {
