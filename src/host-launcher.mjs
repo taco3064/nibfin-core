@@ -267,6 +267,7 @@ export async function launchStage(issueNumber, stage, env = process.env) {
         workspaceRoot,
         agentStateRoot: join(root, 'agent'),
         authFile: host.authFile,
+        mcpSource: host.mcp,
         model: host.model,
         isolation: adopted.isolation,
         inspectWriter,

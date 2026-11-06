@@ -6,6 +6,8 @@ import { CodexRoleAgent } from './codex-agent.mjs';
 import { codexEnvironment } from './codex-environment.mjs';
 import { CandidateWorkspace } from './workspace.mjs';
 import { digest, requireThat } from './identity.mjs';
+import { withUserMcp } from './mcp-agent.mjs';
+import { loadUserMcp } from './mcp-source.mjs';
 
 // Fixed composition for the provisional Codex adapter. The privileged launcher
 // supplies adopted paths and native writer proof. No request can import a host
@@ -19,6 +21,7 @@ export async function codexStageExecutor({
   workspaceRoot,
   agentStateRoot,
   authFile,
+  mcpSource,
   model,
   isolation,
   inspectWriter,
@@ -52,6 +55,8 @@ export async function codexStageExecutor({
     profile,
     coreRoot,
   );
+  const inheritedAgent = withUserMcp(agentSandbox, mcpSource,
+    source => loadUserMcp(source, { discoveryRoot: agentStateRoot }));
   const agent = new CodexRoleAgent(
     {
       stateRoot: agentStateRoot,
@@ -61,7 +66,7 @@ export async function codexStageExecutor({
       coreRoot,
       work: workspace.work,
     },
-    agentSandbox,
+    inheritedAgent,
   );
   const inspectIsolation = async (stage, context) => {
     const writer = await inspectWriter(stage, context);
@@ -71,7 +76,7 @@ export async function codexStageExecutor({
         /^[a-f0-9]{64}$/.test(writer.observationHash),
       'WRITER_EXCLUSIVITY_UNPROVEN',
     );
-    const agentProof = await agentSandbox.preflight(),
+    const agentProof = await inheritedAgent.preflight(),
       hookProof = await hookSandbox.preflight();
     return {
       profile: profile.kind,

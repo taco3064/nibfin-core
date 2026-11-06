@@ -27,6 +27,11 @@ import {
 } from './docker-backend.mjs';
 import { verifyAppArmor } from './apparmor-proof.mjs';
 import { digest, sha256, requireThat } from './identity.mjs';
+import { privateMcpToml } from './mcp-profile.mjs';
+import {
+  acquireMcpEgress, verifyMcpPolicyDirectory,
+  mcpPolicyEnvironment, mcpPolicyMount,
+} from './mcp-egress.mjs';
 
 async function privateJSON(path, limit) {
   const file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
@@ -120,6 +125,13 @@ export class CodexSandbox {
       gateway = gateways[0],
       ip = gateway.NetworkSettings?.Networks?.[c.network]?.IPAddress;
     const source = await readFile(join(c.coreRoot, 'src/egress-proxy.mjs'));
+    const extraMounts = c.mcpPolicyDirectory ? [{
+      Source: c.mcpPolicyDirectory, Destination: mcpPolicyMount,
+    }] : [];
+    if (c.mcpPolicyDirectory) await verifyMcpPolicyDirectory(c.mcpPolicyDirectory);
+    const gatewayEnvironment = [...(images[0].Config?.Env ?? []),
+      ...(c.mcpPolicyDirectory ?
+        [`${mcpPolicyEnvironment}=${mcpPolicyMount}`] : [])];
     requireThat(
       (await realpath(c.proxyScript)) === resolve(c.proxyScript) &&
         sha256(await readFile(c.proxyScript)) === sha256(source),
@@ -142,12 +154,15 @@ export class CodexSandbox {
         digest(gateway.HostConfig.SecurityOpt) === digest(['no-new-privileges']) &&
         digest(gateway.Config.Entrypoint) === digest(['node']) &&
         digest(gateway.Config.Cmd) === digest(['/proxy.mjs']) &&
-        digest(gateway.Config.Env ?? []) === digest(images[0].Config?.Env ?? []) &&
-        gateway.Mounts?.length === 1 &&
-        gateway.Mounts[0].Source === c.proxyScript &&
-        gateway.Mounts[0].Destination === '/proxy.mjs' &&
-        gateway.Mounts[0].Type === 'bind' &&
-        gateway.Mounts[0].RW === false &&
+        digest(gateway.Config.Env ?? []) === digest(gatewayEnvironment) &&
+        gateway.Mounts?.length === 1 + extraMounts.length &&
+        gateway.Mounts.some(mount => mount.Source === c.proxyScript &&
+          mount.Destination === '/proxy.mjs' &&
+          mount.Type === 'bind' && mount.RW === false) &&
+        extraMounts.every(expected => gateway.Mounts.some(mount =>
+          mount.Source === expected.Source &&
+          mount.Destination === expected.Destination &&
+          mount.Type === 'bind' && mount.RW === false)) &&
         /^\d{1,3}(\.\d{1,3}){3}$/.test(ip) &&
         Object.keys(network.Containers ?? {}).every((id) => id === c.gatewayId),
       'AGENT_EGRESS_NOT_ISOLATED',
@@ -166,7 +181,8 @@ export class CodexSandbox {
       }),
     };
   }
-  async execute({ plan, executionId, work, main, input, output, session, auth }) {
+  async execute({ plan, executionId, work, main, input, output, session, auth,
+    mcp = null }) {
     const c = this.#config;
     requireThat(
       plan?.policyHash ===
@@ -174,6 +190,8 @@ export class CodexSandbox {
         /^[a-f0-9-]{36}$/.test(executionId),
       'INVALID_AGENT_PLAN',
     );
+    requireThat((plan.mcpPolicyHash ?? null) === (mcp?.policyHash ?? null),
+      'USER_MCP_PROFILE_CHANGED');
     const paths = [work, main, input, output, session, auth];
     for (const path of paths) {
       requireThat(
@@ -247,6 +265,11 @@ export class CodexSandbox {
         rw: false,
       },
     ];
+    if (mcp) {
+      const path = join(authRoot, 'mcp.toml');
+      await writeFile(path, privateMcpToml(mcp), { flag: 'wx', mode: 0o444 });
+      mounts.push({ source: path, destination: '/auth/mcp.toml', rw: false });
+    }
     const name = `nibfin-agent-${randomUUID()}`;
     const environment = {
       ...plan.environment,
@@ -304,8 +327,14 @@ export class CodexSandbox {
     ];
     let id,
       observed,
+      mcpLease,
       outcome = { status: 'denied', executionId, code: 'AGENT_ENTRY_DENIED' };
     try {
+      if (mcp?.metadata.hosts.length) {
+        requireThat(c.mcpPolicyDirectory, 'USER_MCP_EGRESS_NOT_ADOPTED');
+        mcpLease = await acquireMcpEgress(c.mcpPolicyDirectory, executionId,
+          mcp.metadata.hosts);
+      }
       id = (await this.#docker(args)).stdout.toString().trim();
       requireThat(/^[a-f0-9]{64}$/.test(id), 'AGENT_CONTAINER_UNKNOWN');
       const actual = await this.#inspect(['inspect', id]);
@@ -393,6 +422,7 @@ export class CodexSandbox {
             .trim(),
           'AGENT_STILL_RUNNING',
         );
+        await mcpLease?.release();
         // Mapped UID files must be host-readable/removable before any proof.
         const cleanupMounts = mounts.filter((m) => m.rw);
         await this.#docker([
@@ -462,6 +492,8 @@ export class CodexSandbox {
             preflight,
             container: observed,
             bootstrap: sha256(bootstrap),
+            ...(mcp ? { mcpPolicyHash: mcp.policyHash,
+              mcpEgressHash: mcpLease?.hash ?? null } : {}),
           }),
         };
       } catch {
