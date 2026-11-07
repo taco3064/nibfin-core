@@ -58,6 +58,30 @@ test('unknown roles, skill substitution and argument injection reject', () => {
   ]) assert.throws(() => codexPlan(stage, { ...options, context: {} }));
 });
 
+test('Writer and Acceptor receive a trusted verification contract', () => {
+  const marker = 'TRUSTED CORE VERIFICATION CONTRACT:';
+  for (const stage of ['deliver', 'accept']) {
+    const plan = codexPlan(stage, {
+      model: 'configured-model', skill: skill(stage), context: {},
+    });
+    const start = plan.prompt.indexOf(marker);
+    const end = plan.prompt.indexOf(content);
+    assert.ok(start >= 0 && start < end);
+    const contract = plan.prompt.slice(start, end);
+    assert.match(contract, /without usable Git metadata/);
+    assert.match(contract, /Core captures the authoritative Candidate diff/);
+    assert.match(contract, /PR-head CI runs full Git-dependent checks/);
+    assert.match(contract, /Unverified with the reason/);
+    assert.match(contract, /Block on new or unmatched failures/);
+    assert.match(contract, /omitted required runnable local checks/);
+    assert.match(contract, /missing evidence required by the Shape/);
+  }
+  const shape = codexPlan('shape', {
+    model: 'configured-model', skill: skill('shape'), context: {},
+  });
+  assert.ok(!shape.prompt.includes(marker));
+});
+
 test('every role receives the inventory format enforced by the Core parser', () => {
   for (const stage of ['shape', 'validate-shape', 'deliver', 'accept', 'review-pr']) {
     const selected = ['shape', 'validate-shape', 'review-pr'].includes(stage)
