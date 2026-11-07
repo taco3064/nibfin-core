@@ -1,11 +1,12 @@
-name: Nibfin adopted Action wake
-# Core source: 8582e65de9b5ff6058f459e2c423a62e92034c99
+name: Nibfin adopted dispatch
+# Core source: 8be8907cb89fd3959b397054e7abda62eb868518
 on:
   workflow_dispatch:
     inputs:
       issue_number: { required: true, type: string }
-      issue_id: { required: true, type: string }
-      repository_id: { required: true, type: string }
+      issue_id: { required: false, type: string }
+      repository_id: { required: false, type: string }
+      stage: { required: false, type: string, default: continue }
 permissions:
   contents: read
   id-token: write
@@ -17,7 +18,7 @@ jobs:
     runs-on: [self-hosted, Linux, nibfin-user-127829492]
     steps:
       - uses: "taco3064/nibfin-act@\
-          be7f90faeb5630d185a9843ce79f1435643a9886"
+          3cf741c76875eec4d8d7a5edb371dc975b24cf3a"
         with:
           issue-number: ${{ inputs.issue_number }}
-          stage: continue
+          stage: ${{ inputs.stage }}
