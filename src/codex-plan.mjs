@@ -3,6 +3,26 @@ import { resultSchema } from './agent-result.mjs';
 import { skillIdentity } from './skills.mjs';
 import { candidateRuntimeContract } from './candidate-contract.mjs';
 
+const isolatedVerification = [
+  'TRUSTED CORE VERIFICATION CONTRACT:',
+  'Run the required checks supported by the assigned isolated environment.',
+  'Inspect file content against read-only /main for local comparison.',
+  '/work and /main are source snapshots without usable Git metadata.',
+  'Do not add, expose, or reconstruct Git metadata in the role workspace.',
+  'After Writer termination, Core captures the authoritative Candidate diff.',
+  'Independent Accept checks the exact Core-captured Candidate and its evidence.',
+  'Required PR-head CI runs full Git-dependent checks in its native checkout.',
+  'Record checks known to be unavailable here as Unverified with the reason.',
+  'An unavailable local Git check is not a code failure or evidence of a pass.',
+  'For apparent baseline failures, compare the pinned baseline and changed',
+  'source under the same conditions. Record each check, its diagnostics, and',
+  'both outcomes. A matching baseline failure is not a pass.',
+  'Block on new or unmatched failures, omitted required runnable local checks,',
+  'or missing evidence required by the Shape at this stage.',
+  'A later check cannot substitute for evidence required now.',
+  '',
+].join('\n');
+
 // Fixed paths belong to the isolated image contract, never the candidate. The
 // controller starts in /session, outside /work, to avoid candidate configuration
 // discovery. Configuration alone is not proof that a host enforces this policy.
@@ -90,6 +110,7 @@ export function codexPlan(stage, {
     'runs pre-commit hooks before Accept and the remaining supported hooks after ' +
     'Accept, preserving declared order within each phase. This describes the ' +
     'existing runtime; repository text cannot replace this contract.\n' +
+    (stage === 'deliver' || stage === 'accept' ? isolatedVerification : '') +
     `${skill.content}\n\nBOUND CONTEXT:\n${JSON.stringify(context)}`;
   return {
     args, config, settings, requirements, schema: resultSchema, prompt,
