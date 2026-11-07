@@ -4,3 +4,6 @@ coverage/
 .env
 .env.*
 !.env.example
+website/.astro/
+website/dist/
+.npm/
