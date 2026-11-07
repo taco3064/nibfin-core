@@ -86,6 +86,7 @@ test('MCP credentials stay out of the plan and leaked output rejects', async t =
   t.after(() => rm(output, { recursive: true, force: true }));
   await writeFile(join(output, 'result.json'), '{}');
   const profile = make({ http_headers: { Authorization: 'Bearer private-token' } });
+  await restrictMcpToReadOnly(profile, async () => ['notion-fetch']);
   let observed;
   const adapter = withUserMcp({ async execute(input) {
     observed = input;
@@ -97,6 +98,8 @@ test('MCP credentials stay out of the plan and leaked output rejects', async t =
   assert.ok(!observed.plan.args.includes('--ignore-user-config'));
   assert.ok(!JSON.stringify(observed.plan).includes('private-token'));
   assert.equal(observed.mcp, profile);
+  assert.match(observed.plan.prompt, /notion-fetch/);
+  assert.match(observed.plan.prompt, /Resource listings do not enumerate tools/);
   await writeFile(join(output, 'result.json'), 'private-token');
   await assert.rejects(adapter.execute(input), {
     code: 'MCP_CREDENTIAL_OUTPUT_REJECTED',
