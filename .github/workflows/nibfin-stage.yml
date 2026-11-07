@@ -9,9 +9,8 @@ permissions:
   id-token: write
 jobs:
   adopted-stage:
-    runs-on: [self-hosted, nibfin-user-127829492]
-    steps:
-      - uses: taco3064/nibfin-act@be7f90faeb5630d185a9843ce79f1435643a9886
-        with:
-          issue-number: ${{ inputs.issue-number }}
-          stage: ${{ inputs.stage }}
+    uses: taco3064/nibfin-core/.github/workflows/stage.yml@ebcacf9f0d567582a45d73236801dd4cf32b6bd9
+    with:
+      issue_number: ${{ inputs.issue-number }}
+      stage: ${{ inputs.stage }}
+      member_id: '127829492'
