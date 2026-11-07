@@ -19,7 +19,9 @@ npm ci --ignore-scripts
 npm run verify
 ```
 
-There are no third-party package dependencies. `check` validates the runtime
+Core runtime has no third-party package dependencies. The documentation
+workspace uses pinned Astro, Starlight and TypeScript dependencies. `check`
+validates the runtime
 configuration and recursively syntax-checks JavaScript in `scripts/`, `test/`,
 and, when present, `src/` and `bin/`, without executing those modules. Missing
 configuration, missing tests and syntax errors fail the check. `test` runs the
@@ -124,3 +126,12 @@ acceptance, applicable CI and review. A repaired existing PR uses an expected-he
 lease; a competing update or moved main prevents stale publication/merge. Native
 Blocked by eligibility uses current upstream state, not a historical receipt
 archive. Local journals/receipts serve in-flight correctness and unknown effects.
+
+## Documentation workspace
+
+The public documentation source is in [`website/`](website/README.md). Root
+`npm ci --ignore-scripts` installs its pinned workspace dependencies.
+`npm run website:check` checks types/content and builds the static site;
+`npm run verify` includes website validation alongside the existing Core checks.
+See the workspace guide for preview commands, routes, base overrides and checks.
+This workspace does not deploy GitHub Pages or claim a published site.

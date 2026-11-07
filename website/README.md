@@ -1,0 +1,95 @@
+# Documentation workspace
+
+This workspace reuses the Core Node `24.22.1` and npm `11.9.0` baseline. Use the
+root lockfile; do not initialize another repository or install a separate lockfile.
+Website scripts invoke the installed Astro CLI through Node so disposable source
+copies do not depend on executable JavaScript shims. Astro and its native tools
+still require the assigned environment's ordinary installation permissions.
+
+From the repository root:
+
+```sh
+npm ci --ignore-scripts
+npm run website:check
+npm run website:build
+npm run website:preview -- --host 127.0.0.1 --port 4321
+```
+
+`website:check` runs Astro's TypeScript diagnostics and a complete static build
+(which validates Starlight frontmatter and generated navigation). `website:build`
+only builds. Root `npm run verify` retains Core checks/tests and runs the website
+check and production build first, then every existing Core check and test.
+The existing read-only CI verify job installs the npm
+workspace with the root lockfile and runs that same entry.
+
+The existing required native `verify` job runs the root entry without workflow
+changes. Its final `website:ci` stage runs
+`npm run website:verify-failure`, which introduces a disposable TypeScript
+error in a disposable source copy and requires root verification to fail at that
+source. It removes the copy on completion. It then executes the controls also exposed as
+`npm run website:negative` and `npm run website:preview-check`.
+The preview check builds both bases,
+inspects generated paths and assets, starts the documented preview command,
+checks actual HTTP index/404/CSS/JavaScript/search responses in CI, and stops preview.
+Outside CI it performs both static inspections and leaves HTTP Unverified.
+`node website/scripts/preview-check.mjs --static` selects static checks.
+Startup, request and cleanup failures fail CI. Run these commands from the root.
+The HTTP runner targets native Linux CI, with bounded startup/request timeouts.
+
+Protected Deliver and Accept sandboxes prohibit preview HTTP networking. At those
+stages, build/static inspection and negative controls are local evidence; HTTP
+preview remains unverified until native CI runs on the exact final PR head.
+
+Edit English Markdown/MDX in `website/src/content/docs/`. Every document needs a
+`title` in frontmatter. Starlight owns routing and search; `src/content.config.ts`
+uses its loader/schema. `index.md` maps to the selected base index;
+`guides/start.md` maps to `<base>guides/start/`. Configure the sidebar in
+`website/navigation.mjs` using content slugs such as `index` or `guides/start`.
+Astro generates `.astro/` metadata and `dist/` static
+output inside `website/`; neither belongs in commits. Pagefind search output is
+created by Starlight during production builds.
+
+## Local repository Pages paths
+
+`WEBSITE_SITE` is an HTTP(S) origin, default `https://taco3064.github.io`.
+`WEBSITE_BASE` is the public path prefix, default `/nibfin-core/`. The origin is
+not the repository path. These defaults describe future Pages configuration,
+not an existing deployed URL or a custom domain. Base paths must start and end
+with `/`; segments may contain letters, numbers, `_` and `-`.
+
+```sh
+WEBSITE_SITE=https://example.org WEBSITE_BASE=/other-docs/ npm run website:build
+WEBSITE_SITE=https://example.org WEBSITE_BASE=/other-docs/ npm run website:preview -- --host 127.0.0.1 --port 4321
+curl -i http://127.0.0.1:4321/other-docs/
+curl -i http://127.0.0.1:4321/other-docs/does-not-exist/
+```
+
+Repeat without the environment overrides for `/nibfin-core/`. The index must
+return 200 and the missing route 404, without a successful index fallback.
+Inspect HTML and referenced local stylesheet/script and search assets under each
+base, including `dist/pagefind/`, for missing files or duplicated base segments.
+These are local HTTP checks, not browser E2E or live Pages verification.
+
+## Negative controls
+
+Use a disposable copy of the source and installed dependencies. Separately:
+
+`npm run website:negative` automates these controls in a temporary
+workspace beneath the root, requiring the valid and restored sources to pass.
+It needs the root dependencies installed and removes its copy on completion.
+
+- Add `website/src/bad.ts` containing `const bad: number = "wrong";`.
+- Remove the required `title` from the index frontmatter.
+- Change the `index` slug in `website/navigation.mjs` to `does-not-exist`.
+
+Run `npm run website:check` after each mutation; each must fail nonzero with a
+relevant error. Restore each mutation and check again. The navigation build hook
+compares configured slugs with Astro's actual generated pages. Use Starlight
+`slug` items for internal navigation so Starlight handles base prefixes.
+
+DOC02 can extend the shared theme; DOC05 and DOC06 can add content without
+reinitializing Core. DOC07 owns GitHub Actions Pages publication; this workspace
+adds no deployment workflow. DOC08 owns live browser testing. Public documents
+must describe verified availability and must not contain private source,
+credentials or protected operational details. Documentation projects product
+requirements; it does not create another requirements or control authority.
