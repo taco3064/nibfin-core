@@ -5,7 +5,7 @@ import { isSha, isId, requireThat } from './identity.mjs';
 // matching is deliberately narrower than accepting arbitrary equivalent YAML.
 export function callerRecipe(kind, commit, action = {}) {
   requireThat(Object.hasOwn(templates, kind) && isSha(commit), 'INVALID_CALLER_RECIPE');
-  if (kind === 'action-wake') {
+  if (kind === 'action-wake' || kind === 'action-dispatch') {
     requireThat(
       isSha(action.actionCommit) && isId(action.memberId),
       'INVALID_ACTION_CALLER_RECIPE',
