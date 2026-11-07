@@ -41,7 +41,15 @@ export function withUserMcp(isolator, source, readProfile = loadUserMcp) {
         ...input.plan, mcpPolicyHash: mcp.policyHash,
         args: input.plan.args.filter(arg => arg !== '--ignore-user-config'),
         prompt: input.plan.prompt + '\nTRUSTED MCP AVAILABILITY:\n' +
-          JSON.stringify(mcp.metadata),
+          JSON.stringify({
+            ...mcp.metadata,
+            tools: Object.fromEntries(Object.entries(mcp.configuration.mcp_servers)
+              .filter(([, server]) => server.enabled !== false)
+              .map(([name, server]) => [name, server.enabled_tools ?? []])),
+          }) +
+          '\nUse the listed MCP tools to read approved sources. Resource listings ' +
+          'do not enumerate tools. Discover deferred tools before concluding that ' +
+          'a page-fetch tool is unavailable. Report the actual call failure.',
       };
       const result = await isolator.execute({ ...input, plan, mcp });
       if (result.status === 'completed') {
