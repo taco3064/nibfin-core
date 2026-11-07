@@ -4,13 +4,16 @@ import { readCallerSource } from '../src/caller-source.mjs';
 import { gitBlob } from '../src/identity.mjs';
 import { callerRecipe } from '../src/caller-recipes.mjs';
 
-for (const kind of ['wake', 'action-wake']) {
+for (const kind of ['wake', 'action-wake', 'action-dispatch']) {
   test(
     `${kind}: ordinary main advances preserve adopted caller, but ` +
       'rewrite or edit/restore revokes it',
     async () => {
       const coreCommit = 'c'.repeat(40);
-      const recipe = { kind, coreCommit, actionCommit: 'd'.repeat(40), memberId: 2 };
+      const recipe = {
+        kind: kind === 'action-dispatch' ? 'action-wake' : kind,
+        coreCommit, actionCommit: 'd'.repeat(40), memberId: 2,
+      };
       const body = callerRecipe(kind, coreCommit, recipe),
         anchor = 'a'.repeat(40),
         head = 'b'.repeat(40);
@@ -45,7 +48,7 @@ for (const kind of ['wake', 'action-wake']) {
         await readCallerSource(reader, 'example/core', pin, head, recipe),
         head,
       );
-      if (kind === 'action-wake') {
+      if (recipe.kind === 'action-wake') {
         for (const changed of [{ actionCommit: 'e'.repeat(40) }, { memberId: 3 }]) {
           await assert.rejects(
             readCallerSource(reader, 'example/core', pin, head, {

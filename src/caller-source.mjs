@@ -17,11 +17,13 @@ export async function readCallerSource(reader, repository, workflow, current, re
       workflow.commit,
       workflow.blob,
     );
-    requireThat(
-      source.replaceAll('\r\n', '\n') ===
-        callerRecipe(recipe.kind, recipe.coreCommit, recipe),
-      'CALLER_NOT_FIXED_RECIPE',
-    );
+    const kinds = recipe.kind === 'action-wake'
+      ? ['action-wake', 'action-dispatch']
+      : [recipe.kind];
+    const normalized = source.replaceAll('\r\n', '\n');
+    requireThat(kinds.some(kind =>
+      normalized === callerRecipe(kind, recipe.coreCommit, recipe)),
+    'CALLER_NOT_FIXED_RECIPE');
   }
   return current;
 }
