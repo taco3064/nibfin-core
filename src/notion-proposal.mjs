@@ -1,7 +1,7 @@
 import { dirname } from 'node:path';
 import { boundedHostFile } from './host-adoption.mjs';
 import { privateHostDirectory } from './host-fence.mjs';
-import { digest, requireThat } from './identity.mjs';
+import { sha256, requireThat } from './identity.mjs';
 
 const pageId = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/;
 const maxBytes = 512 * 1024;
@@ -53,5 +53,6 @@ export async function readNotionProposal(adoption, {
     page.truncated === false && Array.isArray(page.unknown_block_ids) &&
     page.unknown_block_ids.length === 0 && !page.markdown.includes(token),
   'NOTION_PROPOSAL_INCOMPLETE');
-  return { pageId: page.id, markdown: page.markdown, hash: digest(page.markdown) };
+  const hash = sha256(Buffer.from(page.markdown, 'utf8'));
+  return { pageId: page.id, markdown: page.markdown, hash };
 }
