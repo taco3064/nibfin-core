@@ -25,6 +25,9 @@ export function stageHandlers({
   ]) {
     handlers[stage] = {
       perform: async (context, decision) => {
+        if (stage === 'shape' &&
+          context.issue.labels.some(label => label.name === 'shaped'))
+          return { publishedShape: context.issue.body };
         if (['accept', 'review-pr'].includes(stage))
           requireThat(
             digest(await workspace.capture(context.shape.body)) ===
@@ -56,6 +59,18 @@ export function stageHandlers({
         };
       },
       readBack: async (context, execution) => {
+        if (stage === 'shape' && execution.publishedShape !== undefined) {
+          const body = execution.publishedShape;
+          return {
+            outcome: 'ready',
+            findings: [],
+            references: [context.issue.url],
+            artifacts: {
+              shapeHash: await store.put(body),
+              requirementsHash: digest(requirementsText(body)),
+            },
+          };
+        }
         if (stage === 'deliver' && execution.retainedCandidate) {
           const candidate = await workspace.capture(context.shape.body);
           requireThat(digest(candidate) === digest(execution.retainedCandidate),
@@ -95,12 +110,18 @@ export function stageHandlers({
         let artifacts =
           stage === 'shape' ? {} : { shapeHash: context.shape.hash };
         if (passed && stage === 'shape') {
-          if (context.issue.labels.some((label) => label.name === 'shaped'))
-            requireThat(
-              result.body === context.issue.body,
-              'CURRENT_SHAPE_REVALIDATION_CHANGED',
-            );
-          candidateContract(result.body);
+          try {
+            candidateContract(result.body);
+          } catch {
+            const finding = 'Author draft has an invalid candidate obligations block.';
+            console.error(`Nibfin ${stage}: ${finding}`);
+            return {
+              outcome: 'blocked',
+              findings: [finding],
+              references: result.evidenceReferences,
+              artifacts,
+            };
+          }
           artifacts.shapeHash = await store.put(result.body);
           artifacts.requirementsHash = digest(requirementsText(context.issue.body));
         }

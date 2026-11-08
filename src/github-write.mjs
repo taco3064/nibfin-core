@@ -112,8 +112,8 @@ export class GitHubWriter {
         !expectedLabels.includes('delivered'),
       'INVALID_SHAPE_REVALIDATION',
     );
-    // Fresh independent author/validator outcomes were checked by the guard.
-    // Confirm current publication without inventing who approved it in the past.
+    // The guard checks the current Shape and its independent validation.
+    // Confirm publication without making a GitHub write.
     const targetHash = digest({
       operation: 'publish-shape',
       method: 'GET',
