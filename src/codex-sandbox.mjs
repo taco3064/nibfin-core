@@ -410,6 +410,7 @@ export class CodexSandbox {
     } catch {
       outcome = { status: 'denied', executionId, code: 'AGENT_EXECUTION_UNVERIFIED' };
     } finally {
+      let cleanupStep = 'container removal';
       try {
         const exists = (
           await this.#docker(['ps', '-aq', '--filter', `name=^/${name}$`])
@@ -427,8 +428,10 @@ export class CodexSandbox {
           'AGENT_STILL_RUNNING',
         );
         const discard = !mcp || outcome.status === 'interrupted';
+        cleanupStep = 'MCP lease release';
         if (discard) await mcpLease?.release();
         // Mapped UID files must be host-readable/removable before any proof.
+        cleanupStep = 'writable mount reclamation';
         const cleanupMounts = mounts.filter((m) => m.rw);
         await this.#docker([
           'run',
@@ -454,6 +457,7 @@ export class CodexSandbox {
           cleanupAgentMounts,
           ...cleanupMounts.map((m) => m.destination),
         ]);
+        cleanupStep = 'credential and session removal';
         if (discard) {
           await rm(authRoot, { recursive: true });
           for (const entry of await readdir(session))
@@ -467,7 +471,7 @@ export class CodexSandbox {
             absent: true,
           });
       } catch {
-        console.error('Nibfin agent cleanup failed after execution');
+        console.error(`Nibfin agent cleanup failed during ${cleanupStep}`);
         outcome = { status: 'pending', executionId, code: 'WRITER_TERMINATION_UNKNOWN' };
       }
     }

@@ -4,6 +4,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { StageRuntime } from '../src/stage-runtime.mjs';
+import { stageHandlers } from '../src/stage-handlers.mjs';
 import { OperationJournal } from '../src/operation-journal.mjs';
 import { digest } from '../src/identity.mjs';
 import { stageFixture } from './stage-fixture.mjs';
@@ -42,6 +43,25 @@ async function fixture(t) {
   return { context, adapters, saved, performed: () => performed };
 }
 const request = { schemaVersion: 1, stage: 'shape' };
+
+test('a confirmed interruption writes a blocked receipt and clears Pending', async t => {
+  const f = await fixture(t);
+  const interrupted = {
+    status: 'interrupted',
+    executionId: f.context.execution.id,
+    terminationHash: 'a'.repeat(64),
+    code: 'PROCESS_TIMEOUT',
+  };
+  f.adapters.handlers = stageHandlers({
+    agent: { run: async () => interrupted },
+    store: { put: async value => digest(value) },
+  });
+  const runtime = new StageRuntime(f.adapters);
+  assert.equal((await runtime.run(request)).code, 'STAGE_REQUIRES_CORRECTION');
+  assert.equal(f.saved[0].outcome, 'blocked');
+  assert.match(f.saved[0].findings[0], /execution time limit/);
+  assert.equal((await runtime.run(request)).code, 'REPLAYED_OPERATION');
+});
 
 test('runtime persists a trusted receipt after read-back', async (t) => {
   const f = await fixture(t),
