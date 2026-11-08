@@ -2,7 +2,7 @@ import { stages } from './stages.mjs';
 import { stageSuccess } from './stage-runtime.mjs';
 import { digest, requireThat } from './identity.mjs';
 import { equivalentCandidate } from './candidate-evidence.mjs';
-import { pendingCIObservation } from './github-ci.mjs';
+import { integrationRepairRequired, pendingCIObservation } from './github-ci.mjs';
 
 // This only drives the existing ordered stage contract. There is no second
 // lifecycle store: every next operation still enters StageRuntime admission.
@@ -25,6 +25,19 @@ async function currentReceipts(store, previous) {
   return current;
 }
 
+async function canReuseReview(store) {
+  const receipts = await store.load();
+  const review = receipts['review-pr'];
+  const published = receipts['commit-pr'];
+  const delivered = receipts.deliver?.artifacts;
+  if (review?.outcome !== 'approved' || published?.outcome !== 'published' ||
+    !delivered || review.artifacts.shapeHash !== delivered.shapeHash ||
+    review.artifacts.prId !== published.artifacts.prId ||
+    review.artifacts.prNumber !== published.artifacts.prNumber) return false;
+  return equivalentCandidate(store, await store.get(delivered.candidateHash),
+    review.artifacts.candidateHash);
+}
+
 export async function continueStages({
   store,
   execute,
@@ -33,6 +46,7 @@ export async function continueStages({
   wait,
   clock = Date.now,
   ciTimeout = 600000,
+  repairIntegration = true,
 }) {
   const previous = await store.load();
   const changed = await refreshRequirements(previous);
@@ -53,7 +67,8 @@ export async function continueStages({
     return { schemaVersion: 1, status: 'denied', code: 'DELIVERY_ALREADY_RECORDED' };
   let result;
   for (const stage of Object.keys(stages)) {
-    if (initial[stage]) continue;
+    if (initial[stage] || stage === 'review-pr' && await canReuseReview(store))
+      continue;
     await inspect();
     const deadline = clock() + ciTimeout;
     for (;;) {
@@ -64,6 +79,16 @@ export async function continueStages({
       if (clock() >= deadline) return result;
       await inspect();
       await wait(5000);
+    }
+    if (stage === 'merge' && repairIntegration &&
+      integrationRepairRequired(result.code)) {
+      await inspect();
+      const repaired = await execute('deliver');
+      if (repaired.status !== 'completed') return repaired;
+      return continueStages({
+        store, execute, refreshRequirements, inspect, wait, clock, ciTimeout,
+        repairIntegration: false,
+      });
     }
     if (result.status !== 'completed') return result;
     const receipt = await store.get(result.receiptHash);

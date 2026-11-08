@@ -98,3 +98,53 @@ test(
     assert.deepEqual(bad.calls, ['shape']);
   },
 );
+
+test('provider branch update repairs once and resumes protected delivery', async () => {
+  const f = fixture();
+  const execute = f.options.execute;
+  let requests = 0;
+  f.options.execute = async stage => {
+    if (stage === 'merge' && ++requests === 1) {
+      return { status: 'denied', code: 'PR_BRANCH_UPDATE_REQUIRED' };
+    }
+    return execute(stage);
+  };
+  assert.equal((await continueStages(f.options)).stage, 'close');
+  assert.equal(requests, 2);
+  assert.equal(f.calls.filter(stage => stage === 'deliver').length, 2);
+  assert.equal(f.calls.filter(stage => stage === 'accept').length, 1);
+});
+
+test('unchanged rebase retains hooks, Accept and Final Review evidence', async () => {
+  const f = fixture();
+  const shapeHash = 'a'.repeat(64);
+  const old = { base: '1'.repeat(40), tree: '2'.repeat(40),
+    repository: 'example/core', repositoryId: 10, issueId: 'I_target',
+    diffHash: 'b'.repeat(64), paths: ['src/example.mjs'],
+    obligations: { artifacts: [], hooks: [] }, artifacts: [], hookSources: [] };
+  const rebased = { ...old, base: '3'.repeat(40), tree: '4'.repeat(40) };
+  const candidateHash = digest(old), nextHash = digest(rebased);
+  const proof = { shapeHash, candidateHash };
+  const pr = { prId: 'PR_1', prNumber: 1 };
+  f.objects[candidateHash] = old;
+  f.objects[nextHash] = rebased;
+  for (const stage of Object.keys(stageSuccess).slice(0, -2)) {
+    const artifacts = ['shape', 'validate-shape', 'publish-shape'].includes(stage)
+      ? { shapeHash } : { ...proof, ...pr };
+    f.receipts[stage] = { stage, outcome: stageSuccess[stage], artifacts };
+  }
+  f.receipts.deliver.artifacts.candidateHash = nextHash;
+  const execute = f.options.execute;
+  f.options.execute = async stage => {
+    if (stage !== 'commit-pr') return execute(stage);
+    f.calls.push(stage);
+    const receipt = { stage, outcome: 'published',
+      artifacts: { ...proof, ...pr, candidateHash: nextHash } };
+    const receiptHash = digest(receipt);
+    f.receipts[stage] = receipt;
+    f.objects[receiptHash] = receipt;
+    return { stage, status: 'completed', receiptHash };
+  };
+  assert.equal((await continueStages(f.options)).stage, 'close');
+  assert.deepEqual(f.calls, ['commit-pr', 'merge', 'close']);
+});

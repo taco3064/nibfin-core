@@ -13,6 +13,9 @@ const pendingObservations = Object.freeze([
 // Missing checks and unknown mergeability are not claims of observed running CI.
 export const pendingCIObservation = (code) => pendingObservations.includes(code);
 
+export const integrationRepairRequired = code =>
+  code === 'PR_BRANCH_UPDATE_REQUIRED' || code === 'PR_MERGE_CONFLICT';
+
 const checkoutCommands = [
   '[command]/usr/bin/git log -1 --format=%H',
   String.raw`[command]"C:\Program Files\Git\bin\git.exe" log -1 --format=%H`,
@@ -119,13 +122,18 @@ export async function readPullRequestCI(reader, expected, now = Date.now()) {
       (merged || pr.base?.sha === expected.base) &&
       pr.base.repo?.id === expected.repositoryId &&
       pr.base.ref === repository.default_branch &&
-      (merged ||
-        pr.mergeable === null ||
-        (pr.mergeable === true &&
-          ['clean', 'blocked', 'unstable'].includes(pr.mergeable_state))) &&
-      (isSha(previewSha) || (!merged && pr.mergeable === null && previewSha === null)),
+      (merged || pr.merged === false),
     'CI_PR_NOT_ELIGIBLE',
   );
+  if (!merged) {
+    requireThat(pr.mergeable_state !== 'behind', 'PR_BRANCH_UPDATE_REQUIRED');
+    requireThat(pr.mergeable !== false, 'PR_MERGE_CONFLICT');
+    requireThat(pr.mergeable === null || pr.mergeable === true &&
+      ['clean', 'blocked', 'unstable'].includes(pr.mergeable_state),
+    'CI_PR_NOT_ELIGIBLE');
+  }
+  requireThat(isSha(previewSha) || (!merged && pr.mergeable === null &&
+    previewSha === null), 'CI_PR_NOT_ELIGIBLE');
   const branchPath = `${root}/branches/${encodeURIComponent(pr.base.ref)}`;
   const branch = await reader.get(branchPath);
   requireThat(branch.protected === true && isSha(branch.commit?.sha), 'CI_BASE_CHANGED');
