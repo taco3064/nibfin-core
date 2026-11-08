@@ -39,6 +39,10 @@ export function stageHandlers({
             new Date(clock()).toISOString(),
           );
         }
+        if (rebase && (rebase.status === 'unchanged' ||
+          (rebase.status === 'rebased' && !rebase.contentChanged))) {
+          return { retainedCandidate: rebase.candidate };
+        }
         const execution = await agent.run(stage, {
           ...context,
           ...(rebase ? { rebase } : {}),
@@ -49,6 +53,17 @@ export function stageHandlers({
         };
       },
       readBack: async (context, execution) => {
+        if (stage === 'deliver' && execution.retainedCandidate) {
+          const candidate = await workspace.capture(context.shape.body);
+          requireThat(digest(candidate) === digest(execution.retainedCandidate),
+            'REBASED_WORKTREE_CHANGED');
+          const candidateHash = await store.put(candidate);
+          return {
+            outcome: 'ready', findings: [],
+            references: ['evidence:' + digest(context.candidate)],
+            artifacts: { shapeHash: context.shape.hash, candidateHash },
+          };
+        }
         requireThat(
           execution?.executionId === context.execution.id &&
             isDigest(execution.terminationHash),
@@ -76,7 +91,7 @@ export function stageHandlers({
           if (execution.rebaseStatus === 'changes_required') {
             await workspace.continueRebase(
               context.shape.body,
-              context.main.head,
+              context.rebaseTarget,
               execution.terminationHash,
             );
           }

@@ -180,7 +180,7 @@ test(
         f.data['/collaborators/writer/permission'].permission = 'read';
       },
       (f) => {
-        f.issue.body = 'Unapproved Scope';
+        f.issue.body = ' ';
       },
       (f) => {
         f.reader.blockedBy = async () => [{ node_id: 'I_foreign' }];

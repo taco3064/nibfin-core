@@ -371,7 +371,7 @@ export function decideStage(stage, context, now = Date.now()) {
       binding,
       artifacts,
       execution,
-      runner: context.runner.observationHash,
+      runner: context.runner.runnerId,
       isolation: context.isolation.profile,
       requirements: digest(requirementsText(issue.body)),
     });
