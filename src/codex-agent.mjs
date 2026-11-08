@@ -48,7 +48,8 @@ export class CodexRoleAgent {
       config.skills[skillIdentity(stage)]);
     return this.#sessions.run(stage, context, async session => {
       const plan = codexPlan(stage, { model: config.model,
-        threadId: session.threadId, skill, context });
+        threadId: session.threadId, skill, context,
+        proposalHash: config.proposal?.hash });
       const io = join(root, `execution-${context.execution.id}`);
       await mkdir(io, { mode: 0o700 });
       const main = await this.#prepareMain(join(io, 'current-main'),
@@ -60,6 +61,10 @@ export class CodexRoleAgent {
         { flag: 'wx', mode: 0o400 });
       await writeFile(join(input, 'context.json'), JSON.stringify(context),
         { flag: 'wx', mode: 0o400 });
+      if (config.proposal) {
+        await writeFile(join(input, 'proposal.md'), config.proposal.markdown,
+          { flag: 'wx', mode: 0o400 });
+      }
       await writeFile(join(input, 'SKILL.md'), skill.content,
         { flag: 'wx', mode: 0o400 });
       // The isolator must inspect actual mounts/network/policy, probe denial of
@@ -99,7 +104,8 @@ export class CodexRoleAgent {
         threadId: parsed.threadId,
         isolationHash: execution.isolationHash, probeHash: execution.probeHash,
         invocationHash: digest({ policyHash: plan.policyHash, skillHash: skill.hash,
-          stage, executionId: context.execution.id }) };
+          stage, executionId: context.execution.id,
+          proposalHash: config.proposal?.hash ?? null }) };
     });
   }
 }
