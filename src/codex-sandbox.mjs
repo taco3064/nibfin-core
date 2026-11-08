@@ -390,16 +390,23 @@ export class CodexSandbox {
           ),
         'AGENT_CONTAINER_POLICY_MISMATCH',
       );
-      await this.#docker(['start', '--attach', id], { timeout: 1800000 });
-      const ended = (await this.#inspect(['inspect', id]))[0];
-      requireThat(
-        ended.Id === id &&
-          ended.State?.Running === false &&
-          ended.State.ExitCode === 0 &&
-          ended.State.OOMKilled === false,
-        'AGENT_CONTAINER_FAILED',
-      );
-      outcome = { status: 'executed', executionId };
+      try {
+        await this.#docker(['start', '--attach', id], { timeout: 1800000 });
+      } catch (error) {
+        if (!['PROCESS_TIMEOUT', 'PROCESS_FAILED'].includes(error.code)) throw error;
+        outcome = { status: 'interrupted', executionId, code: error.code };
+      }
+      if (outcome.status !== 'interrupted') {
+        const ended = (await this.#inspect(['inspect', id]))[0];
+        requireThat(
+          ended.Id === id &&
+            ended.State?.Running === false &&
+            ended.State.ExitCode === 0 &&
+            ended.State.OOMKilled === false,
+          'AGENT_CONTAINER_FAILED',
+        );
+        outcome = { status: 'executed', executionId };
+      }
     } catch {
       outcome = { status: 'denied', executionId, code: 'AGENT_EXECUTION_UNVERIFIED' };
     } finally {
@@ -419,7 +426,8 @@ export class CodexSandbox {
             .trim(),
           'AGENT_STILL_RUNNING',
         );
-        if (!mcp) await mcpLease?.release();
+        const discard = !mcp || outcome.status === 'interrupted';
+        if (discard) await mcpLease?.release();
         // Mapped UID files must be host-readable/removable before any proof.
         const cleanupMounts = mounts.filter((m) => m.rw);
         await this.#docker([
@@ -446,12 +454,12 @@ export class CodexSandbox {
           cleanupAgentMounts,
           ...cleanupMounts.map((m) => m.destination),
         ]);
-        if (!mcp) {
+        if (discard) {
           await rm(authRoot, { recursive: true });
           for (const entry of await readdir(session))
             await rm(join(session, entry), { recursive: true, force: true });
         }
-        if (outcome.status === 'executed')
+        if (['executed', 'interrupted'].includes(outcome.status))
           outcome.terminationHash = digest({
             executionId,
             containerId: id,
@@ -459,6 +467,7 @@ export class CodexSandbox {
             absent: true,
           });
       } catch {
+        console.error('Nibfin agent cleanup failed after execution');
         outcome = { status: 'pending', executionId, code: 'WRITER_TERMINATION_UNKNOWN' };
       }
     }
