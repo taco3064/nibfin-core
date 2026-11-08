@@ -55,3 +55,12 @@ test('Proposal read reports credential and sharing failures without API bodies',
         { message: code, code });
     }
   });
+
+test('a revised Proposal on the same adopted page can be read by the next Job',
+  async () => {
+    for (const markdown of ['# Initial requirements', '# Corrected requirements']) {
+      const fetcher = async () => Response.json({ ...page, markdown });
+      const result = await readNotionProposal(adoption, { readToken, fetcher });
+      assert.equal(result.markdown, markdown);
+    }
+  });

@@ -111,3 +111,12 @@ test('every role receives the inventory format enforced by the Core parser', () 
     ]) assert.throws(() => candidateContract(body({ artifacts: [], hooks: [hook] })));
   }
 });
+
+test('Proposal input is supplied without a role-side checksum gate', () => {
+  const plan = codexPlan('shape', {
+    model: 'configured-model', skill: skill('shape'), context: {}, hasProposal: true,
+  });
+  assert.match(plan.prompt,
+    /Read \/input\/proposal\.md for current product requirements/);
+  assert.doesNotMatch(plan.prompt, /Content hash|sha256sum/);
+});
