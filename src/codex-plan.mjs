@@ -1,7 +1,11 @@
 import { digest, requireThat } from './identity.mjs';
 import { resultSchema } from './agent-result.mjs';
 import { skillIdentity } from './skills.mjs';
+import { allowedHosts } from './egress-proxy.mjs';
 import { candidateRuntimeContract } from './candidate-contract.mjs';
+
+const npmRegistry = 'registry.npmjs.org';
+requireThat(allowedHosts.includes(npmRegistry), 'NPM_REGISTRY_NOT_IN_HOST_EGRESS');
 
 const isolatedVerification = [
   'TRUSTED CORE VERIFICATION CONTRACT:',
@@ -60,7 +64,7 @@ export function codexPlan(stage, {
       '/main': 'read', '/tmp': 'write', '/auth': 'deny', '/agent-home': 'deny',
       '/io': 'deny', '/session': 'read', '/proc': 'deny',
     },
-    'permissions.nibfin.network.enabled': false,
+    'permissions.nibfin.network.enabled': true,
   };
   // JSON string and inline-table serialization is a restricted TOML encoder,
   // not shell escaping. Every value goes directly into a distinct argv element.
@@ -84,6 +88,13 @@ export function codexPlan(stage, {
     '[features]',
     'apps = false',
     'multi_agent = false',
+    '[network_proxy]',
+    'enabled = true',
+    'managed_allowed_domains_only = true',
+    'allow_upstream_proxy = true',
+    // The adopted gateway is on the private Docker network.
+    'allow_local_binding = true',
+    'allowed_domains = [' + JSON.stringify(npmRegistry) + ']',
     '',
   ].join('\n');
   const args = [

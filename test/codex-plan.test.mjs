@@ -22,7 +22,12 @@ test('candidate text cannot change command, configuration or role boundaries', (
   for (const path of ['/auth', '/agent-home', '/io', '/proc']) {
     assert.equal(plan.config['permissions.nibfin.filesystem'][path], 'deny');
   }
-  assert.equal(plan.config['permissions.nibfin.network.enabled'], false);
+  assert.equal(plan.config['permissions.nibfin.network.enabled'], true);
+  assert.match(plan.requirements, /\[network_proxy\]\nenabled = true/);
+  assert.match(plan.requirements, /managed_allowed_domains_only = true/);
+  assert.match(plan.requirements, /allow_upstream_proxy = true/);
+  assert.match(plan.requirements, /allow_local_binding = true/);
+  assert.match(plan.requirements, /allowed_domains = \["registry\.npmjs\.org"\]/);
   assert.equal(plan.config['features.apps'], false);
   assert.equal(plan.args.includes('--yolo'), false);
   assert.equal(plan.args.includes(malicious), false);
