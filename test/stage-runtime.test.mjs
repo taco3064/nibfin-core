@@ -44,6 +44,51 @@ async function fixture(t) {
 }
 const request = { schemaVersion: 1, stage: 'shape' };
 
+test('a published Shape is loaded verbatim without starting Author', async t => {
+  const f = await fixture(t);
+  const body = f.context.shape.body;
+  f.context.issue.body = body;
+  f.context.issue.labels.push({ name: 'shaped' });
+  let stored;
+  f.adapters.handlers = stageHandlers({
+    agent: { run: async () => assert.fail('Published Shape needs no new Author') },
+    store: { put: async value => {
+      stored = value;
+      return digest(value);
+    } },
+  });
+  const outcome = await new StageRuntime(f.adapters).run(request);
+  assert.equal(outcome.status, 'completed');
+  assert.equal(stored, body);
+  assert.equal(f.saved[0].artifacts.shapeHash, digest(body));
+  assert.deepEqual(f.saved[0].references, [f.context.issue.url]);
+});
+
+test('a finished Author with invalid obligations writes a blocked receipt', async t => {
+  const f = await fixture(t);
+  const { execution } = f.context;
+  const message = JSON.stringify({
+    outcome: 'ready', body: 'Missing the required block', summary: 'Draft',
+    rootCause: '', failureClass: 'none', evidenceReferences: [f.context.issue.url],
+    blockingFindings: [], contractConflicts: [],
+  });
+  f.adapters.handlers = stageHandlers({
+    agent: { run: async () => ({
+      executionId: execution.id, terminationHash: 'a'.repeat(64), lastMessage: message,
+      stdout: [
+        { type: 'thread.started', thread_id: execution.sessionId },
+        { type: 'turn.started' },
+        { type: 'item.completed', item: { type: 'agent_message', text: message } },
+        { type: 'turn.completed' },
+      ].map(JSON.stringify).join('\n'),
+    }) },
+  });
+  const runtime = new StageRuntime(f.adapters);
+  assert.equal((await runtime.run(request)).code, 'STAGE_REQUIRES_CORRECTION');
+  assert.match(f.saved[0].findings[0], /invalid candidate obligations/);
+  assert.equal((await runtime.run(request)).code, 'REPLAYED_OPERATION');
+});
+
 test('a confirmed interruption writes a blocked receipt and clears Pending', async t => {
   const f = await fixture(t);
   const interrupted = {
