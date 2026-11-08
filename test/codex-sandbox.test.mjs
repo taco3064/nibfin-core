@@ -207,6 +207,9 @@ async function fixture(t, fault, rootful = false, mcp = false) {
         },
       ];
     else if (cmd[0] === 'start') {
+      if (fault === 'timeout') {
+        throw Object.assign(new Error('Timed out'), { code: 'PROCESS_TIMEOUT' });
+      }
       ended = true;
       value = '';
       await writeFile(
@@ -325,6 +328,15 @@ test('Policy changes deny launch and unknown cleanup remains Pending', async (t)
     network.calls.some((c) => c[0] === 'create'),
     false,
   );
+});
+
+test('a timeout with confirmed container cleanup carries termination proof', async t => {
+  const f = await fixture(t, 'timeout');
+  const result = await f.sandbox.execute(f.request);
+  assert.equal(result.status, 'interrupted');
+  assert.equal(result.code, 'PROCESS_TIMEOUT');
+  assert.match(result.terminationHash, /^[a-f0-9]{64}$/);
+  assert.ok(f.calls.some(c => c[0] === 'rm'));
 });
 
 test('Missing probe, symlinks and forged identity deny execution proof', async (t) => {

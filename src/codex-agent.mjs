@@ -73,6 +73,7 @@ export class CodexRoleAgent {
       const execution = await this.#isolator.execute({ plan,
         executionId: context.execution.id, work: config.work, main: main.directory,
         input, output, session: session.directory, auth });
+      if (execution?.status === 'interrupted') return execution;
       requireThat(execution?.status === 'completed' &&
         execution.executionId === context.execution.id &&
         isDigest(execution.terminationHash) && execution.policyHash === plan.policyHash &&

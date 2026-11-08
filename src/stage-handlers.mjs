@@ -24,7 +24,7 @@ export function stageHandlers({
     'review-pr',
   ]) {
     handlers[stage] = {
-      perform: async (context) => {
+      perform: async (context, decision) => {
         if (['accept', 'review-pr'].includes(stage))
           requireThat(
             digest(await workspace.capture(context.shape.body)) ===
@@ -48,6 +48,8 @@ export function stageHandlers({
           ...context,
           ...(rebase ? { rebase } : {}),
         });
+        if (execution?.status === 'interrupted')
+          return { ...execution, artifacts: decision.artifacts };
         return {
           ...execution,
           ...(rebase ? { rebaseStatus: rebase.status } : {}),
@@ -70,6 +72,19 @@ export function stageHandlers({
             isDigest(execution.terminationHash),
           'AGENT_TERMINATION_UNPROVEN',
         );
+        if (execution.status === 'interrupted') {
+          const finding = execution.code === 'PROCESS_TIMEOUT'
+            ? 'Agent exceeded its execution time limit and was stopped.'
+            : 'Agent process failed and was stopped.';
+          console.error(`Nibfin ${stage}: ${finding}`);
+          const proof = await store.put({
+            executionId: execution.executionId,
+            terminationHash: execution.terminationHash,
+            code: execution.code,
+          });
+          return { outcome: 'blocked', findings: [finding],
+            references: ['evidence:' + proof], artifacts: execution.artifacts };
+        }
         const { result } = parseAgentResult(
           stage,
           execution.stdout,
