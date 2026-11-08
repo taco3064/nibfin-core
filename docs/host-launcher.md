@@ -125,6 +125,13 @@ automatically adopt a replacement host or claim cross-host crash recovery.
 
 ## Validation boundary
 
+For configured MCP access, the launcher owns a durable actual-Job acquisition
+claim and one shared restricted profile before constructing any stage executor.
+See [Native MCP within an Actions Job](mcp-job.md) for the supported single-entry
+Caller, finite Windows-owner startup handoff and separate adoption requirements.
+Unarmed hosts, retired Jobs and persistent-capsule fallbacks fail closed. Unknown
+preparation or retirement preserves the host fence and never automatically retries.
+
 Tests cover native identity discovery against provider fixtures, duplicate/offline
 registered routes, concurrent launch refusal, a real killed child retaining its
 fence, unsafe paths and CLI request rejection. Existing installed-executor tests

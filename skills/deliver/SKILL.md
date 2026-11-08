@@ -1,6 +1,6 @@
 ---
 name: deliver
-description: Implement one authorized, independently shaped work item within its frozen Scope and published contract. Produce a Candidate and evidence for independent Acceptance; never self-approve, publish, merge, or close work.
+description: Implement one authorized, independently shaped work item against its current authorized Issue and published contract. Produce a Candidate and evidence for independent Acceptance; never self-approve, publish, merge, or close work.
 ---
 
 # Deliver the bound contract

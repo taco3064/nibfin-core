@@ -20,6 +20,8 @@ const isolatedVerification = [
   'Block on new or unmatched failures, omitted required runnable local checks,',
   'or missing evidence required by the Shape at this stage.',
   'A later check cannot substitute for evidence required now.',
+  'Use the live authorized Issue for requirements. Original Scope is history.',
+  'Final Review binds delivered content. Merge verifies current integration CI.',
   '',
 ].join('\n');
 

@@ -11,13 +11,19 @@ turn. Passing unit tests or native configuration parsing is not that evidence.
 
 ## Trusted source and supported configuration
 
-The administrator-owned host file may set `mcp` to an object containing `codex`,
+The Actions Job host launcher now requires the finite native Job source described
+in [Native MCP within an Actions Job](mcp-job.md). It does not accept a persistent
+capsule or native Linux configuration as a fresh Job acquisition fallback. The
+following source forms remain low-level reader/export utilities for bounded
+verification and separately authorized migration, rather than Job admission.
+
+A low-level native source is an object containing `codex`,
 `home` and `uid`. `codex` is a root-owned native executable; `home` is the user's
 canonical, private native Codex configuration directory; `uid` is its owner.
 The controller must already have legitimate access to that source. This change
 does not grant access to another user's home or Windows credential manager.
 
-Alternatively, an adopted Linux controller can select a private exported source:
+The low-level Linux reader can also read a private exported source:
 
 ```json
 { "kind": "delegated-http-v1", "file": "/private/mcp/delegation.json" }

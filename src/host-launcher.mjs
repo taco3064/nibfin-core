@@ -8,13 +8,14 @@ import { readCurrentMain } from './current-main.mjs';
 import { codexStageExecutor } from './codex-stage.mjs';
 import { CandidateWorkspace } from './workspace.mjs';
 import { command } from './process.mjs';
-import { stages, evidenceBinding } from './stages.mjs';
+import { stages, evidenceBinding, requirementsText } from './stages.mjs';
 import { EvidenceStore } from './evidence-store.mjs';
 import { continueStages } from './stage-continuation.mjs';
 import { setTimeout } from 'node:timers/promises';
 import { digest, isId, requireThat } from './identity.mjs';
 import { acquireHostFence, privateHostDirectory } from './host-fence.mjs';
 import { pendingCIObservation } from './github-ci.mjs';
+import { prepareHostJobMcp } from './mcp-job-host.mjs';
 
 import { loadHostAdoption, inspectHostAdoption } from './host-adoption.mjs';
 import { relayHostCommand } from './host-relay.mjs';
@@ -189,6 +190,7 @@ export async function launchStage(issueNumber, stage, env = process.env) {
       return { schemaVersion: 1, stage, status: 'pending', code: error.code };
     throw error;
   }
+  let mcpJob;
   try {
     const inspectWriter = async () => {
       await inspectHostAdoption({ host, hostBytes, adopted });
@@ -203,6 +205,13 @@ export async function launchStage(issueNumber, stage, env = process.env) {
       };
     };
     await inspectWriter();
+    mcpJob = await prepareHostJobMcp({ host, runner, reader, approval }, {
+      authorize: async () => {
+        const fresh = await readProtectedApproval(reader, adopted.approval);
+        requireThat(fresh.approvalHash === approval.approvalHash,
+          'HOST_APPROVAL_MISMATCH');
+      },
+    });
     const root = join(
       host.stateRoot,
       `issue-${adopted.runner.repositoryId}-${issueNumber}`,
@@ -268,6 +277,7 @@ export async function launchStage(issueNumber, stage, env = process.env) {
         agentStateRoot: join(root, 'agent'),
         authFile: host.authFile,
         mcpSource: host.mcp,
+        mcpJob,
         model: host.model,
         isolation: adopted.isolation,
         inspectWriter,
@@ -280,12 +290,24 @@ export async function launchStage(issueNumber, stage, env = process.env) {
         ? await continueStages({
             store,
             execute,
+            refreshRequirements: async receipts => {
+              const saved = receipts.shape?.artifacts?.shapeHash;
+              if (!saved || receipts.merge) return false;
+              const current = await reader.issue(approval.record.issue);
+              const previous = await store.get(saved);
+              if (receipts['publish-shape'] || current.labels.some(
+                label => label.name === 'shaped')) {
+                return requirementsText(current.body) !== requirementsText(previous);
+              }
+              return false;
+            },
             inspect: inspectWriter,
             wait: setTimeout,
           })
         : await execute(stage);
     if (result.status !== 'pending' || pendingCIObservation(result.code)) {
       await inspectWriter();
+      await mcpJob?.retire(true);
       await fence.release();
     }
     return stage === 'continue'
@@ -303,5 +325,5 @@ export async function launchStage(issueNumber, stage, env = process.env) {
       status: 'pending',
       code: 'HOST_EXECUTION_UNRESOLVED',
     };
-  }
+  } finally { mcpJob?.stop(); }
 }

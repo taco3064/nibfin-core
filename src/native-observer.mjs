@@ -6,6 +6,7 @@ import { readPullRequestCI } from './github-ci.mjs';
 import { selectAssignee } from './selection.mjs';
 import { EvidenceStore } from './evidence-store.mjs';
 import { evidenceBinding, stages } from './stages.mjs';
+import { equivalentCandidate } from './candidate-evidence.mjs';
 import { repoPath } from './github-read.mjs';
 import { digest, isDigest, isId, isSha, requireThat } from './identity.mjs';
 
@@ -88,6 +89,17 @@ export function nativeObserver({
     }
     if (receipts.deliver?.outcome === 'ready')
       context.candidate = await store.get(receipts.deliver.artifacts.candidateHash);
+    if (context.candidate) {
+      context.equivalentCandidates = [];
+      const reusable = ['pre-accept-hooks', 'accept', 'post-accept-hooks', 'review-pr'];
+      for (const stage of reusable) {
+        const hash = receipts[stage]?.artifacts?.candidateHash;
+        if (hash && !context.equivalentCandidates.includes(hash) &&
+          await equivalentCandidate(store, context.candidate, hash)) {
+          context.equivalentCandidates.push(hash);
+        }
+      }
+    }
     if (receipts['commit-pr']?.outcome === 'published') {
       const saved = receipts['commit-pr'].artifacts;
       requireThat(isId(saved.prNumber) && isSha(saved.head), 'INVALID_PR_RECEIPT');
@@ -96,11 +108,13 @@ export function nativeObserver({
       requireThat(
         pr.node_id === saved.prId &&
           pr.number === saved.prNumber &&
-          pr.head?.sha === saved.head &&
+          isSha(pr.head?.sha) &&
           pr.head.repo?.id === record.issue.repositoryId &&
           pr.base.repo?.id === record.issue.repositoryId,
         'PR_RECEIPT_IDENTITY_CHANGED',
       );
+      const published = saved.candidateHash === digest(context.candidate ?? null)
+        ? context.candidate : await store.get(saved.candidateHash);
       const commit = await reader.get(`${root}/git/commits/${pr.head.sha}`);
       requireThat(
         commit.sha === pr.head.sha && isSha(commit.tree?.sha),
@@ -109,14 +123,17 @@ export function nativeObserver({
       requireThat(
         Array.isArray(commit.parents) &&
           commit.parents.length === 1 &&
-          commit.parents[0].sha === context.candidate?.base,
-        'PR_REBASED_HISTORY_REQUIRED',
+          commit.parents[0].sha === published.base,
+        'PR_CANDIDATE_PARENT_CHANGED',
       );
+      requireThat(pr.head.sha === saved.head || commit.tree.sha === published.tree,
+        'PR_CANDIDATE_CONTENT_CHANGED');
       context.pr = {
         id: pr.node_id,
         number: pr.number,
         repositoryId: record.issue.repositoryId,
         head: pr.head.sha,
+        publishedHead: saved.head,
         headBranch: pr.head.ref,
         base: pr.base.sha,
         baseBranch: pr.base.ref,
@@ -126,14 +143,19 @@ export function nativeObserver({
         mergePreview: pr.merge_commit_sha,
         ...(pr.merged ? { mergeCommit: pr.merge_commit_sha } : {}),
       };
-      if (['review-pr', 'merge', 'close'].includes(stage)) {
+      if (stage === 'deliver' && context.candidate && pr.state === 'open' &&
+        receipts.deliver.artifacts.shapeHash === context.shape?.hash &&
+        (pr.mergeable === false || pr.mergeable_state === 'behind')) {
+        context.rebaseTarget = main.head;
+      }
+      if (['merge', 'close'].includes(stage)) {
         const expected = {
           repository: record.issue.repository,
           repositoryId: record.issue.repositoryId,
           id: pr.node_id,
           number: pr.number,
-          head: saved.head,
-          base: saved.base,
+          head: pr.head.sha,
+          base: pr.base.sha,
           workflows: pinned.ciWorkflows,
           reviewers: pinned.reviewers,
           ruleset: pinned.approval.ruleset,
@@ -142,6 +164,8 @@ export function nativeObserver({
           const prior = await store.get(receipts.merge?.artifacts.ciHash);
           expected.mergedCommit = receipts.merge.artifacts.mergeCommit;
           expected.admittedCI = prior;
+          expected.base = prior.base;
+          context.pr.base = prior.base;
           requireThat(isSha(prior.testMerge), 'ORIGINAL_TEST_MERGE_REQUIRED');
           expected.testMerge = prior.testMerge;
           context.pr.mergePreview = prior.testMerge;

@@ -18,7 +18,7 @@ async function checkPrivateResult(path, secrets) {
 
 // The composition supplies the source. A role's context cannot select or mutate
 // its MCP profile. Unrelated user settings/hooks are never loaded into the role.
-export function withUserMcp(isolator, source, readProfile = loadUserMcp) {
+export function withUserMcp(isolator, source, readProfile = loadUserMcp, job) {
   if (source === undefined) return isolator;
   let prepared;
   const prepare = () => prepared ??= readProfile(source);
@@ -51,16 +51,32 @@ export function withUserMcp(isolator, source, readProfile = loadUserMcp) {
           'do not enumerate tools. Discover deferred tools before concluding that ' +
           'a page-fetch tool is unavailable. Report the actual call failure.',
       };
-      const result = await isolator.execute({ ...input, plan, mcp });
-      if (result.status === 'completed') {
-        requireThat(
-          !containsCredentials(result.stdout, mcp.secrets) &&
-            !containsCredentials(result.stderr, mcp.secrets),
-          'MCP_CREDENTIAL_OUTPUT_REJECTED',
-        );
-        await checkPrivateResult(join(input.output, 'result.json'), mcp.secrets);
-      }
-      return result;
+      const finish = job?.enter();
+      let proved = false, deferred = false;
+      try {
+        const result = await isolator.execute({ ...input, plan, mcp });
+        if (result.status === 'completed') {
+          requireThat(
+            !containsCredentials(result.stdout, mcp.secrets) &&
+              !containsCredentials(result.stderr, mcp.secrets),
+            'MCP_CREDENTIAL_OUTPUT_REJECTED',
+          );
+          await checkPrivateResult(join(input.output, 'result.json'), mcp.secrets);
+          const retire = result.retireMcp;
+          if (job) {
+            // The role adapter scans model credentials and the final message.
+            // Keep this consumer active until those checks also finish.
+            result.retireMcp = async () => {
+              try {
+                await retire?.();
+                proved = /^[a-f0-9]{64}$/.test(result.terminationHash);
+              } finally { finish(proved); }
+            };
+            deferred = true;
+          } else await retire?.();
+        }
+        return result;
+      } finally { if (!deferred) finish?.(proved); }
     },
   };
 }

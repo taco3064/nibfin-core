@@ -357,7 +357,12 @@ test('MCP private mount and egress lease retire only after proven termination', 
   skip: process.platform !== 'linux',
 }, async t => {
   const f = await fixture(t, undefined, false, true);
-  assert.equal((await f.sandbox.execute(f.request)).status, 'completed');
+  const result = await f.sandbox.execute(f.request);
+  assert.equal(result.status, 'completed');
+  // Native absence alone is insufficient: the MCP wrapper scans outputs
+  // before calling this capability to retire private configuration/leases.
+  assert.deepEqual(await readdir(f.config.mcpPolicyDirectory), ['current.json']);
+  await result.retireMcp();
   assert.deepEqual(await readdir(f.config.mcpPolicyDirectory), []);
   const mounts = f.calls.find(c => c[0] === 'create')
     .filter(v => v.startsWith('type=bind'));

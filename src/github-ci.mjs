@@ -116,7 +116,7 @@ export async function readPullRequestCI(reader, expected, now = Date.now()) {
       pr.draft === false &&
       pr.head?.sha === expected.head &&
       pr.head.repo?.id === expected.repositoryId &&
-      pr.base?.sha === expected.base &&
+      (merged || pr.base?.sha === expected.base) &&
       pr.base.repo?.id === expected.repositoryId &&
       pr.base.ref === repository.default_branch &&
       (merged ||
@@ -133,7 +133,8 @@ export async function readPullRequestCI(reader, expected, now = Date.now()) {
     await readMergeIdentity(
       reader,
       root,
-      { head: expected.head, base: expected.base, merge: expected.mergedCommit },
+      { head: expected.head, base: expected.base, merge: expected.mergedCommit,
+        testMerge: expected.testMerge },
       'MERGED_CONTENT_CHANGED',
     );
     const ancestry = await reader.get(

@@ -61,7 +61,9 @@ test(
     ]) {
       const f = fixture();
       Object.assign(f.receipts, receipts);
-      await assert.rejects(continueStages(f.options));
+      if (receipts.shape) {
+        assert.equal((await continueStages(f.options)).code, 'STAGE_REQUIRES_CORRECTION');
+      } else await assert.rejects(continueStages(f.options));
       assert.equal(f.calls.length, 0);
     }
   },

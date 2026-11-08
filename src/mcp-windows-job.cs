@@ -7,7 +7,7 @@ using System.Text;
 using System.Runtime.CompilerServices;
 using Microsoft.Win32.SafeHandles;
 
-// Owner-operated configuration reader only. It never launches an Agent role.
+// Native reader and fixed Job producer supervisor; never an Agent launcher.
 // Assign the suspended child before it can create helpers. No breakaway flag.
 public static class NibfinMcpJob
 {
@@ -15,8 +15,21 @@ public static class NibfinMcpJob
     {
         try
         {
-            Check(args.Length == 2);
-            ReadConfiguration(args[0], args[1]);
+            if (args.Length == 4 && args[0] == "--producer")
+            {
+                Check(Path.GetFileName(args[2]) == "mcp-job-owner.mjs");
+                ReadConfiguration(args[1], args[3], Quote(args[2]), true);
+            }
+            else if (args.Length == 6 && args[0] == "--bridge")
+            {
+                Check(Path.GetFileName(args[2]) == "mcp-job-bridge.mjs");
+                RunBridge(args[1], args[2], args[3], args[4], args[5]);
+            }
+            else
+            {
+                Check(args.Length == 2);
+                ReadConfiguration(args[0], args[1]);
+            }
             Console.Error.WriteLine("NIBFIN_WINDOWS_MCP_TERMINATED");
             return 0;
         }
@@ -80,6 +93,10 @@ public static class NibfinMcpJob
     static extern bool GetProcessTimes(IntPtr process, out long created,
         out long exited, out long kernel, out long user);
     [DllImport("kernel32.dll", SetLastError = true)]
+    static extern uint WaitForSingleObject(IntPtr handle, uint milliseconds);
+    [DllImport("kernel32.dll", SetLastError = true)]
+    static extern bool GetExitCodeProcess(IntPtr process, out uint code);
+    [DllImport("kernel32.dll", SetLastError = true)]
     static extern bool CreatePipe(out IntPtr read, out IntPtr write,
         ref Security security, int size);
     [DllImport("kernel32.dll", SetLastError = true)]
@@ -129,22 +146,80 @@ public static class NibfinMcpJob
             { destination.Write(buffer, 0, count); destination.Flush(); }
         }
     }
-    public static void ReadConfiguration(string executable, string cwd)
+    static string Quote(string value)
     {
-        IntPtr job = IntPtr.Zero, input = IntPtr.Zero, childInput = IntPtr.Zero;
-        IntPtr output = IntPtr.Zero, childOutput = IntPtr.Zero;
-        IntPtr error = IntPtr.Zero, childError = IntPtr.Zero;
-        IntPtr attributes = IntPtr.Zero, handles = IntPtr.Zero;
-        ProcessInfo process = new ProcessInfo();
-        bool assigned = false, attributesInitialized = false;
+        Check(Path.IsPathRooted(value) && !value.Contains("\"") &&
+            !value.Contains("\0") && !value.EndsWith("\\"));
+        return "\"" + value + "\"";
+    }
+    // This parent never receives delegated bytes. It owns the control write
+    // handle; bridge output travels separately to Linux-private staging.
+    static void RunBridge(string node, string bridge, string cwd,
+        string wsl, string distribution)
+    {
+        Check(wsl == "C:/Windows/System32/wsl.exe" &&
+            System.Text.RegularExpressions.Regex.IsMatch(distribution,
+                "^[A-Za-z0-9_-]{1,64}$"));
+        string arguments = "--distribution " + distribution +
+            " --user root --exec /usr/bin/perl " +
+            "/opt/nibfin/core/src/mcp-job-relay.pl";
+        RelayBridge(node, bridge, cwd, wsl, arguments);
+    }
+    public static void RelayBridge(string node, string bridge, string cwd,
+        string relayExecutable, string relayArguments)
+    {
+        IntPtr input = IntPtr.Zero, output = IntPtr.Zero, error = IntPtr.Zero;
+        ProcessInfo relay = new ProcessInfo();
         try
         {
-            job = CreateJobObject(IntPtr.Zero, null);
-            Check(job != IntPtr.Zero);
-            var limits = new Extended();
-            limits.Basic.Flags = 0x2000; // KILL_ON_JOB_CLOSE; no breakaway.
-            Check(SetInformationJobObject(job, 9, ref limits,
-                Marshal.SizeOf(typeof(Extended))));
+            relay = StartChild(relayExecutable, relayArguments, cwd,
+                out input, out output, out error);
+            Check(ResumeThread(relay.Thread) != UInt32.MaxValue);
+            using (var relayInput = Stream(ref input, FileAccess.Write))
+            using (var relayOutput = Stream(ref output, FileAccess.Read))
+            using (var relayError = Stream(ref error, FileAccess.Read))
+            using (var completion = new MemoryStream())
+            {
+                var diagnostics = Task.Run(() => Drain(relayError, null));
+                // The outer job contains bridge, inner supervisor, producer,
+                // reader and helpers. Relay streams remain outside that job.
+                ReadConfiguration(node, cwd, Quote(bridge), true,
+                    relayOutput, completion);
+                Check(!diagnostics.IsFaulted &&
+                    Encoding.ASCII.GetString(completion.ToArray()) ==
+                    "NIBFIN_MCP_BRIDGE_COMPLETE\n");
+                byte[] proof = Encoding.ASCII.GetBytes(
+                    "NIBFIN_WINDOWS_MCP_OUTER_TERMINATED\n");
+                relayInput.Write(proof, 0, proof.Length);
+                relayInput.Close();
+                // Protocol EOF is not relay termination. Linux independently
+                // checks its exact relay PID; this parent observes wsl too.
+                Check(WaitForSingleObject(relay.Process, UInt32.MaxValue) == 0);
+                uint code;
+                Check(GetExitCodeProcess(relay.Process, out code) && code == 0);
+                diagnostics.GetAwaiter().GetResult();
+            }
+        }
+        finally
+        {
+            // No completion proof is sent on failure. Lost native or Linux
+            // proof leaves admission Pending even if a kill was attempted.
+            if (relay.Process != IntPtr.Zero) TerminateProcess(relay.Process, 1);
+            Close(ref input); Close(ref output); Close(ref error);
+            Close(ref relay.Thread); Close(ref relay.Process);
+        }
+    }
+    static ProcessInfo StartChild(string executable, string arguments, string cwd,
+        out IntPtr input, out IntPtr output, out IntPtr error)
+    {
+        IntPtr childInput = IntPtr.Zero, childOutput = IntPtr.Zero;
+        IntPtr childError = IntPtr.Zero, attributes = IntPtr.Zero;
+        IntPtr handles = IntPtr.Zero;
+        bool attributesInitialized = false;
+        ProcessInfo process = new ProcessInfo();
+        input = output = error = IntPtr.Zero;
+        try
+        {
             var security = new Security();
             security.Length = Marshal.SizeOf(typeof(Security));
             security.Inherit = 1;
@@ -173,8 +248,40 @@ public static class NibfinMcpJob
             startup.Info.Error = childError; startup.Attributes = attributes;
             Check(!executable.Contains("\"") && !executable.Contains("\0"));
             Check(CreateProcess(executable, new StringBuilder("\"" + executable +
-                "\" app-server --stdio"), IntPtr.Zero, IntPtr.Zero, true,
+                "\" " + arguments), IntPtr.Zero, IntPtr.Zero, true,
                 0x08080004, IntPtr.Zero, cwd, ref startup, out process));
+
+            return process; // Still suspended; caller contains before resume.
+        }
+        finally
+        {
+            Close(ref childInput); Close(ref childOutput); Close(ref childError);
+            if (attributes != IntPtr.Zero)
+            {
+                if (attributesInitialized) DeleteProcThreadAttributeList(attributes);
+                Marshal.FreeHGlobal(attributes);
+            }
+            if (handles != IntPtr.Zero) Marshal.FreeHGlobal(handles);
+        }
+    }
+    public static void ReadConfiguration(string executable, string cwd,
+        string arguments = "app-server --stdio", bool producer = false,
+        Stream request = null, Stream response = null)
+    {
+        IntPtr job = IntPtr.Zero, input = IntPtr.Zero;
+        IntPtr output = IntPtr.Zero, error = IntPtr.Zero;
+        ProcessInfo process = new ProcessInfo();
+        bool assigned = false;
+        try
+        {
+            job = CreateJobObject(IntPtr.Zero, null);
+            Check(job != IntPtr.Zero);
+            var limits = new Extended();
+            limits.Basic.Flags = 0x2000; // KILL_ON_JOB_CLOSE; no breakaway.
+            Check(SetInformationJobObject(job, 9, ref limits,
+                Marshal.SizeOf(typeof(Extended))));
+            process = StartChild(executable, arguments, cwd,
+                out input, out output, out error);
             long created, exited, kernel, user;
             Check(GetProcessTimes(process.Process, out created, out exited,
                 out kernel, out user));
@@ -183,28 +290,27 @@ public static class NibfinMcpJob
             Check(AssignProcessToJobObject(job, process.Process));
             assigned = true;
             Check(ResumeThread(process.Thread) != UInt32.MaxValue);
-            Close(ref childInput); Close(ref childOutput); Close(ref childError);
-            if (attributes != IntPtr.Zero)
-            {
-                if (attributesInitialized) DeleteProcThreadAttributeList(attributes);
-                Marshal.FreeHGlobal(attributes);
-            }
-            if (handles != IntPtr.Zero) Marshal.FreeHGlobal(handles);
             using (var stdin = Stream(ref input, FileAccess.Write))
             using (var stdout = Stream(ref output, FileAccess.Read))
             using (var stderr = Stream(ref error, FileAccess.Read))
             {
                 var copyIn = Task.Run(() =>
-                { Drain(Console.OpenStandardInput(), stdin); stdin.Close(); });
-                var copyOut = Task.Run(() => Drain(stdout, Console.OpenStandardOutput()));
+                { Drain(request ?? Console.OpenStandardInput(), stdin); stdin.Close(); });
+                var copyOut = Task.Run(() =>
+                    Drain(stdout, response ?? Console.OpenStandardOutput()));
                 var copyError = Task.Run(() => Drain(stderr, null));
                 // A faulted output pump must not strand a child with an open job.
-                while (!copyIn.IsCompleted)
+                while (!copyIn.IsCompleted &&
+                    (!producer || WaitForSingleObject(process.Process, 0) == 258))
                 {
                     Check(!copyOut.IsFaulted && !copyError.IsFaulted);
                     Thread.Sleep(10);
                 }
-                copyIn.GetAwaiter().GetResult();
+                if (copyIn.IsCompleted) copyIn.GetAwaiter().GetResult();
+                uint exitCode = 0;
+                bool completed = !producer ||
+                    (WaitForSingleObject(process.Process, 0) == 0 &&
+                    GetExitCodeProcess(process.Process, out exitCode) && exitCode == 0);
                 Check(TerminateJobObject(job, 0));
                 bool absent = false;
                 for (int i = 0; i < 100; i++)
@@ -216,6 +322,7 @@ public static class NibfinMcpJob
                     Thread.Sleep(10);
                 }
                 Check(absent && Task.WaitAll(new[] { copyOut, copyError }, 1000));
+                Check(completed);
             }
         }
         finally
@@ -226,7 +333,6 @@ public static class NibfinMcpJob
             if (job != IntPtr.Zero) TerminateJobObject(job, 1);
             Close(ref job); Close(ref process.Thread); Close(ref process.Process);
             Close(ref input); Close(ref output); Close(ref error);
-            Close(ref childInput); Close(ref childOutput); Close(ref childError);
         }
     }
 }
