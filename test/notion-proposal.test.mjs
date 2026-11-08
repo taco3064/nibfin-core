@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readNotionProposal } from '../src/notion-proposal.mjs';
-import { digest } from '../src/identity.mjs';
+import { createHash } from 'node:crypto';
 
 const pageId = '40006b64-4a20-80da-b1a8-c2e562f95373';
 const adoption = { pageId, tokenFile: '/private/notion-token' };
@@ -10,7 +10,8 @@ const readToken = async path => {
   assert.equal(path, adoption.tokenFile);
   return token;
 };
-const page = { object: 'page_markdown', id: pageId, markdown: '# Proposal',
+const page = { object: 'page_markdown', id: pageId,
+  markdown: '# Proposal\n\n## UTF-8: 光\n',
   truncated: false, unknown_block_ids: [] };
 
 test('Proposal read binds the adopted page and returns only evidence', async () => {
@@ -25,7 +26,7 @@ test('Proposal read binds the adopted page and returns only evidence', async () 
     },
   });
   assert.deepEqual(result, { pageId, markdown: page.markdown,
-    hash: digest(page.markdown) });
+    hash: createHash('sha256').update(page.markdown, 'utf8').digest('hex') });
 });
 
 test('Proposal read rejects partial, foreign, oversized or credential-bearing data',
