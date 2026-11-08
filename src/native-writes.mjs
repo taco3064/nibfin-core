@@ -1,5 +1,6 @@
 import { GitHubReader } from './github-read.mjs';
-import { GitHubWriter } from './github-write.mjs';
+import { integrationRepairRequired, pendingCIObservation } from './github-ci.mjs';
+import { GitHubWriter, MergeBeforeWrite } from './github-write.mjs';
 import { decideStage } from './stages.mjs';
 import { digest, isDigest, requireThat } from './identity.mjs';
 
@@ -37,7 +38,15 @@ export function nativeWrites({
         actor.type === 'User' && actor.id === context.execution.actorId,
         'WRITE_CREDENTIAL_IDENTITY_MISMATCH',
       );
-      const fresh = decideStage(stage, await observe(stage), clock());
+      let fresh;
+      try { fresh = decideStage(stage, await observe(stage), clock()); }
+      catch (error) {
+        if (stage === 'merge' && (pendingCIObservation(error.code) ||
+          integrationRepairRequired(error.code))) throw new MergeBeforeWrite();
+        throw error;
+      }
+      if (stage === 'merge' && fresh.status === 'allowed' &&
+        fresh.requestHash !== original.requestHash) throw new MergeBeforeWrite();
       requireThat(
         fresh.status === 'allowed' && fresh.requestHash === original.requestHash,
         'WRITE_AUTHORITY_CHANGED',

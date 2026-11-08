@@ -265,6 +265,21 @@ test('host shares one acquisition and refuses completed-Job replay', async t => 
     code: 'MCP_JOB_ALREADY_CLAIMED',
   });
   assert.equal(acquisitions, 1);
+  runner.jobId++;
+  await assert.rejects(prepareHostJobMcp(options, {
+    ...adapters,
+    acquire: async () => capsule,
+    load: async ({ file }) => {
+      assert.ok((await readFile(file)).length > 0);
+      process.emit('SIGTERM');
+      return structuredClone(profile);
+    },
+  }), { name: 'AbortError' });
+  const cancelled = digest(mcpJobBinding(runner));
+  const cancelledDirectory = join(root, 'mcp-jobs', cancelled + '.copies');
+  await assert.rejects(readFile(join(cancelledDirectory, 'source.json')),
+    { code: 'ENOENT' });
+  assert.ok((await readFile(join(root, 'mcp-jobs', cancelled + '.json'))).length);
   await assert.rejects(prepareHostJobMcp({ ...options,
     runner: { ...runner, actionCommit: 'c'.repeat(40) } }, adapters), {
     code: 'UNSUPPORTED_MCP_JOB_CALLER',

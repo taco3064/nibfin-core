@@ -214,6 +214,10 @@ test('Issue edits invalidate only changed requirements', () => {
   const before = decideStage('deliver', c, now);
   c.issue.body += '\n';
   assert.equal(decideStage('deliver', c, now).requestHash, before.requestHash);
+  const contractStart = c.issue.body.indexOf('{"artifacts"');
+  assert.ok(contractStart > 0);
+  c.issue.body = c.issue.body.replace('{"artifacts"', '{ "artifacts"');
+  assert.equal(decideStage('deliver', c, now).requestHash, before.requestHash);
   c.issue.body += 'A new acceptance condition';
   assert.equal(decideStage('deliver', c, now).code, 'PUBLISHED_SHAPE_CHANGED');
 });

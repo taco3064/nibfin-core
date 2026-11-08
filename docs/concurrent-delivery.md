@@ -2,8 +2,8 @@
 
 The current authorized GitHub Issue is the requirements source. The protected
 grant still selects the Issue, operations, roles and Core source. Its original
-Scope body is historical. A line-ending or trailing-whitespace edit preserves
-the current contract. A substantive body change requires fresh independent
+Scope body is historical. Line-ending changes, trailing whitespace, and equivalent JSON formatting in
+the published obligations block preserve the current contract. A substantive body change requires fresh independent
 Shape validation and evidence for the changed requirements.
 
 Core captures the Writer checkout even if main advanced. The full Candidate

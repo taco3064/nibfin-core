@@ -2,6 +2,13 @@ import { repoPath, issuePath } from './github-read.mjs';
 import { digest, isDigest, isId, isSha, requireThat } from './identity.mjs';
 import { readMergeIdentity } from './github-merge.mjs';
 
+export class MergeBeforeWrite extends Error {
+  constructor() {
+    super('Merge integration must be observed again');
+    this.code = 'MERGE_REOBSERVE_REQUIRED';
+  }
+}
+
 function labels(issue) {
   requireThat(
     Array.isArray(issue.labels) &&
@@ -263,20 +270,17 @@ export class GitHubWriter {
         current.merged === false &&
         current.head?.sha === head &&
         current.head.repo?.id === repositoryId &&
-        current.base?.sha === base &&
-        current.base.ref === baseBranch &&
-        current.base.repo?.id === repositoryId &&
-        current.mergeable === true &&
-        current.mergeable_state === 'clean',
+        current.base?.ref === baseBranch &&
+        current.base.repo?.id === repositoryId,
       'STALE_OR_BLOCKED_MERGE',
     );
+    if (current.base.sha !== base || current.mergeable !== true ||
+      current.mergeable_state !== 'clean') throw new MergeBeforeWrite();
     const branch = await this.#reader.get(
       `${root}/branches/${encodeURIComponent(baseBranch)}`,
     );
-    requireThat(
-      branch.commit?.sha === base && branch.protected === true,
-      'MERGE_BASE_CHANGED',
-    );
+    requireThat(branch.protected === true, 'MERGE_PROTECTION_CHANGED');
+    if (branch.commit?.sha !== base) throw new MergeBeforeWrite();
     const repositoryState = await this.#reader.repository(repository);
     requireThat(
       repositoryState.id === repositoryId &&
