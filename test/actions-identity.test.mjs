@@ -193,7 +193,7 @@ test(
         f.payload.exp = now / 1000;
       },
       (f) => {
-        f.payload.iat = now / 1000 + 20;
+        f.payload.iat = f.payload.exp + 1;
       },
       (f) => {
         f.payload.job_workflow_sha = 'b'.repeat(40);
@@ -302,15 +302,17 @@ test('expiry during signing-key retrieval cannot authorize a caller', async () =
   await assert.rejects(call(), { code: 'OIDC_EXPIRED' });
 });
 
-test('activation uses verification time without permitting future claims', async () => {
+test('activation follows not-before despite a slow local clock', async () => {
   const active = delayedCaller(payload => {
     payload.iat = now / 1000 + 1;
     payload.nbf = now / 1000 + 1;
   });
   assert.equal((await active()).runId, 30);
+  const skewed = delayedCaller(payload => { payload.iat = now / 1000 + 4; });
+  assert.equal((await skewed()).runId, 30);
   const future = delayedCaller(payload => {
     payload.iat = now / 1000 + 3;
     payload.nbf = now / 1000 + 3;
   });
-  await assert.rejects(future(), { code: 'OIDC_ISSUED_IN_FUTURE' });
+  await assert.rejects(future(), { code: 'OIDC_NOT_YET_ACTIVE' });
 });
