@@ -94,6 +94,7 @@ export async function launchIssueWake(issueNumber, env = process.env, eventBytes
     }
     throw error;
   }
+  let phase = 'host-inspection';
   try {
     const inspect = async () => {
       await inspectHostAdoption(context);
@@ -133,6 +134,7 @@ export async function launchIssueWake(issueNumber, env = process.env, eventBytes
       if (error.code !== 'EEXIST') throw error;
     });
     await privateHostDirectory(stateRoot);
+    phase = 'dispatch';
     const result = await dispatchIssueWake({
       reader,
       token,
@@ -148,13 +150,14 @@ export async function launchIssueWake(issueNumber, env = process.env, eventBytes
       stateRoot,
       inspect,
     });
-    if (result.status !== 'pending') {
-      await inspect();
-      await fence.release();
-    }
+    // Dispatch admission has already rechecked the native authority. Release
+    // after a definitive result requires proof of local fence ownership only.
+    // A later provider read cannot add evidence about this completed operation.
+    phase = 'fence-release';
+    if (result.status !== 'pending') await fence.release();
     return result;
   } catch {
     // Unknown external effects retain the shared host fence and wake journal.
-    return { status: 'pending', code: 'HOST_WAKE_UNRESOLVED' };
+    return { status: 'pending', code: 'HOST_WAKE_UNRESOLVED', phase };
   }
 }
