@@ -1,4 +1,4 @@
-import { mkdir } from 'node:fs/promises';
+import { mkdir, rm, rmdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { digest, requireThat } from './identity.mjs';
 import { repoPath } from './github-read.mjs';
@@ -37,7 +37,6 @@ export async function prepareHostJobMcp({ host, runner, reader, approval }, {
   const claim = await claimJob(host.stateRoot, runner);
   await inspectEndpoint(host.mcp);
   const copies = join(claim.directory, digest(claim.binding) + '.copies');
-  await mkdir(copies, { mode: 0o700 });
   const controller = new AbortController();
   let closed = false, timer;
   const abort = () => controller.abort();
@@ -70,15 +69,26 @@ export async function prepareHostJobMcp({ host, runner, reader, approval }, {
       signal: controller.signal,
     });
     await authorize();
-    const file = join(copies, 'source.json');
-    await store(file, value);
-    const prepared = await load({ kind: 'delegated-http-v1', file }, {
-      memberId: runner.memberId, discoveryRoot: copies,
-    });
-    requireThat(Object.values(prepared.configuration.mcp_servers)
-      .some(server => server.enabled !== false), 'USER_MCP_NO_READ_ONLY_TOOLS');
     controller.signal.throwIfAborted();
-    return prepared;
+    await mkdir(copies, { mode: 0o700 });
+    const file = join(copies, 'source.json');
+    try {
+      await store(file, value);
+      const prepared = await load({ kind: 'delegated-http-v1', file }, {
+        memberId: runner.memberId, discoveryRoot: copies,
+      });
+      requireThat(Object.values(prepared.configuration.mcp_servers)
+        .some(server => server.enabled !== false), 'USER_MCP_NO_READ_ONLY_TOOLS');
+      controller.signal.throwIfAborted();
+      return prepared;
+    } catch (error) {
+      // Discovery may leave a session journal. Retain it for reconciliation.
+      await rm(file, { force: true });
+      await rmdir(copies).catch(cleanup => {
+        if (cleanup.code !== 'ENOTEMPTY') throw cleanup;
+      });
+      throw error;
+    }
   });
   try { await profile.read(); }
   catch (error) { stop(); throw error; }

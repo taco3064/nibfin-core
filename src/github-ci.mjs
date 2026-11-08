@@ -5,6 +5,9 @@ import { readProtection } from './github-protection.mjs';
 import { readMergeIdentity } from './github-merge.mjs';
 
 const pendingObservations = Object.freeze([
+  'MERGE_REOBSERVE_REQUIRED',
+  'CI_BASE_CHANGED',
+  'CI_CHANGED_DURING_READ',
   'CI_WAITING',
   'CI_REGISTRATION_PENDING',
   'PR_MERGEABILITY_PENDING',
@@ -136,7 +139,8 @@ export async function readPullRequestCI(reader, expected, now = Date.now()) {
     previewSha === null), 'CI_PR_NOT_ELIGIBLE');
   const branchPath = `${root}/branches/${encodeURIComponent(pr.base.ref)}`;
   const branch = await reader.get(branchPath);
-  requireThat(branch.protected === true && isSha(branch.commit?.sha), 'CI_BASE_CHANGED');
+  requireThat(branch.protected === true && isSha(branch.commit?.sha),
+    'CI_PROTECTION_UNAVAILABLE');
   if (merged) {
     await readMergeIdentity(
       reader,

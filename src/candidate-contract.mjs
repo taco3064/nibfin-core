@@ -1,3 +1,4 @@
+import { canonical } from './identity.mjs';
 import { validateSchema } from './schema.mjs';
 
 export const candidateContractFence = 'kairo-candidate';
@@ -36,11 +37,14 @@ export function safeCandidatePath(path) {
     path.split('/').every(p => p && !['.', '..', '.git'].includes(p.toLowerCase()));
 }
 
-export function candidateContract(body) {
-  const pattern = new RegExp(
+function candidateBlockPattern() {
+  return new RegExp(
     '^```' + candidateContractFence + '\\r?\\n([\\s\\S]*?)^```\\s*$', 'gm',
   );
-  const blocks = [...(body || '').matchAll(pattern)];
+}
+
+export function candidateContract(body) {
+  const blocks = [...(body || '').matchAll(candidateBlockPattern())];
   if (blocks.length !== 1) {
     throw new Error(
       `Shape must contain exactly one ${candidateContractFence} obligations block`,
@@ -59,4 +63,16 @@ export function candidateContract(body) {
     }
   }
   return contract;
+}
+
+export function canonicalCandidateBlock(body) {
+  if (typeof body !== 'string') return body;
+  let contract;
+  try { contract = candidateContract(body); }
+  catch { return body; }
+  return body.replace(candidateBlockPattern(), (block, json) => {
+    const start = block.indexOf('\n') + 1;
+    return block.slice(0, start) + canonical(contract) + '\n' +
+      block.slice(start + json.length);
+  });
 }

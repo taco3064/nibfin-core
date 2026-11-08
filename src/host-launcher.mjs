@@ -8,7 +8,8 @@ import { readCurrentMain } from './current-main.mjs';
 import { codexStageExecutor } from './codex-stage.mjs';
 import { CandidateWorkspace } from './workspace.mjs';
 import { command } from './process.mjs';
-import { stages, evidenceBinding, requirementsText } from './stages.mjs';
+import { stages, evidenceBinding, requirementsText,
+  samePublishedRequirements } from './stages.mjs';
 import { EvidenceStore } from './evidence-store.mjs';
 import { continueStages } from './stage-continuation.mjs';
 import { setTimeout } from 'node:timers/promises';
@@ -297,7 +298,7 @@ export async function launchStage(issueNumber, stage, env = process.env) {
               const previous = await store.get(saved);
               if (receipts['publish-shape'] || current.labels.some(
                 label => label.name === 'shaped')) {
-                return requirementsText(current.body) !== requirementsText(previous);
+                return !samePublishedRequirements(current.body, previous);
               }
               const prior = receipts.shape.artifacts.requirementsHash;
               return prior !== undefined &&

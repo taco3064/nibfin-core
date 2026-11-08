@@ -1,5 +1,7 @@
 import { digest, requireThat } from './identity.mjs';
 import { decideStage, stages } from './stages.mjs';
+import { MergeBeforeWrite } from './github-write.mjs';
+import { integrationRepairRequired, pendingCIObservation } from './github-ci.mjs';
 import { pendingMcpObservation } from './mcp-pending.mjs';
 import { observationFailureCode } from './observation-failure.mjs';
 
@@ -17,6 +19,8 @@ export const stageSuccess = Object.freeze({
   close: 'closed',
 });
 const success = stageSuccess;
+const pendingObservation = code =>
+  pendingCIObservation(code) || pendingMcpObservation(code);
 
 // Construct only in trusted installed Core. Adapters are code-owned and cannot be
 // overridden by a stage request, event, Issue or worktree. No arbitrary command
@@ -68,8 +72,8 @@ export class StageRuntime {
     } catch (error) {
       return {
         schemaVersion: 1,
-        status: pendingMcpObservation(error.code) ? 'pending' : 'denied',
-        code: pendingMcpObservation(error.code)
+        status: pendingObservation(error.code) ? 'pending' : 'denied',
+        code: pendingObservation(error.code)
           ? error.code : observationFailureCode(error),
         stage,
       };
@@ -86,6 +90,8 @@ export class StageRuntime {
             let fresh;
             try {
               fresh = decideStage(stage, await this.#observe(stage), this.#clock());
+              if (stage === 'merge' && fresh.status === 'allowed' &&
+                fresh.requestHash !== decision.requestHash) throw new MergeBeforeWrite();
             } catch (error) { admissionError = error; throw error; }
             requireThat(
               fresh.status === 'allowed' && fresh.requestHash === decision.requestHash,
@@ -149,8 +155,11 @@ export class StageRuntime {
           },
         },
       );
-      if (pendingMcpObservation(admissionError?.code))
-        return { schemaVersion: 1, stage, status: 'pending', code: admissionError.code };
+      if (pendingObservation(admissionError?.code) ||
+        integrationRepairRequired(admissionError?.code)) {
+        return { schemaVersion: 1, stage, code: admissionError.code,
+          status: pendingObservation(admissionError.code) ? 'pending' : 'denied' };
+      }
       if (outcome.status !== 'completed') return { schemaVersion: 1, stage, ...outcome };
       return {
         schemaVersion: 1,

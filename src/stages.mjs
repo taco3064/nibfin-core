@@ -1,7 +1,8 @@
 import { digest, isDigest, isId, isSha, requireThat } from './identity.mjs';
 import { validateApprovalRecord } from './approval-record.mjs';
 import { issuePath } from './github-read.mjs';
-import { candidateContract, safeCandidatePath } from './candidate-contract.mjs';
+import { canonicalCandidateBlock, candidateContract,
+  safeCandidatePath } from './candidate-contract.mjs';
 import { requireExecutionIsolation } from './execution-profiles.mjs';
 
 // Adapted from Kairo's pure stage/evidence gates. Only a trusted live observer
@@ -111,14 +112,18 @@ function shapeEvidence(context, requireValidator) {
 export function requirementsText(body) {
   return typeof body === 'string' ? body.replaceAll('\r\n', '\n').trimEnd() : body;
 }
+export function samePublishedRequirements(current, prior) {
+  return canonicalCandidateBlock(requirementsText(current)) ===
+    canonicalCandidateBlock(requirementsText(prior));
+}
 function publication(context) {
   const artifacts = { shapeHash: context.shape.hash };
   const reviewed = context.receipts['publish-shape']?.artifacts?.requirementsHash;
   receipt(context, 'publish-shape', {
     ...artifacts, ...(reviewed ? { requirementsHash: reviewed } : {}),
   }, 'published');
-  requireThat(requirementsText(context.issue.body) ===
-    requirementsText(context.shape.body), 'PUBLISHED_SHAPE_CHANGED');
+  requireThat(samePublishedRequirements(context.issue.body, context.shape.body),
+    'PUBLISHED_SHAPE_CHANGED');
   return artifacts;
 }
 function candidateEvidence(context) {
@@ -387,7 +392,9 @@ export function decideStage(stage, context, now = Date.now()) {
       execution,
       runner: context.runner.runnerId,
       isolation: context.isolation.profile,
-      requirements: digest(requirementsText(issue.body)),
+      requirements: digest(labels.has('shaped')
+        ? canonicalCandidateBlock(requirementsText(issue.body))
+        : requirementsText(issue.body)),
     });
     return {
       schemaVersion: 1,
