@@ -22,6 +22,7 @@ export async function codexStageExecutor({
   agentStateRoot,
   authFile,
   mcpSource,
+  mcpJob,
   model,
   isolation,
   inspectWriter,
@@ -56,8 +57,9 @@ export async function codexStageExecutor({
     coreRoot,
   );
   const inheritedAgent = withUserMcp(agentSandbox, mcpSource,
-    source => loadUserMcp(source, { discoveryRoot: agentStateRoot,
-      memberId: adopted.runner.memberId }));
+    source => mcpJob ? mcpJob.read() : loadUserMcp(source, {
+      discoveryRoot: agentStateRoot, memberId: adopted.runner.memberId,
+    }), mcpJob);
   const agent = new CodexRoleAgent(
     {
       stateRoot: agentStateRoot,

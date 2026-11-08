@@ -46,6 +46,12 @@ export function executionIdentity(value, role, actorId) {
 function receipt(context, stage, artifacts, outcome) {
   const value = context.receipts?.[stage],
     definition = stages[stage];
+  const priorHash = value?.artifacts?.candidateHash;
+  const reusable = ['pre-accept-hooks', 'accept', 'post-accept-hooks', 'review-pr'];
+  if (reusable.includes(stage) && artifacts.candidateHash &&
+    context.equivalentCandidates?.includes(priorHash)) {
+    artifacts = { ...artifacts, candidateHash: priorHash };
+  }
   requireThat(
     value?.schemaVersion === 1 &&
       value.stage === stage &&
@@ -90,10 +96,15 @@ function shapeEvidence(context, requireValidator) {
     independent(author, receipt(context, 'validate-shape', artifacts, 'approved'));
   return artifacts;
 }
+// Preserve whitespace within requirements and Markdown blocks.
+export function requirementsText(body) {
+  return typeof body === 'string' ? body.replaceAll('\r\n', '\n').trimEnd() : body;
+}
 function publication(context) {
   const artifacts = shapeEvidence(context, true);
   receipt(context, 'publish-shape', artifacts, 'published');
-  requireThat(context.issue.body === context.shape.body, 'PUBLISHED_SHAPE_CHANGED');
+  requireThat(requirementsText(context.issue.body) ===
+    requirementsText(context.shape.body), 'PUBLISHED_SHAPE_CHANGED');
   return artifacts;
 }
 function candidateEvidence(context) {
@@ -154,7 +165,6 @@ function candidateEvidence(context) {
   return artifacts;
 }
 function acceptance(context, artifacts) {
-  receipt(context, 'pre-accept-hooks', artifacts, 'passed');
   const accept = receipt(context, 'accept', artifacts, 'accepted');
   independent(context.receipts.deliver, accept);
   return accept;
@@ -170,23 +180,32 @@ function pullRequest(context, artifacts) {
       isSha(pr.base) &&
       pr.repositoryId === context.approval.record.issue.repositoryId &&
       pr.tree === context.candidate.tree &&
-      pr.base === context.candidate.base &&
       pr.state === 'open',
     'PR_CANDIDATE_MISMATCH',
   );
   receipt(
     context,
     'commit-pr',
-    { ...artifacts, prId: pr.id, prNumber: pr.number, head: pr.head, base: pr.base },
+    { ...artifacts, prId: pr.id, prNumber: pr.number,
+      head: pr.publishedHead ?? pr.head, base: context.candidate.base },
     'published',
   );
   return {
     ...artifacts,
     prId: pr.id,
     prNumber: pr.number,
-    head: pr.head,
-    base: pr.base,
+    head: pr.publishedHead ?? pr.head,
   };
+}
+function verifyContentReview(context, artifacts) {
+  const prior = context.receipts['review-pr']?.artifacts;
+  const legacy = isSha(prior?.base) && isDigest(prior?.ciHash)
+    ? { base: prior.base, ciHash: prior.ciHash } : {};
+  const sameContent = context.equivalentCandidates?.includes(prior?.candidateHash);
+  const identity = sameContent && prior.prId === artifacts.prId && isSha(prior.head)
+    ? { ...artifacts, head: prior.head } : artifacts;
+  const review = receipt(context, 'review-pr', { ...identity, ...legacy }, 'approved');
+  independent(context.receipts.deliver, review);
 }
 function ci(context) {
   const evidence = context.ci;
@@ -285,25 +304,14 @@ export function decideStage(stage, context, now = Date.now()) {
             context.shape?.body === issue.body,
             'CURRENT_SHAPE_REVALIDATION_CHANGED',
           );
-      } else requireThat(issue.body === record.scope.body, 'RAW_SCOPE_CHANGED');
+      } else requireThat(typeof issue.body === 'string' && issue.body.trim(),
+        'EMPTY_ISSUE_BODY');
       if (stage !== 'shape')
         artifacts = shapeEvidence(context, stage === 'publish-shape');
     } else {
       requireThat(labels.has('shaped'), 'SHAPE_NOT_PUBLISHED');
       artifacts = publication(context);
       if (stage !== 'deliver') artifacts = candidateEvidence(context);
-      if (
-        [
-          'pre-accept-hooks',
-          'accept',
-          'post-accept-hooks',
-          'commit-pr',
-          'review-pr',
-          'merge',
-        ].includes(stage)
-      ) {
-        requireThat(context.candidate.base === context.main.head, 'REBASE_REQUIRED');
-      }
       if (
         [
           'accept',
@@ -326,11 +334,11 @@ export function decideStage(stage, context, now = Date.now()) {
         receipt(context, 'post-accept-hooks', artifacts, 'passed');
       if (['review-pr', 'merge'].includes(stage)) {
         artifacts = pullRequest(context, artifacts);
-        Object.assign(artifacts, ci(context));
       }
       if (stage === 'merge') {
-        const review = receipt(context, 'review-pr', artifacts, 'approved');
-        independent(context.receipts.deliver, review);
+        verifyContentReview(context, artifacts);
+        const { head, base } = context.pr;
+        Object.assign(artifacts, { head, base }, ci(context));
       }
       if (stage === 'close') {
         requireThat(
@@ -339,7 +347,6 @@ export function decideStage(stage, context, now = Date.now()) {
             isSha(context.pr.mergeCommit) &&
             context.pr.repositoryId === record.issue.repositoryId &&
             context.pr.tree === context.candidate.tree &&
-            context.pr.base === context.candidate.base &&
             isSha(context.pr.head),
           'MERGE_READBACK_REQUIRED',
         );
@@ -351,7 +358,9 @@ export function decideStage(stage, context, now = Date.now()) {
           base: context.pr.base,
           ...ci(context),
         };
-        receipt(context, 'review-pr', artifacts, 'approved');
+        const { base, ciHash, ...content } = artifacts;
+        verifyContentReview(context, { ...content,
+          head: context.pr.publishedHead ?? context.pr.head });
         artifacts.mergeCommit = context.pr.mergeCommit;
         receipt(context, 'merge', artifacts, 'merged');
       }
@@ -363,8 +372,8 @@ export function decideStage(stage, context, now = Date.now()) {
       artifacts,
       execution,
       runner: context.runner.observationHash,
-      isolation: context.isolation.observationHash,
-      main: context.main.head,
+      isolation: context.isolation.profile,
+      requirements: digest(requirementsText(issue.body)),
     });
     return {
       schemaVersion: 1,

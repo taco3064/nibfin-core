@@ -26,6 +26,7 @@ export async function prepareWindowsMcpReader({ build = command } = {}) {
   try {
     await protectWindowsMcpDirectory(root);
     const source = fileURLToPath(new URL('./mcp-windows-job.cs', import.meta.url));
+    const sourceHash = sha256(await readFile(source));
     phase = 'WINDOWS_MCP_COMPILATION';
     await build('C:/Windows/Microsoft.NET/Framework64/v4.0.30319/csc.exe',
       ['/nologo', '/target:exe', '/platform:anycpu', `/out:${executable}`, source],
@@ -33,7 +34,10 @@ export async function prepareWindowsMcpReader({ build = command } = {}) {
         timeout: 15000, limit: 16384 });
     phase = 'WINDOWS_MCP_EXECUTABLE_ACL';
     await verifyMcpPath(executable);
-    return { executable, hash: sha256(await readFile(executable)), root, release };
+    requireThat(sha256(await readFile(source)) === sourceHash,
+      'WINDOWS_MCP_READER_SOURCE_CHANGED');
+    return { executable, hash: sha256(await readFile(executable)), sourceHash,
+      root, release };
   } catch (error) {
     error.mcpPhase ??= phase;
     // Known failed compiler exit has never launched the MCP reader. Unknown

@@ -380,6 +380,7 @@ test(
     };
     f.data[`/git/commits/${merge}`] = {
       sha: merge,
+      tree: { sha: 'a'.repeat(40) },
       parents: [{ sha: f.expected.base }, { sha: f.expected.head }],
     };
     const expected = {
@@ -392,6 +393,7 @@ test(
         targetSha: f.expected.head,
       })),
     };
+    f.data['/git/commits/' + f.preview].tree = { sha: 'a'.repeat(40) };
     // Later push checks on the historical preview cannot replace the admitted PR check.
     f.data[`/commits/${f.preview}/check-runs?filter=latest`] = [
       { ...f.check, head_sha: f.preview, status: 'queued' },
@@ -420,6 +422,8 @@ test(
         f.data[`/commits/${f.preview}/check-runs?filter=latest`] = [f.check];
         f.data[`/commits/${f.expected.head}/check-runs?filter=latest`] = [];
       }
+      const preview = f.data['/git/commits/' + f.preview];
+      preview.tree = { sha: tree };
       const before = await readPullRequestCI(f.reader, f.expected, now);
       assert.equal(before.testMerge, f.preview);
       Object.assign(f.pr, {

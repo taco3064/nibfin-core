@@ -8,10 +8,10 @@ import { requireThat, sha256 } from './identity.mjs';
 // This reads configuration, not an Agent turn. No model or MCP tool is called.
 // Native config/read preserves policies omitted by `codex mcp get --json`.
 export async function readNativeMcpConfiguration(
-  executable, { cwd, env, timeout = 15000 },
+  executable, { cwd, env, timeout = 15000, installedReader },
 ) {
   const windows = process.platform === 'win32';
-  const reader = windows ? await prepareWindowsMcpReader() : null;
+  const reader = windows ? installedReader ?? await prepareWindowsMcpReader() : null;
   let cleanupSafe = false;
   try {
     if (reader) requireThat(sha256(await readFile(reader.executable)) === reader.hash,
@@ -22,7 +22,7 @@ export async function readNativeMcpConfiguration(
     if (reader && !cleanupSafe) error.recoveryDirectory = reader.root;
     throw error;
   } finally {
-    if (reader && cleanupSafe) await reader.release();
+    if (reader && cleanupSafe) await reader.release?.();
   }
 }
 

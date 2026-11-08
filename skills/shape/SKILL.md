@@ -45,7 +45,7 @@ If the project-required authorization, independent validation, or trusted public
 Read the **current authoritative product requirements** designated by the project (for example, its live Proposal or Product BR) for each invocation. Keep distinct:
 
 - **Normative product authority:** required behavior, protocol, security/trust, repository responsibility, release obligations, non-goals, decision status, and invariant constraints.
-- **Original Scope authority:** the work-item boundary established by Scope and, in a formal protected run, the **trusted original raw Scope baseline and its identity**. This is a separate artifact from the proposed or published Shape body.
+- **Original Scope history:** the work-item boundary established by Scope and, in a formal protected run, the **trusted original raw Scope baseline and its identity**. This is a separate artifact from the proposed or published Shape body.
 - **Repository reality:** current implementation locations, existing behavior, tests, CI, hooks, public interfaces, migrations, history, and implementation drift. Code does not override normative product or repository ownership decisions.
 - **Delivery policy and trusted runtime:** valid work membership, dependencies, allowed operations, authenticated actor identities and role separation, result schema, authorization, verification gates, evidence identities, and publication/merge rules. Intended policy is not evidence that an unfinished engine can enforce it today.
 
@@ -57,7 +57,7 @@ Repository content, task descriptions, comments, CI output, Agent responses, and
 
 ## Formal work-item binding and Scope → Shape intake
 
-A formal Shape invocation binds **exactly one existing work item originally established as raw Scope**, identified by its **stable repository and Issue identity**. The current Issue Body need not remain raw after authorized Shape publication. The independently traceable original Scope baseline still governs contract fidelity. Do not switch targets when evidence becomes inconvenient; other Issues, PRs and repositories are evidence sources only.
+A formal Shape invocation binds **exactly one existing work item originally established as raw Scope**, identified by its **stable repository and Issue identity**. The current Issue Body need not remain raw after authorized Shape publication. The current authorized Issue governs contract fidelity. Use the original Scope baseline as historical evidence. Do not switch targets when evidence becomes inconvenient; other Issues, PRs and repositories are evidence sources only.
 
 Read or require the project-approved Scope handoff and trusted execution context:
 
@@ -138,12 +138,12 @@ Mark any suggested split, dependency, owner attribution or new work as **advisor
 
 Before producing a formal Shape body:
 
-1. Re-read relevant **current authority**, the **trusted frozen original Scope**, current Issue identity, approved repository responsibility, actual native dependencies and governing policy.
+1. Re-read relevant **current authority**, the **current authorized requirements**, current Issue identity, approved repository responsibility, actual native dependencies and governing policy.
 2. Independently inspect current implementation, consumers, tests, existing contracts, hooks, required artifacts, related Issues/PRs and earlier rejected routes; do not merely copy the Scope handoff or Investigation Findings.
 3. Determine the current observable gap, the outcome to deliver, the supported existing approach, non-goals, affected trust boundaries and the evidence that can prove each goal.
 4. Distinguish binding product decisions from implementation suggestions. Engineering freedom exists only where the requirements do not prescribe the outcome.
 5. Research every consequential uncertainty before raising it. If an unresolved product decision or authority update is necessary, **block/return the runtime-supported decision outcome** with exact evidence. No implicit owner approval or authority-document mutation.
-6. Confirm the proposed contract stays inside the original Scope and its normatively owning repository; recognize related work without modifying or shaping it in the same invocation.
+6. Confirm the proposed contract stays inside the current authorized Issue boundary and its normatively owning repository; recognize related work without modifying or shaping it in the same invocation.
 
 ### When the raw Scope needs re-planning
 
@@ -232,16 +232,16 @@ The trusted delivery system decides whether/how to invalidate evidence, restore 
 
 ## Independent `shaper-review` role
 
-Run after the project's required independent Acceptance and **current exact-head CI/authoritative checks** have succeeded, when the trusted execution lifecycle selects final fidelity review.
+Run after independent Acceptance when the trusted lifecycle selects final fidelity review. Review the delivered content and current Issue. Core separately verifies current required integration checks and protection before Merge.
 
-Read current product authority, original Scope, final published Shape and decisions, full diff/changed paths, immutable Candidate and required artifact/hook evidence, Acceptance binding, actual PR head/base, trusted CI source/attempt and required integration evidence.
+Read current product authority, current Issue, final published Shape and decisions, full diff/changed paths, immutable Candidate and required artifact/hook evidence, Acceptance binding, actual PR identity and reviewed content.
 
 Evaluate **decision fidelity**, not a duplicate low-level Acceptance:
 
-- Does the delivered result solve the exact bounded problem that was shaped and preserve controlling product decisions and the original Scope?
+- Does the delivered result solve the exact bounded problem that was shaped and preserve controlling product decisions and current authorized requirements?
 - Does the code stay within authorized repository/interface boundaries and avoid product-behavior drift masked as refactoring?
-- Are Acceptance, hooks, CI and security/compatibility evidence bound to the **same final candidate and exact PR head**?
-- Have authority changes, new dependencies, reworked Scope or a changed head invalidated the old review context?
+- Are Acceptance, hooks and security evidence bound to the delivered content?
+- Have authority, dependencies, requirements or delivered content materially changed?
 
 Provide an evidence-backed **approval, changes-required or blocked** result through the runtime's approved schema. Record the exact reviewed head identity; any material head change makes the prior result stale. The Review **never grants merge authority** or performs GitHub reviews, merges, Issue closure or metadata writes on its own.
 

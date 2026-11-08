@@ -1,20 +1,42 @@
 import { stages } from './stages.mjs';
 import { stageSuccess } from './stage-runtime.mjs';
 import { digest, requireThat } from './identity.mjs';
+import { equivalentCandidate } from './candidate-evidence.mjs';
 import { pendingCIObservation } from './github-ci.mjs';
 
 // This only drives the existing ordered stage contract. There is no second
 // lifecycle store: every next operation still enters StageRuntime admission.
 // The installed launcher holds its host fence across this entire call.
+async function currentReceipts(store, previous) {
+  const shape = previous.shape?.artifacts?.shapeHash;
+  const candidate = previous.deliver?.artifacts?.candidateHash;
+  const snapshot = candidate ? await store.get(candidate) : null;
+  const reusable = ['pre-accept-hooks', 'accept', 'post-accept-hooks'];
+  const current = {};
+  for (const stage of Object.keys(stages)) {
+    const entry = previous[stage];
+    const artifacts = entry?.artifacts;
+    if ((artifacts?.shapeHash && artifacts.shapeHash !== shape) ||
+      (artifacts?.candidateHash && artifacts.candidateHash !== candidate &&
+        (!reusable.includes(stage) ||
+          !await equivalentCandidate(store, snapshot, artifacts.candidateHash)))) break;
+    if (entry) current[stage] = entry;
+  }
+  return current;
+}
+
 export async function continueStages({
   store,
   execute,
+  refreshRequirements = async () => false,
   inspect,
   wait,
   clock = Date.now,
   ciTimeout = 600000,
 }) {
-  const initial = await store.load();
+  const previous = await store.load();
+  const changed = await refreshRequirements(previous);
+  const initial = changed ? {} : await currentReceipts(store, previous);
   let gap = false;
   for (const stage of Object.keys(stages)) {
     if (!initial[stage]) {
@@ -22,10 +44,10 @@ export async function continueStages({
       continue;
     }
     requireThat(!gap, 'NONCONTIGUOUS_STAGE_RECEIPTS');
-    requireThat(
-      initial[stage].outcome === stageSuccess[stage],
-      'STAGE_REQUIRES_CORRECTION',
-    );
+    if (initial[stage].outcome !== stageSuccess[stage]) {
+      return { schemaVersion: 1, status: 'denied',
+        code: 'STAGE_REQUIRES_CORRECTION', stage };
+    }
   }
   if (initial.close)
     return { schemaVersion: 1, status: 'denied', code: 'DELIVERY_ALREADY_RECORDED' };

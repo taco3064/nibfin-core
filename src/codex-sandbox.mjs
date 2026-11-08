@@ -419,7 +419,7 @@ export class CodexSandbox {
             .trim(),
           'AGENT_STILL_RUNNING',
         );
-        await mcpLease?.release();
+        if (!mcp) await mcpLease?.release();
         // Mapped UID files must be host-readable/removable before any proof.
         const cleanupMounts = mounts.filter((m) => m.rw);
         await this.#docker([
@@ -446,9 +446,11 @@ export class CodexSandbox {
           cleanupAgentMounts,
           ...cleanupMounts.map((m) => m.destination),
         ]);
-        await rm(authRoot, { recursive: true });
-        for (const entry of await readdir(session))
-          await rm(join(session, entry), { recursive: true, force: true });
+        if (!mcp) {
+          await rm(authRoot, { recursive: true });
+          for (const entry of await readdir(session))
+            await rm(join(session, entry), { recursive: true, force: true });
+        }
         if (outcome.status === 'executed')
           outcome.terminationHash = digest({
             executionId,
@@ -481,6 +483,12 @@ export class CodexSandbox {
           status: 'completed',
           executionId,
           terminationHash,
+          ...(mcp ? { retireMcp: async () => {
+            await mcpLease?.release();
+            await rm(authRoot, { recursive: true });
+            for (const entry of await readdir(session))
+              await rm(join(session, entry), { recursive: true, force: true });
+          } } : {}),
           stdout: stream.stdout,
           stderr: stream.stderr,
           policyHash: plan.policyHash,
