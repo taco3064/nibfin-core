@@ -1,11 +1,12 @@
-name: Nibfin adopted Action wake
+name: Nibfin adopted dispatch
 # Core source: 359fa72433c5cc4c2f23b77e8ec3e30737f6dd00
 on:
   workflow_dispatch:
     inputs:
       issue_number: { required: true, type: string }
-      issue_id: { required: true, type: string }
-      repository_id: { required: true, type: string }
+      issue_id: { required: false, type: string }
+      repository_id: { required: false, type: string }
+      stage: { required: false, type: string, default: continue }
 permissions:
   contents: read
   id-token: write
@@ -20,4 +21,4 @@ jobs:
           f444f951be819fe5a27d13d3c1547652f63f1fa1"
         with:
           issue-number: ${{ inputs.issue_number }}
-          stage: continue
+          stage: ${{ inputs.stage }}
