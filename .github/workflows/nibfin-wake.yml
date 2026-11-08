@@ -1,5 +1,5 @@
 name: Nibfin adopted dispatch
-# Core source: 38f18432cbab9ed97e193e25631caa98f7b09e09
+# Core source: e97bc3a058d0f47b3479796932933e645cc7d64e
 on:
   workflow_dispatch:
     inputs:
@@ -18,7 +18,7 @@ jobs:
     runs-on: [self-hosted, Linux, nibfin-user-127829492]
     steps:
       - uses: "taco3064/nibfin-act@\
-          00c4f751d9a9222c19432141c163814df07faa4b"
+          10fa5d3d71946b8102b6ca68d34cd2dfabc12c2c"
         with:
           issue-number: ${{ inputs.issue_number }}
           stage: ${{ inputs.stage }}
