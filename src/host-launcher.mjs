@@ -16,6 +16,7 @@ import { setTimeout } from 'node:timers/promises';
 import { digest, isId, requireThat } from './identity.mjs';
 import { acquireHostFence, privateHostDirectory } from './host-fence.mjs';
 import { pendingCIObservation } from './github-ci.mjs';
+import { readNotionProposal } from './notion-proposal.mjs';
 import { prepareHostJobMcp } from './mcp-job-host.mjs';
 
 import { loadHostAdoption, inspectHostAdoption } from './host-adoption.mjs';
@@ -178,6 +179,10 @@ export async function launchStage(issueNumber, stage, env = process.env) {
       approval.record.roles[execution.role] === runner.memberId,
     'HOST_APPROVAL_MISMATCH',
   );
+  // An adopted Proposal-only Issue uses a controller read in place of MCP.
+  // Complete this read before taking the fence, since it has no write effect.
+  const proposal = adopted.notionProposal === undefined ? undefined :
+    await readNotionProposal(adopted.notionProposal);
   // Stable host-wide lock survives cancellation/kill. No automatic stale-lock
   // deletion or switch to another Runner after an uncertain previous execution.
   let fence;
@@ -206,7 +211,7 @@ export async function launchStage(issueNumber, stage, env = process.env) {
       };
     };
     await inspectWriter();
-    mcpJob = await prepareHostJobMcp({ host, runner, reader, approval }, {
+    if (!proposal) mcpJob = await prepareHostJobMcp({ host, runner, reader, approval }, {
       authorize: async () => {
         const fresh = await readProtectedApproval(reader, adopted.approval);
         requireThat(fresh.approvalHash === approval.approvalHash,
@@ -277,7 +282,8 @@ export async function launchStage(issueNumber, stage, env = process.env) {
         workspaceRoot,
         agentStateRoot: join(root, 'agent'),
         authFile: host.authFile,
-        mcpSource: host.mcp,
+        mcpSource: proposal ? undefined : host.mcp,
+        proposal,
         mcpJob,
         model: host.model,
         isolation: adopted.isolation,

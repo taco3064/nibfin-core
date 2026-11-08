@@ -139,3 +139,14 @@ cover signed caller/native approval and stage receipt persistence. These do not
 establish a live authenticated Agent execution through the new launcher. That
 requires a genuinely adopted host, protected caller and subscription login; the
 manual bootstrap Issue itself is not a normal protected stage request.
+
+## Direct Notion Proposal reads
+
+For an adopted Issue that only needs the Notion Proposal, set the Issue's
+`notionProposal` field to `{ "pageId": "<uuid>", "tokenFile": "<absolute path>" }`
+in the trusted host file. Share that page with a read-only Notion internal
+connection. Keep the token in a controller-owned 0600 file under a private 0700
+directory. Each admitted Job fetches the exact page once and gives its roles a
+read-only snapshot at `/input/proposal.md`. The token stays with the controller.
+This Issue uses the direct Proposal read in place of the host MCP profile.
+Missing access and incomplete responses fail before taking the execution fence.
