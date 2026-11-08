@@ -49,7 +49,7 @@ export class CodexRoleAgent {
     return this.#sessions.run(stage, context, async session => {
       const plan = codexPlan(stage, { model: config.model,
         threadId: session.threadId, skill, context,
-        proposalHash: config.proposal?.hash });
+        hasProposal: Boolean(config.proposal) });
       const io = join(root, `execution-${context.execution.id}`);
       await mkdir(io, { mode: 0o700 });
       const main = await this.#prepareMain(join(io, 'current-main'),

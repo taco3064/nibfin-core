@@ -147,6 +147,7 @@ For an adopted Issue that only needs the Notion Proposal, set the Issue's
 in the trusted host file. Share that page with a read-only Notion internal
 connection. Keep the token in a controller-owned 0600 file under a private 0700
 directory. Each admitted Job fetches the exact page once and gives its roles a
-read-only snapshot at `/input/proposal.md`. The token stays with the controller.
+read-only snapshot at `/input/proposal.md`. Later Jobs read the current page,
+including any edits. The token stays with the controller.
 This Issue uses the direct Proposal read in place of the host MCP profile.
 Missing access and incomplete responses fail before taking the execution fence.
