@@ -245,3 +245,15 @@ test('missing Shape receipts require fresh revalidation', () => {
   );
   assert.equal(decideStage('merge', review, now).status, 'allowed');
 });
+
+test('publication uses the validated current requirements', () => {
+  const c = stageFixture('publish-shape');
+  c.issue.body = 'Current owner requirements';
+  assert.equal(decideStage('publish-shape', c, now).code, 'SHAPE_REQUIREMENTS_CHANGED');
+  const requirementsHash = digest(c.issue.body);
+  c.receipts.shape.artifacts.requirementsHash = requirementsHash;
+  c.receipts['validate-shape'].artifacts.requirementsHash = requirementsHash;
+  assert.equal(decideStage('publish-shape', c, now).status, 'allowed');
+  c.issue.body += ' plus a new requirement';
+  assert.equal(decideStage('publish-shape', c, now).code, 'SHAPE_REQUIREMENTS_CHANGED');
+});

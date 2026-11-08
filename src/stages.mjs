@@ -91,6 +91,17 @@ function shapeEvidence(context, requireValidator) {
   );
   candidateContract(body);
   const artifacts = { shapeHash: context.shape.hash };
+  const prior = context.receipts.shape?.artifacts?.requirementsHash;
+  if (prior !== undefined) {
+    requireThat(isDigest(prior), 'INVALID_REQUIREMENTS_EVIDENCE');
+    artifacts.requirementsHash = prior;
+  }
+  if (!context.issue.labels.some(label => label.name === 'shaped')) {
+    const requirements = requirementsText(context.issue.body);
+    requireThat(prior ? prior === digest(requirements) :
+      requirements === requirementsText(context.approval.record.scope.body),
+    'SHAPE_REQUIREMENTS_CHANGED');
+  }
   const author = receipt(context, 'shape', artifacts, 'ready');
   if (requireValidator)
     independent(author, receipt(context, 'validate-shape', artifacts, 'approved'));
@@ -101,8 +112,11 @@ export function requirementsText(body) {
   return typeof body === 'string' ? body.replaceAll('\r\n', '\n').trimEnd() : body;
 }
 function publication(context) {
-  const artifacts = shapeEvidence(context, true);
-  receipt(context, 'publish-shape', artifacts, 'published');
+  const artifacts = { shapeHash: context.shape.hash };
+  const reviewed = context.receipts['publish-shape']?.artifacts?.requirementsHash;
+  receipt(context, 'publish-shape', {
+    ...artifacts, ...(reviewed ? { requirementsHash: reviewed } : {}),
+  }, 'published');
   requireThat(requirementsText(context.issue.body) ===
     requirementsText(context.shape.body), 'PUBLISHED_SHAPE_CHANGED');
   return artifacts;

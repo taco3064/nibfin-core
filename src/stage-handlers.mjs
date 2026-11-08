@@ -2,6 +2,7 @@ import { digest, isDigest, requireThat } from './identity.mjs';
 import { parseAgentResult } from './agent-result.mjs';
 import { candidateContract } from './candidate-contract.mjs';
 import { runCandidateHooks } from './hooks.mjs';
+import { requirementsText } from './stages.mjs';
 
 // Only installed adapters enter this factory; the external stage request cannot
 // supply functions, commands, paths, credentials, source pins or role identities.
@@ -86,6 +87,11 @@ export function stageHandlers({
             );
           candidateContract(result.body);
           artifacts.shapeHash = await store.put(result.body);
+          artifacts.requirementsHash = digest(requirementsText(context.issue.body));
+        }
+        if (stage === 'validate-shape') {
+          const prior = context.receipts.shape.artifacts.requirementsHash;
+          if (prior) artifacts.requirementsHash = prior;
         }
         if (passed && stage === 'deliver') {
           if (execution.rebaseStatus === 'changes_required') {
@@ -149,7 +155,10 @@ export function stageHandlers({
         outcome: 'published',
         findings: [],
         references: [result.reference],
-        artifacts: { shapeHash: context.shape.hash },
+        artifacts: { shapeHash: context.shape.hash,
+          ...(context.receipts.shape.artifacts.requirementsHash ? {
+            requirementsHash: context.receipts.shape.artifacts.requirementsHash,
+          } : {}) },
       };
     },
   };

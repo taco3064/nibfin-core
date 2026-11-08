@@ -299,7 +299,9 @@ export async function launchStage(issueNumber, stage, env = process.env) {
                 label => label.name === 'shaped')) {
                 return requirementsText(current.body) !== requirementsText(previous);
               }
-              return false;
+              const prior = receipts.shape.artifacts.requirementsHash;
+              return prior !== undefined &&
+                prior !== digest(requirementsText(current.body));
             },
             inspect: inspectWriter,
             wait: setTimeout,
