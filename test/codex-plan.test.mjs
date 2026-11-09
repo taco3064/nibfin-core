@@ -77,8 +77,11 @@ test('Writer and Acceptor receive a trusted verification contract', () => {
     assert.match(contract, /Core captures the authoritative Candidate diff/);
     assert.match(contract, /PR-head CI runs full Git-dependent checks/);
     assert.match(contract, /Unverified with the reason/);
-    assert.match(contract, /Block on new or unmatched failures/);
-    assert.match(contract, /omitted required runnable local checks/);
+    assert.match(contract, /Start with the current failure/);
+    assert.match(contract, /only if it resolves a concrete/);
+    assert.match(contract, /Avoid duplicate test environments/);
+    assert.match(contract, /Block on unresolved failures affecting the change/);
+    assert.match(contract, /omitted required runnable\nlocal checks/);
     assert.match(contract, /missing evidence required by the Shape/);
   }
   const shape = codexPlan('shape', {
