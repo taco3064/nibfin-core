@@ -31,6 +31,9 @@ jobs:
           package-manager-cache: false
       - run: npm install --global npm@11.9.0 --ignore-scripts
       - run: npm ci --ignore-scripts
+      - name: Install pinned Chromium for website tests
+        if: ${{ hashFiles('website/playwright.config.mjs') != '' }}
+        run: ./node_modules/.bin/playwright install --with-deps chromium
       - run: npm run verify
 
   windows-source-cache:
