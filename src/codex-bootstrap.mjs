@@ -5,6 +5,14 @@ import { spawn } from 'node:child_process';
 import net from 'node:net';
 import { pathToFileURL } from 'node:url';
 
+export const codexIdle = Object.freeze({ code: 'CODEX_IDLE_TIMEOUT', exitCode: 75 });
+const roleIdleTimeout = 10 * 60_000;
+const startupTimeout = 60_000;
+const progressEvents = new Set([
+  'thread.started', 'turn.started', 'turn.completed', 'turn.failed',
+  'item.started', 'item.updated', 'item.completed',
+]);
+
 export const denialProbe = `
 const fs = require('node:fs');
 const paths = ['/auth/auth.json', '/agent-home/auth.json',
@@ -46,23 +54,55 @@ export function subscriptionStatusArguments(plan) {
   return [...plan.settings, 'login', 'status'];
 }
 
-function run(args, { input, environment = process.env } = {}) {
+export function runCodex(args, {
+  input,
+  environment = process.env,
+  executable = '/usr/local/bin/codex',
+  cwd = '/session',
+  idleTimeout = input === undefined ? startupTimeout : roleIdleTimeout,
+} = {}) {
   return new Promise((resolve, reject) => {
-    const child = spawn('/usr/local/bin/codex', args, {
-      cwd: '/session', env: environment, shell: false,
+    const child = spawn(executable, args, {
+      cwd, env: environment, shell: false,
       stdio: ['pipe', 'pipe', 'pipe'],
     });
-    let stdout = '', stderr = '', size = 0;
+    let stdout = '', stderr = '', size = 0, pending = '', stopped = false;
+    const stop = (code) => {
+      if (stopped) return;
+      stopped = true;
+      clearTimeout(timer);
+      child.kill('SIGKILL');
+      child.unref();
+      for (const stream of [child.stdin, child.stdout, child.stderr]) stream.destroy();
+      reject(new Error(code));
+    };
+    const timer = setTimeout(() => stop(codexIdle.code), idleTimeout);
+    const recordProgress = (chunk) => {
+      const lines = (pending + chunk).split('\n');
+      pending = lines.pop();
+      for (const line of lines) {
+        try {
+          if (progressEvents.has(JSON.parse(line)?.type)) timer.refresh();
+        } catch {
+          // Non-event output does not extend the deadline.
+        }
+      }
+    };
     for (const [stream, output] of [[child.stdout, true], [child.stderr, false]]) {
-      stream.on('data', (bytes) => {
-        size += bytes.length;
-        if (size > 8 * 1024 * 1024) child.kill('SIGKILL');
-        else if (output) stdout += bytes;
-        else stderr += bytes;
+      stream.setEncoding('utf8');
+      stream.on('error', () => stop('CODEX_EXECUTION_FAILED'));
+      stream.on('data', (chunk) => {
+        size += Buffer.byteLength(chunk);
+        if (size > 8 * 1024 * 1024) return stop('CODEX_OUTPUT_LIMIT');
+        if (output) {
+          stdout += chunk;
+          if (input !== undefined) recordProgress(chunk);
+        } else stderr += chunk;
       });
     }
-    child.on('error', () => reject(new Error('CODEX_UNAVAILABLE')));
+    child.on('error', () => stop('CODEX_UNAVAILABLE'));
     child.on('close', (code) => {
+      clearTimeout(timer);
       if (code === 0 && size <= 8 * 1024 * 1024) resolve({ stdout, stderr });
       else reject(new Error('CODEX_EXECUTION_FAILED'));
     });
@@ -74,7 +114,7 @@ function run(args, { input, environment = process.env } = {}) {
 export async function bootstrap() {
   const invocation = JSON.parse(await readFile('/input/invocation.json', 'utf8'));
   const { plan, codexVersion, proxyHost } = invocation;
-  const version = await run(['--version']);
+  const version = await runCodex(['--version']);
   if (version.stdout.trim() !== codexVersion) throw new Error('CODEX_VERSION_MISMATCH');
   // A newly mounted requirements file must not be ignored by an older CLI.
   const match = /^codex-cli (\d+)\.(\d+)\.(\d+)$/.exec(codexVersion);
@@ -100,7 +140,7 @@ export async function bootstrap() {
     socket.once('error', fail);
     socket.setTimeout(5000, fail);
   });
-  const probe = await run(sandboxProbeArguments(plan, proxyHost), {
+  const probe = await runCodex(sandboxProbeArguments(plan, proxyHost), {
     environment: { ...process.env, HOME: '/tmp/tool-home' },
   });
   if (probe.stdout !== 'NIBFIN_PROBE_PASSED\n')
@@ -108,17 +148,19 @@ export async function bootstrap() {
   await writeFile('/io/probe.json', JSON.stringify({
     policyHash: plan.policyHash, stdout: probe.stdout, codexVersion,
   }), { mode: 0o600 });
-  const login = await run(subscriptionStatusArguments(plan));
+  const login = await runCodex(subscriptionStatusArguments(plan));
   if (!/logged in using chatgpt/i.test(login.stdout + login.stderr))
     throw new Error('SUBSCRIPTION_LOGIN_UNAVAILABLE');
-  const result = await run(plan.args, { input: plan.prompt });
+  const result = await runCodex(plan.args, { input: plan.prompt });
   // Core scans these private streams before any result enters an evidence receipt.
   await writeFile('/io/stream.json', JSON.stringify(result), { mode: 0o600 });
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  bootstrap().catch(() => {
-    process.stderr.write('NIBFIN_AGENT_ENTRY_FAILED\n');
-    process.exitCode = 1;
+  bootstrap().catch((error) => {
+    const idle = error.message === codexIdle.code;
+    process.stderr.write(idle ? 'NIBFIN_AGENT_IDLE_TIMEOUT\n' :
+      'NIBFIN_AGENT_ENTRY_FAILED\n');
+    process.exitCode = idle ? codexIdle.exitCode : 1;
   });
 }

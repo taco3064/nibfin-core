@@ -14,6 +14,7 @@ import { constants } from 'node:fs';
 import { isAbsolute, resolve, join, dirname } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { command, deliveryRoleTimeout } from './process.mjs';
+import { codexIdle } from './codex-bootstrap.mjs';
 import {
   shareAgentMount,
   privateMountParent,
@@ -291,6 +292,7 @@ export class CodexSandbox {
     Object.assign(expectedEnv, environment);
     const args = [
       'create',
+      '--init',
       '--pull=never',
       '--name',
       name,
@@ -364,6 +366,7 @@ export class CodexSandbox {
           host.Privileged === false &&
           (this.#backend.mode !== 'rootful' || !host.UsernsMode) &&
           host.ReadonlyRootfs === true &&
+          host.Init === true &&
           host.NetworkMode === c.network &&
           host.IpcMode === 'none' &&
           !host.PidMode &&
@@ -391,7 +394,10 @@ export class CodexSandbox {
         'AGENT_CONTAINER_POLICY_MISMATCH',
       );
       try {
-        await this.#docker(['start', '--attach', id], { timeout: deliveryRoleTimeout });
+        await this.#docker(['start', '--attach', id], {
+          timeout: deliveryRoleTimeout,
+          allowedExitCodes: [0, codexIdle.exitCode],
+        });
       } catch (error) {
         if (!['PROCESS_TIMEOUT', 'PROCESS_FAILED'].includes(error.code)) throw error;
         outcome = { status: 'interrupted', executionId, code: error.code };
@@ -401,11 +407,13 @@ export class CodexSandbox {
         requireThat(
           ended.Id === id &&
             ended.State?.Running === false &&
-            ended.State.ExitCode === 0 &&
+            [0, codexIdle.exitCode].includes(ended.State.ExitCode) &&
             ended.State.OOMKilled === false,
           'AGENT_CONTAINER_FAILED',
         );
-        outcome = { status: 'executed', executionId };
+        outcome = ended.State.ExitCode === codexIdle.exitCode
+          ? { status: 'interrupted', executionId, code: codexIdle.code }
+          : { status: 'executed', executionId };
       }
     } catch {
       outcome = { status: 'denied', executionId, code: 'AGENT_EXECUTION_UNVERIFIED' };

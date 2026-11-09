@@ -4,6 +4,7 @@ import { MergeBeforeWrite } from './github-write.mjs';
 import { integrationRepairRequired, pendingCIObservation } from './github-ci.mjs';
 import { pendingMcpObservation } from './mcp-pending.mjs';
 import { observationFailureCode } from './observation-failure.mjs';
+import { codexIdle } from './codex-bootstrap.mjs';
 
 export const stageSuccess = Object.freeze({
   shape: 'ready',
@@ -161,6 +162,8 @@ export class StageRuntime {
           status: pendingObservation(admissionError.code) ? 'pending' : 'denied' };
       }
       if (outcome.status !== 'completed') return { schemaVersion: 1, stage, ...outcome };
+      const code = result?.status === 'interrupted' &&
+        result.code === codexIdle.code ? codexIdle.code : 'STAGE_REQUIRES_CORRECTION';
       return {
         schemaVersion: 1,
         stage,
@@ -168,7 +171,7 @@ export class StageRuntime {
         code:
           receipt.outcome === success[stage]
             ? 'STAGE_COMPLETED'
-            : 'STAGE_REQUIRES_CORRECTION',
+            : code,
         receiptHash,
       };
     } catch {
