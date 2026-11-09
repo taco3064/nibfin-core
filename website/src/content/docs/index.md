@@ -1,10 +1,9 @@
 ---
 title: Nibfin documentation
-description: Placeholder for the public Nibfin documentation workspace.
+description: Architecture, protected delivery, security and verification boundaries.
 ---
 
-This is the English documentation workspace for Nibfin. Its content is a
-placeholder while product documentation is prepared and verified.
+This is the English documentation workspace for Nibfin.
 
 Nibfin is being developed to support trusted delivery through GitHub Issues,
 independent shaping and acceptance, and protected review and merge.
@@ -15,5 +14,12 @@ will provide a public reading guide to verified behavior and published sources.
 They do not control Issues, runners, authorization, CI or merging.
 
 The [theme reading sample](theme/) demonstrates shared visual semantics.
-Product documentation is prepared separately. This workspace does not establish
+This workspace does not establish
 production publication or published-site accessibility.
+
+Start with the public reading guides:
+
+- [Architecture and authority](architecture/) explains ownership and routing.
+- [Protected lifecycle](lifecycle/) follows Scope to verified Closure.
+- [Security and recovery](security/) explains isolation and safe retry.
+- [Limitations and status](limitations/) separates source and live evidence.

@@ -33,7 +33,7 @@ try {
   check();
   const navigation = join(copy, 'navigation.mjs');
   const sidebar = await readFile(navigation, 'utf8');
-  await writeFile(navigation, sidebar.replace("'index'", "'does-not-exist'"));
+  await writeFile(navigation, sidebar.replace("'architecture'", "'does-not-exist'"));
   check(/(?:Navigation target|does-not-exist)/);
   await writeFile(navigation, sidebar);
   check();
