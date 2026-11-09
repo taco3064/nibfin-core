@@ -7,11 +7,12 @@ import {
   writeFile,
   readFile,
   rename,
+  rm,
   unlink,
 } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { command } from './process.mjs';
-import { digest, sha256, isSha, requireThat } from './identity.mjs';
+import { digest, sha256, isDigest, isSha, requireThat } from './identity.mjs';
 import { validateIssueIdentity } from './approval-record.mjs';
 import { candidateContentHash } from './candidate-evidence.mjs';
 import { safeCandidatePath, candidateContract } from './candidate-contract.mjs';
@@ -138,6 +139,20 @@ export class CandidateWorkspace {
         'clean', '-fdX', '--', ...dependencies.map(path => ':(literal)' + path),
       ]);
     }
+  }
+  async discardWriterGit(terminationHash) {
+    requireThat(isDigest(terminationHash), 'WRITER_NOT_PROVEN_TERMINATED');
+    await this.#privateRoot();
+    requireThat((await realpath(this.work)) === this.work, 'UNSAFE_WORKSPACE_PATH');
+    const path = join(this.work, '.git');
+    const stat = await lstat(path).catch(error => {
+      if (error.code === 'ENOENT') return null;
+      throw error;
+    });
+    if (!stat) return;
+    requireThat(stat.isDirectory(), 'UNSAFE_WORKSPACE_PATH');
+    // This is Writer scratch. Core uses its own bare repository outside /work.
+    await rm(path, { recursive: true });
   }
   async #files(required) {
     // Reset to the approved base before enumeration so repeated captures cannot
