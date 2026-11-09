@@ -35,6 +35,28 @@ jobs:
         if: ${{ hashFiles('website/playwright.config.mjs') != '' }}
         run: ./node_modules/.bin/playwright install --with-deps chromium
       - run: npm run verify
+      - name: Verify browser support in the actual Agent image
+        env:
+          SOURCE_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          set -euo pipefail
+          if [[ "$SOURCE_BASE" =~ ^[a-f0-9]{40}$ ]] &&
+             git diff --quiet "$SOURCE_BASE" HEAD -- src/security/agent.Dockerfile; then
+            exit 0
+          fi
+          docker build -f src/security/agent.Dockerfile -t nibfin-agent-ci .
+          git archive HEAD | docker run --rm -i --init --read-only \
+            --cap-drop ALL --security-opt no-new-privileges --ipc none \
+            --user 1000:1000 --tmpfs /tmp:rw,exec,nosuid,nodev,size=2g,mode=1777 \
+            -e HOME=/tmp -e CI=true -e ASTRO_TELEMETRY_DISABLED=1 \
+            -e RAYON_NUM_THREADS=1 -e UV_THREADPOOL_SIZE=1 nibfin-agent-ci sh -ec '
+              mkdir /tmp/source
+              cd /tmp/source
+              tar -xf -
+              npm ci --ignore-scripts
+              ./node_modules/.bin/playwright install chromium --only-shell
+              npm run website:browser
+            '
 
   windows-source-cache:
     runs-on: windows-latest
