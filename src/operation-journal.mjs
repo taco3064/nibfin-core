@@ -79,6 +79,14 @@ export class OperationJournal {
     await rename(temp, join(this.#directory, 'receipts.json'));
     await syncDirectory(this.#directory);
   }
+  async assertIdle() {
+    await this.#prepare();
+    await lstat(join(this.#directory, 'execution.lock')).then(
+      () => requireThat(false, 'WRITER_NOT_PROVEN_TERMINATED'),
+      error => { if (error.code !== 'ENOENT') throw error; },
+    );
+    requireThat((await this.#read()).pending === null, 'EXTERNAL_EFFECT_UNKNOWN');
+  }
   async run(request, { admit, perform, readBack }) {
     // The binding identifies immutable approval, Scope/Shape, candidate, source,
     // role/session and operation target. All three callbacks belong to trusted

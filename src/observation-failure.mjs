@@ -4,6 +4,9 @@ import { actionsTimeErrors } from './actions-time.mjs';
 // Only fixed credential-free diagnostics may cross the public failure boundary.
 export function observationFailureCode(error) {
   const code = error?.code;
+  if (error?.name === 'TimeoutError') return 'LIVE_OBSERVATION_TIMEOUT';
+  if (Number.isInteger(error?.status) && error.status >= 400 && error.status <= 599)
+    return `LIVE_OBSERVATION_HTTP_${error.status}`;
   return actionsTimeErrors.includes(code) || integrationRepairRequired(code)
     ? code : 'LIVE_OBSERVATION_UNAVAILABLE';
 }

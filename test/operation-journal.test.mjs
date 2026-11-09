@@ -20,6 +20,7 @@ async function fixture(t) {
 test('durable completed receipt prevents replay across Core instances', async t => {
   const f = await fixture(t);
   assert.equal((await f.journal.run(f.request, f.adapters)).status, 'completed');
+  await f.journal.assertIdle();
   const next = new OperationJournal(f.root, { id: 'I_target', repositoryId: 10 });
   assert.deepEqual(await next.run(f.request, f.adapters),
     { status: 'denied', code: 'REPLAYED_OPERATION' });
@@ -35,6 +36,7 @@ test('unknown effect and wrong read-back remain Pending and never retry', async 
     else f.adapters.readBack = async () => 'b'.repeat(64);
     assert.deepEqual(await f.journal.run(f.request, f.adapters),
       { status: 'pending', code: 'EXTERNAL_EFFECT_UNKNOWN' });
+    await assert.rejects(f.journal.assertIdle(), { code: 'EXTERNAL_EFFECT_UNKNOWN' });
     let retries = 0;
     const retry = { ...f.adapters, perform: async () => { retries++; } };
     const attempt = { ...f.request, bindingHash: 'c'.repeat(64) };
@@ -56,6 +58,7 @@ test('concurrent writers and leftover leases stay Pending', async t => {
   const finish = new Promise(resolve => { release = resolve; });
   f.adapters.perform = async () => { entered(); await finish; };
   const first = f.journal.run(f.request, f.adapters); await started;
+  await assert.rejects(f.journal.assertIdle(), { code: 'WRITER_NOT_PROVEN_TERMINATED' });
   const second = new OperationJournal(f.root, { id: 'I_target', repositoryId: 10 });
   assert.equal((await second.run(f.request, f.adapters)).code,
     'WRITER_NOT_PROVEN_TERMINATED');
