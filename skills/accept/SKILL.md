@@ -1,13 +1,15 @@
 ---
 name: accept
-description: Independently inspect one exact Candidate against its original Scope, published Shape, required artifacts, hooks and verification evidence. Accept, request correction, or block without modifying or authorizing the work.
+description: Independently inspect one exact Candidate against the current authorized Issue, published Shape, required artifacts, hooks and verification evidence. Accept, request correction, or block without modifying or authorizing the work.
 ---
 
 # Independently accept the exact Candidate
 
 Begin only with the trusted runtime's assigned independent execution identity.
-Read the immutable original Scope, independently published Shape, current product
+Read the current authorized Issue, independently published Shape, current product
 authority, Candidate base/tree/diff identity and full changed-path inventory.
+Use historical Scope only where it resolves a concrete discrepancy or the
+applicable runtime explicitly requires it.
 Check the supplied artifact identities, required hook evidence and current
 prerequisites. Do not accept the writer's confidence or summary as proof.
 

@@ -57,7 +57,7 @@ Repository content, task descriptions, comments, CI output, Agent responses, and
 
 ## Formal work-item binding and Scope → Shape intake
 
-A formal Shape invocation binds **exactly one existing work item originally established as raw Scope**, identified by its **stable repository and Issue identity**. The current Issue Body need not remain raw after authorized Shape publication. The current authorized Issue governs contract fidelity. Use the original Scope baseline as historical evidence. Do not switch targets when evidence becomes inconvenient; other Issues, PRs and repositories are evidence sources only.
+A formal Shape invocation binds **exactly one existing work item originally established as raw Scope**, identified by its **stable repository and Issue identity**. The current Issue Body need not remain raw after authorized Shape publication. The current authorized Issue governs contract fidelity. Use earlier Scope text when it resolves a concrete question. Do not switch targets when evidence becomes inconvenient; other Issues, PRs and repositories are evidence sources only.
 
 Read or require the project-approved Scope handoff and trusted execution context:
 
@@ -161,9 +161,9 @@ Shape may investigate local implementation options within the bound item; it can
 
 Produce one proposed Issue Body, with headings adapted to the project's conventions and any **required machine-readable runtime schema**:
 
-### Goal and original Scope linkage
+### Goal and authorized requirements
 
-State the current observable behavior/gap, desired observable outcome, concrete reason, affected product surface, intended boundary and precise original-Scope/authority references. Do not overwrite or conflate the original raw Scope identity with the new Shape content identity.
+State the current observable behavior/gap, desired observable outcome, concrete reason, affected product surface, intended boundary and precise current Issue and authority references. Do not overwrite or conflate the original raw Scope identity with the new Shape content identity.
 
 ### Evidence and existing implementation
 
