@@ -19,7 +19,9 @@ import { pendingCIObservation } from './github-ci.mjs';
 import { readNotionProposal } from './notion-proposal.mjs';
 import { prepareHostJobMcp } from './mcp-job-host.mjs';
 
-import { loadHostAdoption, inspectHostAdoption } from './host-adoption.mjs';
+import {
+  loadHostAdoption, inspectHostAdoption, readGlobalInstructions,
+} from './host-adoption.mjs';
 import { relayHostCommand } from './host-relay.mjs';
 export { rootOwnedPath } from './host-adoption.mjs';
 
@@ -183,6 +185,7 @@ export async function launchStage(issueNumber, stage, env = process.env) {
   // Complete this read before taking the fence, since it has no write effect.
   const proposal = adopted.notionProposal === undefined ? undefined :
     await readNotionProposal(adopted.notionProposal);
+  const globalInstructions = await readGlobalInstructions(host);
   // Stable host-wide lock survives cancellation/kill. No automatic stale-lock
   // deletion or switch to another Runner after an uncertain previous execution.
   let fence;
@@ -284,6 +287,7 @@ export async function launchStage(issueNumber, stage, env = process.env) {
         authFile: host.authFile,
         mcpSource: proposal ? undefined : host.mcp,
         proposal,
+        globalInstructions,
         mcpJob,
         model: host.model,
         isolation: adopted.isolation,

@@ -43,8 +43,16 @@ The adoption file has these fields; credentials are never embedded in it:
 | `stateRoot` | Canonical existing controller-owned 0700 directory; persistent across jobs |
 | `tokenFile` | Controller-owned 0600 single-link file in a private directory; native read/write credential |
 | `authFile` | Existing private subscription login file, validated by the Agent adapter |
+| `globalInstructionsFile` | Optional absolute path to the user's global `AGENTS.md` |
 | `model` | Adopted Codex model |
 | `issues` | Map keyed by positive Issue number, containing the records below |
+
+At Job start, Core reads the configured global instructions once and supplies the
+same text to each role. For a native MCP source on this host, the default is
+`AGENTS.md` in its adopted Codex home. An absent default means there are no
+instructions to inherit. An explicitly configured file must be readable.
+For a split desktop and Runner host, point both at the same user-maintained file.
+Only this text is inherited. The role continues to use its fixed Core permissions.
 
 Each Issue record contains:
 
