@@ -63,7 +63,7 @@ jobs:
       - self-hosted
       - linux
       - '${{ format(''nibfin-user-{0}'', needs.resolve.outputs.member_id) }}'
-    timeout-minutes: 5
+    timeout-minutes: 180
     permissions:
       contents: read
       id-token: write
