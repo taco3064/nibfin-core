@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import {
   loadHostAdoption,
   boundedHostFile,
+  rootOwnedPath,
   inspectHostAdoption,
 } from './host-adoption.mjs';
 import { acquireHostFence, privateHostDirectory } from './host-fence.mjs';
@@ -54,6 +55,32 @@ export function hostWakeAdoption(host, adopted) {
     issues: Object.values(host.issues ?? {}).map(config),
     ...(host.repository ? { repository: config(host.repository) } : {}),
   };
+}
+
+async function readWakePeers(host) {
+  const paths = host.wakePeerFiles ?? [];
+  requireThat(Array.isArray(paths) && paths.length <= 10 &&
+    new Set(paths).size === paths.length, 'INVALID_WAKE_PEERS');
+  const peers = [];
+  for (const path of paths) {
+    requireThat(/^\/etc\/nibfin\/host\.[A-Za-z0-9_-]+\.json$/.test(path),
+      'INVALID_WAKE_PEER_PATH');
+    await rootOwnedPath(path);
+    const peer = JSON.parse(await boundedHostFile(path, 256 * 1024));
+    requireThat(
+      peer.repository?.approval?.kind === 'repository-admission-v1' &&
+        peer.stateRoot === host.stateRoot && peer.uid === host.uid &&
+        peer.memberId === host.memberId &&
+        digest(peer.installation) === digest(host.installation),
+      'WAKE_PEER_NOT_ADOPTED',
+    );
+    peers.push(hostWakeAdoption(peer, peer.repository).repository);
+  }
+  const repositories = peers.map(peer => peer.approvalPin.repositoryId);
+  requireThat(new Set(repositories).size === repositories.length &&
+    !repositories.includes(host.repository?.approval.repositoryId),
+  'AMBIGUOUS_WAKE_PEER');
+  return peers;
 }
 
 // Fixed installed entry only. The hosted resolver supplies a locator, never
@@ -130,6 +157,7 @@ export async function launchIssueWake(issueNumber, env = process.env, eventBytes
         event.issue.node_id === approval.record.issue.id,
       'EVENT_ISSUE_CHANGED',
     );
+    const peerRepositories = event.action === 'closed' ? await readWakePeers(host) : [];
     const stateRoot = join(host.stateRoot, 'wake');
     await mkdir(stateRoot, { mode: 0o700 }).catch((error) => {
       if (error.code !== 'EEXIST') throw error;
@@ -148,7 +176,13 @@ export async function launchIssueWake(issueNumber, env = process.env, eventBytes
         coreCommit: host.installation.pin.commit,
       },
       stateRoot,
-      inspect,
+      peerRepositories,
+      inspect: async () => {
+        await inspect();
+        if (event.action === 'closed')
+          requireThat(digest(await readWakePeers(host)) === digest(peerRepositories),
+            'WAKE_PEERS_CHANGED');
+      },
     });
     if (result.status !== 'pending') {
       await idleContainers(adopted.isolation);
