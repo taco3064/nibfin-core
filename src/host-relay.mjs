@@ -56,7 +56,7 @@ export async function relayControllerRequest(request, uid, run = command) {
         cwd: coreRoot,
         env: { PATH: '/usr/bin:/bin', LANG: 'C.UTF-8' },
         input: JSON.stringify(request),
-        timeout: request.command === 'stage' ? deliveryTransportTimeout : 3600000,
+        timeout: deliveryTransportTimeout,
         limit: 1048576,
       },
     );

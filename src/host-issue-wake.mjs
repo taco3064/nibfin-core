@@ -6,7 +6,8 @@ import {
   rootOwnedPath,
   inspectHostAdoption,
 } from './host-adoption.mjs';
-import { acquireHostFence, privateHostDirectory } from './host-fence.mjs';
+import { waitForHostFence, privateHostDirectory } from './host-fence.mjs';
+import { deliveryRoleTimeout } from './process.mjs';
 import {
   resolveHostJob,
   readSingleHost,
@@ -113,10 +114,10 @@ export async function launchIssueWake(issueNumber, env = process.env, eventBytes
   );
   let fence;
   try {
-    fence = await acquireHostFence(host.stateRoot, {
+    fence = await waitForHostFence(host.stateRoot, {
       execution,
       host: digest(hostBytes),
-    });
+    }, deliveryRoleTimeout);
   } catch (error) {
     if (error.code === 'HOST_EXECUTION_UNRESOLVED') {
       return { status: 'pending', code: error.code };

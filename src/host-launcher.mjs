@@ -7,14 +7,14 @@ import { actionsCaller } from './actions-identity.mjs';
 import { readCurrentMain } from './current-main.mjs';
 import { codexStageExecutor } from './codex-stage.mjs';
 import { CandidateWorkspace } from './workspace.mjs';
-import { command } from './process.mjs';
+import { command, deliveryRoleTimeout } from './process.mjs';
 import { stages, evidenceBinding, requirementsText,
   samePublishedRequirements } from './stages.mjs';
 import { EvidenceStore } from './evidence-store.mjs';
 import { continueStages } from './stage-continuation.mjs';
 import { setTimeout } from 'node:timers/promises';
 import { digest, isId, requireThat } from './identity.mjs';
-import { acquireHostFence, privateHostDirectory } from './host-fence.mjs';
+import { waitForHostFence, privateHostDirectory } from './host-fence.mjs';
 import { OperationJournal } from './operation-journal.mjs';
 import { settleHostStage } from './host-stage-settlement.mjs';
 import { observationFailureCode } from './observation-failure.mjs';
@@ -192,10 +192,10 @@ export async function launchStage(issueNumber, stage, env = process.env) {
   // deletion or switch to another Runner after an uncertain previous execution.
   let fence;
   try {
-    fence = await acquireHostFence(host.stateRoot, {
+    fence = await waitForHostFence(host.stateRoot, {
       execution,
       host: digest(hostBytes),
-    });
+    }, deliveryRoleTimeout);
   } catch (error) {
     if (error.code === 'HOST_EXECUTION_UNRESOLVED')
       return { schemaVersion: 1, stage, status: 'pending', code: error.code };
