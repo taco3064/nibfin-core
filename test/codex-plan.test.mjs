@@ -41,7 +41,11 @@ test('candidate text cannot change command, configuration or role boundaries', (
   assert.match(plan.requirements, /managed_allowed_domains_only = true/);
   assert.match(plan.requirements, /allow_upstream_proxy = true/);
   assert.match(plan.requirements, /allow_local_binding = true/);
-  assert.match(plan.requirements, /allowed_domains = \["registry\.npmjs\.org"\]/);
+  const domains = plan.requirements.split('\n')
+    .find(line => line.startsWith('allowed_domains = '));
+  assert.deepEqual(JSON.parse(domains.split(' = ')[1]), [
+    'registry.npmjs.org', 'cdn.playwright.dev', 'playwright.download.prss.microsoft.com',
+  ]);
   assert.equal(plan.config['features.apps'], false);
   assert.equal(plan.args.includes('--yolo'), false);
   assert.equal(plan.args.includes(malicious), false);
