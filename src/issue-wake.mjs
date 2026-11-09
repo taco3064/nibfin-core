@@ -119,13 +119,16 @@ export async function observeIssueEvent(reader, adoption, event, invocation) {
   return issue;
 }
 
-export function adoptedWake(adoption, identity) {
+export function adoptedWake(adoption, identity, peers = []) {
   const id = typeof identity === 'string' ? identity : identity.id;
   const matches = adoption.issues.filter((item) => item.approvalPin?.issueId === id);
   requireThat(matches.length <= 1, 'AMBIGUOUS_WAKE_ADOPTION');
   let selected = matches[0];
-  if (!selected && adoption.repository && typeof identity !== 'string') {
-    const config = adoption.repository;
+  const repositories = [adoption.repository, ...peers].filter(Boolean);
+  const config = repositories.find(item =>
+    item.approvalPin.repository === identity?.repository &&
+    item.approvalPin.repositoryId === identity?.repositoryId);
+  if (!selected && config) {
     selected = {
       ...config,
       approvalPin: repositoryIssuePin(config.approvalPin, identity),
@@ -214,12 +217,13 @@ export async function dispatchIssueWake({
   stateRoot,
   inspect,
   fetcher = fetch,
+  peerRepositories = [],
 }) {
   let journalEntered = false;
   try {
     const upstream = await observeIssueEvent(reader, adoption, event, invocation);
     const wake = async (issue) => {
-      const config = adoptedWake(adoption, issue);
+      const config = adoptedWake(adoption, issue, peerRepositories);
       try {
         await observeWake(reader, config);
       } catch (error) {
@@ -262,11 +266,13 @@ export async function dispatchIssueWake({
           );
           requireThat(configs.length <= 1, 'AMBIGUOUS_WAKE_ADOPTION');
           if (configs.length === 0) {
-            if (!adoption.repository) return null;
-            return nativeEdgeIssue(edge, {
-              repository: upstream.repository,
-              repositoryId: upstream.repositoryId,
-            });
+            for (const config of [adoption.repository, ...peerRepositories]) {
+              if (!config) continue;
+              const { repository, repositoryId } = config.approvalPin;
+              const target = nativeEdgeIssue(edge, { repository, repositoryId });
+              if (target) return target;
+            }
+            return null;
           }
           return (await readProtectedApproval(reader, configs[0].approvalPin)).record
             .issue;
