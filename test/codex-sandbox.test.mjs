@@ -302,7 +302,7 @@ test('Agent policy, private outputs and termination are verified', async (t) => 
   assert.ok(f.calls.some((c) => c[0] === 'rm'));
   const create = f.calls.find((c) => c[0] === 'create');
   assert.equal(create[create.indexOf('--tmpfs') + 1],
-    '/tmp:rw,exec,nosuid,nodev,size=512m,mode=1777');
+    '/tmp:rw,exec,nosuid,nodev,size=2g,mode=1777');
   const mounts = f.calls
     .find((c) => c[0] === 'create')
     .filter((v) => v.startsWith('type=bind'));
