@@ -1,5 +1,7 @@
 import { defineConfig } from 'astro/config';
 import starlight from '@astrojs/starlight';
+import tailwind from 'tailwindcss';
+import theme from './tailwind.config.mjs';
 import { sidebar } from './navigation.mjs';
 import { checkNavigation } from './scripts/navigation.mjs';
 
@@ -17,12 +19,14 @@ export default defineConfig({
   site,
   base,
   output: 'static',
+  vite: { css: { postcss: { plugins: [tailwind(theme)] } } },
   trailingSlash: 'always',
   integrations: [
     starlight({
       title: 'Nibfin documentation',
       locales: { root: { label: 'English', lang: 'en' } },
       sidebar,
+      customCss: ['./src/styles/theme.css'],
     }),
     {
       name: 'validate-documentation-navigation',

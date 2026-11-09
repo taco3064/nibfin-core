@@ -1,0 +1,47 @@
+/* Color values live only here. Dark is Starlight's initial theme. */
+:root {
+  --nf-background: #090b18;
+  --nf-surface: #14182d;
+  --nf-raised: #242a43;
+  --nf-text: #eeeefa;
+  --nf-secondary: #c0c4dc;
+  --nf-border: #7d849f;
+  --nf-link: #cbb8ff;
+  --nf-accent: #b49aff;
+  --nf-on-accent: #17102c;
+  --nf-hover: #d5c5ff;
+  --nf-focus: #d5c5ff;
+  --nf-info: #c4caff;
+  --nf-info-bg: #202744;
+  --nf-success: #b9e2dd;
+  --nf-success-bg: #153332;
+  --nf-warning: #f3d5a0;
+  --nf-warning-bg: #392c1a;
+  --nf-danger: #ffc0ce;
+  --nf-danger-bg: #3d2030;
+  --nf-code: #e2dcff;
+  --nf-code-bg: #111528;
+}
+:root[data-theme='light'] {
+  --nf-background: #f9f8fd;
+  --nf-surface: #eeecf7;
+  --nf-raised: #e3dff1;
+  --nf-text: #19172b;
+  --nf-secondary: #4e4963;
+  --nf-border: #746b8d;
+  --nf-link: #58349d;
+  --nf-accent: #6848b9;
+  --nf-on-accent: #ffffff;
+  --nf-hover: #4d2e8b;
+  --nf-focus: #58349d;
+  --nf-info: #353b86;
+  --nf-info-bg: #e5e7ff;
+  --nf-success: #21524e;
+  --nf-success-bg: #e0f1ed;
+  --nf-warning: #674211;
+  --nf-warning-bg: #fff0d5;
+  --nf-danger: #892e48;
+  --nf-danger-bg: #ffe6ec;
+  --nf-code: #3f2c72;
+  --nf-code-bg: #eeecf7;
+}

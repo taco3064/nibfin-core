@@ -15,19 +15,20 @@ npm run website:build
 npm run website:preview -- --host 127.0.0.1 --port 4321
 ```
 
-`website:check` runs Astro's TypeScript diagnostics and a complete static build
+`website:check` runs theme validation, Astro's TypeScript diagnostics and a static build
 (which validates Starlight frontmatter and generated navigation). `website:build`
 only builds. Root `npm run verify` retains Core checks/tests and runs the website
 check and production build first, then every existing Core check and test.
 The existing read-only CI verify job installs the npm
 workspace with the root lockfile and runs that same entry.
 
-The existing required native `verify` job runs the root entry without workflow
-changes. Its final `website:ci` stage runs
+The required native `verify` job installs the pinned Chromium browser and runs
+the root entry. Its final `website:ci` stage runs
 `npm run website:verify-failure`, which introduces a disposable TypeScript
 error in a disposable source copy and requires root verification to fail at that
 source. It removes the copy on completion. It then executes the controls also exposed as
-`npm run website:negative` and `npm run website:preview-check`.
+`npm run website:negative` and `npm run website:preview-check`, then theme controls
+and native rendered browser checks.
 The preview check builds both bases,
 inspects generated paths and assets, starts the documented preview command,
 checks actual HTTP index/404/CSS/JavaScript/search responses in CI, and stops preview.
@@ -36,9 +37,9 @@ Outside CI it performs both static inspections and leaves HTTP Unverified.
 Startup, request and cleanup failures fail CI. Run these commands from the root.
 The HTTP runner targets native Linux CI, with bounded startup/request timeouts.
 
-Protected Deliver and Accept sandboxes prohibit preview HTTP networking. At those
-stages, build/static inspection and negative controls are local evidence; HTTP
-preview remains unverified until native CI runs on the exact final PR head.
+Restricted Deliver and Accept environments may lack preview networking or browser
+downloads. Report unavailable checks Unverified; native CI must run them on the
+exact final PR head. See THEME.md for the rendered test matrix.
 
 Edit English Markdown/MDX in `website/src/content/docs/`. Every document needs a
 `title` in frontmatter. Starlight owns routing and search; `src/content.config.ts`
@@ -59,7 +60,8 @@ with `/`; segments may contain letters, numbers, `_` and `-`.
 
 ```sh
 WEBSITE_SITE=https://example.org WEBSITE_BASE=/other-docs/ npm run website:build
-WEBSITE_SITE=https://example.org WEBSITE_BASE=/other-docs/ npm run website:preview -- --host 127.0.0.1 --port 4321
+WEBSITE_SITE=https://example.org WEBSITE_BASE=/other-docs/ \
+  npm run website:preview -- --host 127.0.0.1 --port 4321
 curl -i http://127.0.0.1:4321/other-docs/
 curl -i http://127.0.0.1:4321/other-docs/does-not-exist/
 ```
@@ -87,9 +89,11 @@ relevant error. Restore each mutation and check again. The navigation build hook
 compares configured slugs with Astro's actual generated pages. Use Starlight
 `slug` items for internal navigation so Starlight handles base prefixes.
 
-DOC02 can extend the shared theme; DOC05 and DOC06 can add content without
+The [shared theme interface](THEME.md) provides tokens for DOC03 and DOC04.
+DOC05 and DOC06 can add content without
 reinitializing Core. DOC07 owns GitHub Actions Pages publication; this workspace
-adds no deployment workflow. DOC08 owns live browser testing. Public documents
+adds no deployment workflow. DOC08 owns published-site browser testing; local
+theme checks are documented in THEME.md. Public documents
 must describe verified availability and must not contain private source,
 credentials or protected operational details. Documentation projects product
 requirements; it does not create another requirements or control authority.

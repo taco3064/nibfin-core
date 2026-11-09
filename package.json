@@ -19,7 +19,9 @@
     "website:ci": "node website/scripts/ci-check.mjs",
     "website:verify-failure": "node website/scripts/verify-failure.mjs",
     "website:negative": "node website/scripts/negative-check.mjs",
-    "website:preview-check": "node website/scripts/preview-check.mjs"
+    "website:preview-check": "node website/scripts/preview-check.mjs",
+    "website:theme": "node website/scripts/theme-source.mjs && node website/scripts/theme-controls.mjs",
+    "website:browser": "node website/scripts/theme-browser.mjs"
   },
   "exports": {
     ".": "./src/public-api.mjs"

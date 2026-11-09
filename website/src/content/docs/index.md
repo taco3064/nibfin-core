@@ -14,5 +14,6 @@ Product requirements belong to the authoritative product proposal. These pages
 will provide a public reading guide to verified behavior and published sources.
 They do not control Issues, runners, authorization, CI or merging.
 
-Shared theme work belongs to DOC02; product documentation belongs to DOC05 and
-DOC06. Deployment belongs to DOC07 and live browser testing belongs to DOC08.
+The [theme reading sample](theme/) demonstrates shared visual semantics.
+Product documentation is prepared separately. This workspace does not establish
+production publication or published-site accessibility.

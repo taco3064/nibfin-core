@@ -1,0 +1,37 @@
+---
+title: Theme reading sample
+description: A bounded fixture for semantic theme verification, not product guidance.
+---
+import ThemeConsumer from '../../components/ThemeConsumer.astro';
+
+This reading fixture demonstrates the shared theme. It makes no release claims.
+
+## Reading sample
+
+Nibfin uses indigo surfaces and violet emphasis. Read an [internal link](../),
+compare `inline code`, and check the heading hierarchy with keyboard navigation.
+
+- Primary text stays readable on document surfaces.
+- Secondary text supports the hierarchy without disappearing.
+- Long code scrolls within its own block.
+
+### A deliberately long heading remains readable on a narrow documentation screen
+
+AnUnbrokenDocumentationIdentifierMustWrapWithoutExpandingTheWholeViewport.
+
+```ts title="Reading example"
+// A long line exercises code scrolling independently of the document width.
+const message = 'A long example line scrolls within its own code block on small screens.';
+console.log(message);
+```
+
+## Consumer mapping
+
+<ThemeConsumer />
+
+## Status examples
+
+<p class="nf-status nf-info">Information: this is a theme fixture.</p>
+<p class="nf-status nf-success">Success: the example is ready to read.</p>
+<p class="nf-status nf-warning">Warning: verify published availability separately.</p>
+<p class="nf-status nf-danger">Error: no product action is performed here.</p>
