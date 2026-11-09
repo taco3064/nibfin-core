@@ -2,6 +2,13 @@ import { spawn } from 'node:child_process';
 import { isAbsolute } from 'node:path';
 import { requireThat } from './identity.mjs';
 
+const deliveryMinutes = 180;
+const minute = 60_000;
+// Give Core time to reclaim the role before GitHub cancels the job.
+export const deliveryRoleTimeout = (deliveryMinutes - 5) * minute;
+// GitHub owns the job deadline. Transport should not interrupt Core first.
+export const deliveryTransportTimeout = (deliveryMinutes + 5) * minute;
+
 // Trusted executable/argv only. No shell or inherited credentials/config hooks.
 export function command(
   executable,

@@ -13,7 +13,7 @@ import {
 import { constants } from 'node:fs';
 import { isAbsolute, resolve, join, dirname } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { command } from './process.mjs';
+import { command, deliveryRoleTimeout } from './process.mjs';
 import {
   shareAgentMount,
   privateMountParent,
@@ -391,7 +391,7 @@ export class CodexSandbox {
         'AGENT_CONTAINER_POLICY_MISMATCH',
       );
       try {
-        await this.#docker(['start', '--attach', id], { timeout: 1800000 });
+        await this.#docker(['start', '--attach', id], { timeout: deliveryRoleTimeout });
       } catch (error) {
         if (!['PROCESS_TIMEOUT', 'PROCESS_FAILED'].includes(error.code)) throw error;
         outcome = { status: 'interrupted', executionId, code: error.code };
