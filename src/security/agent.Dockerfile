@@ -6,5 +6,5 @@ RUN apt-get update \
        libxdamage1 libxext6 libxfixes3 libxrandr2 libgbm1 libxcb1 \
        libxkbcommon0 libasound2 \
     && rm -rf /var/lib/apt/lists/*
-RUN npm install --global @openai/codex@0.138.0
+RUN npm install --global npm@11.9.0 @openai/codex@0.138.0
 RUN mkdir -p /session /etc/codex
