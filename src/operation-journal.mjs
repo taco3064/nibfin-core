@@ -98,21 +98,7 @@ export class OperationJournal {
     const decision = digest({
       operation: request.operation, bindingHash: request.bindingHash,
     });
-    await this.#prepare();
-    const lockPath = join(this.#directory, 'execution.lock');
-    let lock;
-    try { lock = await open(lockPath, constants.O_WRONLY | constants.O_CREAT |
-      constants.O_EXCL | constants.O_NOFOLLOW, 0o600); }
-    catch (error) {
-      if (error.code === 'EEXIST')
-        return { status: 'pending', code: 'WRITER_NOT_PROVEN_TERMINATED' };
-      throw error;
-    }
-    try {
-      await lock.writeFile(JSON.stringify({ pid: process.pid, decision }));
-      await lock.sync();
-      await syncDirectory(this.#directory);
-      const state = await this.#read();
+    return this.#withLock(decision, async state => {
       if (state.pending !== null)
         return { status: 'pending', code: 'EXTERNAL_EFFECT_UNKNOWN' };
       if (state.completed.includes(decision))
@@ -134,11 +120,45 @@ export class OperationJournal {
         }
         requireThat(await readBack() === request.bindingHash,
           'READBACK_BINDING_MISMATCH');
-        await this.#write({
-          ...state, pending: null, completed: [...state.completed, decision],
-        });
+        await this.#complete(state, decision);
       } catch { return { status: 'pending', code: 'EXTERNAL_EFFECT_UNKNOWN' }; }
       return { status: 'completed', decisionId: decision };
+    });
+  }
+  async recoverCommitPr(decision, readBack) {
+    requireThat(isDigest(decision) && typeof readBack === 'function',
+      'INVALID_RECOVERY_REQUEST');
+    return this.#withLock(decision, async state => {
+      requireThat(state.pending === decision ||
+        state.pending === null && state.completed.includes(decision),
+      'RECOVERY_DECISION_MISMATCH');
+      const receiptHash = await readBack();
+      requireThat(isDigest(receiptHash), 'INVALID_RECOVERY_RECEIPT');
+      if (state.pending === decision) await this.#complete(state, decision);
+      return { status: 'completed', decisionId: decision, receiptHash };
+    });
+  }
+  async #complete(state, decision) {
+    await this.#write({
+      ...state, pending: null, completed: [...state.completed, decision],
+    });
+  }
+  async #withLock(decision, use) {
+    await this.#prepare();
+    const lockPath = join(this.#directory, 'execution.lock');
+    let lock;
+    try { lock = await open(lockPath, constants.O_WRONLY | constants.O_CREAT |
+      constants.O_EXCL | constants.O_NOFOLLOW, 0o600); }
+    catch (error) {
+      if (error.code === 'EEXIST')
+        return { status: 'pending', code: 'WRITER_NOT_PROVEN_TERMINATED' };
+      throw error;
+    }
+    try {
+      await lock.writeFile(JSON.stringify({ pid: process.pid, decision }));
+      await lock.sync();
+      await syncDirectory(this.#directory);
+      return await use(await this.#read());
     } finally {
       await lock.close();
       await unlink(lockPath);

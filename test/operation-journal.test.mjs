@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { MergeBeforeWrite } from '../src/github-write.mjs';
 import { OperationJournal } from '../src/operation-journal.mjs';
+import { digest } from '../src/identity.mjs';
 
 async function fixture(t) {
   const root = await mkdtemp(join(tmpdir(), 'nibfin-journal-'));
@@ -51,6 +52,29 @@ test('failed fresh admission cannot reach a side effect', async t => {
     { status: 'denied', code: 'ADMISSION_FAILED' });
   assert.equal(f.calls(), 0);
 });
+
+test('recovery settles only the exact pending decision without repeating its write',
+  async t => {
+    const f = await fixture(t);
+    const request = { ...f.request, operation: 'commit-pr' };
+    await f.journal.run(request, { ...f.adapters, readBack: async () => undefined });
+    const decision = digest(request);
+    await assert.rejects(
+      f.journal.recoverCommitPr('b'.repeat(64), async () => assert.fail('read-back')),
+      { code: 'RECOVERY_DECISION_MISMATCH' },
+    );
+    await assert.rejects(f.journal.recoverCommitPr(decision, async () => undefined),
+      { code: 'INVALID_RECOVERY_RECEIPT' });
+    await assert.rejects(f.journal.assertIdle(), { code: 'EXTERNAL_EFFECT_UNKNOWN' });
+    const receiptHash = 'c'.repeat(64);
+    const result = { status: 'completed', decisionId: decision, receiptHash };
+    assert.deepEqual(
+      await f.journal.recoverCommitPr(decision, async () => receiptHash), result);
+    await f.journal.assertIdle();
+    assert.deepEqual(
+      await f.journal.recoverCommitPr(decision, async () => receiptHash), result);
+    assert.equal(f.calls(), 1);
+  });
 
 test('concurrent writers and leftover leases stay Pending', async t => {
   const f = await fixture(t); let entered, release;

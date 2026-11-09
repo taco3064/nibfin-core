@@ -131,6 +131,16 @@ host or its Runner registration also requires reconciliation; removing a GitHub
 registration is not proof that the old host stopped. This launcher does not
 automatically adopt a replacement host or claim cross-host crash recovery.
 
+For a published PR repair whose head read-back was interrupted, stop the adopted
+Runner and wait for GitHub to report it offline. As the host controller, run
+`nibfin-core.mjs recover-commit-pr <issue-number> <observed-pr-head>` from a
+verified, administrator-installed Core package. This can use a separate recovery
+package while the previous Core remains adopted. It verifies the original
+pending decision against the terminal Job, open PR, branch, and exact Candidate
+tree and parent. It records the observed publication and archives the fence
+after confirming there are no remaining execution containers. It does not push
+or retry the GitHub operation. Restart the adopted Runner after settlement.
+
 ## Validation boundary
 
 For configured MCP access, the launcher owns a durable actual-Job acquisition

@@ -112,6 +112,14 @@ function shapeEvidence(context, requireValidator) {
 export function requirementsText(body) {
   return typeof body === 'string' ? body.replaceAll('\r\n', '\n').trimEnd() : body;
 }
+export function stageRequestHash({
+  stage, binding, artifacts, execution, runner, isolation, body, shaped,
+}) {
+  const requirements = requirementsText(body);
+  return digest({ stage, binding, artifacts, execution, runner, isolation,
+    requirements: digest(shaped ? canonicalCandidateBlock(requirements) : requirements),
+  });
+}
 export function samePublishedRequirements(current, prior) {
   return canonicalCandidateBlock(requirementsText(current)) ===
     canonicalCandidateBlock(requirementsText(prior));
@@ -385,16 +393,15 @@ export function decideStage(stage, context, now = Date.now()) {
       }
     }
     const binding = evidenceBinding(context);
-    const requestHash = digest({
+    const requestHash = stageRequestHash({
       stage,
       binding,
       artifacts,
       execution,
       runner: context.runner.runnerId,
       isolation: context.isolation.profile,
-      requirements: digest(labels.has('shaped')
-        ? canonicalCandidateBlock(requirementsText(issue.body))
-        : requirementsText(issue.body)),
+      body: issue.body,
+      shaped: labels.has('shaped'),
     });
     return {
       schemaVersion: 1,
