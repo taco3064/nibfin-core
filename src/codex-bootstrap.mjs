@@ -20,6 +20,22 @@ const progressEvents = new Set([
   'thread.started', 'turn.started', 'turn.completed', 'turn.failed',
   'item.started', 'item.updated', 'item.completed',
 ]);
+const progressItems = new Set([
+  'agent_message', 'reasoning', 'command_execution', 'file_change',
+  'mcp_tool_call', 'web_search', 'todo_list', 'error',
+]);
+const idleProgressPrefix = 'NIBFIN_IDLE_PROGRESS';
+
+export function idleDiagnostic(stderr) {
+  for (const line of String(stderr).split('\n')) {
+    const [prefix, event, item, extra] = line.trimEnd().split(' ');
+    if (prefix !== idleProgressPrefix || extra !== undefined) continue;
+    if (event === 'none' && item === 'none') return line.trimEnd();
+    if (progressEvents.has(event) && (item === 'none' || progressItems.has(item)))
+      return line.trimEnd();
+  }
+  return undefined;
+}
 
 export const denialProbe = `
 const fs = require('node:fs');
@@ -89,13 +105,23 @@ export function runCodex(args, {
       for (const stream of [child.stdin, child.stdout, child.stderr]) stream.destroy();
       reject(new Error(code));
     };
-    const timer = setTimeout(() => stop(codexIdle.code), idleTimeout);
+    let lastProgress = 'none none';
+    const timer = setTimeout(() => {
+      if (input !== undefined)
+        process.stderr.write(`${idleProgressPrefix} ${lastProgress}\n`);
+      stop(codexIdle.code);
+    }, idleTimeout);
     const recordProgress = (chunk) => {
       const lines = (pending + chunk).split('\n');
       pending = lines.pop();
       for (const line of lines) {
         try {
-          if (progressEvents.has(JSON.parse(line)?.type)) timer.refresh();
+          const event = JSON.parse(line);
+          if (progressEvents.has(event?.type)) {
+            const item = progressItems.has(event.item?.type) ? event.item.type : 'none';
+            lastProgress = `${event.type} ${item}`;
+            timer.refresh();
+          }
         } catch {
           // Non-event output does not extend the deadline.
         }
