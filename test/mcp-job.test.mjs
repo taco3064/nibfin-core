@@ -266,6 +266,7 @@ test('host shares one acquisition and refuses completed-Job replay', async t => 
   });
   assert.equal(acquisitions, 1);
   runner.jobId++;
+  blobs['src/core-cli.mjs'] = '7f8e13ffbc58c27d2fc7fd83acf94be9829cd3fa';
   await assert.rejects(prepareHostJobMcp(options, {
     ...adapters,
     acquire: async () => capsule,
