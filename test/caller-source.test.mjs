@@ -3,6 +3,19 @@ import assert from 'node:assert/strict';
 import { readCallerSource } from '../src/caller-source.mjs';
 import { gitBlob } from '../src/identity.mjs';
 import { callerRecipe } from '../src/caller-recipes.mjs';
+import { deliveryRoleTimeout, deliveryTransportTimeout } from '../src/process.mjs';
+
+test('delivery callers give Core time to stop and clean up its role', () => {
+  for (const kind of ['action-wake', 'action-dispatch']) {
+    const body = callerRecipe(kind, 'a'.repeat(40), {
+      actionCommit: 'b'.repeat(40), memberId: 2,
+    });
+    const jobMinutes = Number(body.match(/^    timeout-minutes: (\d+)$/m)?.[1]);
+    assert.equal(jobMinutes, 180);
+    assert.ok(deliveryRoleTimeout < jobMinutes * 60_000);
+    assert.ok(deliveryTransportTimeout > jobMinutes * 60_000);
+  }
+});
 
 for (const kind of ['wake', 'action-wake', 'action-dispatch']) {
   test(

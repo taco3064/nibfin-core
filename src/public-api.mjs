@@ -11,7 +11,7 @@ export { WakeDispatcher, observeWake, fanout } from './wakeup.mjs';
 export { resolveWakeDispatch } from './wake-entry.mjs';
 export { packageSource, verifyInstalledSource } from './source-package.mjs';
 export { installSource } from './source-install.mjs';
-export { command } from './process.mjs';
+export { command, deliveryTransportTimeout } from './process.mjs';
 
 export {
   releaseAssets,

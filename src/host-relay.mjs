@@ -1,7 +1,7 @@
 import { rootOwnedPath } from './host-paths.mjs';
 import { hostFile, coreRoot } from './host-adoption.mjs';
 import { boundedHostFile } from './host-adoption.mjs';
-import { command } from './process.mjs';
+import { command, deliveryTransportTimeout } from './process.mjs';
 import { requireThat, isId } from './identity.mjs';
 import {
   contextKeys,
@@ -56,7 +56,7 @@ export async function relayControllerRequest(request, uid, run = command) {
         cwd: coreRoot,
         env: { PATH: '/usr/bin:/bin', LANG: 'C.UTF-8' },
         input: JSON.stringify(request),
-        timeout: 3600000,
+        timeout: request.command === 'stage' ? deliveryTransportTimeout : 3600000,
         limit: 1048576,
       },
     );
