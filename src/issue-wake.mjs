@@ -5,6 +5,7 @@ import {
   readProtectedApproval,
   readMemberPermission,
 } from './github-approval.mjs';
+import { nativeEdgeIssue, repositoryIssuePin } from './repository-admission.mjs';
 import { selectAssignee } from './selection.mjs';
 import { isDeliveredIssue } from './dependencies.mjs';
 import { observeWake, WakeDispatcher, fanout } from './wakeup.mjs';
@@ -118,10 +119,19 @@ export async function observeIssueEvent(reader, adoption, event, invocation) {
   return issue;
 }
 
-export function adoptedWake(adoption, id) {
+export function adoptedWake(adoption, identity) {
+  const id = typeof identity === 'string' ? identity : identity.id;
   const matches = adoption.issues.filter((item) => item.approvalPin?.issueId === id);
-  requireThat(matches.length === 1, 'WAKE_ISSUE_NOT_ADOPTED');
-  const selected = matches[0];
+  requireThat(matches.length <= 1, 'AMBIGUOUS_WAKE_ADOPTION');
+  let selected = matches[0];
+  if (!selected && adoption.repository && typeof identity !== 'string') {
+    const config = adoption.repository;
+    selected = {
+      ...config,
+      approvalPin: repositoryIssuePin(config.approvalPin, identity),
+    };
+  }
+  requireThat(selected, 'WAKE_ISSUE_NOT_ADOPTED');
   requireThat(
     selected.approvalPin.source?.commit === adoption.coreCommit &&
       selected.approvalPin.source.repository === 'taco3064/nibfin-core',
@@ -135,7 +145,7 @@ export async function resolveIssueWake(reader, adoption, event, invocation) {
   const live = await reader.issue(upstream);
   if (event.action === 'closed')
     requireThat(isDeliveredIssue(live), 'UPSTREAM_NOT_DELIVERED');
-  const config = adoptedWake(adoption, upstream.id);
+  const config = adoptedWake(adoption, upstream);
   const approval = await readProtectedApproval(reader, config.approvalPin);
   requireThat(
     digest(approval.record.issue) === digest(upstream) &&
@@ -184,7 +194,13 @@ export async function runIssueWake(env = process.env) {
       attempt: Number(env.GITHUB_RUN_ATTEMPT),
       coreCommit: env.NIBFIN_CORE_COMMIT,
     },
-  );
+  ).catch((error) => {
+    const idle = ['WAKE_TARGET_NOT_READY', 'INACTIVE_WAKE_TARGET',
+      'UPSTREAM_NOT_DELIVERED', 'UNSUPPORTED_ISSUE_EVENT'];
+    if (idle.includes(error.code))
+      return { status: 'skipped', code: error.code, stageAdmitted: false };
+    throw error;
+  });
 }
 
 // Only the fixed installed host supplies this persistent directory and token.
@@ -203,7 +219,7 @@ export async function dispatchIssueWake({
   try {
     const upstream = await observeIssueEvent(reader, adoption, event, invocation);
     const wake = async (issue) => {
-      const config = adoptedWake(adoption, issue.id);
+      const config = adoptedWake(adoption, issue);
       try {
         await observeWake(reader, config);
       } catch (error) {
@@ -240,12 +256,18 @@ export async function dispatchIssueWake({
     if (event.action !== 'closed') return await wake(upstream);
     return fanoutOutcome(
       await fanout(reader, upstream, {
-        approvedTarget: async (id) => {
+        approvedTarget: async (id, edge) => {
           const configs = adoption.issues.filter(
             (item) => item.approvalPin?.issueId === id,
           );
           requireThat(configs.length <= 1, 'AMBIGUOUS_WAKE_ADOPTION');
-          if (configs.length === 0) return null;
+          if (configs.length === 0) {
+            if (!adoption.repository) return null;
+            return nativeEdgeIssue(edge, {
+              repository: upstream.repository,
+              repositoryId: upstream.repositoryId,
+            });
+          }
           return (await readProtectedApproval(reader, configs[0].approvalPin)).record
             .issue;
         },

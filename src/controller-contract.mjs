@@ -19,6 +19,7 @@ export const contextKeys = Object.freeze([
 
 export function controllerRoute(host) {
   const issues = Object.values(host.issues ?? {});
+  if (host.repository) issues.push(host.repository);
   if (host.runnerUid === undefined) {
     requireThat(
       !issues.some((x) => x.isolation?.kind === 'linux-rootful-docker-v1'),

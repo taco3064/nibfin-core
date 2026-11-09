@@ -2,6 +2,7 @@ import { constants } from 'node:fs';
 import { open, lstat, realpath } from 'node:fs/promises';
 import { dirname, join, resolve, isAbsolute } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { repositoryIssuePin } from './repository-admission.mjs';
 import { GitHubReader } from './github-read.mjs';
 import { verifyInstalledSource } from './source-package.mjs';
 import { privateHostDirectory } from './host-fence.mjs';
@@ -81,8 +82,7 @@ export async function loadHostAdoption(issueNumber) {
   await rootOwnedPath(hostFile);
   await rootOwnedPath(coreRoot);
   const hostBytes = await boundedHostFile(hostFile, 256 * 1024);
-  const host = JSON.parse(hostBytes),
-    adopted = host.issues?.[issueNumber];
+  const host = JSON.parse(hostBytes);
   controllerRoute(host);
   requireThat(
     host.schemaVersion === 1 &&
@@ -91,6 +91,25 @@ export async function loadHostAdoption(issueNumber) {
       host.kind === 'single-host-linux-v1',
     'INVALID_HOST_ADOPTION',
   );
+  await privateHostDirectory(host.stateRoot);
+  await privateHostDirectory(dirname(host.tokenFile));
+  const token = (await boundedHostFile(host.tokenFile, 16384, true)).trim();
+  const reader = new GitHubReader(token);
+  let adopted = host.issues?.[issueNumber];
+  if (!adopted && host.repository) {
+    const template = host.repository;
+    const issue = {
+      repository: template.runner.repository,
+      repositoryId: template.runner.repositoryId,
+      number: Number(issueNumber),
+    };
+    issue.id = (await reader.issue(issue)).node_id;
+    adopted = {
+      ...template,
+      approval: repositoryIssuePin(template.approval, issue),
+      isolation: { ...template.isolation, issue },
+    };
+  }
   requireThat(
     adopted &&
       adopted.isolation?.issue?.number === Number(issueNumber) &&
@@ -108,8 +127,5 @@ export async function loadHostAdoption(issueNumber) {
     );
   }
   await inspectHostAdoption({ host, hostBytes, adopted });
-  await privateHostDirectory(host.stateRoot);
-  await privateHostDirectory(dirname(host.tokenFile));
-  const token = (await boundedHostFile(host.tokenFile, 16384, true)).trim();
-  return { host, hostBytes, adopted, token, reader: new GitHubReader(token) };
+  return { host, hostBytes, adopted, token, reader };
 }

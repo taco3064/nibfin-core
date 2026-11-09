@@ -241,7 +241,7 @@ export async function fanout(reader, upstream, { approvedTarget, wake }) {
       'INVALID_FANOUT_EDGE',
     );
     seen.add(edge.node_id);
-    const target = await approvedTarget(edge.node_id);
+    const target = await approvedTarget(edge.node_id, edge);
     if (!target) continue;
     requireThat(
       edge.number === target.number &&

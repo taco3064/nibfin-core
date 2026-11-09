@@ -36,7 +36,9 @@ export function validateIssueIdentity(issue) {
 
 // This validates a bounded record, not its authority. Only a fresh native
 // approval read may establish provenance; parsing this JSON grants nothing.
-export function validateApprovalRecord(record, now) {
+export function validateApprovalRecord(
+  record, now, { repositoryAdmission = false } = {},
+) {
   exact(record, [
     'schemaVersion',
     'issue',
@@ -45,8 +47,7 @@ export function validateApprovalRecord(record, now) {
     'operations',
     'roles',
     'source',
-    'validFrom',
-    'expiresAt',
+    ...(repositoryAdmission ? [] : ['validFrom', 'expiresAt']),
   ]);
   requireThat(
     record.schemaVersion === 1 && Number.isSafeInteger(now),
@@ -90,6 +91,7 @@ export function validateApprovalRecord(record, now) {
       isDigest(record.source.skillsHash),
     'INVALID_SOURCE_IDENTITY',
   );
+  if (repositoryAdmission) return record;
   const start = Date.parse(record.validFrom),
     end = Date.parse(record.expiresAt);
   requireThat(

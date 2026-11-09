@@ -42,15 +42,17 @@ export function hostWakeAdoption(host, adopted) {
     blob: runner.workflowBlob,
     ...(runner.actionCommit ? { actionCommit: runner.actionCommit } : {}),
   });
+  const config = (item) => ({
+    approvalPin: item.approval,
+    workflow: workflow(item.runner),
+    actorId: host.memberId,
+  });
   return {
     schemaVersion: 1,
     coreCommit: host.installation.pin.commit,
     eventWorkflow: workflow(event),
-    issues: Object.values(host.issues).map((item) => ({
-      approvalPin: item.approval,
-      workflow: workflow(item.runner),
-      actorId: host.memberId,
-    })),
+    issues: Object.values(host.issues ?? {}).map(config),
+    ...(host.repository ? { repository: config(host.repository) } : {}),
   };
 }
 
