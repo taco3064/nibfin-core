@@ -70,7 +70,12 @@ export async function acquireHostFence(root, binding) {
       constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
     try { await dir.sync(); } finally { await dir.close(); }
   };
-  try { await handle.writeFile(bytes); await handle.sync(); } finally { await handle.close(); }
+  try {
+    await handle.writeFile(bytes);
+    await handle.sync();
+  } finally {
+    await handle.close();
+  }
   await sync();
   const inspect = async () => {
     await privateHostDirectory(root);
