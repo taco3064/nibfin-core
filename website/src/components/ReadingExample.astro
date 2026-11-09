@@ -1,0 +1,17 @@
+---
+import { Code } from '@astrojs/starlight/components';
+import CopyExample from './CopyExample';
+import { readingExample } from '../lib/reading-example';
+---
+<p>This is a reading example, not an installation command.</p>
+<div data-reading-example>
+  <Code code={readingExample} lang="ts" />
+</div>
+<CopyExample text={readingExample} client:load />
+<noscript>
+  <p data-manual-copy>Select the reading example to copy it manually.</p>
+</noscript>
+<style>
+  /* The React control owns copying this sample, including failure feedback. */
+  [data-reading-example] :global(.copy) { display: none; }
+</style>

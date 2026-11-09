@@ -1,4 +1,5 @@
 import { defineConfig } from 'astro/config';
+import react from '@astrojs/react';
 import starlight from '@astrojs/starlight';
 import tailwind from 'tailwindcss';
 import theme from './tailwind.config.mjs';
@@ -22,6 +23,7 @@ export default defineConfig({
   vite: { css: { postcss: { plugins: [tailwind(theme)] } } },
   trailingSlash: 'always',
   integrations: [
+    react(),
     starlight({
       title: 'Nibfin documentation',
       locales: { root: { label: 'English', lang: 'en' } },

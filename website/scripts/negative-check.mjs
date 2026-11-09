@@ -19,8 +19,9 @@ try {
   await cp('website', copy, { recursive: true,
     filter: (path) => !/(?:^|\/)(?:dist|\.astro|node_modules)(?:\/|$)/.test(path) });
   check();
-  const bad = join(copy, 'src/doc01-bad.ts');
-  await writeFile(bad, 'const bad: number = "wrong";\n');
+  const bad = join(copy, 'src/doc03-bad.tsx');
+  await writeFile(bad, 'const bad: number = "wrong";\n' +
+    'export const Bad = () => <span>{bad}</span>;\n');
   check(/not assignable to type 'number'/);
   await rm(bad);
   check();
