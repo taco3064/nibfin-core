@@ -14,7 +14,7 @@ The intended work sequence is:
 1. **Scope Plan / Publish** establishes an authority-traceable portfolio, creates its raw work items in the correct repositories, and materializes approved native dependencies.
 2. The **project's authorized delivery mechanism** establishes valid execution context, original-Scope provenance/freeze where required, and dependency eligibility for the individual work item.
 3. **Shape Author** deeply investigates **that existing work item** and proposes its complete delivery-ready contract.
-4. An **independent Shape Validator** evaluates the proposed contract against original Scope, current product authority, and repository evidence.
+4. An **independent Shape Validator** evaluates the contract against the current authorized Issue, product authority, and repository evidence.
 5. The **Shape workflow remains accountable for the verified Issue contract-update outcome**, while the **project-authorized trusted publisher / Core**, not the Author or Validator, performs any approved Issue Body/metadata mutation and reads back its exact result. Delivery and independent Acceptance are separate stages.
 
 **Loading Scope and Shape together does not merge their mutation authority.** Scope may reuse Shape's read-only Investigation capability before creating work items, but only Scope owns portfolio decisions and raw work publication.
@@ -45,7 +45,7 @@ If the project-required authorization, independent validation, or trusted public
 Read the **current authoritative product requirements** designated by the project (for example, its live Proposal or Product BR) for each invocation. Keep distinct:
 
 - **Normative product authority:** required behavior, protocol, security/trust, repository responsibility, release obligations, non-goals, decision status, and invariant constraints.
-- **Original Scope history:** the work-item boundary established by Scope and, in a formal protected run, the **trusted original raw Scope baseline and its identity**. This is a separate artifact from the proposed or published Shape body.
+- **Original Scope history:** earlier requirements may explain decisions. The current authorized Issue governs the work. A separate original baseline is required only when the runtime's applicable authority explicitly requires one.
 - **Repository reality:** current implementation locations, existing behavior, tests, CI, hooks, public interfaces, migrations, history, and implementation drift. Code does not override normative product or repository ownership decisions.
 - **Delivery policy and trusted runtime:** valid work membership, dependencies, allowed operations, authenticated actor identities and role separation, result schema, authorization, verification gates, evidence identities, and publication/merge rules. Intended policy is not evidence that an unfinished engine can enforce it today.
 
@@ -207,12 +207,14 @@ The Validator must run with the **independent execution identity and read-only e
 
 Independently verify:
 
-- Verified repository/Issue identity, trustworthy frozen original Scope, current product authority and any applicable trusted grant/policy identity.
-- The proposed Shape preserves all original outcomes and exclusions, correct normative repository ownership, current dependency boundaries, and all binding product/security constraints.
+- Verified repository/Issue identity, current authorized Issue, current product authority, and any applicable trusted grant or policy.
+- The Shape preserves the current authorized outcomes and exclusions, normative repository ownership, current dependency boundaries, and binding product and security constraints.
 - Every Goal clause and relevant product obligation maps to explicit observable criteria with sufficient verification targets and negative cases.
 - The machine-readable Candidate Obligation Inventory exists exactly as required and matches observed hook setup, required artifacts and narrative acceptance targets.
 - No unresolved product decision, scope split/move, upstream assumption, unsafe writing permission or ignored required evidence has been papered over.
 - The proposed Issue Body and published evidence references are cleared for the target's actual visibility; access to private research was not misinterpreted as permission to disclose it.
+
+For repository-admitted work, revalidate an already published Shape against the live authorized Issue and current Proposal. The runtime reads the exact published Body and checks its identity. Missing historical raw Scope does not block this path. The Validator still checks the contract independently and reports actual conflicts.
 
 Return an **approved, changes-required or blocked semantic result** mapped to the runtime-supported result schema, with evidence-backed findings. Do not approve a semantically different contract merely because it is technically implementable. **Only the trusted publication mechanism** may replace the Issue Body/apply any project-defined post-Shape state; it must recheck authorization and read back the exact published Body and metadata.
 
@@ -222,7 +224,7 @@ A Validator rejection does not authorize an Issue rewrite, label change, self-ap
 
 Use this role **only when assigned by the delivery mechanism** after an actual implementation/Acceptance concern requires distinguishing a bad Shape from nonconforming implementation.
 
-- Re-read the **trusted original Scope** and current normative authority, actual published Shape, reported concern, complete relevant attempt/candidate evidence and observed workspace identities.
+- Re-read the current authorized Issue and normative authority, published Shape, reported concern, relevant attempt and Candidate evidence, and observed workspace identities. Use earlier Scope text when it resolves a concrete discrepancy.
 - Distinguish **implementation defect**, **Shape defect**, **authority gap**, and **external/evidence failure** using only classifications the runtime actually supports.
 - A correct Shape with deficient code returns an actionable implementation correction; repeated failed attempts do not prove Shape is wrong.
 - For a proven Shape contradiction, give precise original-Scope and Shape clauses, conflicting observable requirements, verified evidence and **runtime-required exact quote/hash/conflict records**. Do not invent a Scope Hash or substitute mutable current Body text for the original.
@@ -258,7 +260,7 @@ When Shape reports a defect in the raw Scope portfolio, return a **Scope replan 
 Before returning a **role-level** `ready` or `approved` result, verify the applicable prepublication conditions below. These are **Author/Validator outputs**, not a claim that the complete Shape stage has been published. **Stage completion** additionally requires the separate authorized publication and exact read-back evidence described above:
 
 1. The work item **already exists** and was not replaced or duplicated by Shape.
-2. The exact frozen **original raw Scope** can be distinguished from the proposed/published detailed Shape.
+2. The current authorized requirements and proposed or published Shape are clear. When the applicable runtime explicitly requires a historical baseline, identify it separately.
 3. The governing authority, normative repository owner, current native dependencies and trusted authorization have been checked for this stage.
 4. Predecessor completion proof is enforced by the trusted delivery mechanism **where required**, without imposing a new global sequence.
 5. Previous Scope-phase investigation is cited as background only; necessary evidence has been refreshed for the formal stage.
