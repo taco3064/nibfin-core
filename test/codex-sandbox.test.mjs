@@ -167,6 +167,7 @@ async function fixture(t, fault, rootful = false, mcp = false) {
           Env: ['PATH=/usr/bin', ...cmd.filter((_v, i) => cmd[i - 1] === '--env')],
         },
         HostConfig: {
+          Init: cmd.includes('--init') && fault !== 'missing-init',
           Privileged: false,
           ReadonlyRootfs: true,
           NetworkMode: config.network,
@@ -202,7 +203,7 @@ async function fixture(t, fault, rootful = false, mcp = false) {
         {
           ...container,
           State: ended
-            ? { Running: false, ExitCode: 0, OOMKilled: false }
+            ? { Running: false, ExitCode: fault === 'idle' ? 75 : 0, OOMKilled: false }
             : container.State,
         },
       ];
@@ -311,6 +312,7 @@ test('Policy changes deny launch and unknown cleanup remains Pending', async (t)
     'seccomp',
     'apparmor',
     'root-user',
+    'missing-init',
     'lost-create',
   ]) {
     const f = await fixture(t, fault);
@@ -340,6 +342,15 @@ test('a timeout with confirmed container cleanup carries termination proof', asy
   assert.equal(result.code, 'PROCESS_TIMEOUT');
   assert.match(result.terminationHash, /^[a-f0-9]{64}$/);
   assert.ok(f.calls.some(c => c[0] === 'rm'));
+});
+
+test('an idle agent is reported after confirmed container cleanup', async (t) => {
+  const f = await fixture(t, 'idle');
+  const result = await f.sandbox.execute(f.request);
+  assert.equal(result.status, 'interrupted');
+  assert.equal(result.code, 'CODEX_IDLE_TIMEOUT');
+  assert.match(result.terminationHash, /^[a-f0-9]{64}$/);
+  assert.ok(f.calls.some((c) => c[0] === 'rm'));
 });
 
 test('Missing probe, symlinks and forged identity deny execution proof', async (t) => {

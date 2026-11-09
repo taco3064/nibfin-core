@@ -89,22 +89,22 @@ test('a finished Author with invalid obligations writes a blocked receipt', asyn
   assert.equal((await runtime.run(request)).code, 'REPLAYED_OPERATION');
 });
 
-test('a confirmed interruption writes a blocked receipt and clears Pending', async t => {
+test('a confirmed idle timeout writes a blocked receipt and clears Pending', async t => {
   const f = await fixture(t);
   const interrupted = {
     status: 'interrupted',
     executionId: f.context.execution.id,
     terminationHash: 'a'.repeat(64),
-    code: 'PROCESS_TIMEOUT',
+    code: 'CODEX_IDLE_TIMEOUT',
   };
   f.adapters.handlers = stageHandlers({
     agent: { run: async () => interrupted },
     store: { put: async value => digest(value) },
   });
   const runtime = new StageRuntime(f.adapters);
-  assert.equal((await runtime.run(request)).code, 'STAGE_REQUIRES_CORRECTION');
+  assert.equal((await runtime.run(request)).code, 'CODEX_IDLE_TIMEOUT');
   assert.equal(f.saved[0].outcome, 'blocked');
-  assert.match(f.saved[0].findings[0], /execution time limit/);
+  assert.match(f.saved[0].findings[0], /without progress/);
   assert.equal((await runtime.run(request)).code, 'REPLAYED_OPERATION');
 });
 

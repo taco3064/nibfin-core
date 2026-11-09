@@ -54,13 +54,24 @@ export function runNpm(args, {
   const stderr = readFileSync(paths[1], 'utf8');
   process.stdout.write(stdout);
   process.stderr.write(stderr);
+  const failure = result.error?.code === 'ETIMEDOUT'
+    ? new Error(`Website command timed out after ${timeout} ms: npm ${args.join(' ')}`,
+      { cause: result.error })
+    : result.error;
   try { stopDescendants(result.pid); }
-  catch (error) {
-    throw Object.assign(error, { recoveryDirectory: directory });
+  catch (cleanupError) {
+    const error = failure
+      ? new AggregateError([failure, cleanupError],
+        `${failure.message}. ${cleanupError.message}`)
+      : cleanupError;
+    throw Object.assign(error, {
+      terminationUnknown: cleanupError.terminationUnknown,
+      recoveryDirectory: directory,
+    });
   }
-  if (result.error) {
+  if (failure) {
     // A timeout does not prove all descendants stopped. Preserve diagnostics.
-    throw Object.assign(result.error, { recoveryDirectory: directory });
+    throw Object.assign(failure, { recoveryDirectory: directory });
   }
   rmSync(directory, { recursive: true });
   return { ...result, stdout, stderr };
