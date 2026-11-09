@@ -149,7 +149,7 @@ export async function launchIssueWake(issueNumber, env = process.env, eventBytes
       inspect,
     });
     if (result.status !== 'pending') {
-      await inspect();
+      await idleContainers(adopted.isolation);
       await fence.release();
     }
     return result;

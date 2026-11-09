@@ -15,7 +15,9 @@ import { continueStages } from './stage-continuation.mjs';
 import { setTimeout } from 'node:timers/promises';
 import { digest, isId, requireThat } from './identity.mjs';
 import { acquireHostFence, privateHostDirectory } from './host-fence.mjs';
-import { pendingCIObservation } from './github-ci.mjs';
+import { OperationJournal } from './operation-journal.mjs';
+import { settleHostStage } from './host-stage-settlement.mjs';
+import { observationFailureCode } from './observation-failure.mjs';
 import { readNotionProposal } from './notion-proposal.mjs';
 import { prepareHostJobMcp } from './mcp-job-host.mjs';
 
@@ -296,9 +298,10 @@ export async function launchStage(issueNumber, stage, env = process.env) {
       });
       return executor.run({ schemaVersion: 1, stage: current });
     };
-    const result =
+    const journal = new OperationJournal(join(root, 'receipts'), approval.record.issue);
+    const run = () =>
       stage === 'continue'
-        ? await continueStages({
+        ? continueStages({
             store,
             execute,
             refreshRequirements: async receipts => {
@@ -317,12 +320,15 @@ export async function launchStage(issueNumber, stage, env = process.env) {
             inspect: inspectWriter,
             wait: setTimeout,
           })
-        : await execute(stage);
-    if (result.status !== 'pending' || pendingCIObservation(result.code)) {
-      await inspectWriter();
+        : execute(stage);
+    const result = await settleHostStage(run, async () => {
+      // The host fence excludes any other stage. Release uses local termination
+      // evidence; a provider read is needed for admission, not for unlocking.
+      await journal.assertIdle();
+      await idleContainers(adopted.isolation);
       await mcpJob?.retire(true);
       await fence.release();
-    }
+    }, (phase, code) => console.error(`Nibfin host stage ${phase}: ${code}`));
     return stage === 'continue'
       ? {
           ...result,
@@ -330,13 +336,13 @@ export async function launchStage(issueNumber, stage, env = process.env) {
           terminalStage: result.stage,
         }
       : result;
-  } catch {
+  } catch (error) {
     // Do not turn partial preparation or an unknown container/write into a retry.
     return {
       schemaVersion: 1,
       stage,
       status: 'pending',
-      code: 'HOST_EXECUTION_UNRESOLVED',
+      code: observationFailureCode(error),
     };
   } finally { mcpJob?.stop(); }
 }
