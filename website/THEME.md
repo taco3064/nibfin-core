@@ -125,3 +125,37 @@ metadata. Report those exact checks Unverified with their cause; source/static
 results do not prove rendered accessibility or visual approval. Native PR-head CI
 and independent review remain required. None of these checks prove live Pages
 publication, which is outside this theme work.
+
+## React reading interaction
+
+`src/lib/reading-example.ts` owns the reading example. `ReadingExample.astro`
+server-renders it with Starlight's Code component and supplies the same string
+as the required `text: string` prop to `CopyExample.tsx`. Only CopyExample uses
+`client:load`; documents and the code block remain static. The sample's built-in
+Expressive Code copy affordance is hidden so the React control owns feedback.
+The native button starts disabled in SSR and becomes usable after hydration.
+Without JavaScript the example stays selectable and manual-copy guidance is shown.
+
+The maintained shadcn/ui Button uses `@/components/ui/button` and the standard
+`cn` helper. `components.json` and `tsconfig.json` configure these aliases.
+The minimal primitive supports native button props and a forwarded ref. It uses
+Tailwind 3 utilities and existing full-color semantic aliases directly, with no
+palette, HSL wrapper or preflight. Tailwind scans TS and TSX alongside Astro/MDX.
+Future consumers should import the primitive and reuse these shared aliases.
+
+Clipboard writes occur only on activation. Pending activation is guarded without
+moving focus; the polite status region reports success only after fulfillment.
+Absence or rejection reports manual-copy guidance and permits retry.
+
+Run `npm run website:check`, `npm run website:browser`, and
+`node website/scripts/island-controls.mjs --browser` from the repository root.
+Root `npm run verify` includes the controls and production browser suite on CI.
+The latter checks both bases, themes, narrow/desktop widths and 200% text,
+keyboard activation, failure/retry, deferred completion and static reading.
+Content mutation and deliberately failing browser assertions run in a disposable
+copy; builds, previews and captures are removed when verification finishes.
+
+This follows the [shadcn/ui Astro setup](https://ui.shadcn.com/docs/installation/astro)
+with the existing Tailwind 3 theme retained. The Button is the minimal native
+button form of the shadcn/ui primitive; optional slot composition and extra
+variants are outside this interaction's needs.

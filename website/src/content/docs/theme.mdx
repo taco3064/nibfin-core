@@ -2,6 +2,7 @@
 title: Theme reading sample
 description: A bounded fixture for semantic theme verification, not product guidance.
 ---
+import ReadingExample from '../../components/ReadingExample.astro';
 import ThemeConsumer from '../../components/ThemeConsumer.astro';
 
 This reading fixture demonstrates the shared theme. It makes no release claims.
@@ -19,11 +20,7 @@ compare `inline code`, and check the heading hierarchy with keyboard navigation.
 
 AnUnbrokenDocumentationIdentifierMustWrapWithoutExpandingTheWholeViewport.
 
-```ts title="Reading example"
-// A long line exercises code scrolling independently of the document width.
-const message = 'A long example line scrolls within its own code block on small screens.';
-console.log(message);
-```
+<ReadingExample />
 
 ## Consumer mapping
 

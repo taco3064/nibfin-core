@@ -13,12 +13,20 @@
     "preview": "node scripts/astro-cli.mjs preview"
   },
   "dependencies": {
+    "@astrojs/react": "4.3.1",
     "@astrojs/starlight": "0.35.2",
-    "astro": "5.13.5"
+    "astro": "5.13.5",
+    "class-variance-authority": "0.7.1",
+    "clsx": "2.1.1",
+    "react": "19.1.1",
+    "react-dom": "19.1.1",
+    "tailwind-merge": "2.6.0"
   },
   "devDependencies": {
     "@astrojs/check": "0.9.4",
     "@playwright/test": "1.56.1",
+    "@types/react": "19.1.10",
+    "@types/react-dom": "19.1.9",
     "postcss": "8.5.6",
     "tailwindcss": "3.4.19",
     "typescript": "5.9.2"
