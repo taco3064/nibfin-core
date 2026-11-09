@@ -33,7 +33,8 @@ test('candidate text cannot change command, configuration or role boundaries', (
   assert.equal(plan.config['permissions.nibfin.filesystem']['/session'], 'read');
   assert.equal(plan.config['projects."/work".trust_level'], 'untrusted');
   assert.equal(plan.config['shell_environment_policy.inherit'], 'none');
-  for (const path of ['/auth', '/agent-home', '/io', '/proc']) {
+  assert.match(plan.settings.join('\n'), /"\/proc" = "read"/);
+  for (const path of ['/auth', '/agent-home', '/io']) {
     assert.equal(plan.config['permissions.nibfin.filesystem'][path], 'deny');
   }
   assert.equal(plan.config['permissions.nibfin.network.enabled'], true);

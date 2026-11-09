@@ -85,9 +85,11 @@ mounting their workspace. Hook containers remain offline. Only bounded
 remapped-root cleanup may reclaim the known work directory after verified
 container absence; uncertain cleanup stops Pending.
 
-The shipped AppArmor policy denies fresh procfs mounts. This prevents Codex's
-nested sandbox from overlaying the masked `/proc`. It retains the original
-inner denial probe and its positive execution control. Never omit a failing
+The shipped AppArmor policy denies fresh procfs mounts and cross-process
+ptrace access. The Codex tool profile permits read-only process metadata for
+Chromium. The startup probe verifies that tools cannot open the controller's
+process environment, memory, descriptors or credential paths through procfs.
+Load the policy from the installed Core before starting the Runner. Never omit a failing
 probe, replace actual enforcement with Docker inspect fields, or disable
 AppArmor to admit a host.
 

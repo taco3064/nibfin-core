@@ -26,9 +26,13 @@ const fs = require('node:fs');
 const paths = ['/auth/auth.json', '/agent-home/auth.json',
   '/auth/mcp.toml', '/agent-home/config.toml',
   '/agent-home/.credentials.json', '/io/probe-sentinel', '/proc/1/environ'];
+const parent = '/proc/' + process.argv[2];
+paths.push(parent + '/environ', parent + '/mem', parent + '/fd/0',
+  parent + '/root/auth/auth.json', parent + '/root/agent-home/auth.json',
+  parent + '/root/io/probe-sentinel');
 for (const path of paths) {
   try {
-    fs.readFileSync(path);
+    fs.closeSync(fs.openSync(path, 'r'));
     fs.writeSync(2, 'NIBFIN_PROBE_READABLE ' + path + '\\n');
     process.exit(41);
   } catch (error) {
@@ -50,11 +54,12 @@ setTimeout(() => { socket.destroy(); passed(); }, 1500);
 `;
 
 // Both bootstrap and real CLI diagnostics use these exact argument recipes.
-export function sandboxProbeArguments(plan, proxyHost) {
+export function sandboxProbeArguments(plan, proxyHost, controllerPid) {
   return [
     ...plan.settings, 'sandbox', '--permissions-profile', 'nibfin',
     '--include-managed-config', '--cd', '/tmp/tool-home', '--',
     '/usr/local/bin/node', '-e', denialProbe, proxyHost,
+    ...(controllerPid === undefined ? [] : [String(controllerPid)]),
   ];
 }
 
@@ -148,7 +153,7 @@ export async function bootstrap() {
     socket.once('error', fail);
     socket.setTimeout(5000, fail);
   });
-  const probe = await runCodex(sandboxProbeArguments(plan, proxyHost), {
+  const probe = await runCodex(sandboxProbeArguments(plan, proxyHost, process.pid), {
     environment: { ...process.env, HOME: '/tmp/tool-home' },
   }).catch(error => {
     throw new Error('SANDBOX_PROBE_FAILED', { cause: error });

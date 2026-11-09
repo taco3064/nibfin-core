@@ -63,7 +63,7 @@ export function codexPlan(stage, {
     'permissions.nibfin.filesystem': {
       ':minimal': 'read', '/work': writable ? 'write' : 'read', '/input': 'read',
       '/main': 'read', '/tmp': 'write', '/auth': 'deny', '/agent-home': 'deny',
-      '/io': 'deny', '/session': 'read', '/proc': 'deny',
+      '/io': 'deny', '/session': 'read', '/proc': 'read',
     },
     'permissions.nibfin.network.enabled': true,
   };
