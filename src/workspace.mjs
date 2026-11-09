@@ -118,6 +118,27 @@ export class CandidateWorkspace {
     await writeFile(join(this.#root, 'base'), base, { flag: 'wx', mode: 0o600 });
     return { base, directory: this.work };
   }
+  async clearIgnoredDependencies(shapeBody) {
+    await this.#privateRoot();
+    requireThat((await realpath(this.work)) === this.work, 'UNSAFE_WORKSPACE_PATH');
+    const obligations = shapeBody ? candidateContract(shapeBody) : null;
+    const required = obligations
+      ? [...obligations.artifacts, ...obligations.hooks].map(entry => entry.path)
+      : [];
+    const ignored = await this.#command([
+      'ls-files', '--others', '--ignored', '--exclude-standard', '--directory', '-z',
+    ]);
+    const dependencies = ignored.toString().split('\0')
+      .map(path => path.replace(/\/$/, ''))
+      .filter(path => safeCandidatePath(path) &&
+        path.split('/').at(-1) === 'node_modules' &&
+        !required.some(file => file === path || file.startsWith(path + '/')));
+    if (dependencies.length) {
+      await this.#command([
+        'clean', '-fdX', '--', ...dependencies.map(path => ':(literal)' + path),
+      ]);
+    }
+  }
   async #files(required) {
     // Reset to the approved base before enumeration so repeated captures cannot
     // turn previously untracked, now ignored files into tracked files.
