@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { spawn } from 'node:child_process';
 import { setTimeout as delay } from 'node:timers/promises';
 import { inspectOutput, english } from './output.mjs';
+import { inspectThemeOutput } from './theme-output.mjs';
 import { processGroupAbsent } from './process.mjs';
 
 const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
@@ -20,7 +21,7 @@ async function verify(base, port) {
   const env = { ...process.env, WEBSITE_BASE: base,
     WEBSITE_SITE: 'https://example.org' };
   await build(env);
-  const assets = await inspectOutput(base);
+  const assets = [...await inspectOutput(base), ...await inspectThemeOutput(base)];
   if (process.env.CI !== 'true' || process.argv.includes('--static')) {
     console.log(`Static paths passed: ${base}; HTTP remains Unverified.`);
     return;

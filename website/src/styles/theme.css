@@ -1,0 +1,129 @@
+@import './tokens.css';
+@font-face {
+  font-family: 'DM Sans Variable';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 1000;
+  src: url('../assets/fonts/dm-sans-latin-wght-normal.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Space Grotesk Variable';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 300 700;
+  src: url('../assets/fonts/space-grotesk-latin-wght-normal.woff2') format('woff2');
+}
+
+/* Utilities only: Starlight continues to own its reset and document layout. */
+@tailwind utilities;
+
+:root {
+  --nf-font-body: 'DM Sans Variable', system-ui, sans-serif;
+  --nf-font-heading: 'Space Grotesk Variable', system-ui, sans-serif;
+  --sl-font: var(--nf-font-body);
+  --sl-color-white: var(--nf-text);
+  --sl-color-black: var(--nf-background);
+  --sl-color-gray-1: var(--nf-text);
+  --sl-color-gray-2: var(--nf-secondary);
+  --sl-color-gray-3: var(--nf-secondary);
+  --sl-color-gray-4: var(--nf-border);
+  --sl-color-gray-5: var(--nf-raised);
+  --sl-color-gray-6: var(--nf-surface);
+  --sl-color-gray-7: var(--nf-surface);
+  --sl-color-text: var(--nf-text);
+  --sl-color-text-accent: var(--nf-link);
+  --sl-color-text-invert: var(--nf-on-accent);
+  --sl-color-bg: var(--nf-background);
+  --sl-color-bg-nav: var(--nf-surface);
+  --sl-color-bg-sidebar: var(--nf-surface);
+  --sl-color-bg-inline-code: var(--nf-code-bg);
+  --sl-color-bg-accent: var(--nf-accent);
+  --sl-color-accent: var(--nf-accent);
+  --sl-color-accent-high: var(--nf-link);
+  --sl-color-accent-low: var(--nf-raised);
+  --sl-color-hairline: var(--nf-border);
+  --sl-color-hairline-light: var(--nf-border);
+  --sl-color-hairline-shade: var(--nf-border);
+  --sl-color-blue: var(--nf-info);
+  --sl-color-blue-high: var(--nf-info);
+  --sl-color-blue-low: var(--nf-info-bg);
+  --sl-color-green: var(--nf-success);
+  --sl-color-green-high: var(--nf-success);
+  --sl-color-green-low: var(--nf-success-bg);
+  --sl-color-orange: var(--nf-warning);
+  --sl-color-orange-high: var(--nf-warning);
+  --sl-color-orange-low: var(--nf-warning-bg);
+  --sl-color-red: var(--nf-danger);
+  --sl-color-red-high: var(--nf-danger);
+  --sl-color-red-low: var(--nf-danger-bg);
+  --sl-color-purple: var(--nf-accent);
+  --sl-color-purple-high: var(--nf-link);
+  --sl-color-purple-low: var(--nf-raised);
+
+  /* Full CSS colors, usable directly by Astro/React and Tailwind 3. */
+  --background: var(--nf-background);
+  --foreground: var(--nf-text);
+  --card: var(--nf-surface);
+  --card-foreground: var(--nf-text);
+  --popover: var(--nf-surface);
+  --popover-foreground: var(--nf-text);
+  --primary: var(--nf-accent);
+  --primary-foreground: var(--nf-on-accent);
+  --secondary: var(--nf-surface);
+  --secondary-foreground: var(--nf-text);
+  --muted: var(--nf-raised);
+  --muted-foreground: var(--nf-secondary);
+  --accent: var(--nf-accent);
+  --accent-foreground: var(--nf-on-accent);
+  --destructive: var(--nf-danger);
+  --destructive-foreground: var(--nf-danger-bg);
+  --border: var(--nf-border);
+  --input: var(--nf-border);
+  --ring: var(--nf-focus);
+}
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--nf-font-heading);
+  overflow-wrap: anywhere;
+}
+.sl-markdown-content { overflow-wrap: anywhere; }
+:focus-visible {
+  outline: 3px solid var(--nf-focus);
+  outline-offset: 3px;
+}
+a:hover { color: var(--nf-hover); }
+a[aria-current='page']:hover { color: var(--nf-on-accent); }
+.sl-markdown-content :not(pre) > code { color: var(--nf-code); }
+/* Keep syntax distinctions through weight while using a verified readable color. */
+:root[data-theme] .expressive-code[data-theme],
+:root[data-theme] .expressive-code:not([data-theme]) {
+  --ec-codeBg: var(--nf-code-bg);
+  --ec-codeFg: var(--nf-code);
+  --ec-brdCol: var(--nf-border);
+  --ec-focusBrd: var(--nf-focus);
+  --ec-uiSelBg: var(--nf-raised);
+  --ec-uiSelFg: var(--nf-text);
+  --ec-frm-tooltipSuccessBg: var(--nf-success-bg);
+  --ec-frm-tooltipSuccessFg: var(--nf-success);
+  --ec-frm-trmTtbBg: var(--nf-surface);
+  --ec-frm-trmTtbFg: var(--nf-text);
+}
+:root[data-theme] .expressive-code .ec-line span[style] { color: var(--nf-code); }
+#starlight__search {
+  --pagefind-ui-primary: var(--nf-link);
+  --pagefind-ui-text: var(--nf-text);
+  --pagefind-ui-background: var(--nf-background);
+  --pagefind-ui-border: var(--nf-border);
+  --pagefind-ui-font: var(--nf-font-body);
+}
+#starlight__search :is(.pagefind-ui__message, .pagefind-ui__result-excerpt) {
+  opacity: 1;
+}
+.nf-status { padding: 0.75rem; border-radius: 0.375rem; }
+.nf-info { color: var(--nf-info); background: var(--nf-info-bg); }
+.nf-success { color: var(--nf-success); background: var(--nf-success-bg); }
+.nf-warning { color: var(--nf-warning); background: var(--nf-warning-bg); }
+.nf-danger { color: var(--nf-danger); background: var(--nf-danger-bg); }
+.bg-primary:hover {
+  color: var(--primary-foreground);
+  background-color: var(--nf-hover);
+}

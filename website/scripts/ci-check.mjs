@@ -5,3 +5,7 @@ if (process.env.NIBFIN_WEBSITE_PROPAGATION_CHILD === '1') {
 await import('./verify-failure.mjs');
 await import('./negative-check.mjs');
 await import('./preview-check.mjs');
+
+await import('./theme-controls.mjs');
+if (process.env.CI === 'true') await import('./theme-browser.mjs');
+else console.log('Rendered browser checks Unverified locally; required on native CI.');

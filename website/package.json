@@ -8,7 +8,7 @@
     "npm": "11.9.0"
   },
   "scripts": {
-    "check": "node scripts/astro-cli.mjs check && node scripts/astro-cli.mjs build",
+    "check": "node scripts/theme-source.mjs . && node scripts/astro-cli.mjs check && node scripts/astro-cli.mjs build",
     "build": "node scripts/astro-cli.mjs build",
     "preview": "node scripts/astro-cli.mjs preview"
   },
@@ -18,6 +18,9 @@
   },
   "devDependencies": {
     "@astrojs/check": "0.9.4",
+    "@playwright/test": "1.56.1",
+    "postcss": "8.5.6",
+    "tailwindcss": "3.4.19",
     "typescript": "5.9.2"
   }
 }
