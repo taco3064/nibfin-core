@@ -9,17 +9,20 @@ import { loadUserMcp } from './mcp-source.mjs';
 
 // Reviewed entry behavior remains valid across Core package pin updates.
 const singleEntryAction = {
-  'action.yml': '2a12b995034ac2234132f97f59df5bd9c2496c2b',
-  'src/main.mjs': '9ae143c20c87cb9c1504659447bd4272c9c05639',
-  'src/core-cli.mjs': '38e72e654602fe672cad2b13b101234f410e6ded',
+  'action.yml': ['2a12b995034ac2234132f97f59df5bd9c2496c2b'],
+  'src/main.mjs': ['9ae143c20c87cb9c1504659447bd4272c9c05639'],
+  'src/core-cli.mjs': [
+    '38e72e654602fe672cad2b13b101234f410e6ded',
+    '7f8e13ffbc58c27d2fc7fd83acf94be9829cd3fa',
+  ],
 };
 
 async function verifyActionEntry(reader, commit) {
   requireThat(/^[a-f0-9]{40}$/.test(commit), 'UNSUPPORTED_MCP_JOB_CALLER');
-  for (const [path, blob] of Object.entries(singleEntryAction)) {
+  for (const [path, blobs] of Object.entries(singleEntryAction)) {
     const url = '/repos/taco3064/nibfin-act/contents/' + path + '?ref=' + commit;
     const file = await reader.get(url);
-    requireThat(file.sha === blob, 'UNSUPPORTED_MCP_JOB_CALLER');
+    requireThat(blobs.includes(file.sha), 'UNSUPPORTED_MCP_JOB_CALLER');
   }
 }
 
