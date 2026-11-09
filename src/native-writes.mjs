@@ -3,6 +3,7 @@ import { integrationRepairRequired, pendingCIObservation } from './github-ci.mjs
 import { GitHubWriter, MergeBeforeWrite } from './github-write.mjs';
 import { decideStage } from './stages.mjs';
 import { digest, isDigest, requireThat } from './identity.mjs';
+import { setTimeout } from 'node:timers/promises';
 
 // Installed Core assembly. Neither credentials nor the observer are provided by
 // a stage request. Re-admit separately before every remote mutation, including
@@ -14,6 +15,7 @@ export function nativeWrites({
   workspace,
   fetcher,
   clock = Date.now,
+  wait = setTimeout,
 }) {
   requireThat(
     typeof observe === 'function' &&
@@ -96,18 +98,26 @@ export function nativeWrites({
           'PR_REPAIR_HEAD_CHANGED',
         );
         await workspace.push(committed.head, branch, token, guard, existing.head);
-        const actual = await reader.get(
-          `/repos/${issue.repository}/pulls/${existing.number}`,
-        );
-        requireThat(
-          actual.node_id === existing.id &&
-            actual.state === 'open' &&
-            actual.head?.sha === committed.head &&
-            actual.head.ref === branch &&
-            actual.head.repo?.id === issue.repositoryId &&
-            actual.base.repo?.id === issue.repositoryId,
-          'PR_REPAIR_READBACK_UNKNOWN',
-        );
+        // The PR API can still show the exact prior head after a successful push.
+        for (let attempt = 0; ; attempt++) {
+          const actual = await reader.get(
+            `/repos/${issue.repository}/pulls/${existing.number}`,
+          );
+          requireThat(
+            actual.node_id === existing.id &&
+              actual.state === 'open' &&
+              actual.head?.ref === branch &&
+              actual.head.repo?.id === issue.repositoryId &&
+              actual.base.repo?.id === issue.repositoryId,
+            'PR_REPAIR_READBACK_UNKNOWN',
+          );
+          if (actual.head.sha === committed.head) break;
+          requireThat(
+            actual.head.sha === existing.head && attempt < 5,
+            'PR_REPAIR_READBACK_UNKNOWN',
+          );
+          await wait(1000);
+        }
         return {
           id: existing.id,
           number: existing.number,
