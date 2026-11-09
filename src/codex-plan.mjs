@@ -1,11 +1,8 @@
 import { digest, requireThat } from './identity.mjs';
 import { resultSchema } from './agent-result.mjs';
 import { skillIdentity } from './skills.mjs';
-import { allowedHosts } from './egress-proxy.mjs';
+import { toolDownloadHosts } from './egress-proxy.mjs';
 import { candidateRuntimeContract } from './candidate-contract.mjs';
-
-const npmRegistry = 'registry.npmjs.org';
-requireThat(allowedHosts.includes(npmRegistry), 'NPM_REGISTRY_NOT_IN_HOST_EGRESS');
 
 const isolatedVerification = [
   'TRUSTED CORE VERIFICATION CONTRACT:',
@@ -98,7 +95,7 @@ export function codexPlan(stage, {
     'allow_upstream_proxy = true',
     // The adopted gateway is on the private Docker network.
     'allow_local_binding = true',
-    'allowed_domains = [' + JSON.stringify(npmRegistry) + ']',
+    'allowed_domains = ' + JSON.stringify(toolDownloadHosts),
     '',
   ].join('\n');
   const args = [

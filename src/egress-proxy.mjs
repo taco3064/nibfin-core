@@ -7,9 +7,11 @@ import { constants } from 'node:fs';
 
 // Playwright's pinned browser downloads use the CDN and its Microsoft redirect.
 // Keep exact HTTPS destinations: a generic download failure never expands this list.
+export const toolDownloadHosts = Object.freeze([
+  'registry.npmjs.org', 'cdn.playwright.dev', 'playwright.download.prss.microsoft.com',
+]);
 export const allowedHosts = [
-  'chatgpt.com', 'auth.openai.com', 'registry.npmjs.org',
-  'cdn.playwright.dev', 'playwright.download.prss.microsoft.com',
+  'chatgpt.com', 'auth.openai.com', ...toolDownloadHosts,
 ];
 export function validMcpEgress(policy, now = Date.now()) {
   return policy?.schemaVersion === 1 &&
