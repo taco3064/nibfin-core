@@ -163,7 +163,14 @@ test('native Deliver and Accept preserve a parallel checkout', async (t) => {
   const workspace = {
     push: async () => assert.fail('unexpected write'),
     rebase: async () => assert.fail('unrelated main advance must not rebase'),
-    capture: async () => prior.candidate,
+    discardWriterGit: async proof => {
+      assert.equal(proof, 'a'.repeat(64));
+      actions.push('discard-writer-git');
+    },
+    capture: async () => {
+      assert.ok(actions.includes('discard-writer-git'));
+      return prior.candidate;
+    },
     hookBaseline: async () => '/trusted/baseline',
   };
   const sandbox = { execute: async () => assert.fail('no declared hooks') };
@@ -228,5 +235,5 @@ test('native Deliver and Accept preserve a parallel checkout', async (t) => {
     saved.deliver.artifacts.candidateHash,
     saved.accept.artifacts.candidateHash,
   );
-  assert.deepEqual(actions, ['deliver', 'accept']);
+  assert.deepEqual(actions, ['deliver', 'discard-writer-git', 'accept']);
 });
