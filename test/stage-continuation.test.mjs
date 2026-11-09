@@ -38,6 +38,27 @@ test('continuation does not replay completed stages after a new dispatch', async
   assert.equal(f.calls.length, count);
 });
 
+test('a new dispatch resumes only a Core-proven idle interruption', async () => {
+  for (const matching of [true, false]) {
+    const f = fixture();
+    const execution = { id: 'prior-execution' };
+    const proof = {
+      executionId: matching ? execution.id : 'another-execution',
+      terminationHash: 'a'.repeat(64),
+      code: 'CODEX_IDLE_TIMEOUT',
+    };
+    const hash = digest(proof);
+    f.objects[hash] = proof;
+    f.receipts.shape = {
+      stage: 'shape', outcome: 'blocked', execution,
+      references: [`evidence:${hash}`],
+    };
+    const result = await continueStages(f.options);
+    assert.equal(result.stage, matching ? 'close' : 'shape');
+    assert.equal(f.calls[0], matching ? 'shape' : undefined);
+  }
+});
+
 test(
   'unknown effects stop without retry; malformed or failed ' +
     'receipt prefixes cannot advance',
