@@ -12,7 +12,7 @@ profile codex-security-container flags=(attach_disconnected,mediate_deleted) {
   file,
 
   mount,
-  # Preserve the tool deny mask; a fresh procfs must not cover it.
+  # Keep the container PID view used by the tool sandbox.
   deny mount fstype=proc,
   umount,
   pivot_root,
@@ -43,5 +43,6 @@ profile codex-security-container flags=(attach_disconnected,mediate_deleted) {
   deny /sys/devices/virtual/powercap/** rwklx,
   deny /sys/kernel/security/** rwklx,
 
-  ptrace (trace,tracedby,read,readby) peer=codex-security-container,
+  # Permit normal procfs metadata without cross-process introspection.
+  deny ptrace (trace,tracedby,read,readby) peer=codex-security-container,
 }

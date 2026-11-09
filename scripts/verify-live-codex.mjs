@@ -72,6 +72,7 @@ for (const args of [['--version'], ['sandbox', '--help']]) {
   process.stderr.write(help.stdout ?? ''); process.stderr.write(help.stderr ?? '');
 }
 const probeArgs = ${JSON.stringify(sandboxProbeArguments(plan, '127.0.0.1'))};
+probeArgs.push(String(process.pid));
 const environment = { PATH: '/usr/local/bin:/usr/bin:/bin',
   HOME: '/tmp/tool-home', CODEX_HOME: '/agent-home' };
 const result = spawnSync('/usr/local/bin/codex', probeArgs,
