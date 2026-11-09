@@ -1,6 +1,7 @@
 import { repoPath } from './github-read.mjs';
 import { digest, gitBlob, isId, isSha, isDigest, requireThat } from './identity.mjs';
 import { validateApprovalRecord } from './approval-record.mjs';
+import { readRepositoryApproval } from './repository-admission.mjs';
 import { readMergeIdentity } from './github-merge.mjs';
 
 import { readProtection } from './github-protection.mjs';
@@ -133,6 +134,8 @@ export async function readPinnedFile(reader, repository, path, ref, expectedBlob
 // approval provenance ONLY: CI source, stage/Runner/job/isolation and current
 // Scope/Shape/dependencies are separate mandatory admission checks.
 export async function readProtectedApproval(reader, pin, now = Date.now()) {
+  if (pin?.kind === 'repository-admission-v1')
+    return readRepositoryApproval(reader, pin, now, readMemberPermission);
   requireThat(
     isId(pin?.repositoryId) &&
       isId(pin.prNumber) &&

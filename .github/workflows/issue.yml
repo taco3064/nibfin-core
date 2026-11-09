@@ -58,6 +58,7 @@ jobs:
 
   dispatch:
     needs: resolve
+    if: needs.resolve.outputs.issue_number != ''
     runs-on:
       - self-hosted
       - linux

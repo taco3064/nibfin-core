@@ -27,7 +27,7 @@ export function evidenceBinding(context) {
   return {
     issueId: context.approval.record.issue.id,
     approvalHash: context.approval.approvalHash,
-    scopeHash: context.approval.record.scope.hash,
+    scopeHash: context.approval.scopeBinding ?? context.approval.record.scope.hash,
     sourceHash: digest(context.approval.record.source),
   };
 }
@@ -271,7 +271,9 @@ export function decideStage(stage, context, now = Date.now()) {
   try {
     const definition = Object.hasOwn(stages, stage) ? stages[stage] : null;
     requireThat(definition, 'UNKNOWN_STAGE');
-    const record = validateApprovalRecord(context.approval?.record, now);
+    const record = validateApprovalRecord(context.approval?.record, now, {
+      repositoryAdmission: context.approval?.scopeBinding !== undefined,
+    });
     requireThat(
       isDigest(context.approval.approvalHash) &&
         record.operations.includes(definition.operation),

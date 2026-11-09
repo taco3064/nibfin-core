@@ -41,6 +41,10 @@ function diagnosticCode(error) {
 export async function routingOutput(resolve, keys) {
   try {
     const result = await resolve();
+    if (result.status === 'skipped') {
+      process.stdout.write(JSON.stringify(result) + '\n');
+      return;
+    }
     requireThat(
       result.status === 'resolved' &&
         keys.every(
