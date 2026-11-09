@@ -203,7 +203,11 @@ async function fixture(t, fault, rootful = false, mcp = false) {
         {
           ...container,
           State: ended
-            ? { Running: false, ExitCode: fault === 'idle' ? 75 : 0, OOMKilled: false }
+            ? {
+              Running: false,
+              ExitCode: { idle: 75, 'missing-login': 81 }[fault] ?? 0,
+              OOMKilled: false,
+            }
             : container.State,
         },
       ];
@@ -344,13 +348,18 @@ test('a timeout with confirmed container cleanup carries termination proof', asy
   assert.ok(f.calls.some(c => c[0] === 'rm'));
 });
 
-test('an idle agent is reported after confirmed container cleanup', async (t) => {
-  const f = await fixture(t, 'idle');
-  const result = await f.sandbox.execute(f.request);
-  assert.equal(result.status, 'interrupted');
-  assert.equal(result.code, 'CODEX_IDLE_TIMEOUT');
-  assert.match(result.terminationHash, /^[a-f0-9]{64}$/);
-  assert.ok(f.calls.some((c) => c[0] === 'rm'));
+test('idle and failed startup are reported after confirmed cleanup', async (t) => {
+  for (const [fault, code] of [
+    ['idle', 'CODEX_IDLE_TIMEOUT'],
+    ['missing-login', 'SUBSCRIPTION_LOGIN_UNAVAILABLE'],
+  ]) {
+    const f = await fixture(t, fault);
+    const result = await f.sandbox.execute(f.request);
+    assert.equal(result.status, 'interrupted');
+    assert.equal(result.code, code);
+    assert.match(result.terminationHash, /^[a-f0-9]{64}$/);
+    assert.ok(f.calls.some((c) => c[0] === 'rm'));
+  }
 });
 
 test('Missing probe, symlinks and forged identity deny execution proof', async (t) => {
