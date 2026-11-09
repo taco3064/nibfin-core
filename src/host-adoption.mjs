@@ -1,6 +1,6 @@
 import { constants } from 'node:fs';
 import { open, lstat, realpath } from 'node:fs/promises';
-import { dirname, resolve, isAbsolute } from 'node:path';
+import { dirname, join, resolve, isAbsolute } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { GitHubReader } from './github-read.mjs';
 import { verifyInstalledSource } from './source-package.mjs';
@@ -31,6 +31,21 @@ export async function boundedHostFile(path, limit, privateFile = false) {
     return bytes;
   } finally {
     await file.close();
+  }
+}
+
+export async function readGlobalInstructions(host) {
+  const configured = host.globalInstructionsFile;
+  const home = host.mcp?.home;
+  if (configured === undefined && typeof home !== 'string') return undefined;
+  try {
+    return await boundedHostFile(configured ?? join(home, 'AGENTS.md'), 32 * 1024);
+  } catch (error) {
+    if (configured === undefined && error.code === 'ENOENT') return undefined;
+    throw Object.assign(
+      new Error('Global instructions could not be read', { cause: error }),
+      { code: 'GLOBAL_INSTRUCTIONS_UNAVAILABLE' },
+    );
   }
 }
 

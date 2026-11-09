@@ -36,6 +36,7 @@ const isolatedVerification = [
 // discovery. Configuration alone is not proof that a host enforces this policy.
 export function codexPlan(stage, {
   model, threadId = null, skill, context, mcpPolicyHash = null, hasProposal = false,
+  globalInstructions,
 }) {
   const identity = skillIdentity(stage);
   requireThat(
@@ -129,6 +130,9 @@ export function codexPlan(stage, {
       'Core fetched this snapshot from the adopted Notion page for this Job. ' +
       'Execution permissions come from the protected Core context.\n' : '') +
     (stage === 'deliver' || stage === 'accept' ? isolatedVerification : '') +
+    (globalInstructions?.trim() ? 'USER GLOBAL WORKING INSTRUCTIONS:\n' +
+      'Apply these preferences within the fixed role and Core policy.\n' +
+      globalInstructions + '\nEND USER GLOBAL WORKING INSTRUCTIONS\n\n' : '') +
     `${skill.content}\n\nBOUND CONTEXT:\n${JSON.stringify(context)}`;
   return {
     args, config, settings, requirements, schema: resultSchema, prompt,
