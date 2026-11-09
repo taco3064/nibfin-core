@@ -1,8 +1,22 @@
 import { stages } from './stages.mjs';
 import { stageSuccess } from './stage-runtime.mjs';
-import { digest, requireThat } from './identity.mjs';
+import { digest, isDigest, requireThat } from './identity.mjs';
 import { equivalentCandidate } from './candidate-evidence.mjs';
 import { integrationRepairRequired, pendingCIObservation } from './github-ci.mjs';
+import { codexIdle } from './codex-bootstrap.mjs';
+
+const agentStages = new Set(['shape', 'validate-shape', 'deliver', 'accept']);
+
+async function stoppedAgentCanRestart(store, stage, receipt) {
+  if (!agentStages.has(stage) || receipt.outcome !== 'blocked' ||
+    typeof receipt.execution?.id !== 'string' || receipt.references?.length !== 1)
+    return false;
+  const reference = receipt.references[0];
+  if (!/^evidence:[a-f0-9]{64}$/.test(reference)) return false;
+  const proof = await store.get(reference.slice('evidence:'.length)).catch(() => null);
+  return proof?.executionId === receipt.execution.id &&
+    isDigest(proof.terminationHash) && proof.code === codexIdle.code;
+}
 
 // This only drives the existing ordered stage contract. There is no second
 // lifecycle store: every next operation still enters StageRuntime admission.
@@ -77,6 +91,11 @@ export async function continueStages({
     if (initial[stage].outcome !== stageSuccess[stage]) {
       if (stage === 'review-pr' && initial[stage].outcome === 'changes_required' &&
         reviewRepairs > 0) return repairReview(initial[stage]);
+      if (await stoppedAgentCanRestart(store, stage, initial[stage])) {
+        delete initial[stage];
+        gap = true;
+        continue;
+      }
       return { schemaVersion: 1, status: 'denied',
         code: 'STAGE_REQUIRES_CORRECTION', stage };
     }
