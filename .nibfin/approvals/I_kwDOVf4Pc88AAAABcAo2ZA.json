@@ -40,10 +40,10 @@
   },
   "source": {
     "repository": "taco3064/nibfin-core",
-    "commit": "05f4655e68d06f393725d34a0b1b21a96770702b",
-    "policyHash": "9d60efdb02807f547ca7c7af233067236fa56708bd1899bc79993bccf27b0046",
+    "commit": "f317339d65adba3cd9ee534e9495fd11182fb4ab",
+    "policyHash": "4b26575515873ed21f01e14eb001c975807bfbfb8aaa962c6d2036e7a028bfc1",
     "skillsHash": "401c919fe7ec36b4ec7f339530f260722fd887c54767d029c7742ca14ee9d2bf"
   },
-  "validFrom": "2026-11-09T02:51:46Z",
+  "validFrom": "2026-11-09T03:17:22Z",
   "expiresAt": "2026-11-11T16:00:00Z"
 }
