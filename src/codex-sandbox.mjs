@@ -14,7 +14,7 @@ import { constants } from 'node:fs';
 import { isAbsolute, resolve, join, dirname } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { command, deliveryRoleTimeout } from './process.mjs';
-import { codexIdle } from './codex-bootstrap.mjs';
+import { codexIdle, codexPreflightExits } from './codex-bootstrap.mjs';
 import {
   shareAgentMount,
   privateMountParent,
@@ -109,7 +109,10 @@ export class CodexSandbox {
       await this.#inspect(['info', '--format', '{{json .}}']),
       this.#backend,
     );
-    const images = await this.#inspect(['image', 'inspect', c.image]);
+    const images = await this.#inspect(['image', 'inspect', c.image]).catch(error => {
+      if (error.code !== 'PROCESS_FAILED') throw error;
+      requireThat(false, 'AGENT_IMAGE_UNAVAILABLE');
+    });
     requireThat(
       images.length === 1 &&
         (images[0].Id === c.image || images[0].RepoDigests?.includes(c.image)),
@@ -393,10 +396,13 @@ export class CodexSandbox {
           ),
         'AGENT_CONTAINER_POLICY_MISMATCH',
       );
+      const entryExitCodes = [
+        0, codexIdle.exitCode, ...Object.values(codexPreflightExits),
+      ];
       try {
         await this.#docker(['start', '--attach', id], {
           timeout: deliveryRoleTimeout,
-          allowedExitCodes: [0, codexIdle.exitCode],
+          allowedExitCodes: entryExitCodes,
         });
       } catch (error) {
         if (!['PROCESS_TIMEOUT', 'PROCESS_FAILED'].includes(error.code)) throw error;
@@ -407,12 +413,15 @@ export class CodexSandbox {
         requireThat(
           ended.Id === id &&
             ended.State?.Running === false &&
-            [0, codexIdle.exitCode].includes(ended.State.ExitCode) &&
+            entryExitCodes.includes(ended.State.ExitCode) &&
             ended.State.OOMKilled === false,
           'AGENT_CONTAINER_FAILED',
         );
-        outcome = ended.State.ExitCode === codexIdle.exitCode
-          ? { status: 'interrupted', executionId, code: codexIdle.code }
+        const code = ended.State.ExitCode === codexIdle.exitCode ? codexIdle.code :
+          Object.keys(codexPreflightExits)
+            .find(reason => codexPreflightExits[reason] === ended.State.ExitCode);
+        outcome = code
+          ? { status: 'interrupted', executionId, code }
           : { status: 'executed', executionId };
       }
     } catch {

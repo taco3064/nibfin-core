@@ -6,6 +6,14 @@ import net from 'node:net';
 import { pathToFileURL } from 'node:url';
 
 export const codexIdle = Object.freeze({ code: 'CODEX_IDLE_TIMEOUT', exitCode: 75 });
+export const codexPreflightExits = Object.freeze({
+  CODEX_UNAVAILABLE: 76,
+  CODEX_VERSION_MISMATCH: 77,
+  MANAGED_PROFILE_UNSUPPORTED: 78,
+  PROBE_PROXY_UNREACHABLE: 79,
+  SANDBOX_PROBE_FAILED: 80,
+  SUBSCRIPTION_LOGIN_UNAVAILABLE: 81,
+});
 const roleIdleTimeout = 10 * 60_000;
 const startupTimeout = 60_000;
 const progressEvents = new Set([
@@ -142,13 +150,17 @@ export async function bootstrap() {
   });
   const probe = await runCodex(sandboxProbeArguments(plan, proxyHost), {
     environment: { ...process.env, HOME: '/tmp/tool-home' },
+  }).catch(error => {
+    throw new Error('SANDBOX_PROBE_FAILED', { cause: error });
   });
   if (probe.stdout !== 'NIBFIN_PROBE_PASSED\n')
     throw new Error('SANDBOX_PROBE_FAILED');
   await writeFile('/io/probe.json', JSON.stringify({
     policyHash: plan.policyHash, stdout: probe.stdout, codexVersion,
   }), { mode: 0o600 });
-  const login = await runCodex(subscriptionStatusArguments(plan));
+  const login = await runCodex(subscriptionStatusArguments(plan)).catch(error => {
+    throw new Error('SUBSCRIPTION_LOGIN_UNAVAILABLE', { cause: error });
+  });
   if (!/logged in using chatgpt/i.test(login.stdout + login.stderr))
     throw new Error('SUBSCRIPTION_LOGIN_UNAVAILABLE');
   const result = await runCodex(plan.args, { input: plan.prompt });
@@ -159,8 +171,10 @@ export async function bootstrap() {
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   bootstrap().catch((error) => {
     const idle = error.message === codexIdle.code;
-    process.stderr.write(idle ? 'NIBFIN_AGENT_IDLE_TIMEOUT\n' :
-      'NIBFIN_AGENT_ENTRY_FAILED\n');
-    process.exitCode = idle ? codexIdle.exitCode : 1;
+    const preflightExit = Object.hasOwn(codexPreflightExits, error.message)
+      ? codexPreflightExits[error.message] : undefined;
+    const diagnostic = preflightExit ? error.message : 'NIBFIN_AGENT_ENTRY_FAILED';
+    process.stderr.write(idle ? 'NIBFIN_AGENT_IDLE_TIMEOUT\n' : `${diagnostic}\n`);
+    process.exitCode = idle ? codexIdle.exitCode : preflightExit ?? 1;
   });
 }

@@ -89,23 +89,28 @@ test('a finished Author with invalid obligations writes a blocked receipt', asyn
   assert.equal((await runtime.run(request)).code, 'REPLAYED_OPERATION');
 });
 
-test('a confirmed idle timeout writes a blocked receipt and clears Pending', async t => {
-  const f = await fixture(t);
-  const interrupted = {
-    status: 'interrupted',
-    executionId: f.context.execution.id,
-    terminationHash: 'a'.repeat(64),
-    code: 'CODEX_IDLE_TIMEOUT',
-  };
-  f.adapters.handlers = stageHandlers({
-    agent: { run: async () => interrupted },
-    store: { put: async value => digest(value) },
-  });
-  const runtime = new StageRuntime(f.adapters);
-  assert.equal((await runtime.run(request)).code, 'CODEX_IDLE_TIMEOUT');
-  assert.equal(f.saved[0].outcome, 'blocked');
-  assert.match(f.saved[0].findings[0], /without progress/);
-  assert.equal((await runtime.run(request)).code, 'REPLAYED_OPERATION');
+test('confirmed startup and idle failures report the reason', async t => {
+  for (const [code, finding] of [
+    ['CODEX_IDLE_TIMEOUT', /without progress/],
+    ['SUBSCRIPTION_LOGIN_UNAVAILABLE', /before the role ran/],
+  ]) {
+    const f = await fixture(t);
+    const interrupted = {
+      status: 'interrupted',
+      executionId: f.context.execution.id,
+      terminationHash: 'a'.repeat(64),
+      code,
+    };
+    f.adapters.handlers = stageHandlers({
+      agent: { run: async () => interrupted },
+      store: { put: async value => digest(value) },
+    });
+    const runtime = new StageRuntime(f.adapters);
+    assert.equal((await runtime.run(request)).code, code);
+    assert.equal(f.saved[0].outcome, 'blocked');
+    assert.match(f.saved[0].findings[0], finding);
+    assert.equal((await runtime.run(request)).code, 'REPLAYED_OPERATION');
+  }
 });
 
 test('runtime persists a trusted receipt after read-back', async (t) => {
