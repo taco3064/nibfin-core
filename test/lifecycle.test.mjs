@@ -27,6 +27,7 @@ test(
     const workspace = {
       work: '/safe/work',
       hookBaseline: async () => '/safe/baseline',
+      discardWriterGit: async () => {},
       capture: async () => structuredClone(initial.candidate),
       commit: async () => ({
         head: initial.pr.head,

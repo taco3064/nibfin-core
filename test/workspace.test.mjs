@@ -140,6 +140,24 @@ test('unsafe files and missing artifacts reject capture', async (t) => {
   }
 });
 
+test('settled Writer Git scratch is discarded before trusted capture', async (t) => {
+  const f = await fixture(t);
+  const metadata = join(f.workspace.work, '.git');
+  await f.git(['-C', f.workspace.work, 'init']);
+  await writeFile(join(f.workspace.work, 'source.txt'), 'Writer changes\n');
+  await writeFile(join(f.workspace.work, 'proof.txt'), 'Proof\n');
+  await assert.rejects(f.workspace.discardWriterGit(null), {
+    code: 'WRITER_NOT_PROVEN_TERMINATED',
+  });
+  await f.workspace.discardWriterGit('a'.repeat(64));
+  assert.deepEqual((await f.workspace.capture(shape)).paths, ['proof.txt', 'source.txt']);
+  await symlink(f.seed, metadata);
+  await assert.rejects(f.workspace.discardWriterGit('a'.repeat(64)), {
+    code: 'UNSAFE_WORKSPACE_PATH',
+  });
+  assert.equal(await readFile(join(f.seed, 'source.txt'), 'utf8'), 'Original\n');
+});
+
 test('capture disables filters and keeps Git metadata private', async (t) => {
   const f = await fixture(t);
   await writeFile(

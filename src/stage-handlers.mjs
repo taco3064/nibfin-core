@@ -134,6 +134,20 @@ export function stageHandlers({
           if (prior) artifacts.requirementsHash = prior;
         }
         if (passed && stage === 'deliver') {
+          try {
+            await workspace.discardWriterGit(execution.terminationHash);
+          } catch (error) {
+            const finding = error.code === 'UNSAFE_WORKSPACE_PATH'
+              ? 'Writer Git metadata is not an ordinary scratch directory.'
+              : 'Core could not remove Writer Git scratch before Candidate capture.';
+            console.error(`Nibfin ${stage}: ${finding}`);
+            return {
+              outcome: 'blocked',
+              findings: [finding],
+              references: result.evidenceReferences,
+              artifacts,
+            };
+          }
           if (execution.rebaseStatus === 'changes_required') {
             await workspace.continueRebase(
               context.shape.body,

@@ -18,6 +18,7 @@ const isolatedVerification = [
   'Required PR-head CI runs full Git-dependent checks in its native checkout.',
   'Record checks known to be unavailable here as Unverified with the reason.',
   'An unavailable local Git check is not a code failure or evidence of a pass.',
+  'Continue implementation after recording unavailable checks. Do not run git init.',
   'Start with the current failure. Inspect current code and diagnostics, fix',
   'the cause, and rerun the affected checks.',
   'Use history or a targeted baseline comparison only if it resolves a concrete',
