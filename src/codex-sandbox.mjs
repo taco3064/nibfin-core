@@ -317,7 +317,7 @@ export class CodexSandbox {
       '--user',
       '1000:1000',
       '--tmpfs',
-      '/tmp:rw,exec,nosuid,nodev,size=512m,mode=1777',
+      '/tmp:rw,exec,nosuid,nodev,size=2g,mode=1777',
       '--workdir',
       '/session',
       ...mounts.flatMap((m) => [
