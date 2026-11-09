@@ -97,6 +97,31 @@ test('capture and commit bind files, artifacts and tree', async (t) => {
   );
 });
 
+test('retry removes ignored npm dependencies and preserves source', async t => {
+  const { workspace } = await fixture(t);
+  const work = workspace.work;
+  await writeFile(join(work, '.gitignore'), '/node_modules/\n/keep/\n');
+  await writeFile(join(work, 'source.txt'), 'Partial Writer changes');
+  await writeFile(join(work, 'proof.txt'), 'Candidate proof');
+  await mkdir(join(work, 'node_modules', '.bin'), { recursive: true });
+  await writeFile(join(work, 'node_modules', 'esbuild'), 'binary');
+  await link(join(work, 'node_modules', 'esbuild'), join(work, 'node_modules', 'alias'));
+  await symlink('../esbuild', join(work, 'node_modules', '.bin', 'esbuild'));
+  await mkdir(join(work, 'keep', 'node_modules'), { recursive: true });
+  await writeFile(join(work, 'keep', 'node_modules', 'proof.txt'), 'Preserve');
+  await workspace.clearIgnoredDependencies(shape);
+  await assert.rejects(readFile(join(work, 'node_modules', 'esbuild')), {
+    code: 'ENOENT',
+  });
+  assert.equal(await readFile(join(work, 'source.txt'), 'utf8'),
+    'Partial Writer changes');
+  assert.equal(await readFile(join(work, 'proof.txt'), 'utf8'), 'Candidate proof');
+  assert.equal(await readFile(join(work, 'keep', 'node_modules', 'proof.txt'), 'utf8'),
+    'Preserve');
+  const snapshot = await workspace.capture(shape);
+  assert.deepEqual(snapshot.paths, ['.gitignore', 'proof.txt', 'source.txt']);
+});
+
 test('unsafe files and missing artifacts reject capture', async (t) => {
   for (const kind of ['missing', 'metadata', 'symlink', 'hardlink']) {
     const f = await fixture(t);

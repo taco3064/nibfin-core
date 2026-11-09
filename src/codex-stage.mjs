@@ -61,7 +61,7 @@ export async function codexStageExecutor({
     source => mcpJob ? mcpJob.read() : loadUserMcp(source, {
       discoveryRoot: agentStateRoot, memberId: adopted.runner.memberId,
     }), mcpJob);
-  const agent = new CodexRoleAgent(
+  const roleAgent = new CodexRoleAgent(
     {
       stateRoot: agentStateRoot,
       authFile,
@@ -73,6 +73,12 @@ export async function codexStageExecutor({
     },
     inheritedAgent,
   );
+  const agent = {
+    async run(stage, context) {
+      await workspace.clearIgnoredDependencies(context.shape?.body);
+      return roleAgent.run(stage, context);
+    },
+  };
   const inspectIsolation = async (stage, context) => {
     const writer = await inspectWriter(stage, context);
     requireThat(
