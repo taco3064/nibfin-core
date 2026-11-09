@@ -14,7 +14,7 @@ import { constants } from 'node:fs';
 import { isAbsolute, resolve, join, dirname } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { command, deliveryRoleTimeout } from './process.mjs';
-import { codexIdle, codexPreflightExits } from './codex-bootstrap.mjs';
+import { codexIdle, codexPreflightExits, idleDiagnostic } from './codex-bootstrap.mjs';
 import {
   shareAgentMount,
   privateMountParent,
@@ -399,8 +399,9 @@ export class CodexSandbox {
       const entryExitCodes = [
         0, codexIdle.exitCode, ...Object.values(codexPreflightExits),
       ];
+      let attached;
       try {
-        await this.#docker(['start', '--attach', id], {
+        attached = await this.#docker(['start', '--attach', id], {
           timeout: deliveryRoleTimeout,
           allowedExitCodes: entryExitCodes,
         });
@@ -420,6 +421,10 @@ export class CodexSandbox {
         const code = ended.State.ExitCode === codexIdle.exitCode ? codexIdle.code :
           Object.keys(codexPreflightExits)
             .find(reason => codexPreflightExits[reason] === ended.State.ExitCode);
+        if (code === codexIdle.code) {
+          const diagnostic = idleDiagnostic(attached.stderr.toString());
+          console.error(diagnostic ?? 'NIBFIN_IDLE_PROGRESS unavailable');
+        }
         outcome = code
           ? { status: 'interrupted', executionId, code }
           : { status: 'executed', executionId };
