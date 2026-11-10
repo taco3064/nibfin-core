@@ -421,12 +421,11 @@ export class CodexSandbox {
         const code = ended.State.ExitCode === codexIdle.exitCode ? codexIdle.code :
           Object.keys(codexPreflightExits)
             .find(reason => codexPreflightExits[reason] === ended.State.ExitCode);
-        if (code === codexIdle.code) {
-          const diagnostic = idleDiagnostic(attached.stderr.toString());
-          console.error(diagnostic ?? 'NIBFIN_IDLE_PROGRESS unavailable');
-        }
+        const lastProgress = code === codexIdle.code
+          ? idleDiagnostic(attached.stderr.toString()) : undefined;
         outcome = code
-          ? { status: 'interrupted', executionId, code }
+          ? { status: 'interrupted', executionId, code,
+            ...(lastProgress ? { lastProgress } : {}) }
           : { status: 'executed', executionId };
       }
     } catch {
