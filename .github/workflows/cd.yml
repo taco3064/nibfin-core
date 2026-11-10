@@ -2,6 +2,15 @@ name: Prepare Core rollout
 
 on:
   workflow_dispatch:
+    inputs:
+      prepare_pull_requests:
+        description: Prepare version update drafts using the protected CD credential
+        type: boolean
+        default: false
+      action_commit:
+        description: Merged Action commit for the second phase, or blank for Action draft
+        type: string
+        required: false
 
 permissions:
   actions: read
@@ -69,3 +78,23 @@ jobs:
           path: rollout.json
           if-no-files-found: error
           retention-days: 7
+
+  consumer-drafts:
+    if: inputs.prepare_pull_requests
+    needs: rollout
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment: nibfin-rollout
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+      - name: Fetch this run's rollout artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh run download "$GITHUB_RUN_ID" --name "nibfin-rollout-$GITHUB_SHA"
+      - name: Prepare version-bound draft pull requests
+        env:
+          GH_TOKEN: ${{ secrets.NIBFIN_CD_TOKEN }}
+          ACTION_COMMIT: ${{ inputs.action_commit }}
+        run: bash scripts/cd-drafts.sh
