@@ -113,10 +113,11 @@ export function requirementsText(body) {
   return typeof body === 'string' ? body.replaceAll('\r\n', '\n').trimEnd() : body;
 }
 export function stageRequestHash({
-  stage, binding, artifacts, execution, runner, isolation, body, shaped,
+  stage, binding, artifacts, execution, runner, isolation, body, shaped, writeTarget,
 }) {
   const requirements = requirementsText(body);
   return digest({ stage, binding, artifacts, execution, runner, isolation,
+    ...(writeTarget ? { writeTarget } : {}),
     requirements: digest(shaped ? canonicalCandidateBlock(requirements) : requirements),
   });
 }
@@ -404,6 +405,9 @@ export function decideStage(stage, context, now = Date.now()) {
       isolation: context.isolation.profile,
       body: issue.body,
       shaped: labels.has('shaped'),
+      ...(stage === 'commit-pr' && context.adoptedOpenPr ? { writeTarget: {
+        id: context.pr.id, head: context.pr.head, branch: context.pr.headBranch,
+      } } : {}),
     });
     return {
       schemaVersion: 1,

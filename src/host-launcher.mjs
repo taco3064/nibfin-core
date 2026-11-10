@@ -238,7 +238,11 @@ export async function launchStage(issueNumber, stage, env = process.env) {
       });
       await privateHostDirectory(join(root, name));
     }
-    const workspaceRoot = join(root, 'workspace');
+    const openPr = host.openPrHandoffs?.[issueNumber];
+    const journal = new OperationJournal(join(root, 'receipts'), approval.record.issue);
+    if (openPr) await journal.assertIdle();
+    const workspaceRoot = join(root, openPr
+      ? `workspace-${evidenceBinding({ approval }).sourceHash}` : 'workspace');
     const store = new EvidenceStore(
       join(root, 'receipts'),
       evidenceBinding({ approval }),
@@ -286,6 +290,7 @@ export async function launchStage(issueNumber, stage, env = process.env) {
           stateRoot: join(root, 'receipts'),
           ciWorkflows: adopted.ciWorkflows,
           reviewers: adopted.reviewers,
+          ...(openPr ? { openPr } : {}),
         },
         execution,
         workspaceRoot,
@@ -302,7 +307,6 @@ export async function launchStage(issueNumber, stage, env = process.env) {
       });
       return executor.run({ schemaVersion: 1, stage: current });
     };
-    const journal = new OperationJournal(join(root, 'receipts'), approval.record.issue);
     const run = () =>
       stage === 'continue'
         ? continueStages({
