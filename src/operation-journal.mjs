@@ -126,6 +126,13 @@ export class OperationJournal {
     });
   }
   async recoverCommitPr(decision, readBack) {
+    return this.#reconcile(decision, readBack);
+  }
+  async recoverReview(bindingHash, readBack) {
+    requireThat(isDigest(bindingHash), 'INVALID_RECOVERY_REQUEST');
+    return this.#reconcile(digest({ operation: 'review-pr', bindingHash }), readBack);
+  }
+  async #reconcile(decision, readBack) {
     requireThat(isDigest(decision) && typeof readBack === 'function',
       'INVALID_RECOVERY_REQUEST');
     return this.#withLock(decision, async state => {

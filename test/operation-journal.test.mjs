@@ -94,6 +94,30 @@ test('concurrent writers and leftover leases stay Pending', async t => {
     'WRITER_NOT_PROVEN_TERMINATED');
 });
 
+test('review recovery cannot settle a merge and needs exact review evidence', async t => {
+  for (const operation of ['merge', 'review-pr']) {
+    const f = await fixture(t);
+    const request = { ...f.request, operation };
+    const result = await f.journal.run(request, {
+      ...f.adapters,
+      perform: async () => { throw new Error('Unfinished'); },
+    });
+    assert.equal(result.code, 'EXTERNAL_EFFECT_UNKNOWN');
+    await assert.rejects(
+      f.journal.recoverReview(request.bindingHash, async () => undefined),
+      { code: operation === 'merge' ? 'RECOVERY_DECISION_MISMATCH' :
+        'INVALID_RECOVERY_RECEIPT' },
+    );
+    await assert.rejects(f.journal.assertIdle(), { code: 'EXTERNAL_EFFECT_UNKNOWN' });
+    if (operation === 'review-pr') {
+      const proof = 'b'.repeat(64);
+      assert.equal((await f.journal.recoverReview(request.bindingHash,
+        async () => proof)).receiptHash, proof);
+      await f.journal.assertIdle();
+    }
+  }
+});
+
 test('unsafe journal paths and tampered receipts prevent side effects', async t => {
   const f = await fixture(t); await f.journal.run(f.request, f.adapters);
   const [directory] = await readdir(f.root);
