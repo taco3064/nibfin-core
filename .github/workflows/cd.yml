@@ -3,6 +3,10 @@ name: Prepare Core rollout
 on:
   workflow_dispatch:
     inputs:
+      source_commit:
+        description: Exact CI-verified Core commit to resume, or blank for this main commit
+        type: string
+        required: false
       prepare_pull_requests:
         description: Prepare version update drafts using the protected CD credential
         type: boolean
@@ -20,42 +24,52 @@ jobs:
   verified-main:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
+    outputs:
+      commit: ${{ steps.source.outputs.commit }}
     steps:
       - name: Verify the exact main revision passed CI
+        id: source
         env:
           GH_TOKEN: ${{ github.token }}
+          REQUESTED_SOURCE: ${{ inputs.source_commit }}
         run: |
           set -euo pipefail
           test "$GITHUB_REPOSITORY" = taco3064/nibfin-core
           test "$GITHUB_REF" = refs/heads/main
+          source=${REQUESTED_SOURCE:-$GITHUB_SHA}
+          [[ "$source" =~ ^[a-f0-9]{40}$ ]]
+          gh api "repos/$GITHUB_REPOSITORY/compare/$source...$GITHUB_SHA" \
+            --jq .status | grep -Ex 'ahead|identical'
           gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs" \
-            --method GET -f event=push -f branch=main -f head_sha="$GITHUB_SHA" \
+            --method GET -f event=push -f branch=main -f head_sha="$source" \
             --jq 'first(.workflow_runs[]) |
               select(.status == "completed" and .conclusion == "success") | .id' \
             | grep -Ex '[0-9]+'
+          printf 'commit=%s\n' "$source" >> "$GITHUB_OUTPUT"
 
   package:
     needs: verified-main
     uses: ./.github/workflows/package.yml
     with:
-      source_commit: ${{ github.sha }}
+      source_commit: ${{ needs.verified-main.outputs.commit }}
     permissions:
       contents: read
 
   rollout:
-    needs: package
+    needs: [verified-main, package]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - name: Record the verified package and rollout targets
         env:
           GH_TOKEN: ${{ github.token }}
+          ROLLOUT_SOURCE: ${{ needs.verified-main.outputs.commit }}
           ARCHIVE_HASH: ${{ needs.package.outputs.archive_sha256 }}
           MANIFEST_HASH: ${{ needs.package.outputs.manifest_hash }}
           ARTIFACT_ID: ${{ needs.package.outputs.artifact_id }}
         run: |
           set -euo pipefail
-          [[ "$GITHUB_SHA" =~ ^[a-f0-9]{40}$ ]]
+          [[ "$ROLLOUT_SOURCE" =~ ^[a-f0-9]{40}$ ]]
           [[ "$ARCHIVE_HASH" =~ ^[a-f0-9]{64}$ ]]
           [[ "$MANIFEST_HASH" =~ ^[a-f0-9]{64}$ ]]
           [[ "$ARTIFACT_ID" =~ ^[0-9]+$ ]]
@@ -63,7 +77,7 @@ jobs:
             --jq "select(.workflow_run.id == $GITHUB_RUN_ID and .expired == false) |
               .digest")
           [[ "$digest" =~ ^sha256:[a-f0-9]{64}$ ]]
-          jq -n --arg sha "$GITHUB_SHA" --arg archive "$ARCHIVE_HASH" \
+          jq -n --arg sha "$ROLLOUT_SOURCE" --arg archive "$ARCHIVE_HASH" \
             --arg manifest "$MANIFEST_HASH" --arg digest "$digest" \
             --argjson id "$ARTIFACT_ID" '{
               core: {repository: "taco3064/nibfin-core", commit: $sha,
@@ -74,14 +88,14 @@ jobs:
             }' > rollout.json
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: nibfin-rollout-${{ github.sha }}
+          name: nibfin-rollout-${{ needs.verified-main.outputs.commit }}
           path: rollout.json
           if-no-files-found: error
           retention-days: 7
 
   consumer-drafts:
     if: inputs.prepare_pull_requests
-    needs: rollout
+    needs: [verified-main, rollout]
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     environment: nibfin-rollout
@@ -92,9 +106,11 @@ jobs:
       - name: Fetch this run's rollout artifact
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh run download "$GITHUB_RUN_ID" --name "nibfin-rollout-$GITHUB_SHA"
+          ROLLOUT_SOURCE: ${{ needs.verified-main.outputs.commit }}
+        run: gh run download "$GITHUB_RUN_ID" --name "nibfin-rollout-$ROLLOUT_SOURCE"
       - name: Prepare version-bound draft pull requests
         env:
           GH_TOKEN: ${{ secrets.NIBFIN_CD_TOKEN }}
+          ROLLOUT_SOURCE: ${{ needs.verified-main.outputs.commit }}
           ACTION_COMMIT: ${{ inputs.action_commit }}
         run: bash scripts/cd-drafts.sh
