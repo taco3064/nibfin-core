@@ -9,6 +9,7 @@ import { evidenceBinding, stages } from './stages.mjs';
 import { equivalentCandidate } from './candidate-evidence.mjs';
 import { repoPath } from './github-read.mjs';
 import { digest, isDigest, isId, isSha, requireThat } from './identity.mjs';
+import { readAdoptedOpenPr } from './adopt-open-pr.mjs';
 
 // Wiring belongs to installed Core. Config and inspection functions are never
 // selected by the public stage request. Neither GitHub events nor local JSON
@@ -99,6 +100,12 @@ export function nativeObserver({
           context.equivalentCandidates.push(hash);
         }
       }
+    }
+    if (stage === 'commit-pr' && pinned.openPr &&
+      receipts['commit-pr']?.outcome !== 'published') {
+      context.pr = await readAdoptedOpenPr(reader, record.issue, pinned.openPr,
+        record.roles.publisher);
+      context.adoptedOpenPr = true;
     }
     if (receipts['commit-pr']?.outcome === 'published') {
       const saved = receipts['commit-pr'].artifacts;
