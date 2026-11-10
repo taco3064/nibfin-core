@@ -5,7 +5,7 @@ set -euo pipefail
 test "$GITHUB_REPOSITORY" = taco3064/nibfin-core
 test "$GITHUB_REF" = refs/heads/main
 core=$(jq -er '.core.commit' rollout.json)
-test "$core" = "$GITHUB_SHA"
+test "$core" = "$ROLLOUT_SOURCE"
 [[ "$core" =~ ^[a-f0-9]{40}$ ]]
 action=${ACTION_COMMIT:-}
 work=$(mktemp -d)
