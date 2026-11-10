@@ -11,6 +11,7 @@ import { runIssueWake } from '../src/issue-wake.mjs';
 import { launchIssueWake } from '../src/host-issue-wake.mjs';
 import { exportUserMcp, importUserMcp } from '../src/mcp-transfer.mjs';
 import { recoverCommitPr, recoverReview } from '../src/recover-commit-pr.mjs';
+import { promoteHost } from '../src/host-rollout.mjs';
 
 // This entry point never imports a caller-selected adapter or runs candidate code.
 async function main(args) {
@@ -25,6 +26,7 @@ async function main(args) {
     return recoverCommitPr(values[0], values[1]);
   if (command === 'recover-review' && values.length === 2)
     return recoverReview(values[0], values[1]);
+  if (command === 'promote-host' && values.length === 0) return promoteHost();
   if (command === 'contract' && values.length === 0) return consumerContract;
   if (command === 'export-mcp' && values.length === 5) {
     const [codex, home, authenticationHome, member, output] = values;
@@ -43,6 +45,7 @@ async function main(args) {
         'stage <adopted-issue-number> <stage|continue>',
         'recover-commit-pr <adopted-issue-number> <observed-pr-head>',
         'recover-review <adopted-issue-number> <observed-pr-head>',
+        'promote-host (administrator-only, root-owned rollout plan)',
         'resolve-wake',
         'resolve-event',
         'dispatch-event <adopted-issue-number>',
