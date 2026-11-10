@@ -108,6 +108,7 @@ export function stageHandlers({
             executionId: execution.executionId,
             terminationHash: execution.terminationHash,
             code: execution.code,
+            ...(execution.lastProgress ? { lastProgress: execution.lastProgress } : {}),
           });
           return { outcome: 'blocked', findings: [finding],
             references: ['evidence:' + proof], artifacts: execution.artifacts };
