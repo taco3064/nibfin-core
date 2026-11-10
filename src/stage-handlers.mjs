@@ -44,13 +44,19 @@ export function stageHandlers({
             new Date(clock()).toISOString(),
           );
         }
-        if (rebase && (rebase.status === 'unchanged' ||
+        const review = context.receipts['review-pr'];
+        const reviewRepair = stage === 'deliver' &&
+          review?.outcome === 'changes_required' &&
+          review.artifacts.candidateHash ===
+            context.receipts.deliver?.artifacts.candidateHash;
+        if (!reviewRepair && rebase && (rebase.status === 'unchanged' ||
           (rebase.status === 'rebased' && !rebase.contentChanged))) {
           return { retainedCandidate: rebase.candidate };
         }
         const execution = await agent.run(stage, {
           ...context,
           ...(rebase ? { rebase } : {}),
+          ...(reviewRepair ? { reviewFindings: review.findings } : {}),
         });
         if (execution?.status === 'interrupted')
           return { ...execution, artifacts: decision.artifacts };

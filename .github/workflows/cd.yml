@@ -1,0 +1,71 @@
+name: Prepare Core rollout
+
+on:
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  verified-main:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Verify the exact main revision passed CI
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = taco3064/nibfin-core
+          test "$GITHUB_REF" = refs/heads/main
+          gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs" \
+            --method GET -f event=push -f branch=main -f head_sha="$GITHUB_SHA" \
+            --jq 'first(.workflow_runs[]) |
+              select(.status == "completed" and .conclusion == "success") | .id' \
+            | grep -Ex '[0-9]+'
+
+  package:
+    needs: verified-main
+    uses: ./.github/workflows/package.yml
+    with:
+      source_commit: ${{ github.sha }}
+    permissions:
+      contents: read
+
+  rollout:
+    needs: package
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Record the verified package and rollout targets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARCHIVE_HASH: ${{ needs.package.outputs.archive_sha256 }}
+          MANIFEST_HASH: ${{ needs.package.outputs.manifest_hash }}
+          ARTIFACT_ID: ${{ needs.package.outputs.artifact_id }}
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_SHA" =~ ^[a-f0-9]{40}$ ]]
+          [[ "$ARCHIVE_HASH" =~ ^[a-f0-9]{64}$ ]]
+          [[ "$MANIFEST_HASH" =~ ^[a-f0-9]{64}$ ]]
+          [[ "$ARTIFACT_ID" =~ ^[0-9]+$ ]]
+          digest=$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID" \
+            --jq "select(.workflow_run.id == $GITHUB_RUN_ID and .expired == false) |
+              .digest")
+          [[ "$digest" =~ ^sha256:[a-f0-9]{64}$ ]]
+          jq -n --arg sha "$GITHUB_SHA" --arg archive "$ARCHIVE_HASH" \
+            --arg manifest "$MANIFEST_HASH" --arg digest "$digest" \
+            --argjson id "$ARTIFACT_ID" '{
+              core: {repository: "taco3064/nibfin-core", commit: $sha,
+                archiveHash: $archive, manifestHash: $manifest},
+              artifact: {id: $id, digest: $digest},
+              targets: ["taco3064/nibfin-core", "taco3064/nibfin-act",
+                "taco3064/gh-nibfin"]
+            }' > rollout.json
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: nibfin-rollout-${{ github.sha }}
+          path: rollout.json
+          if-no-files-found: error
+          retention-days: 7

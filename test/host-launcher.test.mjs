@@ -53,6 +53,9 @@ test(
     assert.equal(result.runner.actorId, 3);
     const execution = hostExecution(result.runner, 'shape');
     assert.deepEqual(hostExecution(result.runner, 'shape'), execution);
+    const repeated = hostExecution(result.runner, 'shape', 1);
+    assert.notEqual(repeated.id, execution.id);
+    assert.notEqual(repeated.sessionId, execution.sessionId);
     assert.notEqual(hostExecution(result.runner, 'validate-shape').id, execution.id);
     assert.notEqual(
       hostExecution({ ...result.runner, attempt: 2 }, 'shape').id,
