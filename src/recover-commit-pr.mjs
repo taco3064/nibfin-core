@@ -1,4 +1,4 @@
-import { open, unlink } from 'node:fs/promises';
+import { open, readdir, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import { boundedHostFile, coreRoot, loadHostAdoption } from './host-adoption.mjs';
 import { rootOwnedPath } from './host-paths.mjs';
@@ -11,10 +11,19 @@ import {
 } from './stages.mjs';
 import { digest, isId, isSha, requireThat } from './identity.mjs';
 import { repoPath } from './github-read.mjs';
+import { privateHostDirectory } from './host-fence.mjs';
 
 // This entry is invoked locally as the administrator-owned controller, using a
 // verified recovery package. The Runner's fixed sudo relay cannot invoke it.
 export async function recoverCommitPr(issueNumber, expectedHead) {
+  return recover(issueNumber, expectedHead, 'commit-pr');
+}
+
+export async function recoverReview(issueNumber, expectedHead) {
+  return recover(issueNumber, expectedHead, 'review-pr');
+}
+
+async function recover(issueNumber, expectedHead, stage) {
   requireThat(process.getuid?.() > 0 && isSha(expectedHead), 'INVALID_RECOVERY_REQUEST');
   await rootOwnedPath(coreRoot);
   const installed = await import('/opt/nibfin/core/src/host-adoption.mjs');
@@ -53,7 +62,7 @@ export async function recoverCommitPr(issueNumber, expectedHead) {
     reader.get('/user'),
   ]);
   const record = approval.record;
-  requireThat(record.operations.includes('commit-pr') &&
+  requireThat(record.operations.includes(stage) &&
     actor.id === record.roles.publisher && actor.id === priorJob.actorId &&
     run.actor?.id === actor.id && run.triggering_actor?.id === actor.id &&
     run.run_attempt === priorJob.attempt &&
@@ -64,8 +73,9 @@ export async function recoverCommitPr(issueNumber, expectedHead) {
     job.name === adopted.runner.jobName && job.runner_id === host.runnerId,
   'RECOVERY_EXECUTION_MISMATCH');
   const binding = evidenceBinding({ approval });
-  const receiptsRoot = join(host.stateRoot,
-    `issue-${record.issue.repositoryId}-${record.issue.number}`, 'receipts');
+  const issueRoot = join(host.stateRoot,
+    `issue-${record.issue.repositoryId}-${record.issue.number}`);
+  const receiptsRoot = join(issueRoot, 'receipts');
   const store = new EvidenceStore(receiptsRoot, binding);
   const receipts = await store.load();
   const prior = receipts['commit-pr'], deliver = receipts.deliver;
@@ -76,6 +86,12 @@ export async function recoverCommitPr(issueNumber, expectedHead) {
     candidateHash: deliver.artifacts.candidateHash };
   const candidate = await store.get(artifacts.candidateHash);
   const shape = await store.get(artifacts.shapeHash);
+  if (stage === 'review-pr') {
+    requireThat(prior.artifacts.head === expectedHead &&
+      prior.artifacts.candidateHash === artifacts.candidateHash &&
+      !receipts.merge && !receipts.close &&
+      actor.id === record.roles.author, 'RECOVERY_REVIEW_NOT_ELIGIBLE');
+  }
   const readBack = async () => {
     const [pr, commit, issue] = await Promise.all([
       reader.get(root + '/pulls/' + prior.artifacts.prNumber),
@@ -102,22 +118,45 @@ export async function recoverCommitPr(issueNumber, expectedHead) {
   for (const sourceCommit of new Set([run.head_sha, adopted.runner.sourceCommit])) {
     const execution = hostExecution({ ...adopted.runner, sourceCommit,
       runId: priorJob.runId, jobId: priorJob.jobId, attempt: priorJob.attempt },
-    'commit-pr');
-    const requestHash = stageRequestHash({ stage: 'commit-pr', binding, artifacts,
+    stage);
+    const review = stage === 'review-pr';
+    const requestArtifacts = review
+      ? { ...artifacts, prId: prior.artifacts.prId, prNumber: prior.artifacts.prNumber,
+        head: expectedHead } : artifacts;
+    const requestHash = stageRequestHash({ stage, binding, artifacts: requestArtifacts,
       execution, runner: host.runnerId, isolation: adopted.isolation.kind,
       body: issue.body, shaped: true });
-    const decision = digest({ operation: 'commit-pr', bindingHash: requestHash });
+    const decision = digest({ operation: stage, bindingHash: requestHash });
     try {
-      result = await journal.recoverCommitPr(decision, async () => {
+      const confirm = async () => {
         const { pr } = await readBack();
         await checkQuiescence();
+        if (review) {
+          const previous = (await store.load())['review-pr'];
+          requireThat(previous?.outcome === 'approved' &&
+            previous.execution.id === execution.id &&
+            previous.artifacts.prId === pr.node_id &&
+            previous.artifacts.head !== expectedHead, 'RECOVERY_REVIEW_NOT_REPEATED');
+          const session = digest({
+            ...binding, memberId: execution.actorId, role: execution.role,
+            executionId: execution.id, sessionId: execution.sessionId,
+          });
+          const directory = join(issueRoot, 'agent', `session-${session}`);
+          await privateHostDirectory(directory);
+          requireThat((await readdir(directory)).length === 0,
+            'RECOVERY_REVIEW_SESSION_NOT_CLOSED');
+          return store.put({ stage, decision, previous: digest(previous),
+            head: expectedHead, executionId: execution.id });
+        }
         return store.append({
           schemaVersion: 1, stage: 'commit-pr', binding, execution,
           artifacts: { ...artifacts, prId: pr.node_id, prNumber: pr.number,
             head: expectedHead, base: candidate.base },
           outcome: 'published', findings: [], references: [pr.html_url],
         });
-      });
+      };
+      result = review ? await journal.recoverReview(requestHash, confirm)
+        : await journal.recoverCommitPr(decision, confirm);
       break;
     } catch (error) {
       if (error.code !== 'RECOVERY_DECISION_MISMATCH') throw error;
@@ -127,7 +166,7 @@ export async function recoverCommitPr(issueNumber, expectedHead) {
   if (result.status !== 'completed') return result;
   await checkQuiescence();
   const archive = join(host.stateRoot,
-    `reconciled-commit-pr-${priorJob.runId}-${priorJob.attempt}.json`);
+    `reconciled-${stage}-${priorJob.runId}-${priorJob.attempt}.json`);
   const file = await open(archive, 'wx', 0o600).catch(error => {
     if (error.code !== 'EEXIST') throw error;
     return null;
