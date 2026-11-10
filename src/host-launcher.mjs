@@ -94,15 +94,15 @@ export async function readSingleHost(reader, runner) {
   return digest(matches);
 }
 
-export function hostExecution(runner, stage) {
-  return nativeExecution(runner, stage, stages[stage].role);
+export function hostExecution(runner, stage, iteration = 0) {
+  return nativeExecution(runner, stage, stages[stage].role, iteration);
 }
 
 export function hostWakeExecution(runner) {
   return nativeExecution(runner, 'wake', 'publisher');
 }
 
-function nativeExecution(runner, stage, role) {
+function nativeExecution(runner, stage, role, iteration = 0) {
   const native = {
     repositoryId: runner.repositoryId,
     runId: runner.runId,
@@ -111,6 +111,7 @@ function nativeExecution(runner, stage, role) {
     memberId: runner.memberId,
     sourceCommit: runner.sourceCommit,
     stage,
+    ...(iteration ? { iteration } : {}),
   };
   const uuid = (kind) => {
     const hash = digest({ kind, native });
@@ -267,8 +268,11 @@ export async function launchStage(issueNumber, stage, env = process.env) {
         'WORKSPACE_ADOPTION_UNRESOLVED',
       );
     }
+    const invocations = new Map();
     const execute = async (current) => {
-      execution = hostExecution(runner, current);
+      const iteration = invocations.get(current) ?? 0;
+      invocations.set(current, iteration + 1);
+      execution = hostExecution(runner, current, iteration);
       requireThat(
         approval.record.roles[execution.role] === runner.memberId,
         'HOST_APPROVAL_MISMATCH',

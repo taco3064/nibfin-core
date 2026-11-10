@@ -47,10 +47,26 @@ export async function continueStages({
   clock = Date.now,
   ciTimeout = 600000,
   repairIntegration = true,
+  reviewRepairs = 2,
 }) {
   const previous = await store.load();
   const changed = await refreshRequirements(previous);
   const initial = changed ? {} : await currentReceipts(store, previous);
+  const repairReview = async (review) => {
+    await inspect();
+    const repaired = await execute('deliver');
+    if (repaired.status !== 'completed') return repaired;
+    const delivery = await store.get(repaired.receiptHash);
+    const candidate = await store.get(delivery.artifacts.candidateHash);
+    if (await equivalentCandidate(store, candidate, review.artifacts.candidateHash)) {
+      return { schemaVersion: 1, stage: 'deliver', status: 'denied',
+        code: 'REVIEW_REPAIR_DID_NOT_CHANGE_CANDIDATE' };
+    }
+    return continueStages({
+      store, execute, refreshRequirements, inspect, wait, clock, ciTimeout,
+      repairIntegration, reviewRepairs: reviewRepairs - 1,
+    });
+  };
   let gap = false;
   for (const stage of Object.keys(stages)) {
     if (!initial[stage]) {
@@ -59,6 +75,8 @@ export async function continueStages({
     }
     requireThat(!gap, 'NONCONTIGUOUS_STAGE_RECEIPTS');
     if (initial[stage].outcome !== stageSuccess[stage]) {
+      if (stage === 'review-pr' && initial[stage].outcome === 'changes_required' &&
+        reviewRepairs > 0) return repairReview(initial[stage]);
       return { schemaVersion: 1, status: 'denied',
         code: 'STAGE_REQUIRES_CORRECTION', stage };
     }
@@ -74,7 +92,7 @@ export async function continueStages({
     for (;;) {
       result = await execute(stage);
       // Only explicit pre-effect CI observations can wait.
-      // Unknown writes, failed reviews and arbitrary observation errors stop.
+      // Unknown writes and arbitrary observation errors stop.
       if (!pendingCIObservation(result.code) || result.status !== 'pending') break;
       if (clock() >= deadline) return result;
       await inspect();
@@ -88,7 +106,17 @@ export async function continueStages({
       return continueStages({
         store, execute, refreshRequirements, inspect, wait, clock, ciTimeout,
         repairIntegration: false,
+        reviewRepairs,
       });
+    }
+    if (stage === 'review-pr' && result.status === 'denied' && reviewRepairs > 0 &&
+      result.code === 'STAGE_REQUIRES_CORRECTION' && result.receiptHash) {
+      const review = await store.get(result.receiptHash);
+      const current = await store.load();
+      if (review.outcome === 'changes_required' &&
+        current[stage] && digest(current[stage]) === result.receiptHash) {
+        return repairReview(review);
+      }
     }
     if (result.status !== 'completed') return result;
     const receipt = await store.get(result.receiptHash);

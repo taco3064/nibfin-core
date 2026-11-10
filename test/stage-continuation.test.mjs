@@ -115,6 +115,42 @@ test('provider branch update repairs once and resumes protected delivery', async
   assert.equal(f.calls.filter(stage => stage === 'accept').length, 1);
 });
 
+test('review changes go through Deliver and fresh Accept before merge', async () => {
+  const f = fixture();
+  const execute = f.options.execute;
+  let candidateHash, revision = 0, reviewed = false;
+  f.options.execute = async stage => {
+    if (stage === 'deliver') {
+      const candidate = {
+        repository: 'example/core', repositoryId: 10, issueId: 'I_target',
+        diffHash: String(++revision).repeat(64), paths: ['src/example.mjs'],
+        obligations: { artifacts: [], hooks: [] }, artifacts: [], hookSources: [],
+      };
+      candidateHash = digest(candidate);
+      f.objects[candidateHash] = candidate;
+    }
+    const result = await execute(stage);
+    if (!candidateHash) return result;
+    const receipt = f.receipts[stage];
+    receipt.artifacts = { candidateHash };
+    if (stage === 'review-pr' && !reviewed) {
+      reviewed = true;
+      receipt.outcome = 'changes_required';
+      result.status = 'denied';
+      result.code = 'STAGE_REQUIRES_CORRECTION';
+    }
+    result.receiptHash = digest(receipt);
+    f.objects[result.receiptHash] = receipt;
+    return result;
+  };
+  assert.equal((await continueStages(f.options)).stage, 'close');
+  assert.deepEqual(f.calls.slice(3), [
+    'deliver', 'pre-accept-hooks', 'accept', 'post-accept-hooks',
+    'commit-pr', 'review-pr', 'deliver', 'pre-accept-hooks', 'accept',
+    'post-accept-hooks', 'commit-pr', 'review-pr', 'merge', 'close',
+  ]);
+});
+
 test('unchanged rebase retains hooks, Accept and Final Review evidence', async () => {
   const f = fixture();
   const shapeHash = 'a'.repeat(64);
