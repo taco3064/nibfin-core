@@ -101,9 +101,16 @@ test('CD routes website, package and shared changes', () => {
 
 test('workflow-only and contract-test changes select website verification', () => {
   for (const path of [cdWorkflow, 'test/cd-workflow.test.mjs']) {
-    const run = flag => spawnSync(process.execPath,
-      ['scripts/test-changes.mjs', flag, path], { encoding: 'utf8' });
-    assert.match(run('--website').stdout, /^website=true\s*$/);
-    assert.match(run('--list').stdout, /test\/cd-workflow\.test\.mjs/);
+    const run = flag => {
+      const result = spawnSync(process.execPath,
+        ['scripts/test-changes.mjs', flag, path], {
+          encoding: 'utf8', env: { ...process.env, GITHUB_OUTPUT: '' },
+        });
+      assert.ifError(result.error);
+      assert.equal(result.status, 0, result.stderr);
+      return result.stdout;
+    };
+    assert.match(run('--website'), /^website=true\s*$/);
+    assert.match(run('--list'), /test\/cd-workflow\.test\.mjs/);
   }
 });
