@@ -35,6 +35,7 @@ async function fixture(t) {
     'scripts/release-ci.mjs',
     'package.json',
     'src/stage-runtime.mjs',
+    'skills/scope/SKILL.md',
     'skills/shape/SKILL.md',
     'skills/deliver/SKILL.md',
     'skills/accept/SKILL.md',
