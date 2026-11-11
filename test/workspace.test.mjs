@@ -42,10 +42,10 @@ async function fixture(t) {
   await git(['add', '.']);
   await git(['commit', '-m', 'Fixture baseline']);
   const base = await git(['rev-parse', 'HEAD']);
-  const root = join(directory, 'trusted');
+  const root = join(directory, 'workspace-' + 'a'.repeat(64));
   await mkdir(root, { mode: 0o700 });
   const run = async (executable, args, options) => {
-    if (args.includes('fetch')) {
+    if (args.includes('https://github.com/example/core.git')) {
       const adjusted = [...args];
       adjusted[adjusted.indexOf('https://github.com/example/core.git')] = seed;
       adjusted.splice(
@@ -131,6 +131,27 @@ test('adopted PR recovery restores the candidate and preserves dirty work', asyn
     '2026-11-03T00:00:00Z');
   assert.equal(rebased.status, 'rebased');
   assert.equal(rebased.contentChanged, false);
+});
+
+test('adopted delivery reuses an unpublished trusted Candidate', async t => {
+  const f = await fixture(t);
+  await writeFile(join(f.workspace.work, 'source.txt'), 'Changed\n');
+  await writeFile(join(f.workspace.work, 'proof.txt'), 'Passed\n');
+  const candidate = await f.workspace.capture(shape);
+  const commit = await f.workspace.commit(candidate, shape, '2026-11-03T00:00:00Z');
+  const root = join(f.directory, 'workspace-' + 'b'.repeat(64));
+  await mkdir(root, { mode: 0o700 });
+  const issue = { id: 'I_target', repository: 'example/core', repositoryId: 10,
+    number: 2 };
+  const workspace = new CandidateWorkspace(root, issue, { run: f.run });
+  await workspace.prepare(f.base);
+  const pin = { head: commit.head, parent: f.base, tree: candidate.tree,
+    candidateHash: digest(candidate), workspace: 'workspace-' + 'a'.repeat(64) };
+  await assert.rejects(
+    workspace.restoreAdoptedCandidate({ ...pin, workspace: '../outside' }, shape),
+    /INVALID_HANDOFF_WORKSPACE/,
+  );
+  assert.deepEqual(await workspace.restoreAdoptedCandidate(pin, shape), candidate);
 });
 
 test('retry removes ignored npm dependencies and preserves source', async t => {

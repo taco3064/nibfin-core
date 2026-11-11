@@ -105,7 +105,16 @@ export function nativeObserver({
       !receipts['commit-pr']) {
       await readAdoptedOpenPr(reader, record.issue, pinned.openPr,
         record.roles.publisher);
-      context.adoptedCandidate = pinned.openPr;
+      const handoff = pinned.openPr.localCandidate;
+      if (handoff) {
+        requireThat(handoff.issueId === record.issue.id &&
+          handoff.shapeHash === context.shape?.hash &&
+          typeof handoff.workspace === 'string' &&
+          /^workspace-[a-f0-9]{64}$/.test(handoff.workspace),
+        'INVALID_HANDOFF_WORKSPACE');
+      }
+      context.adoptedCandidate = handoff
+        ? { ...handoff, number: pinned.openPr.number } : pinned.openPr;
     }
     if (stage === 'deliver' && (context.adoptedCandidate ||
       (context.candidate &&
