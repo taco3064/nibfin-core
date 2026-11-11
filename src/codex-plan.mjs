@@ -9,6 +9,8 @@ const isolatedVerification = [
   'Run the required checks supported by the assigned isolated environment.',
   'Run verification commands one at a time and keep worker counts within the',
   'Runner capacity. Use a combined check once when it covers the required checks.',
+  'Without a Git index, pass known changed paths to the test selector or run',
+  'the affected tests directly.',
   'Use read-only /main when a focused source comparison helps.',
   '/work and /main are source snapshots without usable Git metadata.',
   'Do not add, expose, or reconstruct Git metadata in the role workspace.',

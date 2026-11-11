@@ -31,8 +31,11 @@ jobs:
           package-manager-cache: false
       - run: npm install --global npm@11.9.0 --ignore-scripts
       - run: npm ci --ignore-scripts
+      - name: Select changed website tests
+        id: affected
+        run: node scripts/test-changes.mjs --website
       - name: Install pinned Chromium for website tests
-        if: ${{ hashFiles('website/playwright.config.mjs') != '' }}
+        if: ${{ steps.affected.outputs.website == 'true' }}
         run: ./node_modules/.bin/playwright install --with-deps chromium
       - run: npm run verify
       - name: Verify browser support in the actual Agent image
@@ -65,15 +68,20 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
+          fetch-depth: 0
+      - name: Fetch the exact push comparison base
+        if: >-
+          github.event_name == 'push' &&
+          github.event.before != '0000000000000000000000000000000000000000'
+        env:
+          SOURCE_BEFORE: ${{ github.event.before }}
+        run: git fetch --no-tags origin "$SOURCE_BEFORE"
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version-file: .node-version
           package-manager-cache: false
-      - run: node --test test/source-mode.test.mjs
       - name: Verify native Windows MCP process and source boundaries
-        run: >-
-          node --test test/mcp-source.test.mjs test/mcp-resolve.test.mjs
-          test/mcp-windows.test.mjs
+        run: node scripts/test-changes.mjs --windows
 
   package:
     uses: ./.github/workflows/package.yml
