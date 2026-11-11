@@ -1,6 +1,10 @@
 name: Prepare Core rollout
 
 on:
+  workflow_run:
+    workflows: [CI]
+    branches: [main]
+    types: [completed]
   workflow_dispatch:
     inputs:
       source_commit:
@@ -22,6 +26,11 @@ permissions:
 
 jobs:
   verified-main:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push' &&
+       github.event.workflow_run.head_repository.full_name == github.repository)
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     outputs:
@@ -32,11 +41,12 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           REQUESTED_SOURCE: ${{ inputs.source_commit }}
+          CI_SOURCE: ${{ github.event.workflow_run.head_sha }}
         run: |
           set -euo pipefail
           test "$GITHUB_REPOSITORY" = taco3064/nibfin-core
           test "$GITHUB_REF" = refs/heads/main
-          source=${REQUESTED_SOURCE:-$GITHUB_SHA}
+          source=${CI_SOURCE:-${REQUESTED_SOURCE:-$GITHUB_SHA}}
           [[ "$source" =~ ^[a-f0-9]{40}$ ]]
           gh api "repos/$GITHUB_REPOSITORY/compare/$source...$GITHUB_SHA" \
             --jq .status | grep -Ex 'ahead|identical'
@@ -45,9 +55,24 @@ jobs:
             --jq 'first(.workflow_runs[]) |
               select(.status == "completed" and .conclusion == "success") | .id' \
             | grep -Ex '[0-9]+'
+          if [[ -n "$CI_SOURCE" ]]; then
+            # Consumer pin updates are produced by CD itself.
+            files=$(gh api "repos/$GITHUB_REPOSITORY/commits/$source" \
+              --jq '.files[].filename')
+            subject=$(gh api "repos/$GITHUB_REPOSITORY/commits/$source" \
+              --jq '.commit.message | split("\n")[0]')
+            if [[ "$subject" =~ ^Prepare\ Core\ [a-f0-9]{40}\ rollout$ ]] &&
+              [[ -n "$files" ]] && ! grep -vEx \
+              '\.nibfin/producer-pins\.json|\.github/workflows/nibfin-(issue|wake)\.yml' \
+              <<< "$files"; then
+              echo 'Consumer pin update already managed by CD.'
+              exit 0
+            fi
+          fi
           printf 'commit=%s\n' "$source" >> "$GITHUB_OUTPUT"
 
   package:
+    if: needs.verified-main.outputs.commit != ''
     needs: verified-main
     uses: ./.github/workflows/package.yml
     with:
@@ -94,10 +119,12 @@ jobs:
           retention-days: 7
 
   consumer-drafts:
-    if: inputs.prepare_pull_requests
+    if: github.event_name == 'workflow_run' || inputs.prepare_pull_requests
     needs: [verified-main, rollout]
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 30
+    concurrency:
+      group: nibfin-consumer-rollout
     environment: nibfin-rollout
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
@@ -108,9 +135,18 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           ROLLOUT_SOURCE: ${{ needs.verified-main.outputs.commit }}
         run: gh run download "$GITHUB_RUN_ID" --name "nibfin-rollout-$ROLLOUT_SOURCE"
-      - name: Prepare version-bound draft pull requests
+      - name: Prepare version-bound pull requests
         env:
           GH_TOKEN: ${{ secrets.NIBFIN_CD_TOKEN }}
           ROLLOUT_SOURCE: ${{ needs.verified-main.outputs.commit }}
           ACTION_COMMIT: ${{ inputs.action_commit }}
+          AUTOMATIC_ROLLOUT: ${{ github.event_name == 'workflow_run' }}
         run: bash scripts/cd-drafts.sh
+      - name: Publish the verified rollout for the host
+        if: github.event_name == 'workflow_run'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: nibfin-activate-${{ needs.verified-main.outputs.commit }}
+          path: activation.json
+          if-no-files-found: error
+          retention-days: 30

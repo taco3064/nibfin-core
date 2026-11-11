@@ -8,11 +8,12 @@ core=$(jq -er '.core.commit' rollout.json)
 test "$core" = "$ROLLOUT_SOURCE"
 [[ "$core" =~ ^[a-f0-9]{40}$ ]]
 action=${ACTION_COMMIT:-}
+automatic=${AUTOMATIC_ROLLOUT:-false}
 work=$(mktemp -d)
 trap 'rm -rf -- "$work"' EXIT
 jq '.core' rollout.json > "$work/core-source.json"
 
-if [[ -n "$action" ]]; then
+consumer_pins() {
   [[ "$action" =~ ^[a-f0-9]{40}$ ]]
   action_main=$(gh api repos/taco3064/nibfin-act/branches/main --jq .commit.sha)
   gh api "repos/taco3064/nibfin-act/compare/$action...$action_main" --jq .status |
@@ -23,7 +24,7 @@ if [[ -n "$action" ]]; then
   jq --arg action "$action" 'del(.targets) |
     .action = {repository: "taco3064/nibfin-act", commit: $action}' \
     rollout.json > "$work/producer-pins.json"
-fi
+}
 
 gh auth setup-git --hostname github.com
 prepare() {
@@ -31,9 +32,12 @@ prepare() {
   suffix=${action:+-${action:0:12}}
   branch="cd/$kind-${core:0:12}$suffix"
   existing=$(gh pr list -R "taco3064/$repo" --state open --head "$branch" \
-    --json url --jq '.[0].url // empty')
+    --json url,isDraft --jq '.[0] // empty')
   if [[ -n "$existing" ]]; then
-    printf 'Existing draft for %s: %s\n' "$repo" "$existing"
+    if [[ "$automatic" == true && $(jq -r .isDraft <<< "$existing") == true ]]; then
+      gh pr ready -R "taco3064/$repo" "$(jq -r .url <<< "$existing")"
+    fi
+    printf 'Existing rollout PR for %s: %s\n' "$repo" "$existing"
     return
   fi
   gh repo clone "taco3064/$repo" "$work/$repo" -- --depth 1 --branch main
@@ -64,16 +68,55 @@ prepare() {
     git -c user.name='Nibfin CD' -c user.email='nibfin-cd@users.noreply.github.com' \
       commit -am "Prepare Core $core rollout"
     git push origin "HEAD:refs/heads/$branch"
-    gh pr create -R "taco3064/$repo" --draft --base main --head "$branch" \
+    local mode=()
+    if [[ "$automatic" != true ]]; then mode+=(--draft); fi
+    gh pr create -R "taco3064/$repo" "${mode[@]}" --base main --head "$branch" \
       --title "Prepare Core ${core:0:12} rollout" \
-      --body "Core CD run $GITHUB_RUN_ID. Keep as a draft until the host is ready."
+      --body "Core CD run $GITHUB_RUN_ID. Consumer merge waits for the safe host stop."
   )
 }
 
+publish_action() {
+  local repo=taco3064/nibfin-act head number ci
+  local branch="cd/action-${core:0:12}"
+  prepare nibfin-act action
+  number=$(gh pr list -R "$repo" --state open --head "$branch" \
+    --json number --jq '.[0].number // empty')
+  if [[ -z "$number" ]]; then
+    action=$(gh api "repos/$repo/branches/main" --jq .commit.sha)
+    return
+  fi
+  head=$(gh pr view -R "$repo" "$number" --json headRefOid --jq .headRefOid)
+  test "$(gh pr view -R "$repo" "$number" --json files --jq '.files[].path')" = \
+    core-source.json
+  gh api "repos/$repo/contents/core-source.json?ref=$head" \
+    -H 'Accept: application/vnd.github.raw+json' > "$work/action-head.json"
+  jq -e --slurp '.[0] == .[1]' "$work/action-head.json" "$work/core-source.json"
+  for ((attempt=0; attempt<30; attempt++)); do
+    ci=$(gh api "repos/$repo/actions/runs" --method GET -f event=pull_request \
+      -f head_sha="$head" --jq '.workflow_runs[]
+      | select(.path==".github/workflows/ci.yml")
+      | .id' | head -n 1)
+    [[ -z "$ci" ]] || break
+    sleep 10
+  done
+  : "${ci:?Action PR CI did not start}"
+  gh run watch -R "$repo" "$ci" --exit-status
+  gh pr merge -R "$repo" "$number" --rebase --match-head-commit "$head"
+  action=$(gh pr view -R "$repo" "$number" --json mergeCommit --jq .mergeCommit.oid)
+}
+
+if [[ "$automatic" == true && -z "$action" ]]; then
+  publish_action
+fi
 if [[ -z "$action" ]]; then
   prepare nibfin-act action
 else
+  consumer_pins
   for repo in nibfin-core nibfin-act gh-nibfin; do
     prepare "$repo" consumers
   done
+  if [[ "$automatic" == true ]]; then
+    cp "$work/producer-pins.json" activation.json
+  fi
 fi
