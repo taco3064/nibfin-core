@@ -36,7 +36,7 @@ jobs:
         run: node scripts/test-changes.mjs --website
       - name: Install pinned Chromium for website tests
         if: ${{ steps.affected.outputs.website == 'true' }}
-        run: ./node_modules/.bin/playwright install --with-deps chromium
+        run: ./node_modules/.bin/playwright install chromium --only-shell
       - run: npm run verify
       - name: Verify browser support in the actual Agent image
         env:
