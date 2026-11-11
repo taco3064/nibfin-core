@@ -35,39 +35,39 @@ export function stageHandlers({
               digest(context.candidate),
             'REVIEW_CANDIDATE_CHANGED',
           );
+        let candidate = context.candidate;
+        let reference;
         if (stage === 'deliver' && context.adoptedCandidate) {
           const pin = context.adoptedCandidate;
-          const candidate = await workspace.restoreAdoptedCandidate(pin,
+          candidate = await workspace.restoreAdoptedCandidate(pin,
             context.shape.body);
-          return {
-            retainedCandidate: candidate,
-            reference: context.issue.url.replace(
-              /\/issues\/\d+$/, `/pulls/${pin.number}`,
-            ),
-          };
+          reference = context.issue.url.replace(/\/issues\/\d+$/, `/pulls/${pin.number}`);
         }
         let rebase;
-        if (stage === 'deliver' && context.rebaseTarget) {
+        if (stage === 'deliver' && candidate && context.rebaseTarget &&
+          candidate.base !== context.rebaseTarget) {
           rebase = await workspace.rebase(
-            context.candidate,
+            candidate,
             context.shape.body,
             context.rebaseTarget,
             new Date(clock()).toISOString(),
           );
         }
-        const review = context.receipts['review-pr'];
-        const reviewRepair = stage === 'deliver' &&
-          review?.outcome === 'changes_required' &&
-          review.artifacts.candidateHash ===
-            context.receipts.deliver?.artifacts.candidateHash;
-        if (!reviewRepair && rebase && (rebase.status === 'unchanged' ||
-          (rebase.status === 'rebased' && !rebase.contentChanged))) {
-          return { retainedCandidate: rebase.candidate };
+        const correction = stage === 'deliver' && [
+          context.receipts['review-pr'], context.receipts.accept,
+        ].find(receipt =>
+          receipt?.outcome === 'changes_required' &&
+          receipt.artifacts.shapeHash === context.shape.hash &&
+          receipt.artifacts.candidateHash ===
+            context.receipts.deliver?.artifacts.candidateHash);
+        if (!correction && (reference || rebase) &&
+          (!rebase || (rebase.status === 'rebased' && !rebase.contentChanged))) {
+          return { retainedCandidate: rebase?.candidate ?? candidate, reference };
         }
         const execution = await agent.run(stage, {
           ...context,
           ...(rebase ? { rebase } : {}),
-          ...(reviewRepair ? { reviewFindings: review.findings } : {}),
+          ...(correction ? { correctionFindings: correction.findings } : {}),
         });
         if (execution?.status === 'interrupted')
           return { ...execution, artifacts: decision.artifacts };

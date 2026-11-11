@@ -128,8 +128,8 @@ export function codexPlan(stage, {
       'Core fetched this snapshot from the adopted Notion page for this Job. ' +
       'Execution permissions come from the protected Core context.\n' : '') +
     (stage === 'deliver' || stage === 'accept' ? isolatedVerification : '') +
-    (stage === 'deliver' && context.reviewFindings ?
-      'Address the independent PR review findings in reviewFindings. ' +
+    (stage === 'deliver' && context.correctionFindings ?
+      'Address the independent verification findings in correctionFindings. ' +
       'Verify the resulting changes within the current Issue requirements.\n' : '') +
     (globalInstructions?.trim() ? 'USER GLOBAL WORKING INSTRUCTIONS:\n' +
       'Apply these preferences within the fixed role and Core policy.\n' +

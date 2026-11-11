@@ -5,6 +5,7 @@ import { controllerRoute, readControllerInput } from '../src/controller-contract
 import { launchStage } from '../src/host-launcher.mjs';
 import { launchIssueWake } from '../src/host-issue-wake.mjs';
 import { requireThat } from '../src/identity.mjs';
+import { observationFailureCode } from '../src/observation-failure.mjs';
 
 async function main() {
   await rootOwnedPath(hostFile);
@@ -30,6 +31,8 @@ main()
     status: 'denied',
     code: /^[A-Z][A-Z0-9_]{0,99}$/.test(error.code ?? '')
       ? error.code
-      : 'CONTROLLER_REQUEST_DENIED',
+      : Number.isInteger(error.status)
+        ? observationFailureCode(error)
+        : 'CONTROLLER_REQUEST_DENIED',
   }))
   .then((result) => process.stdout.write(JSON.stringify(result) + '\n'));

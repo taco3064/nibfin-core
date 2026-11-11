@@ -107,6 +107,11 @@ export function nativeObserver({
         record.roles.publisher);
       context.adoptedCandidate = pinned.openPr;
     }
+    if (stage === 'deliver' && (context.adoptedCandidate ||
+      (context.candidate &&
+        receipts.deliver.artifacts.shapeHash === context.shape?.hash))) {
+      context.rebaseTarget = main.head;
+    }
     if (stage === 'commit-pr' && pinned.openPr &&
       receipts['commit-pr']?.outcome !== 'published') {
       context.pr = await readAdoptedOpenPr(reader, record.issue, pinned.openPr,
@@ -156,11 +161,6 @@ export function nativeObserver({
         mergePreview: pr.merge_commit_sha,
         ...(pr.merged ? { mergeCommit: pr.merge_commit_sha } : {}),
       };
-      if (stage === 'deliver' && context.candidate && pr.state === 'open' &&
-        receipts.deliver.artifacts.shapeHash === context.shape?.hash &&
-        (pr.mergeable === false || pr.mergeable_state === 'behind')) {
-        context.rebaseTarget = main.head;
-      }
       if (['review-pr', 'merge', 'close'].includes(stage)) {
         const expected = {
           repository: record.issue.repository,
