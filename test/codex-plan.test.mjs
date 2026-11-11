@@ -19,6 +19,9 @@ test('all roles inherit adopted global instructions with the same policy', () =>
       ...options, globalInstructions: 'Inspect the current failure first.',
     });
     assert.match(withInstructions.prompt, /Inspect the current failure first/);
+    assert.match(withInstructions.prompt, /Run verification commands one at a time/);
+    assert.match(withInstructions.settings.join('\n'), /"GOMAXPROCS" = "2"/);
+    assert.match(withInstructions.settings.join('\n'), /"GOFLAGS" = "-p=1"/);
     assert.equal(withInstructions.policyHash, without.policyHash);
     assert.deepEqual(withInstructions.args, without.args);
   }
