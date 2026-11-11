@@ -90,6 +90,7 @@ test('CD routes website, package and shared changes', () => {
     core: false, website: true,
   });
   assert.deepEqual(cdPaths(['src/stages.mjs']), { core: true, website: false });
+  assert.deepEqual(cdPaths(['scripts/cd-drafts.sh']), { core: true, website: false });
   assert.deepEqual(cdPaths(['package-lock.json']), { core: true, website: true });
   assert.deepEqual(cdPaths([]), { core: false, website: false });
   const pinPaths = ['.nibfin/producer-pins.json', '.github/workflows/nibfin-wake.yml'];

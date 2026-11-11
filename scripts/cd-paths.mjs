@@ -12,7 +12,8 @@ export function cdPaths(paths, subject = '') {
     paths.every(path => path === '.nibfin/producer-pins.json' ||
       /^\.github\/workflows\/nibfin-(issue|wake)\.yml$/.test(path));
   return {
-    core: !pinUpdate && paths.some(includesPackagePath),
+    core: !pinUpdate &&
+      paths.some(path => includesPackagePath(path) || path === 'scripts/cd-drafts.sh'),
     website: paths.some(websiteInput),
   };
 }
