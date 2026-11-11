@@ -377,6 +377,13 @@ export async function readPullRequestCI(reader, expected, now = Date.now()) {
     checks,
     protectionHash: protection.hash,
     provenanceHash: digest({ sources, reviewers: reviewers.approved }),
+    ...(expected.includeSources ? {
+      sources: sources.map((source, index) => ({
+        ...source,
+        name: expected.workflows[index].context,
+        path: expected.workflows[index].path,
+      })),
+    } : {}),
   };
   // GitHub may remove run-to-PR associations after merge. Only the exact CI
   // admitted before our merge may survive that loss; a new green run cannot.

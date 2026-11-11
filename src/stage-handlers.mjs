@@ -191,7 +191,9 @@ export function stageHandlers({
             ...artifacts,
             prId: context.pr.id,
             prNumber: context.pr.number,
-            head: context.pr.publishedHead ?? context.pr.head,
+            head: context.pr.head,
+            base: context.pr.base,
+            ciHash: await store.put(context.ci),
           };
         }
         return {

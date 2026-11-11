@@ -117,7 +117,7 @@ export async function continueStages({
       await inspect();
       await wait(5000);
     }
-    if (stage === 'merge' && repairIntegration &&
+    if (['review-pr', 'merge'].includes(stage) && repairIntegration &&
       integrationRepairRequired(result.code)) {
       await inspect();
       const repaired = await execute('deliver');

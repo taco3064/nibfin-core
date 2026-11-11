@@ -143,7 +143,7 @@ test('self-approval, forged publication and stale Candidate evidence deny', () =
 });
 
 test('unrelated checks and foreign test-merge parents deny merge', () => {
-  for (const stage of ['merge']) {
+  for (const stage of ['review-pr', 'merge']) {
     for (const change of [
       (c) => {
         c.pr.head = '9'.repeat(40);
@@ -193,12 +193,12 @@ test('parallel merges preserve content evidence', () => {
     c.main.head = 'a'.repeat(40);
     const before = stageFixture(stage);
     if (['review-pr', 'merge'].includes(stage)) c.pr.base = c.main.head;
-    if (stage === 'merge') {
+    if (['review-pr', 'merge'].includes(stage)) {
       assert.equal(decideStage(stage, c, now).code, 'CI_PROVENANCE_REQUIRED');
       c.ci.base = c.pr.base;
     }
     assert.equal(decideStage(stage, c, now).status, 'allowed', stage);
-    if (stage !== 'merge')
+    if (!['review-pr', 'merge'].includes(stage))
       assert.equal(
         decideStage(stage, c, now).requestHash,
         decideStage(stage, before, now).requestHash,
