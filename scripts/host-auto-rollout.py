@@ -6,6 +6,7 @@ import hashlib
 import io
 import json
 import os
+import pwd
 import re
 import subprocess
 import sys
@@ -292,6 +293,11 @@ def start_enabled(services):
 
 
 def finish(services):
+    for name in HOSTS.values():
+        path = CONFIG / name
+        uid = json.loads(path.read_text())["uid"]
+        user = pwd.getpwuid(uid).pw_name
+        run("/usr/sbin/runuser", "-u", user, "--", "/usr/bin/test", "-r", path)
     start_enabled(services)
     staged_configs = CONFIG / "rollout"
     for name in HOSTS.values():
