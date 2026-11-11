@@ -215,16 +215,13 @@ export async function launchStage(issueNumber, stage, env = process.env) {
     const openPr = host.openPrHandoffs?.[issueNumber];
     const journal = new OperationJournal(join(root, 'receipts'), approval.record.issue);
     if (openPr) await journal.assertIdle();
-    const workspaceRoot = join(root, openPr
-      ? `workspace-${evidenceBinding({ approval }).sourceHash}` : 'workspace');
-    const store = new EvidenceStore(
-      join(root, 'receipts'),
-      evidenceBinding({ approval }),
-    );
+    const evidence = evidenceBinding({ approval });
+    const workspaceRoot = join(root, `workspace-${evidence.sourceHash}`);
+    const store = new EvidenceStore(join(root, 'receipts'), evidence);
     const workspaceBinding = {
       kind: 'host-workspace',
       directory: workspaceRoot,
-      binding: evidenceBinding({ approval }),
+      binding: evidence,
     };
     let fresh = false;
     try {
@@ -241,8 +238,12 @@ export async function launchStage(issueNumber, stage, env = process.env) {
       );
       await store.put(workspaceBinding);
     } else {
+      const previous = await store.get(digest(workspaceBinding)).catch(error => {
+        if (error.code !== 'ENOENT') throw error;
+        return null;
+      });
       requireThat(
-        digest(await store.get(digest(workspaceBinding))) === digest(workspaceBinding),
+        previous && digest(previous) === digest(workspaceBinding),
         'WORKSPACE_ADOPTION_UNRESOLVED',
       );
     }
