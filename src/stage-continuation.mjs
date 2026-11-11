@@ -6,6 +6,7 @@ import { integrationRepairRequired, pendingCIObservation } from './github-ci.mjs
 import { codexIdle } from './codex-bootstrap.mjs';
 
 const agentStages = new Set(['shape', 'validate-shape', 'deliver', 'accept']);
+const correctionStages = new Set(['accept', 'review-pr']);
 
 async function stoppedAgentCanRestart(store, stage, receipt) {
   if (!agentStages.has(stage) || receipt.outcome !== 'blocked' ||
@@ -32,7 +33,7 @@ async function currentReceipts(store, previous) {
     const artifacts = entry?.artifacts;
     if ((artifacts?.shapeHash && artifacts.shapeHash !== shape) ||
       (artifacts?.candidateHash && artifacts.candidateHash !== candidate &&
-        (!reusable.includes(stage) ||
+        (!reusable.includes(stage) || entry.outcome !== stageSuccess[stage] ||
           !await equivalentCandidate(store, snapshot, artifacts.candidateHash)))) break;
     if (entry) current[stage] = entry;
   }
@@ -61,24 +62,24 @@ export async function continueStages({
   clock = Date.now,
   ciTimeout = 600000,
   repairIntegration = true,
-  reviewRepairs = 2,
+  correctionRepairs = 2,
 }) {
   const previous = await store.load();
   const changed = await refreshRequirements(previous);
   const initial = changed ? {} : await currentReceipts(store, previous);
-  const repairReview = async (review) => {
+  const repairCandidate = async (rejected) => {
     await inspect();
     const repaired = await execute('deliver');
     if (repaired.status !== 'completed') return repaired;
     const delivery = await store.get(repaired.receiptHash);
     const candidate = await store.get(delivery.artifacts.candidateHash);
-    if (await equivalentCandidate(store, candidate, review.artifacts.candidateHash)) {
+    if (await equivalentCandidate(store, candidate, rejected.artifacts.candidateHash)) {
       return { schemaVersion: 1, stage: 'deliver', status: 'denied',
-        code: 'REVIEW_REPAIR_DID_NOT_CHANGE_CANDIDATE' };
+        code: 'CORRECTION_DID_NOT_CHANGE_CANDIDATE' };
     }
     return continueStages({
       store, execute, refreshRequirements, inspect, wait, clock, ciTimeout,
-      repairIntegration, reviewRepairs: reviewRepairs - 1,
+      repairIntegration, correctionRepairs: correctionRepairs - 1,
     });
   };
   let gap = false;
@@ -89,8 +90,8 @@ export async function continueStages({
     }
     requireThat(!gap, 'NONCONTIGUOUS_STAGE_RECEIPTS');
     if (initial[stage].outcome !== stageSuccess[stage]) {
-      if (stage === 'review-pr' && initial[stage].outcome === 'changes_required' &&
-        reviewRepairs > 0) return repairReview(initial[stage]);
+      if (correctionStages.has(stage) && initial[stage].outcome === 'changes_required' &&
+        correctionRepairs > 0) return repairCandidate(initial[stage]);
       if (await stoppedAgentCanRestart(store, stage, initial[stage])) {
         delete initial[stage];
         gap = true;
@@ -125,16 +126,17 @@ export async function continueStages({
       return continueStages({
         store, execute, refreshRequirements, inspect, wait, clock, ciTimeout,
         repairIntegration: false,
-        reviewRepairs,
+        correctionRepairs,
       });
     }
-    if (stage === 'review-pr' && result.status === 'denied' && reviewRepairs > 0 &&
-      result.code === 'STAGE_REQUIRES_CORRECTION' && result.receiptHash) {
-      const review = await store.get(result.receiptHash);
+    if (correctionStages.has(stage) && result.status === 'denied' &&
+      correctionRepairs > 0 && result.code === 'STAGE_REQUIRES_CORRECTION' &&
+      result.receiptHash) {
+      const rejected = await store.get(result.receiptHash);
       const current = await store.load();
-      if (review.outcome === 'changes_required' &&
+      if (rejected.outcome === 'changes_required' &&
         current[stage] && digest(current[stage]) === result.receiptHash) {
-        return repairReview(review);
+        return repairCandidate(rejected);
       }
     }
     if (result.status !== 'completed') return result;

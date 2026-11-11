@@ -44,6 +44,57 @@ async function fixture(t) {
 }
 const request = { schemaVersion: 1, stage: 'shape' };
 
+test('Deliver integrates an adopted PR with current main before Accept', async () => {
+  const context = stageFixture();
+  const pin = { number: 15 };
+  const old = { base: '1'.repeat(40) };
+  const rebased = { base: '2'.repeat(40) };
+  context.adoptedCandidate = pin;
+  context.rebaseTarget = rebased.base;
+  let restored = false;
+  const handler = stageHandlers({
+    agent: { run: async () => assert.fail('Equivalent rebase needs no Writer') },
+    workspace: {
+      restoreAdoptedCandidate: async (value, shape) => {
+        assert.deepEqual(value, pin);
+        assert.equal(shape, context.shape.body);
+        restored = true;
+        return old;
+      },
+      rebase: async (candidate, shape, base) => {
+        assert.ok(restored);
+        assert.equal(candidate, old);
+        assert.equal(shape, context.shape.body);
+        assert.equal(base, rebased.base);
+        return { status: 'rebased', candidate: rebased, contentChanged: false };
+      },
+    },
+  }).deliver;
+  const outcome = await handler.perform(context);
+  assert.deepEqual(outcome.retainedCandidate, rebased);
+  assert.match(outcome.reference, /\/pulls\/15$/);
+});
+
+test('Deliver receives independent Accept findings for its Candidate', async () => {
+  const context = stageFixture();
+  const candidateHash = digest(context.candidate);
+  const findings = ['Fix the installation instructions.'];
+  context.receipts.deliver = { artifacts: { candidateHash } };
+  context.receipts.accept = {
+    outcome: 'changes_required',
+    artifacts: { candidateHash, shapeHash: context.shape.hash },
+    findings,
+  };
+  const handler = stageHandlers({
+    agent: { run: async (stage, input) => {
+      assert.equal(stage, 'deliver');
+      assert.deepEqual(input.correctionFindings, findings);
+      return { status: 'completed' };
+    } },
+  }).deliver;
+  assert.equal((await handler.perform(context)).status, 'completed');
+});
+
 test('a published Shape is loaded verbatim without starting Author', async t => {
   const f = await fixture(t);
   const body = f.context.shape.body;

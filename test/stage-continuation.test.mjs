@@ -136,10 +136,10 @@ test('provider branch update repairs once and resumes protected delivery', async
   assert.equal(f.calls.filter(stage => stage === 'accept').length, 1);
 });
 
-test('review changes go through Deliver and fresh Accept before merge', async () => {
+async function assertCorrectionContinues(failedStage) {
   const f = fixture();
   const execute = f.options.execute;
-  let candidateHash, revision = 0, reviewed = false;
+  let candidateHash, revision = 0, rejected = false;
   f.options.execute = async stage => {
     if (stage === 'deliver') {
       const candidate = {
@@ -154,8 +154,8 @@ test('review changes go through Deliver and fresh Accept before merge', async ()
     if (!candidateHash) return result;
     const receipt = f.receipts[stage];
     receipt.artifacts = { candidateHash };
-    if (stage === 'review-pr' && !reviewed) {
-      reviewed = true;
+    if (stage === failedStage && !rejected) {
+      rejected = true;
       receipt.outcome = 'changes_required';
       result.status = 'denied';
       result.code = 'STAGE_REQUIRES_CORRECTION';
@@ -165,12 +165,14 @@ test('review changes go through Deliver and fresh Accept before merge', async ()
     return result;
   };
   assert.equal((await continueStages(f.options)).stage, 'close');
-  assert.deepEqual(f.calls.slice(3), [
-    'deliver', 'pre-accept-hooks', 'accept', 'post-accept-hooks',
-    'commit-pr', 'review-pr', 'deliver', 'pre-accept-hooks', 'accept',
-    'post-accept-hooks', 'commit-pr', 'review-pr', 'merge', 'close',
-  ]);
-});
+  const stages = Object.keys(stageSuccess).slice(3);
+  const failedPrefix = stages.slice(0, stages.indexOf(failedStage) + 1);
+  assert.deepEqual(f.calls.slice(3), [...failedPrefix, ...stages]);
+}
+test('Accept changes go through Deliver and fresh Accept before merge', () =>
+  assertCorrectionContinues('accept'));
+test('Review changes go through Deliver and fresh Accept before merge', () =>
+  assertCorrectionContinues('review-pr'));
 
 test('unchanged rebase retains hooks, Accept and Final Review evidence', async () => {
   const f = fixture();
