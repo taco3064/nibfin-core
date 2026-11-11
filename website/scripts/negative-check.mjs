@@ -1,11 +1,10 @@
+import { websiteFixture } from './fixture.mjs';
 import assert from 'node:assert/strict';
-import { cp, mkdir, mkdtemp, readFile, writeFile, rm } from 'node:fs/promises';
-import { resolve, join } from 'node:path';
+import { readFile, writeFile, rm } from 'node:fs/promises';
+import { join } from 'node:path';
 import { runNpm } from './process.mjs';
 
-// Keep the disposable workspace beneath the installed root for dependency lookup.
-await mkdir(resolve('.npm'), { recursive: true });
-const directory = await mkdtemp(resolve('.npm/website-controls-'));
+const directory = await websiteFixture('nibfin-website-controls-');
 const copy = join(directory, 'website');
 function check(expected) {
   const result = runNpm(['run', 'check', '--prefix', copy]);
@@ -16,8 +15,6 @@ function check(expected) {
 }
 let cleanupSafe = true;
 try {
-  await cp('website', copy, { recursive: true,
-    filter: (path) => !/(?:^|\/)(?:dist|\.astro|node_modules)(?:\/|$)/.test(path) });
   check();
   const bad = join(copy, 'src/doc03-bad.tsx');
   await writeFile(bad, 'const bad: number = "wrong";\n' +
@@ -28,8 +25,15 @@ try {
   const index = join(copy, 'src/content/docs/index.md');
   const content = await readFile(index, 'utf8');
   await writeFile(index, content.replace(/^title:.*\n/m, ''));
+  const { digest } = await import('./source-claims.mjs');
+  const auditPath = join(copy, 'evidence/checklist.json');
+  const audit = JSON.parse(await readFile(auditPath, 'utf8'));
+  audit.pages['index.md'].sha256 = digest(await readFile(index));
+  await writeFile(auditPath, JSON.stringify(audit));
   check(/title[\s\S]*(?:Required|required)/);
   await writeFile(index, content);
+  audit.pages['index.md'].sha256 = digest(content);
+  await writeFile(auditPath, JSON.stringify(audit));
   check();
   const navigation = join(copy, 'navigation.mjs');
   const sidebar = await readFile(navigation, 'utf8');

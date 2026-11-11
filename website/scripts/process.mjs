@@ -1,8 +1,9 @@
 import { spawnSync } from 'node:child_process';
 import {
-  mkdirSync, mkdtempSync, openSync, closeSync, readFileSync, rmSync,
+  mkdtempSync, openSync, closeSync, readFileSync, rmSync,
 } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 
 export function processGroupAbsent(pid) {
   try { process.kill(-pid, 0); return false; }
@@ -31,8 +32,7 @@ function stopDescendants(pid) {
 export function runNpm(args, {
   timeout = 120000, env = process.env, cwd = process.cwd(),
 } = {}) {
-  const parent = resolve('.npm');
-  mkdirSync(parent, { recursive: true });
+  const parent = tmpdir();
   const directory = mkdtempSync(join(parent, 'website-command-'));
   const paths = ['stdout', 'stderr'].map((name) => join(directory, name));
   const descriptors = [];

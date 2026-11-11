@@ -1,23 +1,13 @@
+import { websiteFixture } from './fixture.mjs';
 import assert from 'node:assert/strict';
-import { cp, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { runNpm } from './process.mjs';
 import { inspectIslandOutput } from './island-output.mjs';
 
-const directory = await mkdtemp(join(tmpdir(), 'nibfin-island-controls-'));
+const directory = await websiteFixture('nibfin-island-controls-');
 let cleanupSafe = true;
 try {
-  await cp('package.json', join(directory, 'package.json'));
-  await cp('website', join(directory, 'website'), { recursive: true,
-    filter: (path) => !/(?:^|\/)(?:dist|\.astro|node_modules)(?:\/|$)/.test(path) });
-  // Astro's virtual style modules require dependencies inside the fixture root.
-  await cp('node_modules', join(directory, 'node_modules'), { recursive: true,
-    verbatimSymlinks: true,
-    filter: (path) => !/\/(?:\.astro|\.vite|\.cache)(?:\/|$)/.test(path) });
-  await cp('website/node_modules', join(directory, 'website/node_modules'),
-    { recursive: true, verbatimSymlinks: true,
-      filter: (path) => !/\/(?:\.astro|\.vite)(?:\/|$)/.test(path) });
   const content = join(directory, 'website/src/lib/reading-example.ts');
   const original = await readFile(content, 'utf8');
   await writeFile(content, original.replace('console.log(message);',

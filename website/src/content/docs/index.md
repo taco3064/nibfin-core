@@ -1,21 +1,37 @@
 ---
 title: Nibfin documentation
-description: Architecture, protected delivery, security and verification boundaries.
+description: Public onboarding and availability for Nibfin.
 ---
 
-This is the English documentation workspace for Nibfin.
+Nibfin helps people deliver changes through GitHub Issues, independent shaping
+and acceptance, and protected review and merge. Core owns delivery rules, Action
+is the thin workflow entry, and CLI owns onboarding and Runner operations.
 
-Nibfin is being developed to support trusted delivery through GitHub Issues,
-independent shaping and acceptance, and protected review and merge.
-This page does not establish availability, installation instructions or a release.
+Start with [Getting Started](getting-started/), then read
+[installation](installation/), [CLI usage](cli/) and [Runners](runners/).
+The [theme reading sample](theme/) demonstrates shared reading components.
 
-Product requirements belong to the authoritative product proposal. These pages
-will provide a public reading guide to verified behavior and published sources.
-They do not control Issues, runners, authorization, CI or merging.
+## Availability vocabulary
 
-The [theme reading sample](theme/) demonstrates shared visual semantics.
-This workspace does not establish
-production publication or published-site accessibility.
+**Released/Installed** distinguishes a verified formal release from an installed
+candidate for an exact version and configuration. Neither implies the other.
+**Planned** means authorized future work. **Unverified** means observations are
+insufficient. **Unsupported** requires evidence of an unsupported interface or
+configuration. Missing network evidence means Unverified, never Unsupported.
+CI success, lifecycle labels and production support are separate observations.
+
+<!-- claim:availability -->
+Unverified: formal Core, Action and CLI releases, assets and fresh-user installation
+have not been independently read back for this guide. Installation commands are
+unavailable here. This is not a claim that releases do not exist.
+<!-- /claim -->
+
+The checked-in [source checklist](https://github.com/taco3064/nibfin-core/tree/main/website/evidence)
+records observation limits. These pages are a public projection, not another
+product policy store. Local website checks do not establish live Pages publication
+or product onboarding E2E.
+
+## Further reading
 
 Start with the public reading guides:
 

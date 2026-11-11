@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile, readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 
-export const english = 'This is the English documentation workspace for Nibfin.';
+export const english = 'Nibfin helps people deliver changes through GitHub Issues,';
 
 // Inspect Astro output, rather than maintaining a parallel route list.
 export async function inspectOutput(base, directory = 'website/dist') {
