@@ -77,7 +77,7 @@ prepare() {
 }
 
 publish_action() {
-  local repo=taco3064/nibfin-act head number ci
+  local repo=taco3064/nibfin-act head number ci status
   local branch="cd/action-${core:0:12}"
   prepare nibfin-act action
   number=$(gh pr list -R "$repo" --state open --head "$branch" \
@@ -101,7 +101,15 @@ publish_action() {
     sleep 10
   done
   : "${ci:?Action PR CI did not start}"
-  gh run watch -R "$repo" "$ci" --exit-status
+  for ((attempt=0; attempt<90; attempt++)); do
+    status=$(gh api "repos/$repo/actions/runs/$ci" --jq .conclusion)
+    [[ -z "$status" ]] || break
+    sleep 10
+  done
+  if [[ "$status" != success ]]; then
+    printf 'Action PR CI %s concluded %s\n' "$ci" "${status:-still running}" >&2
+    return 1
+  fi
   gh pr merge -R "$repo" "$number" --rebase --match-head-commit "$head"
   action=$(gh pr view -R "$repo" "$number" --json mergeCommit --jq .mergeCommit.oid)
 }

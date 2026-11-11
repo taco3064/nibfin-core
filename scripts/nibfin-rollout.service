@@ -1,0 +1,10 @@
+[Unit]
+Description=Apply a verified Nibfin Core rollout
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /usr/local/libexec/nibfin/host-auto-rollout.py
+TimeoutStartSec=10min
+UMask=0077
