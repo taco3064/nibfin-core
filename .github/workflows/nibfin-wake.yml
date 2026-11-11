@@ -1,5 +1,5 @@
 name: Nibfin adopted dispatch
-# Core source: 89fff6addb34a8b0347dba90bd602208a0becad8
+# Core source: 26aabf42494c43dfac6dc67a1237bff608306e52
 on:
   workflow_dispatch:
     inputs:
@@ -19,7 +19,7 @@ jobs:
     timeout-minutes: 180
     steps:
       - uses: "taco3064/nibfin-act@\
-          11b6c6bd6b1edadade0369018d3c55b0eef633c7"
+          cad8bb2c65cdb31e77ce23529e2a083f440e16ee"
         with:
           issue-number: ${{ inputs.issue_number }}
           stage: ${{ inputs.stage }}
