@@ -76,6 +76,35 @@ export class CandidateWorkspace {
     );
     return result.stdout;
   }
+  async #fetch(commit, depth) {
+    await this.#command([
+      'fetch',
+      '--no-tags',
+      '--no-recurse-submodules',
+      `--depth=${depth}`,
+      `https://github.com/${this.#issue.repository}.git`,
+      commit,
+    ]);
+    requireThat(
+      (await this.#command(['rev-parse', 'FETCH_HEAD'])).toString().trim() ===
+        commit,
+      'FETCHED_COMMIT_MISMATCH',
+    );
+  }
+  async #safeTree(commit) {
+    const tree = (await this.#command(['ls-tree', '-r', '-z', commit]))
+      .toString()
+      .split('\0')
+      .filter(Boolean);
+    requireThat(
+      tree.every(
+        (entry) =>
+          /^(100644|100755) blob [a-f0-9]{40}\t/.test(entry) &&
+          safeCandidatePath(entry.split('\t')[1]),
+      ),
+      'UNSUPPORTED_SOURCE_TREE',
+    );
+  }
   async prepare(base) {
     requireThat(isSha(base), 'INVALID_WORKSPACE_BASE');
     await this.#privateRoot();
@@ -88,36 +117,39 @@ export class CandidateWorkspace {
       ['init', '--bare', join(this.#root, 'repository.git')],
       { cwd: this.#root, env: this.#env },
     );
-    await this.#command([
-      'fetch',
-      '--no-tags',
-      '--no-recurse-submodules',
-      '--depth=1',
-      `https://github.com/${this.#issue.repository}.git`,
-      base,
-    ]);
-    requireThat(
-      (await this.#command(['rev-parse', 'FETCH_HEAD'])).toString().trim() ===
-        base,
-      'FETCHED_BASE_MISMATCH',
-    );
-    // Reject non-regular source entries before any checkout can create links.
-    const tree = (await this.#command(['ls-tree', '-r', '-z', base]))
-      .toString()
-      .split('\0')
-      .filter(Boolean);
-    requireThat(
-      tree.every(
-        (entry) =>
-          /^(100644|100755) blob [a-f0-9]{40}\t/.test(entry) &&
-          safeCandidatePath(entry.split('\t')[1]),
-      ),
-      'UNSUPPORTED_SOURCE_TREE',
-    );
+    await this.#fetch(base, 1);
+    await this.#safeTree(base);
     await this.#command(['read-tree', base]);
     await this.#command(['checkout-index', '--all']);
     await writeFile(join(this.#root, 'base'), base, { flag: 'wx', mode: 0o600 });
     return { base, directory: this.work };
+  }
+  async restoreAdoptedCandidate(pin, shapeBody) {
+    await this.#privateRoot();
+    requireThat(isSha(pin.head) && isSha(pin.parent) && isSha(pin.tree) &&
+      isDigest(pin.candidateHash), 'INVALID_OPEN_PR_ADOPTION');
+    const basePath = join(this.#root, 'base');
+    const base = await readFile(basePath, 'utf8');
+    requireThat(isSha(base), 'INVALID_WORKSPACE_BASE');
+    await this.#command(['read-tree', base]);
+    const modified = await this.#command([
+      'diff', '--name-only', '--no-ext-diff', '--no-textconv', base, '--',
+    ]);
+    const untracked = await this.#command(['ls-files', '--others', '-z']);
+    requireThat(modified.length === 0 && untracked.length === 0,
+      'OPEN_PR_WORKSPACE_NOT_CLEAN');
+    await this.#fetch(pin.head, 2);
+    const tree = await this.#command(['rev-parse', `${pin.head}^{tree}`]);
+    const parents = await this.#command(['rev-list', '--parents', '-n', '1', pin.head]);
+    requireThat(tree.toString().trim() === pin.tree &&
+      parents.toString().trim() === `${pin.head} ${pin.parent}`,
+    'OPEN_PR_ADOPTION_CHANGED');
+    await this.#safeTree(pin.head);
+    await this.#command(['read-tree', '-m', '-u', base, pin.head]);
+    await writeFile(basePath, pin.parent, { mode: 0o600 });
+    const candidate = await this.capture(shapeBody);
+    requireThat(digest(candidate) === pin.candidateHash, 'OPEN_PR_CANDIDATE_MISMATCH');
+    return candidate;
   }
   async clearIgnoredDependencies(shapeBody) {
     await this.#privateRoot();

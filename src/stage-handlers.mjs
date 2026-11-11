@@ -35,6 +35,17 @@ export function stageHandlers({
               digest(context.candidate),
             'REVIEW_CANDIDATE_CHANGED',
           );
+        if (stage === 'deliver' && context.adoptedCandidate) {
+          const pin = context.adoptedCandidate;
+          const candidate = await workspace.restoreAdoptedCandidate(pin,
+            context.shape.body);
+          return {
+            retainedCandidate: candidate,
+            reference: context.issue.url.replace(
+              /\/issues\/\d+$/, `/pulls/${pin.number}`,
+            ),
+          };
+        }
         let rebase;
         if (stage === 'deliver' && context.rebaseTarget) {
           rebase = await workspace.rebase(
@@ -85,7 +96,7 @@ export function stageHandlers({
           const candidateHash = await store.put(candidate);
           return {
             outcome: 'ready', findings: [],
-            references: ['evidence:' + digest(context.candidate)],
+            references: [execution.reference ?? 'evidence:' + digest(context.candidate)],
             artifacts: { shapeHash: context.shape.hash, candidateHash },
           };
         }

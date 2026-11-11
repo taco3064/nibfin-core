@@ -13,7 +13,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { CandidateWorkspace } from '../src/workspace.mjs';
 import { command } from '../src/process.mjs';
-import { sha256 } from '../src/identity.mjs';
+import { digest, sha256 } from '../src/identity.mjs';
 
 const shape =
   'Shape\n```kairo-candidate\n' +
@@ -68,7 +68,7 @@ async function fixture(t) {
     { run },
   );
   await workspace.prepare(base);
-  return { workspace, root, directory, base, seed, git };
+  return { workspace, root, directory, base, seed, git, run };
 }
 
 test('capture and commit bind files, artifacts and tree', async (t) => {
@@ -95,6 +95,42 @@ test('capture and commit bind files, artifacts and tree', async (t) => {
     f.workspace.commit(candidate, shape, '2026-11-03T00:00:00Z'),
     /CANDIDATE_CHANGED_AFTER_ACCEPT/,
   );
+});
+
+test('adopted PR recovery restores the candidate and preserves dirty work', async t => {
+  const f = await fixture(t);
+  await writeFile(join(f.workspace.work, 'source.txt'), 'Changed\n');
+  await writeFile(join(f.workspace.work, 'proof.txt'), 'Passed\n');
+  const candidate = await f.workspace.capture(shape);
+  await writeFile(join(f.seed, 'source.txt'), 'Changed\n');
+  await writeFile(join(f.seed, 'proof.txt'), 'Passed\n');
+  await f.git(['add', '.']);
+  await f.git(['commit', '-m', 'Published candidate']);
+  const head = await f.git(['rev-parse', 'HEAD']);
+  await f.git(['checkout', '--detach', f.base]);
+  await writeFile(join(f.seed, 'main.txt'), 'Current main\n');
+  await f.git(['add', '.']);
+  await f.git(['commit', '-m', 'Advance main']);
+  const newBase = await f.git(['rev-parse', 'HEAD']);
+  const root = join(f.directory, 'adopted');
+  await mkdir(root, { mode: 0o700 });
+  const issue = { id: 'I_target', repository: 'example/core', repositoryId: 10,
+    number: 2 };
+  const workspace = new CandidateWorkspace(root, issue, { run: f.run });
+  await workspace.prepare(newBase);
+  const pin = { head, parent: f.base, tree: candidate.tree,
+    candidateHash: digest(candidate) };
+  const path = join(workspace.work, 'source.txt');
+  await writeFile(path, 'Unfinished work\n');
+  await assert.rejects(workspace.restoreAdoptedCandidate(pin, shape),
+    /OPEN_PR_WORKSPACE_NOT_CLEAN/);
+  assert.equal(await readFile(path, 'utf8'), 'Unfinished work\n');
+  await writeFile(path, 'Original\n');
+  assert.deepEqual(await workspace.restoreAdoptedCandidate(pin, shape), candidate);
+  const rebased = await workspace.rebase(candidate, shape, newBase,
+    '2026-11-03T00:00:00Z');
+  assert.equal(rebased.status, 'rebased');
+  assert.equal(rebased.contentChanged, false);
 });
 
 test('retry removes ignored npm dependencies and preserves source', async t => {
