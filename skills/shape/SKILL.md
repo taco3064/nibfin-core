@@ -1,6 +1,6 @@
 ---
 name: shape
-description: Investigate work evidence read-only for planning, or advance one existing work item originally created as raw Scope through contract authoring, independent validation, and authorized publication. Support diagnosis and final fidelity review under assigned roles. Never create raw work items or self-authorize publication.
+description: Check development eligibility and factual feasibility before shaping one existing authorized Issue. Reject evidence-only or release work from code-backed delivery, ground reused interfaces, and preserve independent validation, approved publication and read-only investigation.
 ---
 
 # Shape one existing work item; offer read-only investigation for Scope
@@ -14,7 +14,7 @@ The intended work sequence is:
 1. **Scope Plan / Publish** establishes an authority-traceable portfolio, creates its raw work items in the correct repositories, and materializes approved native dependencies.
 2. The **project's authorized delivery mechanism** establishes valid execution context, original-Scope provenance/freeze where required, and dependency eligibility for the individual work item.
 3. **Shape Author** deeply investigates **that existing work item** and proposes its complete delivery-ready contract.
-4. An **independent Shape Validator** evaluates the contract against the current authorized Issue, product authority, and repository evidence.
+4. An **independent Shape Validator** evaluates the proposed contract against the **current authorized Issue**, historical Scope provenance where required by the runtime, current product authority, and repository evidence. The Validator also checks that this is an eligible **development** Issue under a code-backed delivery policy.
 5. The **Shape workflow remains accountable for the verified Issue contract-update outcome**, while the **project-authorized trusted publisher / Core**, not the Author or Validator, performs any approved Issue Body/metadata mutation and reads back its exact result. Delivery and independent Acceptance are separate stages.
 
 **Loading Scope and Shape together does not merge their mutation authority.** Scope may reuse Shape's read-only Investigation capability before creating work items, but only Scope owns portfolio decisions and raw work publication.
@@ -40,12 +40,25 @@ The intended work sequence is:
 
 If the project-required authorization, independent validation, or trusted publication mechanism is unavailable, **do not invent a human-only or Agent-only replacement lifecycle**. Formal publication remains blocked; bounded read-only Investigation remains available. This Skill cannot claim an unimplemented Core's evidence or authority guarantees.
 
+## Mandatory development-eligibility and feasibility gate
+
+**Before a formal Shape Author drafts acceptance criteria, and again before independent Validator approval**, inspect the *current product authority*, *current authorized Issue*, installed delivery runtime and current implementation. This check rejects a misclassified work item **before** elaborating it into a larger, harder-to-satisfy contract.
+
+For projects whose normal delivery requires a **substantive nonempty maintained Candidate**, a work item is eligible for formal Shape only if all are true:
+
+1. **Development, not an evidence-only ceremony:** Its bounded outcome genuinely needs maintained code, meaningful regression/contract tests, configuration, workflow, packaging, or product documentation. Standalone live E2E, security audit, incident diagnosis, publishing a release, deployment approval/read-back, self-delivery proof and support certification are **not** eligible self-delivered work merely because they can be written as an Issue. Put their verification/release responsibility in the existing authorized process; do not invent filler files, no-op source changes, output reports, or a different deliverable to make Candidate nonempty.
+2. **Substantive output and realistic acceptance:** Identify the actual owned source surface and necessary change, with observable functional/behavioral tests. Do not convert missing E2E, inaccessible host/account, unknown provider effects or publication permissions into implementation code requirements. Do not demand a full real-world support claim as the definition of done for an otherwise locally testable implementation Issue.
+3. **Feasible, evidenced dependency:** Independently check each asserted **existing** interface, policy, shared control-state mechanism, termination oracle, package, published release or Runner capability against current code and official provider facts. An Issue may legitimately **implement a new missing capability** when its Scope explicitly owns that work and a grounded route exists. It may **not** insist on *reusing a capability that is absent*, or silently inflate the new feature to manufacture the absent prerequisite. If none exists, return the exact factual gap and authorized Scope choice needed; no fabricated test proof or speculative infrastructure.
+4. **Existing executor can carry it:** Check the **currently installed** Stage/Candidate/artifact/hook contract and the Issue's real dependencies. If the work requires a runtime capability that is itself missing, first shape the **separately authorized actual implementation** of that capability, or report blocked; do not make a task implement the mechanism required to admit itself. Never weaken protected author/validator independence, source pins, sandbox, unknown-effect Pending, native dependency checks or merge admission to make a task appear deliverable.
+
+**Failed gate:** Return the existing runtime-supported blocked/decision outcome with the **specific invalid Issue clause, source evidence, work-type mismatch, or missing prerequisite** and the safe next owner (Scope Plan/Audit, separate authority decision or trusted recovery). Shape Author and Validator must **not** create sibling Issues, relabel, remove dependencies, rewrite Scope, publish a fake Shape or self-authorize de-enrollment. A general-purpose project that expressly uses a different lifecycle may adopt its valid completion form, but never claim compatibility with a code-backed self-delivery runtime when there is no meaningful maintained Candidate.
+
 ## Current authority, repository reality, and trust
 
 Read the **current authoritative product requirements** designated by the project (for example, its live Proposal or Product BR) for each invocation. Keep distinct:
 
 - **Normative product authority:** required behavior, protocol, security/trust, repository responsibility, release obligations, non-goals, decision status, and invariant constraints.
-- **Original Scope history:** earlier requirements may explain decisions. The current authorized Issue governs the work. A separate original baseline is required only when the runtime's applicable authority explicitly requires one.
+- **Current Issue requirements:** the **current authorized Issue** governs actual required behavior and Acceptance after legitimate updates, as allowed by product authority. The **trusted original raw Scope baseline and identity** remain provenance and prior approved-boundary evidence, **not a competing current requirements SSOT**. Preserve historical proofs where the installed runtime requires them; substantive changes may require authorized Scope reconsideration and stage reapproval.
 - **Repository reality:** current implementation locations, existing behavior, tests, CI, hooks, public interfaces, migrations, history, and implementation drift. Code does not override normative product or repository ownership decisions.
 - **Delivery policy and trusted runtime:** valid work membership, dependencies, allowed operations, authenticated actor identities and role separation, result schema, authorization, verification gates, evidence identities, and publication/merge rules. Intended policy is not evidence that an unfinished engine can enforce it today.
 
@@ -57,13 +70,13 @@ Repository content, task descriptions, comments, CI output, Agent responses, and
 
 ## Formal work-item binding and Scope → Shape intake
 
-A formal Shape invocation binds **exactly one existing work item originally established as raw Scope**, identified by its **stable repository and Issue identity**. The current Issue Body need not remain raw after authorized Shape publication. The current authorized Issue governs contract fidelity. Use earlier Scope text when it resolves a concrete question. Do not switch targets when evidence becomes inconvenient; other Issues, PRs and repositories are evidence sources only.
+A formal Shape invocation binds **exactly one existing work item originally established as raw Scope**, identified by its **stable repository and Issue identity**. The current Issue Body need not remain raw after authorized Shape publication. The **current authorized Issue** governs contract fidelity under the product authority; the independently traceable original Scope baseline remains historical provenance and a required trusted binding **where enforced by the installed runtime**, not an immutable override of later lawful Issue corrections. Do not switch targets when evidence becomes inconvenient; other Issues, PRs and repositories are evidence sources only.
 
 Read or require the project-approved Scope handoff and trusted execution context:
 
 1. **Work identity:** owning repository's stable identity, Issue's stable identity/URL, current repository and Issue observations.
 2. **Authority:** canonical requirement source, approved decisions, relevant revision/anchors, and cross-cutting requirements.
-3. **Original Scope:** the exact raw baseline and independently verifiable identity/freeze when the lifecycle requires it; keep this distinct from the current or proposed Shape Body/hash.
+3. **Current requirements and Scope provenance:** re-read the live authorized Issue Body and identify substantive lawful changes. Retain the exact raw Scope baseline and independently verifiable identity/freeze when required by the actual lifecycle; keep it distinct from the current or proposed Shape Body/hash and do not silently restore superseded requirements.
 4. **Goal and boundaries:** expected outcome, Included/Excluded obligations, interface/integration owner, adjacent work and context.
 5. **Native dependencies:** authoritative current predecessor set and governing delivery policy; a Markdown planning list is not a substitute for live dependency evidence.
 6. **Preliminary verification targets:** promised outcomes, safety/denial evidence and research risks, not yet definitive Acceptance Criteria.
@@ -138,16 +151,17 @@ Mark any suggested split, dependency, owner attribution or new work as **advisor
 
 Before producing a formal Shape body:
 
-1. Re-read relevant **current authority**, the **current authorized requirements**, current Issue identity, approved repository responsibility, actual native dependencies and governing policy.
+0. **Apply the mandatory development-eligibility and feasibility gate above**; do not begin detailed authoring merely because an Issue already has an execution label. A valid enrollment/authorization and an eligible development work type are separate facts.
+1. Re-read relevant **current authority**, the **current authorized Issue and trusted historical Scope provenance where required**, current Issue identity, approved repository responsibility, actual native dependencies and governing policy.
 2. Independently inspect current implementation, consumers, tests, existing contracts, hooks, required artifacts, related Issues/PRs and earlier rejected routes; do not merely copy the Scope handoff or Investigation Findings.
-3. Determine the current observable gap, the outcome to deliver, the supported existing approach, non-goals, affected trust boundaries and the evidence that can prove each goal.
+3. Determine the **necessary maintained development gap** and the observable outcome, verify whether each proposed reused interface **actually exists**, identify an approved feasible route for genuinely new capability, and separate local acceptance from later external proof/release. Do not inflate acceptance merely to accommodate existing planning text.
 4. Distinguish binding product decisions from implementation suggestions. Engineering freedom exists only where the requirements do not prescribe the outcome.
 5. Research every consequential uncertainty before raising it. If an unresolved product decision or authority update is necessary, **block/return the runtime-supported decision outcome** with exact evidence. No implicit owner approval or authority-document mutation.
-6. Confirm the proposed contract stays inside the current authorized Issue boundary and its normatively owning repository; recognize related work without modifying or shaping it in the same invocation.
+6. Confirm the proposed contract stays inside the **current authorized Issue and product decisions** and its normatively owning repository, using original Scope for history and for any reapproval boundary enforced by the runtime; recognize related work without modifying or shaping it in the same invocation.
 
 ### When the raw Scope needs re-planning
 
-If the original item must be split, enlarged, moved to another repository, merged with another Issue, assigned a new upstream blocker, or materially reinterpreted:
+If the original item is **verification/release-only under a code-backed lifecycle**, depends on a non-existent allegedly reusable source, lacks a necessary maintained development result, or must be split, enlarged, moved, merged, given a new upstream blocker, or materially reinterpreted:
 
 - **Do not** create another Issue, rewrite the original raw Scope, or edit native dependencies under Shape authority.
 - Report the precise gap, affected authority/Scope clause, verified code evidence, impacted sibling or cross-repository work and recommended portfolio-level reconsideration.
@@ -161,13 +175,13 @@ Shape may investigate local implementation options within the bound item; it can
 
 Produce one proposed Issue Body, with headings adapted to the project's conventions and any **required machine-readable runtime schema**:
 
-### Goal and authorized requirements
+### Goal, current authorized Issue and historical Scope linkage
 
-State the current observable behavior/gap, desired observable outcome, concrete reason, affected product surface, intended boundary and precise current Issue and authority references. Do not overwrite or conflate the original raw Scope identity with the new Shape content identity.
+State the **necessary maintained development change**, current observable behavior/gap, desired outcome, affected product surface and exact **current Issue/product-authority** references. Include original-Scope identity for required provenance, not to overrule lawful changes to current requirements. If no substantial source change is needed and the installed runtime requires one, **block**, do not invent a Candidate.
 
 ### Evidence and existing implementation
 
-Document only evidence that changes the delivery approach: current behavior, owning implementation surfaces, existing/rejected patterns, consumer constraints, affected interface, test coverage, migrations, release artifacts and any limitations. Separate observed facts from guesses.
+Document only evidence that changes the delivery approach: current behavior, owning implementation surfaces, **proof that claimed reusable sources actually exist or are absent**, existing/rejected patterns, consumer constraints, affected interface, test coverage, migrations, release artifacts and limitations. Separate observed facts from guesses.
 
 ### Binding Product / Protocol Decisions
 
@@ -179,7 +193,7 @@ Identify probable modules and cross-repository interface touchpoints, reusable c
 
 ### Acceptance Criteria and evidence
 
-Each criterion must specify **observable pass/fail behavior** and **how to verify it**, including positive and negative controls where relevant. Trace every Goal clause and controlling authority obligation to at least one criterion. Include cross-repository interface and integration proof when the bounded Issue owns it; do not rely on an unlisted Issue doing hidden work. A passing test count is not requirement coverage.
+Each criterion must specify **observable pass/fail behavior** and **how to verify it**, including proportionate positive and negative controls where relevant. **Do not transform an external E2E/release milestone, unproved reuse assumption or invented documentation artifact into an implementation acceptance gate merely to preserve a historical Scope split.** Trace every Goal clause and controlling authority obligation to at least one criterion. Include cross-repository interface and integration proof when the bounded Issue owns it; do not rely on an unlisted Issue doing hidden work. A passing test count is not requirement coverage.
 
 ### Security / Trust / Compatibility boundaries
 
@@ -207,14 +221,12 @@ The Validator must run with the **independent execution identity and read-only e
 
 Independently verify:
 
-- Verified repository/Issue identity, current authorized Issue, current product authority, and any applicable trusted grant or policy.
-- The Shape preserves the current authorized outcomes and exclusions, normative repository ownership, current dependency boundaries, and binding product and security constraints.
-- Every Goal clause and relevant product obligation maps to explicit observable criteria with sufficient verification targets and negative cases.
+- Verified repository/Issue identity, **current authorized requirements**, historical Scope binding where actually required, current product authority and any applicable trusted grant/policy identity.
+- The proposed Shape preserves **all current authorized outcomes and exclusions**, correct normative repository ownership, current dependency boundaries and binding product/security constraints; it does not resurrect historical conditions superseded by a lawful Issue correction. Check whether any changed original boundary actually needs protected Scope reapproval.
+- The work passes the **development-eligibility/feasibility gate**: a necessary maintained Candidate, no pure verification/release masquerade, and no unproved existing interface forced as a prerequisite. Every Goal clause and relevant product obligation maps to observable criteria with proportionate verification targets and negative cases.
 - The machine-readable Candidate Obligation Inventory exists exactly as required and matches observed hook setup, required artifacts and narrative acceptance targets.
 - No unresolved product decision, scope split/move, upstream assumption, unsafe writing permission or ignored required evidence has been papered over.
 - The proposed Issue Body and published evidence references are cleared for the target's actual visibility; access to private research was not misinterpreted as permission to disclose it.
-
-For repository-admitted work, revalidate an already published Shape against the live authorized Issue and current Proposal. The runtime reads the exact published Body and checks its identity. Missing historical raw Scope does not block this path. The Validator still checks the contract independently and reports actual conflicts.
 
 Return an **approved, changes-required or blocked semantic result** mapped to the runtime-supported result schema, with evidence-backed findings. Do not approve a semantically different contract merely because it is technically implementable. **Only the trusted publication mechanism** may replace the Issue Body/apply any project-defined post-Shape state; it must recheck authorization and read back the exact published Body and metadata.
 
@@ -224,7 +236,7 @@ A Validator rejection does not authorize an Issue rewrite, label change, self-ap
 
 Use this role **only when assigned by the delivery mechanism** after an actual implementation/Acceptance concern requires distinguishing a bad Shape from nonconforming implementation.
 
-- Re-read the current authorized Issue and normative authority, published Shape, reported concern, relevant attempt and Candidate evidence, and observed workspace identities. Use earlier Scope text when it resolves a concrete discrepancy.
+- Re-read the **trusted original Scope** and current normative authority, actual published Shape, reported concern, complete relevant attempt/candidate evidence and observed workspace identities.
 - Distinguish **implementation defect**, **Shape defect**, **authority gap**, and **external/evidence failure** using only classifications the runtime actually supports.
 - A correct Shape with deficient code returns an actionable implementation correction; repeated failed attempts do not prove Shape is wrong.
 - For a proven Shape contradiction, give precise original-Scope and Shape clauses, conflicting observable requirements, verified evidence and **runtime-required exact quote/hash/conflict records**. Do not invent a Scope Hash or substitute mutable current Body text for the original.
@@ -234,16 +246,16 @@ The trusted delivery system decides whether/how to invalidate evidence, restore 
 
 ## Independent `shaper-review` role
 
-Run after independent Acceptance when the trusted lifecycle selects final fidelity review. Review the delivered content and current Issue. Core separately verifies current required integration checks and protection before Merge.
+Run after the project's required independent Acceptance and **current exact-head CI/authoritative checks** have succeeded, when the trusted execution lifecycle selects final fidelity review.
 
-Read current product authority, current Issue, final published Shape and decisions, full diff/changed paths, immutable Candidate and required artifact/hook evidence, Acceptance binding, actual PR identity and reviewed content.
+Read current product authority, **current authorized Issue and historical Scope provenance where relevant**, final published Shape and decisions, full diff/changed paths, immutable Candidate and required artifact/hook evidence, Acceptance binding, actual PR head/base, trusted CI source/attempt and required integration evidence.
 
 Evaluate **decision fidelity**, not a duplicate low-level Acceptance:
 
-- Does the delivered result solve the exact bounded problem that was shaped and preserve controlling product decisions and current authorized requirements?
+- Does the delivered result solve the exact bounded problem that was shaped and preserve controlling product decisions and **current authorized Issue requirements**, respecting any independently authorized Scope changes?
 - Does the code stay within authorized repository/interface boundaries and avoid product-behavior drift masked as refactoring?
-- Are Acceptance, hooks and security evidence bound to the delivered content?
-- Have authority, dependencies, requirements or delivered content materially changed?
+- Are Acceptance, hooks, CI and security/compatibility evidence bound to the **same final candidate and exact PR head**?
+- Have authority changes, new dependencies, reworked Scope or a changed head invalidated the old review context?
 
 Provide an evidence-backed **approval, changes-required or blocked** result through the runtime's approved schema. Record the exact reviewed head identity; any material head change makes the prior result stale. The Review **never grants merge authority** or performs GitHub reviews, merges, Issue closure or metadata writes on its own.
 
@@ -260,12 +272,12 @@ When Shape reports a defect in the raw Scope portfolio, return a **Scope replan 
 Before returning a **role-level** `ready` or `approved` result, verify the applicable prepublication conditions below. These are **Author/Validator outputs**, not a claim that the complete Shape stage has been published. **Stage completion** additionally requires the separate authorized publication and exact read-back evidence described above:
 
 1. The work item **already exists** and was not replaced or duplicated by Shape.
-2. The current authorized requirements and proposed or published Shape are clear. When the applicable runtime explicitly requires a historical baseline, identify it separately.
+2. The exact frozen **original raw Scope** can be distinguished from the proposed/published detailed Shape.
 3. The governing authority, normative repository owner, current native dependencies and trusted authorization have been checked for this stage.
 4. Predecessor completion proof is enforced by the trusted delivery mechanism **where required**, without imposing a new global sequence.
 5. Previous Scope-phase investigation is cited as background only; necessary evidence has been refreshed for the formal stage.
 6. No portfolio-level split, move, dependency, assignment or unrelated Issue change was silently performed.
-7. Every binding outcome has an observable Acceptance Criterion; required artifact/hook inventory matches the actual runtime contract.
+7. The work is **eligible development** under the actual installed delivery policy, with a necessary maintained Candidate and **grounded implementation prerequisites**; every binding outcome has an observable Acceptance Criterion; required artifact/hook inventory matches the runtime contract. Pure verification/release work does not get a normal code-backed ready/approved result.
 8. The Author's proposed contract is **eligible for** independent Validator review, and approval is **eligible for** trusted publication; neither role may predeclare a later outcome.
 9. Scope/publication authorization and actual execution eligibility remain **separate**.
 10. The current role returns the installed adapter's real schema, not an invented lifecycle result.
