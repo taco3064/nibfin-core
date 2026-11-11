@@ -65,7 +65,10 @@ export function codexPlan(stage, {
     },
     'permissions.nibfin.filesystem': {
       ':minimal': 'read', '/work': writable ? 'write' : 'read', '/input': 'read',
-      '/main': 'read', '/tmp': 'write', '/auth': 'deny', '/agent-home': 'deny',
+      // The fresh tmpfs has no Git metadata. A synthetic /tmp/.git would make
+      // every private Runner fixture look like a checkout to the CLI.
+      '/main': 'read', '/tmp': 'write', '/tmp/.git': 'write',
+      '/auth': 'deny', '/agent-home': 'deny',
       '/io': 'deny', '/session': 'read', '/proc': 'read',
     },
     'permissions.nibfin.network.enabled': true,
