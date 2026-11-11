@@ -144,6 +144,7 @@ for (const { name, control, reply, binding } of rejectedExchanges) {
       const request = mcpRequest(job, 'a'.repeat(64));
       socket.write(encodeMcpFrame(request));
       for (let i = 0; i < 100 && !f.forwarded(); i++) await setTimeout(10);
+      assert.deepEqual(JSON.parse(f.forwarded()), request);
       const upload = spawn('/usr/bin/perl', [f.source, '--response'], {
         env: {}, stdio: ['pipe', 'pipe', 'pipe'],
       });
