@@ -20,9 +20,8 @@ async function build(env) {
   });
 }
 
-async function verify(base, port) {
-  const env = { ...process.env, WEBSITE_BASE: base,
-    WEBSITE_SITE: 'https://example.org' };
+async function verify(base, port, site = 'https://example.org') {
+  const env = { ...process.env, WEBSITE_BASE: base, WEBSITE_SITE: site };
   await build(env);
   await inspectDeliveryOutput(base);
   await inspectLandingOutput(base);
@@ -121,5 +120,12 @@ async function verify(base, port) {
   }
 }
 
-await verify('/nibfin-core/', 4321);
-await verify('/alternate-docs/', 4322);
+if (process.argv.includes('--production')) {
+  const { WEBSITE_BASE, WEBSITE_SITE } = process.env;
+  assert(WEBSITE_BASE && WEBSITE_SITE, 'Pages origin and base are required');
+  await verify('/alternate-docs/', 4322);
+  await verify(WEBSITE_BASE, 4321, WEBSITE_SITE);
+} else {
+  await verify('/nibfin-core/', 4321);
+  await verify('/alternate-docs/', 4322);
+}
