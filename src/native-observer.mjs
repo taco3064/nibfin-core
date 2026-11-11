@@ -101,6 +101,12 @@ export function nativeObserver({
         }
       }
     }
+    if (stage === 'deliver' && pinned.openPr && !context.candidate &&
+      !receipts['commit-pr']) {
+      await readAdoptedOpenPr(reader, record.issue, pinned.openPr,
+        record.roles.publisher);
+      context.adoptedCandidate = pinned.openPr;
+    }
     if (stage === 'commit-pr' && pinned.openPr &&
       receipts['commit-pr']?.outcome !== 'published') {
       context.pr = await readAdoptedOpenPr(reader, record.issue, pinned.openPr,
