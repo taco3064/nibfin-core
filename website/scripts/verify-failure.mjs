@@ -19,7 +19,9 @@ try {
   await writeFile(join(directory, 'website/src/doc03-negative-control.tsx'),
     'const bad: number = "wrong";\n' +
     'export const Bad = () => <span>{bad}</span>;\n', { flag: 'wx' });
-  const result = runNpm(['run', 'verify'], { timeout: 240000,
+  const args = ['run', 'verify', '--', 'website/src/doc03-negative-control.tsx'];
+  const result = runNpm(args, {
+    timeout: 240000,
     cwd: directory,
     env: { ...process.env, NIBFIN_WEBSITE_PROPAGATION_CHILD: '1' } });
   assert.notEqual(result.status, 0, 'Root verify ignored invalid website source');
