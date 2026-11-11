@@ -11,7 +11,7 @@
   "packageManager": "npm@11.9.0",
   "scripts": {
     "check": "node scripts/check.mjs",
-    "test": "node --test test/*.test.mjs",
+    "test": "node --test --test-concurrency=2 test/*.test.mjs",
     "verify": "npm run website:check && npm run check && npm test && npm run website:ci",
     "website:check": "npm run check --workspace website",
     "website:build": "npm run build --workspace website",

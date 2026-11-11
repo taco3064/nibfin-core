@@ -7,6 +7,8 @@ import { candidateRuntimeContract } from './candidate-contract.mjs';
 const isolatedVerification = [
   'TRUSTED CORE VERIFICATION CONTRACT:',
   'Run the required checks supported by the assigned isolated environment.',
+  'Run verification commands one at a time and keep worker counts within the',
+  'Runner capacity. Use a combined check once when it covers the required checks.',
   'Use read-only /main when a focused source comparison helps.',
   '/work and /main are source snapshots without usable Git metadata.',
   'Do not add, expose, or reconstruct Git metadata in the role workspace.',
