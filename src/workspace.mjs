@@ -10,7 +10,7 @@ import {
   rm,
   unlink,
 } from 'node:fs/promises';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { command } from './process.mjs';
 import { digest, sha256, isDigest, isSha, requireThat } from './identity.mjs';
 import { validateIssueIdentity } from './approval-record.mjs';
@@ -76,13 +76,14 @@ export class CandidateWorkspace {
     );
     return result.stdout;
   }
-  async #fetch(commit, depth) {
+  async #fetch(commit, depth, localRepository) {
     await this.#command([
+      ...(localRepository ? ['-c', 'protocol.file.allow=always'] : []),
       'fetch',
       '--no-tags',
       '--no-recurse-submodules',
       `--depth=${depth}`,
-      `https://github.com/${this.#issue.repository}.git`,
+      localRepository ?? `https://github.com/${this.#issue.repository}.git`,
       commit,
     ]);
     requireThat(
@@ -90,6 +91,17 @@ export class CandidateWorkspace {
         commit,
       'FETCHED_COMMIT_MISMATCH',
     );
+  }
+  async #handoffRepository(name) {
+    if (name === undefined) return undefined;
+    requireThat(typeof name === 'string' && /^workspace-[a-f0-9]{64}$/.test(name),
+      'INVALID_HANDOFF_WORKSPACE');
+    const source = join(dirname(this.#root), name, 'repository.git');
+    const stat = await lstat(source);
+    requireThat(dirname(source) !== this.#root && stat.isDirectory() &&
+      stat.uid === process.getuid() && (stat.mode & 0o077) === 0 &&
+      await realpath(source) === source, 'UNTRUSTED_HANDOFF_WORKSPACE');
+    return source;
   }
   async #safeTree(commit) {
     const tree = (await this.#command(['ls-tree', '-r', '-z', commit]))
@@ -138,7 +150,7 @@ export class CandidateWorkspace {
     const untracked = await this.#command(['ls-files', '--others', '-z']);
     requireThat(modified.length === 0 && untracked.length === 0,
       'OPEN_PR_WORKSPACE_NOT_CLEAN');
-    await this.#fetch(pin.head, 2);
+    await this.#fetch(pin.head, 2, await this.#handoffRepository(pin.workspace));
     const tree = await this.#command(['rev-parse', `${pin.head}^{tree}`]);
     const parents = await this.#command(['rev-list', '--parents', '-n', '1', pin.head]);
     requireThat(tree.toString().trim() === pin.tree &&
