@@ -22,8 +22,11 @@ export async function inspectDeliveryOutput(base, directory = 'website/dist') {
       }
     }
     if (!route) {
+      const links = [...html.matchAll(/\shref="([^"]+)"/g)]
+        .map(([, raw]) => new URL(raw.replaceAll('&amp;', '&'), origin).href);
       for (const slug of ['architecture', 'lifecycle', 'security', 'limitations']) {
-        assert(html.includes(`href="${base}${slug}/"`), `Missing link: ${slug}`);
+        assert(links.includes(`${origin.origin}${base}${slug}/`),
+          `Missing link: ${slug}`);
       }
     }
   }
