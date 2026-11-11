@@ -232,6 +232,11 @@ export async function readPullRequestCI(reader, expected, now = Date.now()) {
       const run = runs[0];
       if (run.event !== 'pull_request') continue;
       const failed = !merged && ['failure', 'timed_out'].includes(check.conclusion);
+      const checkPending =
+        ['queued', 'in_progress', 'waiting', 'pending'].includes(check.status) &&
+        check.conclusion === null;
+      const checkFinished = check.status === 'completed' &&
+        (check.conclusion === 'success' || failed);
       if (
         !merged &&
         run.repository?.id === expected.repositoryId &&
@@ -241,9 +246,9 @@ export async function readPullRequestCI(reader, expected, now = Date.now()) {
         run.path === pin.path &&
         run.check_suite_id === check.check_suite.id &&
         ['queued', 'in_progress', 'waiting', 'pending'].includes(run.status) &&
-        ['queued', 'in_progress', 'waiting', 'pending'].includes(check.status) &&
+        check.head_sha === (onMerge.length ? previewSha : expected.head) &&
         run.conclusion === null &&
-        check.conclusion === null
+        (checkPending || checkFinished)
       )
         requireThat(false, 'CI_WAITING');
       requireThat(

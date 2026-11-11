@@ -536,6 +536,10 @@ test(
     Object.assign(f.check, { status: 'in_progress', conclusion: null });
     f.pr.mergeable_state = 'blocked';
     await assert.rejects(readPullRequestCI(f.reader, f.expected, now), /CI_WAITING/);
+    for (const conclusion of ['failure', 'success', 'timed_out']) {
+      Object.assign(f.check, { status: 'completed', conclusion });
+      await assert.rejects(readPullRequestCI(f.reader, f.expected, now), /CI_WAITING/);
+    }
     f.run.head_sha = '9'.repeat(40);
     await assert.rejects(
       readPullRequestCI(f.reader, f.expected, now),
