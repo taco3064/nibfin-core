@@ -54,6 +54,23 @@ test('real projection rejects contradicted labels and unlisted examples', async 
     await assert.rejects(checkDocs(directory), /Help projection changed/);
     await writeFile(checklistPath, audit);
     await checkDocs(directory);
+    const landing = join(directory, 'src/content/docs/index.md');
+    const home = await readFile(landing, 'utf8');
+    for (const [text, message] of [
+      [home.replace('Unverified: formal', 'Released: formal'),
+        /Contradicted availability/],
+      [home + '\n```sh\ngh nibfin install\n```\n',
+        /Unlisted actionable command/],
+    ]) {
+      await writeFile(landing, text);
+      const data = JSON.parse(audit);
+      data.pages['index.md'].sha256 = digest(text);
+      await writeFile(checklistPath, JSON.stringify(data));
+      await assert.rejects(checkDocs(directory), message);
+    }
+    await writeFile(landing, home);
+    await writeFile(checklistPath, audit);
+    await checkDocs(directory);
     const entry = join(root, 'bin/nibfin-core.mjs');
     await writeFile(entry, (await readFile(entry, 'utf8')) + '\n// changed\n');
     await assert.rejects(checkDocs(directory), /source comparison failed/);

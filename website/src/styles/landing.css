@@ -1,0 +1,31 @@
+/* Static landing composition; paint comes from shared semantic tokens. */
+.nf-delivery-grid {
+  display: grid;
+  gap: 0 2rem;
+  padding: 1.5rem;
+  border: 1px solid var(--nf-border);
+  border-radius: 0.75rem;
+  background: var(--nf-surface);
+  color: var(--nf-text);
+}
+.nf-delivery-grid h3 { color: var(--nf-link); }
+.hero .tagline { color: var(--nf-secondary); }
+.hero .actions { flex-wrap: wrap; }
+.hero .sl-link-button { max-width: 100%; }
+@media (min-width: 50rem) {
+  .nf-delivery-grid {
+    grid-template-columns: minmax(10rem, 1fr) minmax(0, 2fr);
+    align-items: baseline;
+  }
+  .nf-delivery-grid > .sl-heading-wrapper { grid-column: 1; }
+  .nf-delivery-grid > :is(p, ul) { grid-column: 2; }
+  .hero:not(:has(img, .hero-html)) { grid-template-columns: 1fr; }
+}
+/* Splash pages have no sidebar menu; keep Starlight preferences reachable. */
+:root:not([data-has-sidebar]) header .right-group { display: flex; }
+/* Filled actions retain contrasting text when the shared link hover applies. */
+.hero .sl-link-button.primary:hover {
+  color: var(--nf-on-accent);
+  background: var(--nf-hover);
+  border-color: var(--nf-hover);
+}

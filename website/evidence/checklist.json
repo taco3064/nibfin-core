@@ -3,17 +3,19 @@
   "network": "api.github.com read-back blocked by execution allowlist on 2026-11-11. No release absence inferred.",
   "pages": {
     "index.md": {
-      "sha256": "3f1912eda522c63755f8d67af4c2595f25522cfd9ce63f9446cab155decdafca",
-      "basis": "Reviewed public-safe projection of current Issue #15 and product requirements. Not evidence of release or support.",
+      "sha256": "9c11c2481fe6acb2794e3b2ee8ac51117f5e24909b8103fbb22b418d175a7f61",
+      "basis": "Reviewed landing claims against Issue #14, Proposal 14–14.4 and maintained onboarding/lifecycle guides. No release or support evidence inferred.",
       "requirements": {
-        "issue": "https://github.com/taco3064/nibfin-core/issues/15",
+        "issue": "https://github.com/taco3064/nibfin-core/issues/14",
         "sections": [
-          "2",
-          "7",
-          "8",
+          "1.1",
+          "1.2",
+          "1.3",
           "9.2",
-          "11",
+          "14",
           "14.1",
+          "14.2",
+          "14.3",
           "14.4"
         ],
         "basis": "Current authorized product requirements, not observed installation support."

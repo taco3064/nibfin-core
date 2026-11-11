@@ -1,3 +1,4 @@
+import { inspectLandingOutput } from './landing-output.mjs';
 import { inspectDeliveryOutput } from './delivery-output.mjs';
 import { checkArticleLinks } from './article-links.mjs';
 import assert from 'node:assert/strict';
@@ -24,6 +25,7 @@ async function verify(base, port) {
     WEBSITE_SITE: 'https://example.org' };
   await build(env);
   await inspectDeliveryOutput(base);
+  await inspectLandingOutput(base);
   await checkArticleLinks(base);
   const assets = [...await inspectOutput(base), ...await inspectThemeOutput(base)];
   if (process.env.CI !== 'true' || process.argv.includes('--static')) {
