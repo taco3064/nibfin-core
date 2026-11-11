@@ -116,9 +116,22 @@ test('wrong kernel peer reaches no native producer and receives no delegated byt
     assert.equal(output, '');
   });
 
-for (const control of ['', 'NIBFIN_WINDOWS_MCP_TERMINATED\n',
-  'NIBFIN_WINDOWS_MCP_OUTER_TERMINATED\nextra\n']) {
-  test(`staged response cannot replace outer control proof: ${JSON.stringify(control)}`,
+const validControl = 'NIBFIN_WINDOWS_MCP_OUTER_TERMINATED\n';
+const rejectedExchanges = [
+  { name: 'missing outer proof', control: '' },
+  { name: 'inner proof alone', control: 'NIBFIN_WINDOWS_MCP_TERMINATED\n' },
+  { name: 'extra control bytes', control: validControl + 'extra\n' },
+  { name: 'producer still running', reply: { terminated: false } },
+  { name: 'numeric termination flag', reply: { terminated: 1 } },
+  { name: 'unexpected response field', reply: { extra: true } },
+  { name: 'invalid delegation', reply: { delegation: [] } },
+  { name: 'wrong nonce', reply: { nonce: 'b'.repeat(64) } },
+  { name: 'wrong job', binding: { jobId: 6 } },
+  { name: 'string job ID', binding: { jobId: '5' } },
+];
+
+for (const { name, control, reply, binding } of rejectedExchanges) {
+  test(`relay withholds delegated bytes for ${name}`,
     linux, async t => {
       const f = await relayFixture(t, false);
       const socket = connect({ path: f.path, allowHalfOpen: true });
@@ -126,9 +139,9 @@ for (const control of ['', 'NIBFIN_WINDOWS_MCP_TERMINATED\n',
       let received = '';
       socket.on('data', bytes => { received += bytes; });
       socket.on('error', () => {});
-      const binding = { repositoryId: 1, memberId: 2, runnerId: 3,
+      const job = { repositoryId: 1, memberId: 2, runnerId: 3,
         runId: 4, attempt: 1, jobId: 5 };
-      const request = mcpRequest(binding, 'a'.repeat(64));
+      const request = mcpRequest(job, 'a'.repeat(64));
       socket.write(encodeMcpFrame(request));
       for (let i = 0; i < 100 && !f.forwarded(); i++) await setTimeout(10);
       const upload = spawn('/usr/bin/perl', [f.source, '--response'], {
@@ -141,13 +154,19 @@ for (const control of ['', 'NIBFIN_WINDOWS_MCP_TERMINATED\n',
         upload.once('error', no);
         upload.once('close', yes);
       });
-      upload.stdin.end(encodeMcpFrame({ ...request,
-        delegation: { secret: 'synthetic-only' }, terminated: true }));
-      assert.equal(await uploaded, 0);
-      f.child.stdin.end(control);
-      assert.equal(await f.exited, 1);
+      f.child.stdin.on('error', () => {});
+      upload.stdin.end(encodeMcpFrame({
+        ...request, binding: { ...job, ...binding },
+        delegation: { secret: 'synthetic-only' }, terminated: true, ...reply,
+      }));
+      if (control === undefined) f.child.stdin.end(validControl);
+      const uploadCode = await uploaded;
+      if (control !== undefined) f.child.stdin.end(control);
+      const relayCode = await f.exited;
       assert.equal(received.includes('synthetic-only'), false);
       assert.equal(received.trim().split('\n').length, 1);
+      assert.equal(uploadCode, control === undefined ? 1 : 0);
+      assert.equal(relayCode, 1);
       assert.ok((await stat(f.path)).isSocket());
     });
 }

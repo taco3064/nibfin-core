@@ -27,6 +27,15 @@ sub write_all {
         substr($bytes, 0, $count, '');
     }
 }
+sub validate_binding {
+    my ($binding) = @_;
+    check(ref($binding) eq 'HASH' && join(',', sort keys %$binding) eq
+        'attempt,jobId,memberId,repositoryId,runId,runnerId');
+    for my $value (values %$binding) {
+        check(encode_json([$value]) =~ /^\[[1-9][0-9]*\]$/ &&
+            $value < 9007199254740992);
+    }
+}
 sub main {
     check($> == 0 && (@ARGV == 0 ||
         (@ARGV == 1 && $ARGV[0] eq '--response')));
@@ -111,11 +120,7 @@ sub main {
     check($r->{protocol} eq 'nibfin-mcp-job-v1' &&
         $r->{nonce} =~ /^[a-f0-9]{64}$/);
     my $b = $r->{binding};
-    check(join(',', sort keys %$b) eq
-        'attempt,jobId,memberId,repositoryId,runId,runnerId');
-    for my $key (keys %$b) {
-        check($b->{$key} =~ /^[1-9][0-9]*$/ && $b->{$key} < 9007199254740992);
-    }
+    validate_binding($b);
     for my $key (qw(memberId repositoryId runnerId)) {
         check($b->{$key} == $c->{$key});
     }
@@ -161,12 +166,17 @@ sub main {
                     check(length($response) > 1 &&
                         index($response, "\n") == length($response) - 1);
                     my $reply = decode_json($response);
+                    check(ref($reply) eq 'HASH' &&
+                        join(',', sort keys %$reply) eq
+                        'binding,delegation,nonce,protocol,terminated' &&
+                        ref($reply->{delegation}) eq 'HASH' &&
+                        JSON::PP::is_bool($reply->{terminated}) && $reply->{terminated});
                     check($reply->{protocol} eq $r->{protocol} &&
                         $reply->{nonce} eq $r->{nonce});
+                    validate_binding($reply->{binding});
                     for my $key (keys %$b) {
                         check($reply->{binding}{$key} == $b->{$key});
                     }
-                    check(!exists $reply->{nativeTerminated});
                     $reply->{nativeTerminated} = JSON::PP::true;
                     $response = encode_json($reply) . "\n";
                     write_all($data_peer, "NIBFIN_MCP_RESPONSE_STAGED\n");
