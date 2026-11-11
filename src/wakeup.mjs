@@ -11,6 +11,14 @@ import { digest, isId, isSha, requireThat } from './identity.mjs';
 import { readCallerSource } from './caller-source.mjs';
 import { wakeRecipe } from './caller-recipes.mjs';
 
+function wakeObservationCode(error, fallback) {
+  if (Number.isInteger(error?.status) && error.status >= 400 && error.status <= 599)
+    return `GITHUB_READ_HTTP_${error.status}`;
+  if (error?.name === 'TimeoutError') return 'WAKE_OBSERVATION_TIMEOUT';
+  return typeof error?.code === 'string' && /^[A-Z][A-Z0-9_]{1,79}$/.test(error.code)
+    ? error.code : fallback;
+}
+
 // Runs on a trusted hosted preflight, before selecting a self-hosted Runner.
 // Events only locate an adopted Issue identity. No event field grants authority.
 export async function observeWake(
@@ -131,19 +139,26 @@ export class WakeDispatcher {
     let initial;
     try {
       initial = await this.#observe(this.#reader);
-    } catch {
-      return { status: 'denied', code: 'WAKE_OBSERVATION_UNAVAILABLE' };
+    } catch (error) {
+      return { status: 'denied',
+        code: wakeObservationCode(error, 'WAKE_OBSERVATION_UNAVAILABLE') };
     }
     const bindingHash = digest(initial),
       { issue, workflow } = initial;
+    let admissionCode;
     const result = await this.#journal.run(
       { operation: 'wake', bindingHash },
       {
         admit: async () => {
-          requireThat(
-            digest(await this.#observe(this.#reader)) === bindingHash,
-            'WAKE_ADMISSION_CHANGED',
-          );
+          try {
+            requireThat(
+              digest(await this.#observe(this.#reader)) === bindingHash,
+              'WAKE_ADMISSION_CHANGED',
+            );
+          } catch (error) {
+            admissionCode = wakeObservationCode(error, 'ADMISSION_FAILED');
+            throw error;
+          }
           return bindingHash;
         },
         perform: async () => {
@@ -208,7 +223,7 @@ export class WakeDispatcher {
     );
     return result.status === 'completed'
       ? { status: 'scheduled', runId: result.runId, bindingHash, stageAdmitted: false }
-      : result;
+      : admissionCode ? { ...result, code: admissionCode } : result;
   }
 }
 
