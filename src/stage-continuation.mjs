@@ -19,6 +19,13 @@ async function stoppedAgentCanRestart(store, stage, receipt) {
     isDigest(proof.terminationHash) && proof.code === codexIdle.code;
 }
 
+async function reportedReceipt(store, stage, result) {
+  if (result.stage !== stage || !result.receiptHash) return null;
+  const receipt = (await store.load())[stage];
+  return receipt?.stage === stage && digest(receipt) === result.receiptHash
+    ? receipt : null;
+}
+
 // This only drives the existing ordered stage contract. There is no second
 // lifecycle store: every next operation still enters StageRuntime admission.
 // The installed launcher holds its host fence across this entire call.
@@ -109,8 +116,18 @@ export async function continueStages({
       continue;
     await inspect();
     const deadline = clock() + ciTimeout;
+    let retriedIdle = false;
     for (;;) {
       result = await execute(stage);
+      if (stage === 'accept' && !retriedIdle && result.status === 'denied' &&
+        result.code === codexIdle.code) {
+        const receipt = await reportedReceipt(store, stage, result);
+        if (receipt && await stoppedAgentCanRestart(store, stage, receipt)) {
+          retriedIdle = true;
+          await inspect();
+          continue;
+        }
+      }
       // Only explicit pre-effect CI observations can wait.
       // Unknown writes and arbitrary observation errors stop.
       if (!pendingCIObservation(result.code) || result.status !== 'pending') break;
@@ -132,10 +149,8 @@ export async function continueStages({
     if (correctionStages.has(stage) && result.status === 'denied' &&
       correctionRepairs > 0 && result.code === 'STAGE_REQUIRES_CORRECTION' &&
       result.receiptHash) {
-      const rejected = await store.get(result.receiptHash);
-      const current = await store.load();
-      if (rejected.outcome === 'changes_required' &&
-        current[stage] && digest(current[stage]) === result.receiptHash) {
+      const rejected = await reportedReceipt(store, stage, result);
+      if (rejected?.outcome === 'changes_required') {
         return repairCandidate(rejected);
       }
     }

@@ -3,7 +3,7 @@ import { parseAgentResult } from './agent-result.mjs';
 import { candidateContract } from './candidate-contract.mjs';
 import { runCandidateHooks } from './hooks.mjs';
 import { requirementsText } from './stages.mjs';
-import { codexIdle, codexPreflightExits } from './codex-bootstrap.mjs';
+import { codexIdle, codexPreflightExits, idleDiagnostic } from './codex-bootstrap.mjs';
 
 // Only installed adapters enter this factory; the external stage request cannot
 // supply functions, commands, paths, credentials, source pins or role identities.
@@ -114,7 +114,9 @@ export function stageHandlers({
             (Object.hasOwn(codexPreflightExits, execution.code)
               ? `Agent environment check failed before the role ran (${execution.code}).`
               : 'Agent process failed and was stopped.');
-          console.error(`Nibfin ${stage}: ${finding}`);
+          const lastProgress = idleDiagnostic(execution.lastProgress ?? '');
+          console.error(`Nibfin ${stage}: ${finding}` +
+            (lastProgress ? ` (${lastProgress})` : ''));
           const proof = await store.put({
             executionId: execution.executionId,
             terminationHash: execution.terminationHash,

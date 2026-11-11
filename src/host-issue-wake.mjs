@@ -6,12 +6,10 @@ import {
   rootOwnedPath,
   inspectHostAdoption,
 } from './host-adoption.mjs';
-import { waitForHostFence, privateHostDirectory } from './host-fence.mjs';
-import { deliveryRoleTimeout } from './process.mjs';
+import { privateHostDirectory } from './host-fence.mjs';
 import {
   resolveHostJob,
   readSingleHost,
-  idleContainers,
   hostWakeExecution,
 } from './host-launcher.mjs';
 import { actionsCaller } from './actions-identity.mjs';
@@ -90,7 +88,7 @@ export async function launchIssueWake(issueNumber, env = process.env, eventBytes
   const relayed = await relayHostCommand('dispatch-event', [issueNumber], env);
   if (relayed !== null) return relayed;
   const context = await loadHostAdoption(issueNumber);
-  const { host, hostBytes, adopted, reader, token } = context;
+  const { host, adopted, reader, token } = context;
   const adoption = hostWakeAdoption(host, adopted);
   const { runner, binding } = await resolveHostJob(
     reader,
@@ -112,18 +110,6 @@ export async function launchIssueWake(issueNumber, env = process.env, eventBytes
       approval.record.operations.includes('wake'),
     'EVENT_PUBLISHER_NOT_APPROVED',
   );
-  let fence;
-  try {
-    fence = await waitForHostFence(host.stateRoot, {
-      execution,
-      host: digest(hostBytes),
-    }, deliveryRoleTimeout);
-  } catch (error) {
-    if (error.code === 'HOST_EXECUTION_UNRESOLVED') {
-      return { status: 'pending', code: error.code };
-    }
-    throw error;
-  }
   try {
     const inspect = async () => {
       await inspectHostAdoption(context);
@@ -141,8 +127,6 @@ export async function launchIssueWake(issueNumber, env = process.env, eventBytes
           current.record.operations.includes('wake'),
         'EVENT_AUTHORITY_CHANGED',
       );
-      await fence.inspect();
-      await idleContainers(adopted.isolation);
       await readSingleHost(reader, runner);
     };
     await inspect();
@@ -164,7 +148,7 @@ export async function launchIssueWake(issueNumber, env = process.env, eventBytes
       if (error.code !== 'EEXIST') throw error;
     });
     await privateHostDirectory(stateRoot);
-    const result = await dispatchIssueWake({
+    return await dispatchIssueWake({
       reader,
       token,
       adoption,
@@ -185,13 +169,8 @@ export async function launchIssueWake(issueNumber, env = process.env, eventBytes
             'WAKE_PEERS_CHANGED');
       },
     });
-    if (result.status !== 'pending') {
-      await idleContainers(adopted.isolation);
-      await fence.release();
-    }
-    return result;
   } catch {
-    // Unknown external effects retain the shared host fence and wake journal.
+    // The wake journal retains an uncertain dispatch for its source Issue.
     return { status: 'pending', code: 'HOST_WAKE_UNRESOLVED' };
   }
 }

@@ -2,43 +2,11 @@ import { constants } from 'node:fs';
 import { lstat, open, realpath, unlink } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { setTimeout } from 'node:timers/promises';
 import { digest, isId, requireThat } from './identity.mjs';
 
-async function ownerIsRunning(root) {
-  let file;
-  try {
-    file = await open(join(root, 'stage.lock'), constants.O_RDONLY |
-      constants.O_NOFOLLOW | constants.O_NONBLOCK);
-    const stat = await file.stat();
-    if (!stat.isFile() || stat.uid !== process.getuid() || stat.nlink !== 1 ||
-      (stat.mode & 0o077) !== 0 || stat.size > 16384) return false;
-    const { pid } = JSON.parse(await file.readFile('utf8'));
-    if (!isId(pid)) return false;
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    // The holder may have released the fence between exclusive open and read.
-    return error.code === 'ENOENT';
-  } finally {
-    await file?.close();
-  }
-}
-
-// Wait for a live local holder to release voluntarily. PID status can only
-// permit waiting. Acquiring the durable fence still requires exclusive create.
-export async function waitForHostFence(root, binding, timeout, interval = 1000) {
-  const deadline = performance.now() + timeout;
-  for (;;) {
-    try {
-      return await acquireHostFence(root, binding);
-    } catch (error) {
-      if (error.code !== 'HOST_EXECUTION_UNRESOLVED' ||
-        performance.now() >= deadline) throw error;
-      await setTimeout(Math.min(interval, Math.max(0, deadline - performance.now())));
-      if (!await ownerIsRunning(root)) throw error;
-    }
-  }
+export function issueStatePath(stateRoot, issue) {
+  requireThat(isId(issue?.repositoryId) && isId(issue.number), 'INVALID_HOST_ISSUE');
+  return join(stateRoot, `issue-${issue.repositoryId}-${issue.number}`);
 }
 
 export async function privateHostDirectory(path) {
@@ -48,9 +16,8 @@ export async function privateHostDirectory(path) {
     await realpath(path) === resolve(path), 'UNTRUSTED_HOST_STATE');
 }
 
-// One manually adopted host, one durable fence across all its Issue stages.
-// Never recover from PID/job status: a crash may leave a container or write alive.
-// This is not a distributed lease; moving the adopted host requires reconciliation.
+// GitHub schedules the Job. Keep local recovery evidence for this Issue until
+// its containers and external effects are settled.
 export async function acquireHostFence(root, binding) {
   await privateHostDirectory(root);
   const path = join(root, 'stage.lock'), nonce = randomUUID();

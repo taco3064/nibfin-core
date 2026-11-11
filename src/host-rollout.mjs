@@ -1,7 +1,9 @@
-import { lstat, open, readFile, rename, unlink, writeFile } from 'node:fs/promises';
+import {
+  lstat, open, readdir, readFile, rename, unlink, writeFile,
+} from 'node:fs/promises';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { idleContainers } from './host-launcher.mjs';
+import { idleContainers } from './host-containers.mjs';
 import { rootOwnedPath } from './host-paths.mjs';
 import { digest, isSha, requireThat } from './identity.mjs';
 import { command } from './process.mjs';
@@ -91,6 +93,12 @@ async function promoteLockedHost() {
   const oldPin = hosts[0].current.value.installation.pin;
   requireThat(hosts.every(host => digest(host.current.value.installation.pin) ===
     digest(oldPin)), 'ROLLOUT_EXISTING_HOSTS_DIVERGED');
+  const agentProfiles = hosts.map(host => host.next.value.repository.isolation.agent);
+  const networks = agentProfiles.map(agent => `${agent.socket}:${agent.network}`);
+  const gateways = agentProfiles.map(agent => `${agent.socket}:${agent.gatewayId}`);
+  const policies = agentProfiles.map(agent => agent.mcpPolicyDirectory).filter(Boolean);
+  requireThat([networks, gateways, policies].every(list =>
+    list.length === new Set(list).size), 'ROLLOUT_RUNNER_ISOLATION_SHARED');
   await verifyInstalledSource(coreRoot, oldPin);
   const backup = `/opt/nibfin/core-before-${plan.pin.commit}`;
   await requireMissing(backup, 'ROLLOUT_BACKUP_ALREADY_EXISTS');
@@ -101,8 +109,14 @@ async function promoteLockedHost() {
       { env, allowedExitCodes: [0, 3, 4] });
     requireThat(status.stdout.toString().trim() === 'inactive', 'ROLLOUT_RUNNER_ACTIVE');
     const config = host.current.value;
-    await requireMissing(join(config.stateRoot, 'stage.lock'), 'ROLLOUT_FENCE_PRESENT');
     await idleContainers(config.repository.isolation);
+  }
+  for (const root of new Set(hosts.map(host => host.current.value.stateRoot))) {
+    await requireMissing(join(root, 'stage.lock'), 'ROLLOUT_FENCE_PRESENT');
+    for (const name of await readdir(root)) {
+      if (/^issue-[1-9]\d*-[1-9]\d*$/.test(name))
+        await requireMissing(join(root, name, 'stage.lock'), 'ROLLOUT_FENCE_PRESENT');
+    }
   }
   const replace = async (path, bytes) => {
     const temp = `${path}.rollout-${randomUUID()}`;
