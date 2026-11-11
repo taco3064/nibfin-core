@@ -8,7 +8,7 @@
     "npm": "11.9.0"
   },
   "scripts": {
-    "check": "node scripts/theme-source.mjs . && node scripts/astro-cli.mjs check && node scripts/astro-cli.mjs build",
+    "check": "node scripts/docs-check.mjs . && node scripts/theme-source.mjs . && node scripts/astro-cli.mjs check && node scripts/astro-cli.mjs build",
     "build": "node scripts/astro-cli.mjs build",
     "preview": "node scripts/astro-cli.mjs preview"
   },

@@ -1,0 +1,36 @@
+{
+  "synthetic": true,
+  "purpose": "Validator control only. No real publication or support evidence.",
+  "claim": {
+    "repository": "fixture/example",
+    "commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "version": "v1",
+    "command": "demo install --version v1",
+    "status": "Released",
+    "assets": [
+      "demo.tgz"
+    ]
+  },
+  "evidence": {
+    "repository": "fixture/example",
+    "commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "version": "v1",
+    "source": "export const help = \"demo install --version v1\";\n",
+    "sha256": "d0fbd6e0ab5df2c4c0a92c5edee0773d614b1e09253a62a36e9e5413921f6c7f",
+    "help": "demo install --version v1",
+    "provenance": "synthetic",
+    "release": {
+      "tag": "v1",
+      "commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "draft": false,
+      "prerelease": false,
+      "assets": [
+        {
+          "name": "demo.tgz",
+          "bytes": "synthetic payload only",
+          "sha256": "a4e1e27a35017a919a8e102a336c34344b8a7c81293da674fc17b08cd3ba28bb"
+        }
+      ]
+    }
+  }
+}

@@ -1,4 +1,5 @@
 import { inspectDeliveryOutput } from './delivery-output.mjs';
+import { checkArticleLinks } from './article-links.mjs';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -23,6 +24,7 @@ async function verify(base, port) {
     WEBSITE_SITE: 'https://example.org' };
   await build(env);
   await inspectDeliveryOutput(base);
+  await checkArticleLinks(base);
   const assets = [...await inspectOutput(base), ...await inspectThemeOutput(base)];
   if (process.env.CI !== 'true' || process.argv.includes('--static')) {
     console.log(`Static paths passed: ${base}; HTTP remains Unverified.`);

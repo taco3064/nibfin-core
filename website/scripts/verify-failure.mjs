@@ -1,21 +1,24 @@
+import { websiteFixture } from './fixture.mjs';
 import assert from 'node:assert/strict';
-import { cp, mkdir, mkdtemp, readdir, writeFile, rm } from 'node:fs/promises';
-import { resolve, join } from 'node:path';
+import { readFile, writeFile, rm } from 'node:fs/promises';
+import { join } from 'node:path';
 import { runNpm } from './process.mjs';
 
-// Exercise the actual root entry in a disposable source copy. Dependencies
-// resolve from the installed parent; the reviewed source is never mutated.
-await mkdir(resolve('.npm'), { recursive: true });
-const directory = await mkdtemp(resolve('.npm/website-propagation-'));
+const directory = await websiteFixture('nibfin-website-propagation-');
 let cleanupSafe = true;
 try {
-  const excluded = /^(?:\.npm|node_modules|\.git|\.aws|\.codex|\.agents)$/;
-  for (const entry of await readdir('.')) {
-    if (excluded.test(entry)) continue;
-    await cp(entry, join(directory, entry), { recursive: true,
-      filter: (path) => !/(?:^|\/)(?:node_modules|\.astro|dist)(?:\/|$)/
-        .test(path) });
+  const { cp } = await import('node:fs/promises');
+  for (const path of ['scripts', 'test']) {
+    await cp(path, join(directory, path), { recursive: true });
   }
+  const article = join(directory, 'website/src/content/docs/cli.md');
+  const original = await readFile(article, 'utf8');
+  await writeFile(article, original + '\n```sh\nfabricated command\n```\n');
+  const docs = runNpm(['run', 'verify', '--',
+    'website/src/content/docs/cli.md'], { timeout: 240000, cwd: directory });
+  assert.notEqual(docs.status, 0, 'Root verify ignored documentation failure');
+  assert.match(docs.stdout + docs.stderr, /Article audit changed/);
+  await writeFile(article, original);
   await writeFile(join(directory, 'website/src/doc03-negative-control.tsx'),
     'const bad: number = "wrong";\n' +
     'export const Bad = () => <span>{bad}</span>;\n', { flag: 'wx' });
@@ -29,7 +32,7 @@ try {
     'Verify failed before reaching the website negative control');
   assert.match(result.stdout + result.stderr, /not assignable to type 'number'/,
     'Require the actual TypeScript diagnostic');
-  console.log('Root verify propagated the website TypeScript failure.');
+  console.log('Root verify propagated documentation and TypeScript failures.');
 } catch (error) {
   cleanupSafe = error.terminationUnknown !== true;
   if (!cleanupSafe) console.error('Retained website control:', directory);
