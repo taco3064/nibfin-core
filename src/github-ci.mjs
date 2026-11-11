@@ -3,6 +3,7 @@ import { digest, isId, isSha, requireThat } from './identity.mjs';
 import { readPinnedFile, readReviewers } from './github-approval.mjs';
 import { readProtection } from './github-protection.mjs';
 import { readMergeIdentity } from './github-merge.mjs';
+import { failedCheckError } from './ci-recovery.mjs';
 
 const pendingObservations = Object.freeze([
   'MERGE_REOBSERVE_REQUIRED',
@@ -201,7 +202,7 @@ export async function readPullRequestCI(reader, expected, now = Date.now()) {
   );
   const checks = [],
     sources = [];
-  let testedSha;
+  let testedSha, unsuccessfulRun = false;
   for (const pin of expected.workflows) {
     const onMerge =
       merged && pin.targetSha === expected.head
@@ -230,6 +231,7 @@ export async function readPullRequestCI(reader, expected, now = Date.now()) {
       requireThat(runs.length === 1, 'AMBIGUOUS_CHECK_RUN_SOURCE');
       const run = runs[0];
       if (run.event !== 'pull_request') continue;
+      const failed = !merged && ['failure', 'timed_out'].includes(check.conclusion);
       if (
         !merged &&
         run.repository?.id === expected.repositoryId &&
@@ -254,9 +256,10 @@ export async function readPullRequestCI(reader, expected, now = Date.now()) {
           isId(run.id) &&
           isId(run.run_attempt) &&
           run.status === 'completed' &&
-          run.conclusion === 'success' &&
+          (run.conclusion === 'success' ||
+            !merged && ['failure', 'timed_out'].includes(run.conclusion)) &&
           check.status === 'completed' &&
-          check.conclusion === 'success' &&
+          (check.conclusion === 'success' || failed && run.conclusion !== 'success') &&
           check.head_sha === (onMerge.length ? previewSha : expected.head) &&
           Array.isArray(run.pull_requests) &&
           ((merged && run.pull_requests.length === 0) ||
@@ -287,7 +290,7 @@ export async function readPullRequestCI(reader, expected, now = Date.now()) {
           job.head_sha === expected.head &&
           job.name === pin.context &&
           job.status === 'completed' &&
-          job.conclusion === 'success' &&
+          job.conclusion === check.conclusion &&
           job.runner_group_name === 'GitHub Actions' &&
           Array.isArray(job.labels) &&
           !job.labels.includes('self-hosted'),
@@ -320,11 +323,21 @@ export async function readPullRequestCI(reader, expected, now = Date.now()) {
       requireThat(
         fresh.run_attempt === run.run_attempt &&
           fresh.status === 'completed' &&
-          fresh.conclusion === 'success' &&
+          fresh.conclusion === run.conclusion &&
           fresh.head_sha === expected.head &&
           fresh.check_suite_id === run.check_suite_id,
         'CI_RERUN_OR_REVOCATION',
       );
+      if (failed) {
+        requireThat(candidates.length === 1, 'MISSING_OR_AMBIGUOUS_REQUIRED_CHECK');
+        requireThat(
+          digest(await reader.get(prPath)) === digest(pr) &&
+            digest(await reader.get(branchPath)) === digest(branch),
+          'CI_CHANGED_DURING_READ',
+        );
+        throw failedCheckError(expected, run, job);
+      }
+      unsuccessfulRun ||= run.conclusion !== 'success';
       matches.push({
         id: check.id,
         name: pin.context,
@@ -345,6 +358,7 @@ export async function readPullRequestCI(reader, expected, now = Date.now()) {
     requireThat(matches.length === 1, 'MISSING_OR_AMBIGUOUS_REQUIRED_CHECK');
     checks.push(matches[0]);
   }
+  requireThat(!unsuccessfulRun, 'CI_SOURCE_OR_RESULT_MISMATCH');
   requireThat(merged || pr.mergeable_state === 'clean', 'CI_PR_NOT_ELIGIBLE');
   requireThat(
     digest(await reader.get(prPath)) === digest(pr) &&

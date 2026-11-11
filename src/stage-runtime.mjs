@@ -5,6 +5,7 @@ import { integrationRepairRequired, pendingCIObservation } from './github-ci.mjs
 import { pendingMcpObservation } from './mcp-pending.mjs';
 import { observationFailureCode } from './observation-failure.mjs';
 import { codexIdle, codexPreflightExits } from './codex-bootstrap.mjs';
+import { ciFailureResult } from './ci-recovery.mjs';
 
 export const stageSuccess = Object.freeze({
   shape: 'ready',
@@ -71,7 +72,7 @@ export class StageRuntime {
     try {
       context = structuredClone(await this.#observe(stage));
     } catch (error) {
-      return {
+      return ciFailureResult(error, stage) ?? {
         schemaVersion: 1,
         status: pendingObservation(error.code) ? 'pending' : 'denied',
         code: pendingObservation(error.code)
@@ -156,6 +157,8 @@ export class StageRuntime {
           },
         },
       );
+      const ciFailure = ciFailureResult(admissionError, stage);
+      if (ciFailure) return ciFailure;
       if (pendingObservation(admissionError?.code) ||
         integrationRepairRequired(admissionError?.code)) {
         return { schemaVersion: 1, stage, code: admissionError.code,

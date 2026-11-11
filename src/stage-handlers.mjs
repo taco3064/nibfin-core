@@ -4,6 +4,7 @@ import { candidateContract } from './candidate-contract.mjs';
 import { runCandidateHooks } from './hooks.mjs';
 import { requirementsText } from './stages.mjs';
 import { codexIdle, codexPreflightExits, idleDiagnostic } from './codex-bootstrap.mjs';
+import { ciCorrectionFindings } from './ci-recovery.mjs';
 
 // Only installed adapters enter this factory; the external stage request cannot
 // supply functions, commands, paths, credentials, source pins or role identities.
@@ -60,14 +61,16 @@ export function stageHandlers({
           receipt.artifacts.shapeHash === context.shape.hash &&
           receipt.artifacts.candidateHash ===
             context.receipts.deliver?.artifacts.candidateHash);
-        if (!correction && (reference || rebase) &&
+        const findings = context.ciFailure
+          ? ciCorrectionFindings(context.ciFailure) : correction?.findings;
+        if (!findings && (reference || rebase) &&
           (!rebase || (rebase.status === 'rebased' && !rebase.contentChanged))) {
           return { retainedCandidate: rebase?.candidate ?? candidate, reference };
         }
         const execution = await agent.run(stage, {
           ...context,
           ...(rebase ? { rebase } : {}),
-          ...(correction ? { correctionFindings: correction.findings } : {}),
+          ...(findings ? { correctionFindings: findings } : {}),
         });
         if (execution?.status === 'interrupted')
           return { ...execution, artifacts: decision.artifacts };

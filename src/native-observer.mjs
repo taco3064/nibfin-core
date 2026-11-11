@@ -170,6 +170,17 @@ export function nativeObserver({
         mergePreview: pr.merge_commit_sha,
         ...(pr.merged ? { mergeCommit: pr.merge_commit_sha } : {}),
       };
+      if (stage === 'deliver' && pinned.ciFailure) {
+        const failure = pinned.ciFailure;
+        requireThat(
+          pr.state === 'open' && pr.merged === false &&
+            failure.number === pr.number && failure.head === pr.head.sha &&
+            failure.base === pr.base.sha && failure.base === main.head &&
+            saved.candidateHash === receipts.deliver?.artifacts.candidateHash,
+          'CI_REPAIR_TARGET_CHANGED',
+        );
+        context.ciFailure = failure;
+      }
       if (['review-pr', 'merge', 'close'].includes(stage)) {
         const expected = {
           repository: record.issue.repository,

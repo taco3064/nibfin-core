@@ -2,7 +2,7 @@ import { constants } from 'node:fs';
 import { lstat, mkdir, open, realpath, rename, unlink } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { digest, isDigest, requireThat } from './identity.mjs';
+import { digest, isDigest, isId, requireThat } from './identity.mjs';
 import { operations } from './approval-record.mjs';
 import { MergeBeforeWrite } from './github-write.mjs';
 
@@ -58,7 +58,9 @@ export class OperationJournal {
         Array.isArray(record.payload.completed) &&
         record.payload.completed.every(isDigest) &&
         new Set(record.payload.completed).size === record.payload.completed.length &&
-        (record.payload.pending === null || isDigest(record.payload.pending)),
+        (record.payload.pending === null || isDigest(record.payload.pending)) &&
+        (record.payload.wakeRunId === undefined ||
+          isDigest(record.payload.pending) && isId(record.payload.wakeRunId)),
       'JOURNAL_CORRUPT');
       return record.payload;
     } catch (error) {
@@ -99,8 +101,11 @@ export class OperationJournal {
       operation: request.operation, bindingHash: request.bindingHash,
     });
     return this.#withLock(decision, async state => {
-      if (state.pending !== null)
+      if (state.pending !== null) {
+        if (request.operation === 'wake' && state.pending === decision && state.wakeRunId)
+          return this.#finishWake(state, decision, state.wakeRunId, request, readBack);
         return { status: 'pending', code: 'EXTERNAL_EFFECT_UNKNOWN' };
+      }
       if (state.completed.includes(decision))
         return { status: 'denied', code: 'REPLAYED_OPERATION' };
       try {
@@ -110,13 +115,19 @@ export class OperationJournal {
       // Durable intent precedes every external effect, including the first call.
       await this.#write({ ...state, pending: decision });
       try {
-        try { await perform(); }
+        let result;
+        try { result = await perform(); }
         catch (error) {
           // Only the merge adapter can prove it stopped before its one write.
           if (request.operation !== 'merge' || !(error instanceof MergeBeforeWrite))
             throw error;
           await this.#write(state);
           return { status: 'pending', code: error.code };
+        }
+        if (request.operation === 'wake') {
+          requireThat(isId(result), 'DISPATCH_IDENTITY_UNKNOWN');
+          await this.#write({ ...state, pending: decision, wakeRunId: result });
+          return this.#finishWake(state, decision, result, request, readBack);
         }
         requireThat(await readBack() === request.bindingHash,
           'READBACK_BINDING_MISMATCH');
@@ -127,6 +138,16 @@ export class OperationJournal {
   }
   async recoverCommitPr(decision, readBack) {
     return this.#reconcile(decision, readBack);
+  }
+  async #finishWake(state, decision, runId, request, readBack) {
+    try {
+      requireThat(await readBack(runId) === request.bindingHash,
+        'READBACK_BINDING_MISMATCH');
+      await this.#complete(state, decision);
+      return { status: 'completed', decisionId: decision, runId };
+    } catch {
+      return { status: 'pending', code: 'EXTERNAL_EFFECT_UNKNOWN', runId };
+    }
   }
   async recoverReview(bindingHash, readBack) {
     requireThat(isDigest(bindingHash), 'INVALID_RECOVERY_REQUEST');
@@ -146,8 +167,9 @@ export class OperationJournal {
     });
   }
   async #complete(state, decision) {
+    const { wakeRunId: _, ...prior } = state;
     await this.#write({
-      ...state, pending: null, completed: [...state.completed, decision],
+      ...prior, pending: null, completed: [...state.completed, decision],
     });
   }
   async #withLock(decision, use) {

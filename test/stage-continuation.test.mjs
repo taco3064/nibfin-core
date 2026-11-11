@@ -158,12 +158,13 @@ test('provider branch update repairs once and resumes protected delivery', async
   assert.equal(f.calls.filter(stage => stage === 'accept').length, 1);
 });
 
-async function assertCorrectionContinues(failedStage) {
+async function assertCorrectionContinues(failedStage, failure) {
   const f = fixture();
   const execute = f.options.execute;
   let candidateHash, revision = 0, rejected = false;
-  f.options.execute = async stage => {
+  f.options.execute = async (stage, findings) => {
     if (stage === 'deliver') {
+      assert.deepEqual(findings, rejected ? failure : undefined);
       const candidate = {
         repository: 'example/core', repositoryId: 10, issueId: 'I_target',
         diffHash: String(++revision).repeat(64), paths: ['src/example.mjs'],
@@ -171,6 +172,11 @@ async function assertCorrectionContinues(failedStage) {
       };
       candidateHash = digest(candidate);
       f.objects[candidateHash] = candidate;
+    }
+    if (stage === failedStage && !rejected && failure) {
+      rejected = true;
+      f.calls.push(stage);
+      return { stage, status: 'denied', code: 'CI_REQUIRED_CHECK_FAILED', failure };
     }
     const result = await execute(stage);
     if (!candidateHash) return result;
@@ -195,6 +201,10 @@ test('Accept changes go through Deliver and fresh Accept before merge', () =>
   assertCorrectionContinues('accept'));
 test('Review changes go through Deliver and fresh Accept before merge', () =>
   assertCorrectionContinues('review-pr'));
+test('Protected CI failures during Review and Merge require fresh Accept', async () => {
+  for (const stage of ['review-pr', 'merge'])
+    await assertCorrectionContinues(stage, { check: 'Windows', conclusion: 'failure' });
+});
 
 test('unchanged rebase retains hooks, Accept and Final Review evidence', async () => {
   const f = fixture();
