@@ -70,6 +70,7 @@ jobs:
           persist-credentials: false
           fetch-depth: 0
       - name: Fetch the exact push comparison base
+        shell: bash
         if: >-
           github.event_name == 'push' &&
           github.event.before != '0000000000000000000000000000000000000000'
