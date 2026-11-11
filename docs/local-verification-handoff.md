@@ -84,7 +84,8 @@ native evidence exposes a defect, and fix/review it in the same Core #1 scope.
 GitHub package CI builds `nibfin-core.tar.gz`, `source-pin.json`, `SHA256SUMS` from
 the exact commit and tests installation. Core CD runs after successful push CI on
 `main`, using the tested commit and changes since its last successful automatic
-run. Core package changes prepare a rollout. To retry a rollout or request
+run. Core package changes prepare a rollout and its consumer updates.
+To retry a rollout or request
 consumer draft PRs, run the same workflow manually from `main`.
 
 To prepare a version draft, first verify that the reviewed version on `main`
