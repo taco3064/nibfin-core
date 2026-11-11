@@ -9,6 +9,7 @@ const hostPreflightCodes = new Set([
   'SANDBOX_IMAGE_UNAVAILABLE',
   'UNTRUSTED_DOCKER_SOCKET',
   'UNTRUSTED_ROOTFUL_DOCKER_SOCKET',
+  'WORKSPACE_ADOPTION_UNRESOLVED',
 ]);
 
 // Only fixed credential-free diagnostics may cross the public failure boundary.
