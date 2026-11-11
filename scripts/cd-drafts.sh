@@ -40,9 +40,10 @@ prepare() {
     printf 'Existing rollout PR for %s: %s\n' "$repo" "$existing"
     return
   fi
-  gh repo clone "taco3064/$repo" "$work/$repo" -- --depth 1 --branch main
+  local checkout="$work/$kind-$repo"
+  gh repo clone "taco3064/$repo" "$checkout" -- --depth 1 --branch main
   (
-    cd "$work/$repo"
+    cd "$checkout"
     git switch -c "$branch"
     if [[ "$kind" == action ]]; then
       cp "$work/core-source.json" core-source.json
