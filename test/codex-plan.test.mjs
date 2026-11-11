@@ -34,6 +34,8 @@ test('candidate text cannot change command, configuration or role boundaries', (
   });
   assert.equal(plan.cwd, '/session');
   assert.equal(plan.config['permissions.nibfin.filesystem']['/session'], 'read');
+  assert.equal(plan.config['permissions.nibfin.filesystem']['/tmp/.git'], 'write');
+  assert.equal(plan.config['permissions.nibfin.filesystem']['/work/.git'], undefined);
   assert.equal(plan.config['projects."/work".trust_level'], 'untrusted');
   assert.equal(plan.config['shell_environment_policy.inherit'], 'none');
   assert.match(plan.settings.join('\n'), /"\/proc" = "read"/);
