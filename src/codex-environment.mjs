@@ -3,10 +3,11 @@ import { OfflineSandbox } from './sandbox.mjs';
 import { executionProfile } from './execution-profiles.mjs';
 import { requireThat } from './identity.mjs';
 import { dockerBackend } from './docker-backend.mjs';
+import { issueContainerLabel, runnerGatewayLabel } from './host-containers.mjs';
 
 // Fixed installed composition, never an adapter module or command from JSON.
 // POSIX storage, host adoption and process controls remain backend restrictions.
-export function codexEnvironment(profile, coreRoot) {
+export function codexEnvironment(profile, coreRoot, runner) {
   const selected = executionProfile(profile?.kind);
   requireThat(process.platform === selected.hostPlatform, 'UNSUPPORTED_EXECUTION_HOST');
   requireThat(
@@ -18,8 +19,11 @@ export function codexEnvironment(profile, coreRoot) {
     kind: profile.kind,
     ...(selected.dockerMode === 'rootful' ? { namespace: profile.namespace } : {}),
   });
+  const containerLabel = runner ? issueContainerLabel(profile.issue) : undefined;
+  const gatewayLabel = runner ? runnerGatewayLabel(runner) : undefined;
   return Object.freeze({
-    agent: new CodexSandbox({ ...profile.agent, coreRoot }, { backend }),
-    hooks: new OfflineSandbox(profile.hooks, { backend }),
+    agent: new CodexSandbox({ ...profile.agent, coreRoot },
+      { backend, containerLabel, gatewayLabel }),
+    hooks: new OfflineSandbox(profile.hooks, { backend, containerLabel }),
   });
 }

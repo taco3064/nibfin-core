@@ -59,6 +59,28 @@ test('a new dispatch resumes only a Core-proven idle interruption', async () => 
   }
 });
 
+test('an idle Accept retries once only after termination is proved', async () => {
+  for (const valid of [true, false]) {
+    const f = fixture();
+    const execute = f.options.execute;
+    const proof = { executionId: 'interrupted', code: 'CODEX_IDLE_TIMEOUT',
+      ...(valid ? { terminationHash: 'a'.repeat(64) } : {}) };
+    const hash = digest(proof);
+    f.objects[hash] = proof;
+    f.options.execute = async stage => {
+      const result = await execute(stage);
+      if (stage !== 'accept') return result;
+      const receipt = { stage, outcome: 'blocked', execution: { id: 'interrupted' },
+        references: [`evidence:${hash}`] };
+      f.receipts[stage] = receipt;
+      return { stage, status: 'denied', code: proof.code, receiptHash: digest(receipt) };
+    };
+    assert.equal((await continueStages(f.options)).code, proof.code);
+    assert.equal(f.calls.filter(stage => stage === 'accept').length, valid ? 2 : 1);
+    assert.equal(f.calls.filter(stage => stage === 'deliver').length, 1);
+  }
+});
+
 test(
   'unknown effects stop without retry; malformed or failed ' +
     'receipt prefixes cannot advance',

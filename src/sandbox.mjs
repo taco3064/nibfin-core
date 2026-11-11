@@ -11,6 +11,7 @@ import {
 } from './docker-backend.mjs';
 import { verifyAppArmor } from './apparmor-proof.mjs';
 import { shareAgentMount, cleanupAgentMounts } from './agent-mounts.mjs';
+import { containerLabelArgs, matchesContainerLabel } from './host-containers.mjs';
 export { rootlessInfo } from './docker-backend.mjs';
 
 // Offline hooks use no Agent login, Docker socket or Core state mount. Agent
@@ -20,11 +21,13 @@ export class OfflineSandbox {
   #run;
   #host;
   #backend;
+  #containerLabel;
   constructor(
     config,
     {
       run = command,
       backend,
+      containerLabel,
       host = { platform: process.platform, uid: process.getuid?.(), lstat, realpath },
     } = {},
   ) {
@@ -39,6 +42,7 @@ export class OfflineSandbox {
     this.#config = structuredClone(config);
     this.#run = run;
     this.#host = host;
+    this.#containerLabel = containerLabel;
   }
   async #docker(args, options = {}) {
     return this.#run(
@@ -121,6 +125,7 @@ export class OfflineSandbox {
       '--pull=never',
       '--name',
       name,
+      ...containerLabelArgs(this.#containerLabel),
       '--read-only',
       '--network',
       'none',
@@ -176,6 +181,7 @@ export class OfflineSandbox {
           actual.Name === `/${name}` &&
           actual.State?.Status === 'created' &&
           actual.Config?.Image === this.#config.image &&
+          matchesContainerLabel(actual, this.#containerLabel) &&
           actual.Config.User === '0:0' &&
           digest(actual.Config.Entrypoint) === digest(['/bin/sh']) &&
           digest(actual.Config.Cmd) === digest(['-c', script]) &&

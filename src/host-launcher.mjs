@@ -7,14 +7,14 @@ import { actionsCaller } from './actions-identity.mjs';
 import { readCurrentMain } from './current-main.mjs';
 import { codexStageExecutor } from './codex-stage.mjs';
 import { CandidateWorkspace } from './workspace.mjs';
-import { command, deliveryRoleTimeout } from './process.mjs';
 import { stages, evidenceBinding, requirementsText,
   samePublishedRequirements } from './stages.mjs';
 import { EvidenceStore } from './evidence-store.mjs';
 import { continueStages } from './stage-continuation.mjs';
 import { setTimeout } from 'node:timers/promises';
 import { digest, isId, requireThat } from './identity.mjs';
-import { waitForHostFence, privateHostDirectory } from './host-fence.mjs';
+import { acquireHostFence, issueStatePath, privateHostDirectory } from './host-fence.mjs';
+import { idleContainers } from './host-containers.mjs';
 import { OperationJournal } from './operation-journal.mjs';
 import { settleHostStage } from './host-stage-settlement.mjs';
 import { observationFailureCode } from './observation-failure.mjs';
@@ -134,28 +134,6 @@ function nativeExecution(runner, stage, role, iteration = 0) {
   };
 }
 
-export async function idleContainers(profile) {
-  const c = profile.agent;
-  requireThat(
-    c.docker === profile.hooks.docker && c.socket === profile.hooks.socket,
-    'SPLIT_HOST_DAEMON',
-  );
-  const result = await command(
-    c.docker,
-    ['--host', `unix://${c.socket}`, 'ps', '--all', '--no-trunc', '--format', '{{.ID}}'],
-    {
-      env: { PATH: '/usr/bin:/bin', HOME: '/nonexistent', DOCKER_CONFIG: '/nonexistent' },
-      limit: 65536,
-    },
-  );
-  const ids = result.stdout.toString().trim().split('\n').filter(Boolean).sort();
-  requireThat(
-    ids.length === 1 && ids[0] === c.gatewayId,
-    'PREVIOUS_HOST_PROCESS_UNRESOLVED',
-  );
-  return digest(ids);
-}
-
 // Fixed CLI path: no config flag, environment override, adapter module, shell
 // command, credential or execution identity can be provided by a request.
 export async function launchStage(issueNumber, stage, env = process.env) {
@@ -189,14 +167,18 @@ export async function launchStage(issueNumber, stage, env = process.env) {
   const proposal = adopted.notionProposal === undefined ? undefined :
     await readNotionProposal(adopted.notionProposal);
   const globalInstructions = await readGlobalInstructions(host);
-  // Stable host-wide lock survives cancellation/kill. No automatic stale-lock
-  // deletion or switch to another Runner after an uncertain previous execution.
+  const issue = approval.record.issue;
+  const root = issueStatePath(host.stateRoot, issue);
+  await mkdir(root, { mode: 0o700 }).catch((error) => {
+    if (error.code !== 'EEXIST') throw error;
+  });
   let fence;
   try {
-    fence = await waitForHostFence(host.stateRoot, {
+    fence = await acquireHostFence(root, {
       execution,
+      issueId: issue.id,
       host: digest(hostBytes),
-    }, deliveryRoleTimeout);
+    });
   } catch (error) {
     if (error.code === 'HOST_EXECUTION_UNRESOLVED')
       return { schemaVersion: 1, stage, status: 'pending', code: error.code };
@@ -211,7 +193,7 @@ export async function launchStage(issueNumber, stage, env = process.env) {
         writerStatus: 'exclusive',
         observationHash: digest({
           fence: await fence.inspect(),
-          containers: await idleContainers(adopted.isolation),
+          containers: await idleContainers(adopted.isolation, issue),
           registration: await readSingleHost(reader, runner),
         }),
       };
@@ -224,14 +206,6 @@ export async function launchStage(issueNumber, stage, env = process.env) {
           'HOST_APPROVAL_MISMATCH');
       },
     });
-    const root = join(
-      host.stateRoot,
-      `issue-${adopted.runner.repositoryId}-${issueNumber}`,
-    );
-    await mkdir(root, { mode: 0o700 }).catch((error) => {
-      if (error.code !== 'EEXIST') throw error;
-    });
-    await privateHostDirectory(root);
     for (const name of ['receipts', 'agent']) {
       await mkdir(join(root, name), { mode: 0o700 }).catch((error) => {
         if (error.code !== 'EEXIST') throw error;
@@ -330,10 +304,9 @@ export async function launchStage(issueNumber, stage, env = process.env) {
           })
         : execute(stage);
     const result = await settleHostStage(run, async () => {
-      // The host fence excludes any other stage. Release uses local termination
-      // evidence; a provider read is needed for admission, not for unlocking.
+      // Release only after local termination and external writes are settled.
       await journal.assertIdle();
-      await idleContainers(adopted.isolation);
+      await idleContainers(adopted.isolation, issue);
       await mcpJob?.retire(true);
       await fence.release();
     }, (phase, code) => console.error(`Nibfin host stage ${phase}: ${code}`));

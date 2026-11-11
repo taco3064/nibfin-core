@@ -57,6 +57,7 @@ export async function codexStageExecutor({
   const { agent: agentSandbox, hooks: hookSandbox } = codexEnvironment(
     profile,
     coreRoot,
+    adopted.runner,
   );
   const inheritedAgent = withUserMcp(agentSandbox, mcpSource,
     source => mcpJob ? mcpJob.read() : loadUserMcp(source, {

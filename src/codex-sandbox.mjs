@@ -30,6 +30,7 @@ import { verifyAppArmor } from './apparmor-proof.mjs';
 import { digest, sha256, requireThat } from './identity.mjs';
 import { privateMcpToml } from './mcp-profile.mjs';
 import { sameContainerEnvironment } from './container-environment.mjs';
+import { containerLabelArgs, matchesContainerLabel } from './host-containers.mjs';
 import {
   acquireMcpEgress, verifyMcpPolicyDirectory,
   mcpPolicyEnvironment, mcpPolicyMount,
@@ -59,11 +60,15 @@ export class CodexSandbox {
   #run;
   #host;
   #backend;
+  #containerLabel;
+  #gatewayLabel;
   constructor(
     config,
     {
       run = command,
       backend,
+      containerLabel,
+      gatewayLabel,
       host = { platform: process.platform, uid: process.getuid?.(), lstat, realpath },
     } = {},
   ) {
@@ -83,6 +88,8 @@ export class CodexSandbox {
     this.#config = structuredClone(config);
     this.#run = run;
     this.#host = host;
+    this.#containerLabel = containerLabel;
+    this.#gatewayLabel = gatewayLabel;
   }
   #docker(args, options = {}) {
     return this.#run(
@@ -150,6 +157,7 @@ export class CodexSandbox {
         network.Options?.['com.docker.network.bridge.gateway_mode_ipv4'] ===
           'isolated' &&
         gateway.Id === c.gatewayId &&
+        matchesContainerLabel(gateway, this.#gatewayLabel) &&
         gateway.State?.Running === true &&
         gateway.Config?.Image === c.image &&
         gateway.HostConfig?.Privileged === false &&
@@ -299,6 +307,7 @@ export class CodexSandbox {
       '--pull=never',
       '--name',
       name,
+      ...containerLabelArgs(this.#containerLabel),
       '--read-only',
       '--network',
       c.network,
@@ -362,6 +371,7 @@ export class CodexSandbox {
           observed.State?.Status === 'created' &&
           observed.Image === preflight.imageId &&
           observed.Config.Image === c.image &&
+          matchesContainerLabel(observed, this.#containerLabel) &&
           observed.Config.User === '1000:1000' &&
           observed.Config.WorkingDir === '/session' &&
           digest(observed.Config.Entrypoint) === digest(['/usr/local/bin/node']) &&

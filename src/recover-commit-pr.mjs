@@ -1,8 +1,9 @@
 import { open, readdir, unlink } from 'node:fs/promises';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { boundedHostFile, coreRoot, loadHostAdoption } from './host-adoption.mjs';
 import { rootOwnedPath } from './host-paths.mjs';
-import { hostExecution, idleContainers } from './host-launcher.mjs';
+import { hostExecution } from './host-launcher.mjs';
+import { idleContainers } from './host-containers.mjs';
 import { readProtectedApproval } from './github-approval.mjs';
 import { EvidenceStore } from './evidence-store.mjs';
 import { OperationJournal } from './operation-journal.mjs';
@@ -11,7 +12,7 @@ import {
 } from './stages.mjs';
 import { digest, isId, isSha, requireThat } from './identity.mjs';
 import { repoPath } from './github-read.mjs';
-import { privateHostDirectory } from './host-fence.mjs';
+import { issueStatePath, privateHostDirectory } from './host-fence.mjs';
 
 // This entry is invoked locally as the administrator-owned controller, using a
 // verified recovery package. The Runner's fixed sudo relay cannot invoke it.
@@ -29,11 +30,19 @@ async function recover(issueNumber, expectedHead, stage) {
   const installed = await import('/opt/nibfin/core/src/host-adoption.mjs');
   const { host, hostBytes, adopted, reader } = coreRoot === '/opt/nibfin/core'
     ? await loadHostAdoption(issueNumber) : await installed.loadHostAdoption(issueNumber);
-  const fencePath = join(host.stateRoot, 'stage.lock');
-  const fenceBytes = await boundedHostFile(fencePath, 16384, true);
+  const subject = adopted.isolation.issue;
+  const issueRoot = issueStatePath(host.stateRoot, subject);
+  const scopedFence = join(issueRoot, 'stage.lock');
+  let fencePath = scopedFence;
+  const fenceBytes = await boundedHostFile(fencePath, 16384, true).catch(error => {
+    if (error.code !== 'ENOENT') throw error;
+    fencePath = join(host.stateRoot, 'stage.lock');
+    return boundedHostFile(fencePath, 16384, true);
+  });
   const fence = JSON.parse(fenceBytes);
   const priorJob = fence.binding?.execution;
   requireThat(fence.binding?.host === digest(hostBytes) &&
+    (fencePath !== scopedFence || fence.binding.issueId === subject.id) &&
     isId(fence.pid) && isId(priorJob?.runId) && isId(priorJob.jobId) &&
     isId(priorJob.attempt), 'INVALID_RECOVERY_FENCE');
   const root = repoPath(adopted.runner.repository);
@@ -47,7 +56,7 @@ async function recover(issueNumber, expectedHead, stage) {
       ));
       requireThat(routes.length === 1 && routes[0].id === host.runnerId &&
         routes[0].status === 'offline' && !routes[0].busy, 'RECOVERY_RUNNER_NOT_OFFLINE');
-      await idleContainers(adopted.isolation);
+      await idleContainers(adopted.isolation, subject);
       requireThat(await boundedHostFile(fencePath, 16384, true) === fenceBytes,
         'HOST_FENCE_CHANGED');
       return;
@@ -73,8 +82,7 @@ async function recover(issueNumber, expectedHead, stage) {
     job.name === adopted.runner.jobName && job.runner_id === host.runnerId,
   'RECOVERY_EXECUTION_MISMATCH');
   const binding = evidenceBinding({ approval });
-  const issueRoot = join(host.stateRoot,
-    `issue-${record.issue.repositoryId}-${record.issue.number}`);
+  requireThat(record.issue.id === subject.id, 'RECOVERY_ISSUE_CHANGED');
   const receiptsRoot = join(issueRoot, 'receipts');
   const store = new EvidenceStore(receiptsRoot, binding);
   const receipts = await store.load();
@@ -178,7 +186,7 @@ async function recover(issueNumber, expectedHead, stage) {
   requireThat(await boundedHostFile(archive, 16384, true) === fenceBytes,
     'RECOVERY_ARCHIVE_CHANGED');
   await unlink(fencePath);
-  const directory = await open(host.stateRoot, 'r');
+  const directory = await open(dirname(fencePath), 'r');
   try { await directory.sync(); } finally { await directory.close(); }
   return result;
 }
