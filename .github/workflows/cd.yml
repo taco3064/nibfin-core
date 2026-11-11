@@ -205,7 +205,7 @@ jobs:
         id: pages
       - run: npm install --global npm@11.9.0 --ignore-scripts
       - run: npm ci --ignore-scripts
-      - name: Check both paths and finish with the production build
+      - name: Build and check production Docs
         env:
           WEBSITE_SITE: ${{ steps.pages.outputs.origin }}
           PAGES_BASE: ${{ steps.pages.outputs.base_path }}
