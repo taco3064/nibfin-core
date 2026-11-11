@@ -41,6 +41,10 @@ async function dispatchFixture(t, failure) {
     observe: async () => {
       reads++;
       if (failure === 'revoked' && reads > 1) throw new Error('Revoked');
+      if (failure === 'http' && reads > 1)
+        throw Object.assign(new Error('Private provider diagnostic'), { status: 401 });
+      if (failure === 'changed' && reads > 1)
+        return { ...observed, stateHash: 'c'.repeat(64) };
       return observed;
     },
     fetcher: async (url, options) => {
@@ -104,6 +108,18 @@ test(
     assert.equal(result.stageAdmitted, false);
     assert.equal((await f.restart().dispatch()).code, 'REPLAYED_OPERATION');
     assert.equal(f.writes(), 1);
+  },
+);
+
+test('wake reports why its second observation failed before sending a dispatch',
+  async (t) => {
+    for (const [failure, code] of [
+      ['http', 'GITHUB_READ_HTTP_401'], ['changed', 'WAKE_ADMISSION_CHANGED'],
+    ]) {
+      const f = await dispatchFixture(t, failure);
+      assert.deepEqual(await f.dispatcher.dispatch(), { status: 'denied', code });
+      assert.equal(f.writes(), 0);
+    }
   },
 );
 
