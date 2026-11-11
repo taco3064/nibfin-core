@@ -125,7 +125,7 @@ test('provider branch update repairs once and resumes protected delivery', async
   const execute = f.options.execute;
   let requests = 0;
   f.options.execute = async stage => {
-    if (stage === 'merge' && ++requests === 1) {
+    if (stage === 'review-pr' && ++requests === 1) {
       return { status: 'denied', code: 'PR_BRANCH_UPDATE_REQUIRED' };
     }
     return execute(stage);

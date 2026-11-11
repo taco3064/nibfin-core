@@ -365,8 +365,8 @@ export function decideStage(stage, context, now = Date.now()) {
       if (['review-pr', 'merge'].includes(stage)) {
         artifacts = pullRequest(context, artifacts);
       }
-      if (stage === 'merge') {
-        verifyContentReview(context, artifacts);
+      if (stage === 'review-pr' || stage === 'merge') {
+        if (stage === 'merge') verifyContentReview(context, artifacts);
         const { head, base } = context.pr;
         Object.assign(artifacts, { head, base }, ci(context));
       }

@@ -25,6 +25,24 @@ test('CI uses the same adopted protection and refuses ruleset drift', async () =
   );
 });
 
+test('Final Review receives the checked workflow and run attempt', async () => {
+  const f = fixture();
+  const merge = await readPullRequestCI(f.reader, f.expected, now);
+  const review = await readPullRequestCI(f.reader, {
+    ...f.expected, includeSources: true,
+  }, now);
+  const { sources, ...same } = review;
+  assert.deepEqual(same, merge);
+  assert.equal(sources.length, 1);
+  const [source] = sources;
+  assert.equal(source.name, 'verify');
+  assert.equal(source.path, f.expected.workflows[0].path);
+  assert.equal(source.blob, f.expected.workflows[0].blob);
+  assert.equal(source.workflowId, f.expected.workflows[0].workflowId);
+  assert.equal(source.attempt, 1);
+  assert.ok(source.runId > 0 && source.jobId > 0);
+});
+
 function fixture() {
   const head = '1'.repeat(40),
     base = '2'.repeat(40),

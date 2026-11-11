@@ -161,7 +161,7 @@ export function nativeObserver({
         (pr.mergeable === false || pr.mergeable_state === 'behind')) {
         context.rebaseTarget = main.head;
       }
-      if (['merge', 'close'].includes(stage)) {
+      if (['review-pr', 'merge', 'close'].includes(stage)) {
         const expected = {
           repository: record.issue.repository,
           repositoryId: record.issue.repositoryId,
@@ -172,6 +172,7 @@ export function nativeObserver({
           workflows: pinned.ciWorkflows,
           reviewers: pinned.reviewers,
           ruleset: pinned.approval.ruleset,
+          includeSources: stage === 'review-pr',
         };
         if (stage === 'close') {
           const prior = await store.get(receipts.merge?.artifacts.ciHash);
