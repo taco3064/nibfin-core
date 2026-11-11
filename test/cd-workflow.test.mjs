@@ -39,6 +39,9 @@ function checkWorkflow(text) {
   const upload = build.steps.findIndex(step =>
     step.uses?.startsWith('actions/upload-pages-artifact@'));
   assert.ok(check >= 0 && upload === check + 1 && upload === build.steps.length - 1);
+  assert.match(build.steps[check].run,
+    /npm run website:check\nnpm run website:preview-check -- --production/);
+  assert.equal(build.steps[check].if, undefined);
   assert.equal(build.steps[upload].with.path, 'website/dist');
   assert.equal(build.steps[upload].if, undefined);
   assert.equal(build.steps[check]['continue-on-error'], undefined);
@@ -65,6 +68,7 @@ test('Core CD gates Pages deployment and version drafts independently', () => {
     ['  workflow_dispatch:', '  pull_request:'],
     ["github.repository == 'taco3064/nibfin-core'", 'true'],
     ['      path: website/dist', '      path: .'],
+    ['          npm run website:check\n', ''],
     ['    needs: build-docs', '    needs: verified-main'],
     ['      name: github-pages', '      name: unrestricted'],
     ['          persist-credentials: false', '          persist-credentials: true'],

@@ -104,9 +104,9 @@ requirements; it does not create another requirements or control authority.
 Core CD checks for website changes after successful push CI on `main`. For
 production, an administrator must set Pages Source to GitHub Actions and
 configure the `github-pages` environment to allow deployments from `main` under
-the repository's approval policy. The build reads the origin and base from
-Pages and checks both the alternate path and production output before uploading
-`website/dist`. Only the deploy job can publish that run's artifact.
+the repository's approval policy. CI checks the default and alternate paths.
+CD reads the origin and base from Pages, builds once, then verifies the output
+before uploading `website/dist`. Only the deploy job can publish that run's artifact.
 
 To retry from `main` or deploy after enabling Pages, use the same Core CD
 workflow with `deploy_docs=true`. Read back the run and tested source, Pages
