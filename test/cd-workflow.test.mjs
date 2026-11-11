@@ -60,6 +60,11 @@ function checkWorkflow(text) {
   assert.equal(jobs['release-draft'].needs, 'verified-main');
   assert.equal(jobs['release-draft'].if,
     "github.event_name == 'push' && github.ref_type == 'tag'");
+  const rollout = jobs['consumer-drafts'];
+  assert.match(rollout.if, /github.event_name == 'workflow_run'/);
+  assert.deepEqual(rollout.needs, ['verified-main', 'rollout']);
+  assert.equal(rollout.environment, 'nibfin-rollout');
+  assert.equal(rollout.steps.at(-1).with.path, 'activation.json');
 }
 
 test('Core CD gates Pages deployment and version drafts independently', () => {
@@ -87,6 +92,10 @@ test('CD routes website, package and shared changes', () => {
   assert.deepEqual(cdPaths(['src/stages.mjs']), { core: true, website: false });
   assert.deepEqual(cdPaths(['package-lock.json']), { core: true, website: true });
   assert.deepEqual(cdPaths([]), { core: false, website: false });
+  const pinPaths = ['.nibfin/producer-pins.json', '.github/workflows/nibfin-wake.yml'];
+  const rollout = `Prepare Core ${'a'.repeat(40)} rollout`;
+  assert.deepEqual(cdPaths(pinPaths, rollout), { core: false, website: false });
+  assert.deepEqual(cdPaths(pinPaths), { core: true, website: false });
 });
 
 test('workflow-only and contract-test changes select website verification', () => {
