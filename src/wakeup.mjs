@@ -136,7 +136,6 @@ export class WakeDispatcher {
     }
     const bindingHash = digest(initial),
       { issue, workflow } = initial;
-    let runId;
     const result = await this.#journal.run(
       { operation: 'wake', bindingHash },
       {
@@ -173,7 +172,7 @@ export class WakeDispatcher {
           );
           requireThat(response.status === 200, 'DISPATCH_RESULT_UNKNOWN');
           const receipt = await response.json();
-          runId = receipt.workflow_run_id;
+          const runId = receipt.workflow_run_id;
           requireThat(
             isId(runId) &&
               receipt.run_url ===
@@ -183,10 +182,12 @@ export class WakeDispatcher {
                 `https://github.com/${issue.repository}/actions/runs/${runId}`,
             'DISPATCH_IDENTITY_UNKNOWN',
           );
+          return runId;
         },
-        readBack: async () => {
+        readBack: async (runId) => {
           const run = await this.#reader.get(
             `${repoPath(issue.repository)}/actions/runs/${runId}`,
+            { retryNotFound: true },
           );
           requireThat(
             run.id === runId &&
@@ -206,7 +207,7 @@ export class WakeDispatcher {
       },
     );
     return result.status === 'completed'
-      ? { status: 'scheduled', runId, bindingHash, stageAdmitted: false }
+      ? { status: 'scheduled', runId: result.runId, bindingHash, stageAdmitted: false }
       : result;
   }
 }

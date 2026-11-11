@@ -248,7 +248,7 @@ export async function launchStage(issueNumber, stage, env = process.env) {
       );
     }
     const invocations = new Map();
-    const execute = async (current) => {
+    const execute = async (current, ciFailure) => {
       const iteration = invocations.get(current) ?? 0;
       invocations.set(current, iteration + 1);
       execution = hostExecution(runner, current, iteration);
@@ -264,6 +264,7 @@ export async function launchStage(issueNumber, stage, env = process.env) {
           runner,
           stateRoot: join(root, 'receipts'),
           ciWorkflows: adopted.ciWorkflows,
+          ...(ciFailure ? { ciFailure } : {}),
           reviewers: adopted.reviewers,
           ...(openPr ? { openPr } : {}),
         },

@@ -4,6 +4,7 @@ import { digest, isDigest, requireThat } from './identity.mjs';
 import { equivalentCandidate } from './candidate-evidence.mjs';
 import { integrationRepairRequired, pendingCIObservation } from './github-ci.mjs';
 import { codexIdle } from './codex-bootstrap.mjs';
+import { requiredCheckFailed } from './ci-recovery.mjs';
 
 const agentStages = new Set(['shape', 'validate-shape', 'deliver', 'accept']);
 const correctionStages = new Set(['accept', 'review-pr']);
@@ -74,9 +75,9 @@ export async function continueStages({
   const previous = await store.load();
   const changed = await refreshRequirements(previous);
   const initial = changed ? {} : await currentReceipts(store, previous);
-  const repairCandidate = async (rejected) => {
+  const repairCandidate = async (rejected, ciFailure) => {
     await inspect();
-    const repaired = await execute('deliver');
+    const repaired = await execute('deliver', ciFailure);
     if (repaired.status !== 'completed') return repaired;
     const delivery = await store.get(repaired.receiptHash);
     const candidate = await store.get(delivery.artifacts.candidateHash);
@@ -145,6 +146,12 @@ export async function continueStages({
         repairIntegration: false,
         correctionRepairs,
       });
+    }
+    if (['review-pr', 'merge'].includes(stage) && result.status === 'denied' &&
+      result.code === requiredCheckFailed && result.failure && correctionRepairs > 0) {
+      const published = (await store.load())['commit-pr'];
+      if (published?.outcome === 'published')
+        return repairCandidate(published, result.failure);
     }
     if (correctionStages.has(stage) && result.status === 'denied' &&
       correctionRepairs > 0 && result.code === 'STAGE_REQUIRES_CORRECTION' &&

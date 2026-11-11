@@ -33,7 +33,8 @@ async function dispatchFixture(t, failure) {
     route: { userId: 1 },
   };
   let writes = 0,
-    reads = 0;
+    reads = 0,
+    runReads = 0;
   const options = {
     token: 'fixture-token',
     journal: new OperationJournal(root, issue),
@@ -60,6 +61,9 @@ async function dispatchFixture(t, failure) {
           }),
         };
       }
+      runReads++;
+      if (failure === 'readback' && runReads === 1)
+        return { ok: false, status: 401 };
       return {
         ok: true,
         json: async () => ({
@@ -98,6 +102,20 @@ test(
     assert.equal(result.status, 'scheduled');
     assert.equal(result.runId, 9);
     assert.equal(result.stageAdmitted, false);
+    assert.equal((await f.restart().dispatch()).code, 'REPLAYED_OPERATION');
+    assert.equal(f.writes(), 1);
+  },
+);
+
+test('wake recovers an acknowledged run after a failed read without dispatching again',
+  async (t) => {
+    const f = await dispatchFixture(t, 'readback');
+    const first = await f.dispatcher.dispatch();
+    assert.equal(first.status, 'pending');
+    assert.equal(first.runId, 9);
+    const resumed = await f.restart().dispatch();
+    assert.equal(resumed.status, 'scheduled');
+    assert.equal(resumed.runId, 9);
     assert.equal((await f.restart().dispatch()).code, 'REPLAYED_OPERATION');
     assert.equal(f.writes(), 1);
   },

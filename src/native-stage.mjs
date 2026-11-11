@@ -9,6 +9,7 @@ import { digest, requireThat } from './identity.mjs';
 import { pendingCIObservation } from './github-ci.mjs';
 import { pendingMcpObservation } from './mcp-pending.mjs';
 import { observationFailureCode } from './observation-failure.mjs';
+import { ciFailureResult } from './ci-recovery.mjs';
 
 export function validStageRequest(request) {
   return (
@@ -66,7 +67,7 @@ export function nativeStageExecutor({
       try {
         initial = await observeNative(stage);
       } catch (error) {
-        return {
+        return ciFailureResult(error, stage) ?? {
           schemaVersion: 1,
           stage,
           status: pendingCIObservation(error.code) || pendingMcpObservation(error.code)

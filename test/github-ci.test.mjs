@@ -10,6 +10,35 @@ function checkoutLog(sha, marker = '[command]/usr/bin/git log -1 --format=%H') {
   return `2026-11-03T02:00:01.000Z ${marker}\n` + `2026-11-03T02:00:01.100Z ${sha}\n`;
 }
 
+test('only a failure from the current protected workflow is sent for correction',
+  async () => {
+    for (const variant of ['required', 'unrequired', 'foreign']) {
+      const f = fixture();
+      f.run.conclusion = 'failure';
+      const failed = variant === 'required' ? f.job : {
+        ...f.job, id: 91, name: 'Windows', check_run_url: null,
+      };
+      failed.conclusion = 'failure';
+      if (variant === 'required') f.check.conclusion = 'failure';
+      else f.data['/actions/runs/80/attempts/1/jobs'].push(failed);
+      if (variant === 'foreign') failed.run_attempt++;
+      await assert.rejects(readPullRequestCI(f.reader, f.expected, now), error => {
+        if (variant !== 'required') {
+          assert.equal(error.code, 'CI_SOURCE_OR_RESULT_MISMATCH');
+          assert.equal(error.failure, undefined);
+          return true;
+        }
+        assert.equal(error.code, 'CI_REQUIRED_CHECK_FAILED');
+        assert.equal(error.failure.head, f.expected.head);
+        assert.equal(error.failure.base, f.expected.base);
+        assert.equal(error.failure.check, failed.name);
+        assert.equal(error.failure.jobId, failed.id);
+        return true;
+      });
+    }
+  },
+);
+
 test('CI uses the same adopted protection and refuses ruleset drift', async () => {
   const f = fixture(),
     adopted = rulesetFixture(f.policy);
@@ -517,7 +546,7 @@ test(
     Object.assign(f.check, { status: 'completed', conclusion: 'failure' });
     await assert.rejects(
       readPullRequestCI(f.reader, f.expected, now),
-      /CI_SOURCE_OR_RESULT_MISMATCH/,
+      /UNTRUSTED_CI_JOB/,
     );
   },
 );
