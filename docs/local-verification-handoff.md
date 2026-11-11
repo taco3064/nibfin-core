@@ -82,17 +82,22 @@ native evidence exposes a defect, and fix/review it in the same Core #1 scope.
 ## Candidate packaging and release
 
 GitHub package CI builds `nibfin-core.tar.gz`, `source-pin.json`, `SHA256SUMS` from
-the exact commit and tests installation. After the runtime/authority evidence is
-sufficient, verify the candidate revision and version. The existing protected
-`.github/workflows/release.yml` can plan or create an unpublished draft:
+the exact commit and tests installation. Core CD runs after successful push CI on
+`main`, using the tested commit and changes since its last successful automatic
+run. Core package changes prepare a rollout. To retry a rollout or request
+consumer draft PRs, run the same workflow manually from `main`.
+
+To prepare a version draft, first verify that the reviewed version on `main`
+matches `package.json` and has passed CI. The repository must protect release
+tags so only authorized release operators can create them and existing tags
+cannot be moved. Push the version tag from that reviewed revision:
 
 ```sh
-gh workflow run release.yml -R taco3064/nibfin-core --ref main \
-  -f version=v0.1.0-rc.1 -f create_draft=false
+git tag v0.1.0-rc.1
+git push origin refs/tags/v0.1.0-rc.1
 ```
 
-Read its actual result before considering `create_draft=true`; never blindly
-retry an unknown draft/upload effect. A candidate draft is not C17 acceptance.
+Read back the Core CD run, draft and assets before retrying an uncertain result.
 Select the final version through reviewed source changes, independently check the
 assets and applicable immutable-release settings, publish only with the Owner's
 release authorization, then read back tag/source/publisher/assets/digests using

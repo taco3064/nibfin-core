@@ -1,6 +1,7 @@
 import { readFileSync, readdirSync, appendFileSync } from 'node:fs';
 import { posix } from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { websiteInput } from './cd-paths.mjs';
 
 function git(args) {
   const result = spawnSync('git', args, { encoding: 'utf8' });
@@ -23,7 +24,6 @@ function changedPaths(args) {
 
 const projectFiles = /^(?:package(?:-lock)?\.json|\.node-version|\.npmrc)$/;
 const controls = /^(?:\.github\/workflows\/ci\.yml|scripts\/test-changes\.mjs)$/;
-const webInputs = /^(?:website\/|package(?:-lock)?\.json$|\.node-version$|\.npmrc$)/;
 const imageInputs = /^src\/security\//;
 const windowsTests = new Set([
   'test/source-mode.test.mjs', 'test/mcp-source.test.mjs',
@@ -76,7 +76,8 @@ function run(executable, args) {
 
 const args = process.argv.slice(2);
 const paths = changedPaths(args);
-const website = paths.some(path => webInputs.test(path) || controls.test(path));
+const website = paths.some(path => websiteInput(path) || controls.test(path) ||
+  path === 'test/cd-workflow.test.mjs');
 if (args.includes('--website')) {
   const line = `website=${website}\n`;
   if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, line);

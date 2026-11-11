@@ -1,12 +1,26 @@
-name: Prepare Core rollout
+name: Core CD
+run-name: >-
+  ${{ github.event_name == 'workflow_run' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.head_repository.id == github.event.repository.id &&
+      github.event.workflow_run.head_sha == github.sha &&
+      format('Main CD {0}', github.event.workflow_run.head_sha) ||
+      format('Core CD ({0})', github.ref_name) }}
 
 on:
   workflow_run:
     workflows: [CI]
-    branches: [main]
     types: [completed]
+    branches: [main]
+  push:
+    tags: ['v*']
   workflow_dispatch:
     inputs:
+      deploy_docs:
+        description: Retry the Docs deployment instead of preparing a Core rollout
+        type: boolean
+        default: false
       source_commit:
         description: Exact CI-verified Core commit to resume, or blank for this main commit
         type: string
@@ -20,59 +34,72 @@ on:
         type: string
         required: false
 
-permissions:
-  actions: read
-  contents: read
+permissions: {}
+
+concurrency:
+  group: core-cd-${{ github.ref_type == 'tag' && github.ref_name || 'main' }}
+  cancel-in-progress: false
 
 jobs:
   verified-main:
     if: >-
-      github.event_name == 'workflow_dispatch' ||
-      (github.event.workflow_run.conclusion == 'success' &&
-       github.event.workflow_run.event == 'push' &&
-       github.event.workflow_run.head_repository.full_name == github.repository)
+      github.repository == 'taco3064/nibfin-core' &&
+      ((github.event_name == 'workflow_run' &&
+        github.event.workflow_run.event == 'push' &&
+        github.event.workflow_run.conclusion == 'success' &&
+        github.event.workflow_run.head_repository.id == github.event.repository.id &&
+        github.event.workflow_run.head_sha == github.sha) ||
+       (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
+       (github.event_name == 'push' && github.ref_type == 'tag' && github.ref_protected &&
+        github.event.created && !github.event.deleted && !github.event.forced))
     runs-on: ubuntu-24.04
     timeout-minutes: 5
+    permissions:
+      actions: read
+      contents: read
+      pages: read
     outputs:
       commit: ${{ steps.source.outputs.commit }}
+      core: ${{ steps.plan.outputs.core }}
+      website: ${{ steps.plan.outputs.website }}
     steps:
-      - name: Verify the exact main revision passed CI
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || (!inputs.deploy_docs && inputs.source_commit) || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Resolve the CI-verified source
         id: source
         env:
           GH_TOKEN: ${{ github.token }}
-          REQUESTED_SOURCE: ${{ inputs.source_commit }}
-          CI_SOURCE: ${{ github.event.workflow_run.head_sha }}
         run: |
           set -euo pipefail
-          test "$GITHUB_REPOSITORY" = taco3064/nibfin-core
-          test "$GITHUB_REF" = refs/heads/main
-          source=${CI_SOURCE:-${REQUESTED_SOURCE:-$GITHUB_SHA}}
-          [[ "$source" =~ ^[a-f0-9]{40}$ ]]
-          gh api "repos/$GITHUB_REPOSITORY/compare/$source...$GITHUB_SHA" \
-            --jq .status | grep -Ex 'ahead|identical'
-          gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs" \
-            --method GET -f event=push -f branch=main -f head_sha="$source" \
-            --jq 'first(.workflow_runs[]) |
-              select(.status == "completed" and .conclusion == "success") | .id' \
-            | grep -Ex '[0-9]+'
-          if [[ -n "$CI_SOURCE" ]]; then
-            # Consumer pin updates are produced by CD itself.
-            files=$(gh api "repos/$GITHUB_REPOSITORY/commits/$source" \
-              --jq '.files[].filename')
-            subject=$(gh api "repos/$GITHUB_REPOSITORY/commits/$source" \
-              --jq '.commit.message | split("\n")[0]')
-            if [[ "$subject" =~ ^Prepare\ Core\ [a-f0-9]{40}\ rollout$ ]] &&
-              [[ -n "$files" ]] && ! grep -vEx \
-              '\.nibfin/producer-pins\.json|\.github/workflows/nibfin-(issue|wake)\.yml' \
-              <<< "$files"; then
-              echo 'Consumer pin update already managed by CD.'
-              exit 0
-            fi
+          source=$(git rev-parse HEAD)
+          if [[ "$GITHUB_EVENT_NAME" != workflow_run ]]; then
+            git merge-base --is-ancestor "$source" origin/main
+            gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs" \
+              --method GET -f event=push -f branch=main -f head_sha="$source" \
+              --jq 'first(.workflow_runs[]) |
+                select(.status == "completed" and .conclusion == "success") | .id' \
+              | grep -Ex '[0-9]+'
           fi
           printf 'commit=%s\n' "$source" >> "$GITHUB_OUTPUT"
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        if: github.event_name != 'push'
+        with:
+          node-version-file: .node-version
+          package-manager-cache: false
+      - name: Select CD jobs
+        id: plan
+        if: github.event_name != 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CD_SOURCE: ${{ steps.source.outputs.commit }}
+          CD_DOCS_ONLY: ${{ inputs.deploy_docs }}
+        run: node scripts/cd-plan.mjs
 
   package:
-    if: needs.verified-main.outputs.commit != ''
+    if: needs.verified-main.outputs.core == 'true'
     needs: verified-main
     uses: ./.github/workflows/package.yml
     with:
@@ -84,6 +111,8 @@ jobs:
     needs: [verified-main, package]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
+    permissions:
+      actions: read
     steps:
       - name: Record the verified package and rollout targets
         env:
@@ -126,9 +155,13 @@ jobs:
     concurrency:
       group: nibfin-consumer-rollout
     environment: nibfin-rollout
+    permissions:
+      actions: read
+      contents: read
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
+          ref: ${{ github.event_name == 'workflow_run' && needs.verified-main.outputs.commit || github.sha }}
           persist-credentials: false
       - name: Fetch this run's rollout artifact
         env:
@@ -150,3 +183,74 @@ jobs:
           path: activation.json
           if-no-files-found: error
           retention-days: 30
+
+  build-docs:
+    if: needs.verified-main.outputs.website == 'true'
+    needs: verified-main
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pages: read
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ needs.verified-main.outputs.commit }}
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version-file: .node-version
+          package-manager-cache: false
+      - uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
+        id: pages
+      - run: npm install --global npm@11.9.0 --ignore-scripts
+      - run: npm ci --ignore-scripts
+      - name: Check both paths and finish with the production build
+        env:
+          WEBSITE_SITE: ${{ steps.pages.outputs.origin }}
+          PAGES_BASE: ${{ steps.pages.outputs.base_path }}
+        run: |
+          set -euo pipefail
+          test -n "$WEBSITE_SITE"
+          export WEBSITE_BASE="${PAGES_BASE%/}/"
+          npm run website:check
+          npm run website:preview-check -- --production
+      - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: website/dist
+
+  deploy-docs:
+    needs: build-docs
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
+        id: deployment
+
+  release-draft:
+    if: github.event_name == 'push' && github.ref_type == 'tag'
+    needs: verified-main
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ needs.verified-main.outputs.commit }}
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version-file: .node-version
+          package-manager-cache: false
+      - name: Prepare the version draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_COMMIT: ${{ needs.verified-main.outputs.commit }}
+        run: node scripts/release-ci.mjs

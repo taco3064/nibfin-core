@@ -93,12 +93,25 @@ compares configured slugs with Astro's actual generated pages. Use Starlight
 
 The [shared theme interface](THEME.md) provides tokens for DOC03 and DOC04.
 DOC05 and DOC06 can add content without
-reinitializing Core. DOC07 owns GitHub Actions Pages publication; this workspace
-adds no deployment workflow. DOC08 owns published-site browser testing; local
+reinitializing Core. DOC08 owns published-site browser testing; local
 theme checks are documented in THEME.md. Public documents
 must describe verified availability and must not contain private source,
 credentials or protected operational details. Documentation projects product
 requirements; it does not create another requirements or control authority.
+
+## GitHub Pages
+
+Core CD checks for website changes after successful push CI on `main`. For
+production, an administrator must set Pages Source to GitHub Actions and
+configure the `github-pages` environment to allow deployments from `main` under
+the repository's approval policy. The build reads the origin and base from
+Pages and checks both the alternate path and production output before uploading
+`website/dist`. Only the deploy job can publish that run's artifact.
+
+To retry from `main` or deploy after enabling Pages, use the same Core CD
+workflow with `deploy_docs=true`. Read back the run and tested source, Pages
+artifact, environment approval where applicable, deployment status and
+`page_url`. A successful build alone establishes only the build result.
 
 ## Onboarding content
 

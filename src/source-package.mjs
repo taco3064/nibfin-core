@@ -6,7 +6,7 @@ import { command } from './process.mjs';
 import { digest, sha256, isSha, isDigest, requireThat } from './identity.mjs';
 import { isSourceMode, matchesSourceMode } from './source-mode.mjs';
 
-const included = (path) =>
+export const includesPackagePath = (path) =>
   /^(src|bin|skills|docs)\//.test(path) ||
   /^\.github\/workflows\/[A-Za-z0-9_.-]+\.ya?ml$/.test(path) ||
   [
@@ -89,9 +89,9 @@ export async function packageSource(
   let size = 0;
   for (const entry of tree) {
     const match = /^(\d{6}) blob ([a-f0-9]{40})\t(.+)$/.exec(entry);
-    if (!match || !included(match[3])) {
+    if (!match || !includesPackagePath(match[3])) {
       requireThat(
-        !entry.split('\t')[1] || !included(entry.split('\t')[1]),
+        !entry.split('\t')[1] || !includesPackagePath(entry.split('\t')[1]),
         'UNSUPPORTED_PACKAGE_TREE',
       );
       continue;
