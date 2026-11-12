@@ -54,11 +54,12 @@ jobs:
           NIBFIN_CORE_COMMIT: ${{ inputs.core_commit }}
           NIBFIN_WAKE_ADOPTION: ${{ secrets.NIBFIN_WAKE_ADOPTION }}
           NIBFIN_WAKE_TOKEN: ${{ secrets.NIBFIN_WAKE_TOKEN }}
+          NIBFIN_SHARED_RUNNER_POOL: ${{ vars.NIBFIN_SHARED_RUNNER_POOL }}
         run: node scripts/issue-ci.mjs
 
   dispatch:
     needs: resolve
-    if: needs.resolve.outputs.issue_number != ''
+    if: needs.resolve.outputs.issue_number != '' && vars.NIBFIN_SHARED_RUNNER_POOL != 'true'
     runs-on:
       - self-hosted
       - linux

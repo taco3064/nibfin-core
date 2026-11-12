@@ -20,7 +20,7 @@ export function codexEnvironment(profile, coreRoot, runner) {
     ...(selected.dockerMode === 'rootful' ? { namespace: profile.namespace } : {}),
   });
   const containerLabel = runner ? issueContainerLabel(profile.issue) : undefined;
-  const gatewayLabel = runner ? runnerGatewayLabel(runner) : undefined;
+  const gatewayLabel = runner ? runnerGatewayLabel(runner.gateway ?? runner) : undefined;
   return Object.freeze({
     agent: new CodexSandbox({ ...profile.agent, coreRoot },
       { backend, containerLabel, gatewayLabel }),

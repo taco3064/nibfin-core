@@ -16,20 +16,21 @@ import { issueStatePath, privateHostDirectory } from './host-fence.mjs';
 
 // This entry is invoked locally as the administrator-owned controller, using a
 // verified recovery package. The Runner's fixed sudo relay cannot invoke it.
-export async function recoverCommitPr(issueNumber, expectedHead) {
-  return recover(issueNumber, expectedHead, 'commit-pr');
+export async function recoverCommitPr(issueNumber, expectedHead, repositoryId) {
+  return recover(issueNumber, expectedHead, 'commit-pr', repositoryId);
 }
 
-export async function recoverReview(issueNumber, expectedHead) {
-  return recover(issueNumber, expectedHead, 'review-pr');
+export async function recoverReview(issueNumber, expectedHead, repositoryId) {
+  return recover(issueNumber, expectedHead, 'review-pr', repositoryId);
 }
 
-async function recover(issueNumber, expectedHead, stage) {
+async function recover(issueNumber, expectedHead, stage, repositoryId) {
   requireThat(process.getuid?.() > 0 && isSha(expectedHead), 'INVALID_RECOVERY_REQUEST');
   await rootOwnedPath(coreRoot);
   const installed = await import('/opt/nibfin/core/src/host-adoption.mjs');
-  const { host, hostBytes, adopted, reader } = coreRoot === '/opt/nibfin/core'
-    ? await loadHostAdoption(issueNumber) : await installed.loadHostAdoption(issueNumber);
+  const load = coreRoot === '/opt/nibfin/core' ? loadHostAdoption :
+    installed.loadHostAdoption;
+  const { host, hostBytes, adopted, reader } = await load(issueNumber, repositoryId);
   const subject = adopted.isolation.issue;
   const issueRoot = issueStatePath(host.stateRoot, subject);
   const scopedFence = join(issueRoot, 'stage.lock');
@@ -45,16 +46,19 @@ async function recover(issueNumber, expectedHead, stage) {
     (fencePath !== scopedFence || fence.binding.issueId === subject.id) &&
     isId(fence.pid) && isId(priorJob?.runId) && isId(priorJob.jobId) &&
     isId(priorJob.attempt), 'INVALID_RECOVERY_FENCE');
-  const root = repoPath(adopted.runner.repository);
+  const runner = adopted.runner;
+  const root = repoPath(subject.repository);
+  const executionRoot = repoPath(runner.repository);
   const checkQuiescence = async () => {
     try { process.kill(fence.pid, 0); }
     catch (error) {
       requireThat(error.code === 'ESRCH', 'WRITER_NOT_PROVEN_TERMINATED');
-      const runners = await reader.list(root + '/actions/runners', 'runners');
-      const routes = runners.filter(r => r.labels?.some(
-        l => l.name === 'nibfin-user-' + host.memberId,
-      ));
-      requireThat(routes.length === 1 && routes[0].id === host.runnerId &&
+      const runners = await reader.list(executionRoot + '/actions/runners', 'runners');
+      const label = 'nibfin-user-' + host.memberId;
+      const routes = runners.filter(r =>
+        (!runner.target || r.id === runner.runnerId) &&
+        r.labels?.some(l => l.name === label));
+      requireThat(routes.length === 1 && routes[0].id === runner.runnerId &&
         routes[0].status === 'offline' && !routes[0].busy, 'RECOVERY_RUNNER_NOT_OFFLINE');
       await idleContainers(adopted.isolation, subject);
       requireThat(await boundedHostFile(fencePath, 16384, true) === fenceBytes,
@@ -66,8 +70,8 @@ async function recover(issueNumber, expectedHead, stage) {
   await checkQuiescence();
   const [approval, run, job, actor] = await Promise.all([
     readProtectedApproval(reader, adopted.approval),
-    reader.get(root + '/actions/runs/' + priorJob.runId),
-    reader.get(root + '/actions/jobs/' + priorJob.jobId),
+    reader.get(executionRoot + '/actions/runs/' + priorJob.runId),
+    reader.get(executionRoot + '/actions/jobs/' + priorJob.jobId),
     reader.get('/user'),
   ]);
   const record = approval.record;
@@ -79,7 +83,7 @@ async function recover(issueNumber, expectedHead, stage) {
     run.id === priorJob.runId && run.event === 'workflow_dispatch' &&
     run.status === 'completed' && job.id === priorJob.jobId &&
     job.status === 'completed' && job.run_id === run.id &&
-    job.name === adopted.runner.jobName && job.runner_id === host.runnerId,
+    job.name === runner.jobName && job.runner_id === runner.runnerId,
   'RECOVERY_EXECUTION_MISMATCH');
   const binding = evidenceBinding({ approval });
   requireThat(record.issue.id === subject.id, 'RECOVERY_ISSUE_CHANGED');
@@ -132,7 +136,7 @@ async function recover(issueNumber, expectedHead, stage) {
       ? { ...artifacts, prId: prior.artifacts.prId, prNumber: prior.artifacts.prNumber,
         head: expectedHead } : artifacts;
     const requestHash = stageRequestHash({ stage, binding, artifacts: requestArtifacts,
-      execution, runner: host.runnerId, isolation: adopted.isolation.kind,
+      execution, runner: runner.runnerId, isolation: adopted.isolation.kind,
       body: issue.body, shaped: true });
     const decision = digest({ operation: stage, bindingHash: requestHash });
     try {

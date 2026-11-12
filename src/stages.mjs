@@ -328,7 +328,8 @@ export function decideStage(stage, context, now = Date.now()) {
       context.runner?.runId === execution.runId &&
         context.runner.attempt === execution.attempt &&
         context.runner.jobId === execution.jobId &&
-        context.runner.repositoryId === record.issue.repositoryId &&
+        (context.runner.target ?? context.runner).repositoryId ===
+          record.issue.repositoryId &&
         context.runner.memberId === context.route?.userId &&
         execution.actorId === context.runner.memberId &&
         isId(context.runner.runnerId) &&

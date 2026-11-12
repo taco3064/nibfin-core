@@ -44,7 +44,8 @@ export function validateRolloutHost(repository, current, next, pin, source, acti
     next.repository.runner.actionCommit === action &&
     next.repository.runner.actionCoreCommit === pin.commit &&
     next.repository.eventRunner.reusable?.commit === pin.commit &&
-    next.repository.eventCaller?.reusable?.commit === pin.commit,
+    next.repository.eventCaller?.reusable?.commit === pin.commit &&
+    digest(next.sharedRunner ?? null) === digest(current.sharedRunner ?? null),
   'ROLLOUT_HOST_BINDING_MISMATCH');
 }
 

@@ -9,7 +9,7 @@ import { approvalProviderFixture } from './github-approval-fixture.mjs';
 import { now, approvalRecord } from './approval-fixture.mjs';
 import { gitBlob } from '../src/identity.mjs';
 
-async function dispatchFixture(t, failure) {
+async function dispatchFixture(t, failure, shared = false) {
   const root = await mkdtemp(join(tmpdir(), 'nibfin-wake-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   const issue = {
@@ -23,7 +23,9 @@ async function dispatchFixture(t, failure) {
     path: '.github/workflows/nibfin.yml',
     ref: 'main',
     commit: '1'.repeat(40),
+    ...(shared ? { repository: 'example/runner', repositoryId: 11 } : {}),
   };
+  const destination = workflow.repository ?? issue.repository;
   const observed = {
     issue,
     workflow,
@@ -52,6 +54,8 @@ async function dispatchFixture(t, failure) {
     fetcher: async (url, options) => {
       if (options.method === 'POST') {
         writes++;
+        assert.equal(url, `https://api.github.com/repos/${destination}/` +
+          'actions/workflows/5/dispatches');
         assert.equal(options.headers['X-GitHub-Api-Version'], '2026-03-10');
         assert.deepEqual(JSON.parse(options.body), {
           ref: 'main',
@@ -62,8 +66,8 @@ async function dispatchFixture(t, failure) {
           status: failure === 'legacy' ? 204 : 200,
           json: async () => ({
             workflow_run_id: 9,
-            run_url: 'https://api.github.com/repos/example/core/actions/runs/9',
-            html_url: 'https://github.com/example/core/actions/runs/9',
+            run_url: `https://api.github.com/repos/${destination}/actions/runs/9`,
+            html_url: `https://github.com/${destination}/actions/runs/9`,
           }),
         };
       }
@@ -77,8 +81,8 @@ async function dispatchFixture(t, failure) {
           event: 'workflow_dispatch',
           workflow_id: 5,
           path: workflow.path,
-          repository: { id: 10 },
-          head_repository: { id: 10 },
+          repository: { id: workflow.repositoryId ?? issue.repositoryId },
+          head_repository: { id: workflow.repositoryId ?? issue.repositoryId },
           head_sha: failure === 'source' ? '2'.repeat(40) : workflow.commit,
           head_branch: 'main',
           actor: { id: 3 },
@@ -97,6 +101,12 @@ async function dispatchFixture(t, failure) {
     writes: () => writes,
   };
 }
+
+test('wake dispatches to the shared queue with the original issue locator', async t => {
+  const fixture = await dispatchFixture(t, undefined, true);
+  assert.equal((await fixture.dispatcher.dispatch()).status, 'scheduled');
+  assert.equal(fixture.writes(), 1);
+});
 
 test(
   'dispatch observes the returned native run without ' +

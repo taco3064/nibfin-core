@@ -11,6 +11,7 @@ import { observeWake, WakeDispatcher, fanout } from './wakeup.mjs';
 import { OperationJournal } from './operation-journal.mjs';
 import { digest, isId, isSha, requireThat } from './identity.mjs';
 import { readCallerSource } from './caller-source.mjs';
+import { sharedDispatchWorkflow } from './shared-runner.mjs';
 
 // Hosted preflight only. Event fields locate resources; adopted source pins,
 // current native approval and the dispatch credential supply authority.
@@ -64,7 +65,9 @@ export async function observeIssueEvent(reader, adoption, event, invocation) {
       run.id === invocation.runId &&
       run.run_attempt === 1 &&
       run.event === 'issues' &&
-      run.status === 'in_progress' &&
+      (run.status === 'in_progress' ||
+        (invocation.forwarded && run.status === 'completed' &&
+          run.conclusion === 'success')) &&
       run.workflow_id === pin.id &&
       run.path === pin.path &&
       run.head_branch === repository.default_branch &&
@@ -152,7 +155,7 @@ export async function resolveIssueWake(reader, adoption, event, invocation) {
     });
     requireThat(route, 'WAKE_TARGET_NOT_READY');
   } else {
-    route = (await observeWake(reader, config)).route;
+    route = (await observeWake(reader, { ...config, shared: invocation.shared })).route;
   }
   return {
     status: 'resolved',
@@ -184,6 +187,7 @@ export async function runIssueWake(env = process.env) {
       runId: Number(env.GITHUB_RUN_ID),
       attempt: Number(env.GITHUB_RUN_ATTEMPT),
       coreCommit: env.NIBFIN_CORE_COMMIT,
+      shared: env.NIBFIN_SHARED_RUNNER_POOL === 'true',
     },
   ).catch((error) => {
     const idle = ['WAKE_TARGET_NOT_READY', 'INACTIVE_WAKE_TARGET',
@@ -206,6 +210,7 @@ export async function dispatchIssueWake({
   inspect,
   fetcher = fetch,
   peerRepositories = [],
+  sharedRunner,
 }) {
   let journalEntered = false;
   try {
@@ -213,7 +218,7 @@ export async function dispatchIssueWake({
     const wake = async (issue) => {
       const config = adoptedWake(adoption, issue, peerRepositories);
       try {
-        await observeWake(reader, config);
+        await observeWake(reader, { ...config, shared: Boolean(sharedRunner) });
       } catch (error) {
         if (
           [
@@ -236,10 +241,14 @@ export async function dispatchIssueWake({
         observe: async (current) => {
           await inspect();
           await observeIssueEvent(current, adoption, event, invocation);
-          const observed = await observeWake(current, config);
+          const observed = await observeWake(current, {
+            ...config, shared: Boolean(sharedRunner),
+          });
           requireThat(observed.issue.id === issue.id &&
             observed.issue.repositoryId === issue.repositoryId, 'WAKE_TARGET_CHANGED');
-          return observed;
+          if (!sharedRunner) return observed;
+          const workflow = await sharedDispatchWorkflow(current, sharedRunner);
+          return { ...observed, workflow };
         },
       }).dispatch();
       return result.code === 'REPLAYED_OPERATION'

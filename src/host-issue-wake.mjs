@@ -17,6 +17,8 @@ import { readProtectedApproval } from './github-approval.mjs';
 import { dispatchIssueWake } from './issue-wake.mjs';
 import { digest, requireThat } from './identity.mjs';
 import { relayHostCommand } from './host-relay.mjs';
+import { targetContextKey } from './controller-contract.mjs';
+import { readForwardedWake } from './shared-wake.mjs';
 
 export function hostWakeAdoption(host, adopted) {
   const event = adopted.eventRunner,
@@ -87,18 +89,24 @@ async function readWakePeers(host) {
 export async function launchIssueWake(issueNumber, env = process.env, eventBytes) {
   const relayed = await relayHostCommand('dispatch-event', [issueNumber], env);
   if (relayed !== null) return relayed;
-  const context = await loadHostAdoption(issueNumber);
+  const targetRepositoryId = env[targetContextKey];
+  const context = await loadHostAdoption(issueNumber, targetRepositoryId);
   const { host, adopted, reader, token } = context;
-  const adoption = hostWakeAdoption(host, adopted);
+  const targetHost = context.targetHost ?? host;
+  const shared = targetRepositoryId !== undefined;
+  const targetAdoption = shared
+    ? targetHost.issues?.[issueNumber] ?? targetHost.repository : adopted;
+  const adoption = hostWakeAdoption(targetHost, targetAdoption);
+  const eventName = shared ? 'workflow_dispatch' : 'issues';
+  const caller = shared ? adopted.caller : adopted.eventCaller;
+  const callerAdoption = shared ? adopted
+    : { runner: adopted.eventRunner, approval: adopted.approval };
   const { runner, binding } = await resolveHostJob(
-    reader,
-    { runner: adopted.eventRunner, approval: adopted.approval },
-    env,
-    'issues',
+    reader, callerAdoption, env, eventName,
   );
   const execution = hostWakeExecution(runner);
   const authenticate = actionsCaller({
-    pin: adopted.eventCaller,
+    pin: caller,
     requestUrl: env.ACTIONS_ID_TOKEN_REQUEST_URL,
     requestToken: env.ACTIONS_ID_TOKEN_REQUEST_TOKEN,
     executionId: execution.id,
@@ -115,9 +123,9 @@ export async function launchIssueWake(issueNumber, env = process.env, eventBytes
       await inspectHostAdoption(context);
       const fresh = await resolveHostJob(
         reader,
-        { runner: adopted.eventRunner, approval: adopted.approval },
+        callerAdoption,
         env,
-        'issues',
+        eventName,
       );
       await authenticate(fresh.binding);
       const current = await readProtectedApproval(reader, adopted.approval);
@@ -134,15 +142,16 @@ export async function launchIssueWake(issueNumber, env = process.env, eventBytes
       host.runnerUid === undefined || typeof eventBytes === 'string',
       'CONTROLLER_EVENT_TRANSPORT_REQUIRED',
     );
-    const event = JSON.parse(
-      eventBytes ?? (await boundedHostFile(env.GITHUB_EVENT_PATH, 1048576)),
-    );
+    const bytes = eventBytes ?? await boundedHostFile(env.GITHUB_EVENT_PATH, 1048576);
+    const forwarded = shared ? readForwardedWake(bytes, approval.record.issue) : null;
+    const event = forwarded?.event ?? JSON.parse(bytes);
     requireThat(
       String(event.issue?.number) === issueNumber &&
         event.issue.node_id === approval.record.issue.id,
       'EVENT_ISSUE_CHANGED',
     );
-    const peerRepositories = event.action === 'closed' ? await readWakePeers(host) : [];
+    const peerRepositories = event.action === 'closed'
+      ? await readWakePeers(targetHost) : [];
     const stateRoot = join(host.stateRoot, 'wake');
     await mkdir(stateRoot, { mode: 0o700 }).catch((error) => {
       if (error.code !== 'EEXIST') throw error;
@@ -154,18 +163,21 @@ export async function launchIssueWake(issueNumber, env = process.env, eventBytes
       adoption,
       event,
       invocation: {
-        repository: runner.repository,
+        repository: (runner.target ?? runner).repository,
         eventName: 'issues',
-        runId: runner.runId,
-        attempt: runner.attempt,
+        runId: forwarded?.runId ?? runner.runId,
+        attempt: forwarded ? 1 : runner.attempt,
+        ...(shared ? { forwarded: true } : {}),
         coreCommit: host.installation.pin.commit,
       },
       stateRoot,
       peerRepositories,
+      sharedRunner: shared ? adopted.runner : undefined,
       inspect: async () => {
         await inspect();
         if (event.action === 'closed')
-          requireThat(digest(await readWakePeers(host)) === digest(peerRepositories),
+          requireThat(
+            digest(await readWakePeers(targetHost)) === digest(peerRepositories),
             'WAKE_PEERS_CHANGED');
       },
     });

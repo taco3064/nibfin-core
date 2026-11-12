@@ -17,6 +17,8 @@ export const contextKeys = Object.freeze([
   'ACTIONS_ID_TOKEN_REQUEST_TOKEN',
 ]);
 
+export const targetContextKey = 'NIBFIN_TARGET_REPOSITORY_ID';
+
 export function controllerRoute(host) {
   const issues = Object.values(host.issues ?? {});
   if (host.repository) issues.push(host.repository);
@@ -55,7 +57,12 @@ export function validateControllerRequest(value) {
   );
   requireThat(
     value.context &&
-      Object.keys(value.context).every((key) => contextKeys.includes(key)) &&
+      Object.keys(value.context).every((key) =>
+        contextKeys.includes(key) || key === targetContextKey) &&
+      (value.context[targetContextKey] === undefined ||
+        (typeof value.context[targetContextKey] === 'string' &&
+          /^[1-9][0-9]*$/.test(value.context[targetContextKey]) &&
+          isId(Number(value.context[targetContextKey])))) &&
       contextKeys.every(
         (key) =>
           typeof value.context[key] === 'string' &&

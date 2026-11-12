@@ -48,10 +48,11 @@ export async function codexStageExecutor({
     );
   }
   const workspace = new CandidateWorkspace(workspaceRoot, profile.issue);
+  const target = adopted.runner.target ?? adopted.runner;
   requireThat(
     profile.issue.id === adopted.approval.issueId &&
-      profile.issue.repositoryId === adopted.runner.repositoryId &&
-      profile.issue.repository === adopted.runner.repository,
+      profile.issue.repositoryId === target.repositoryId &&
+      profile.issue.repository === target.repository,
     'HOST_WORKSPACE_SUBJECT_CHANGED',
   );
   const { agent: agentSandbox, hooks: hookSandbox } = codexEnvironment(

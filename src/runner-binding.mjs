@@ -88,7 +88,9 @@ export async function readRunnerBinding(reader, expected) {
                 coreCommit: expected.reusable.commit,
               }
             : undefined;
-    await readCallerSource(reader, expected.repository, pin, run.head_sha, recipe);
+    if (expected.target)
+      await readCallerContinuity(reader, expected.repository, pin, run.head_sha);
+    else await readCallerSource(reader, expected.repository, pin, run.head_sha, recipe);
     const latest = branch.commit?.sha;
     if (recipe)
       await readCallerSource(reader, expected.repository, pin, latest, recipe);
@@ -162,7 +164,8 @@ export async function readRunnerBinding(reader, expected) {
     expected.workflowBlob,
   );
   const job = await reader.get(jobPath);
-  const label = `nibfin-user-${expected.memberId}`;
+  const memberLabel = `nibfin-user-${expected.memberId}`;
+  const label = expected.target ? 'nibfin-shared' : memberLabel;
   requireThat(
     job?.id === expected.jobId &&
       job.run_id === expected.runId &&
@@ -198,6 +201,7 @@ export async function readRunnerBinding(reader, expected) {
       runner.busy === true &&
       Array.isArray(runner.labels) &&
       runner.labels.some((item) => item.name === label) &&
+      runner.labels.some((item) => item.name === memberLabel) &&
       runner.labels.some((item) => item.name === 'self-hosted'),
     'ACTUAL_RUNNER_BINDING_MISMATCH',
   );
@@ -223,6 +227,7 @@ export async function readRunnerBinding(reader, expected) {
       typeof latestRunner.os === 'string' &&
       latestRunner.os.toLowerCase() === runnerOS &&
       latestRunner.labels?.some(item => item.name === label) &&
+      latestRunner.labels.some(item => item.name === memberLabel) &&
       latestRunner.labels.some(item => item.name === 'self-hosted') &&
       latestWorkflow.id === workflow.id && latestWorkflow.path === workflow.path &&
       latestWorkflow.state === workflow.state &&
@@ -232,6 +237,7 @@ export async function readRunnerBinding(reader, expected) {
   );
   return {
     repositoryId: expected.repositoryId,
+    ...(expected.target ? { target: expected.target } : {}),
     runId: run.id,
     attempt: run.run_attempt,
     jobId: job.id,

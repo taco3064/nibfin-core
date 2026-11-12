@@ -27,6 +27,7 @@ HOSTS = {
 PIN_PATH = ".nibfin/producer-pins.json"
 ISSUE = ".github/workflows/nibfin-issue.yml"
 WAKE = ".github/workflows/nibfin-wake.yml"
+SHARED = ".github/workflows/shared-runner.yml"
 ENV = {"PATH": "/usr/local/bin:/usr/bin:/bin", "LANG": "C", "GH_PROMPT_DISABLED": "1"}
 
 
@@ -170,13 +171,20 @@ def read_consumer(repo, config, pins):
 
 def idle(hosts, include_queued=True):
     for repo, config in hosts.items():
-        runners = api(f"repos/{repo}/actions/runners")["runners"]
-        runner = next((r for r in runners if r["id"] == config["runnerId"]), None)
+        shared = config.get("sharedRunner", {}).get("runner")
+        runner_repo = shared["repository"] if shared else repo
+        runner_id = shared["runnerId"] if shared else config["runnerId"]
+        runners = api(f"repos/{runner_repo}/actions/runners")["runners"]
+        runner = next((r for r in runners if r["id"] == runner_id), None)
         require(runner is not None, f"{repo} adopted Runner is missing")
         if runner["busy"]:
             return False
-        for workflow in (ISSUE, WAKE):
-            path = f"repos/{repo}/actions/workflows/{Path(workflow).name}/runs"
+        workflows = [(repo, ISSUE), (repo, WAKE)]
+        if shared:
+            workflows.append((runner_repo, SHARED))
+        for workflow_repo, workflow in workflows:
+            filename = Path(workflow).name
+            path = f"repos/{workflow_repo}/actions/workflows/{filename}/runs"
             active = api(path + "?status=in_progress&per_page=1")["total_count"]
             queued = include_queued and api(path + "?status=queued&per_page=1")[
                 "total_count"

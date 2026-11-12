@@ -22,7 +22,7 @@ function wakeObservationCode(error, fallback) {
 // Events only locate an adopted Issue identity. No event field grants authority.
 export async function observeWake(
   reader,
-  { approvalPin, workflow, actorId },
+  { approvalPin, workflow, actorId, shared = false },
   clock = Date.now,
 ) {
   requireThat(
@@ -69,6 +69,20 @@ export async function observeWake(
     'WAKE_ACTOR_CHANGED',
   );
   if (!nativePolicy) await readMemberPermission(reader, issue.repository, actor);
+  const observed = {
+    issue,
+    approvalHash: approval.approvalHash,
+    actorId,
+    route,
+    entryStage,
+    state: {
+      body: current.body,
+      labels: current.labels,
+      assignees: current.assignees,
+      prerequisites: dependencies.prerequisites,
+    },
+  };
+  if (shared) return observed;
   const repository = await reader.repository(issue.repository);
   const branch = await reader.get(
     `${root}/branches/${encodeURIComponent(repository.default_branch)}`,
@@ -90,18 +104,8 @@ export async function observeWake(
     'WAKE_WORKFLOW_UNAVAILABLE',
   );
   return {
-    issue,
-    approvalHash: approval.approvalHash,
+    ...observed,
     workflow: { ...workflow, commit, ref: repository.default_branch },
-    actorId,
-    route,
-    entryStage,
-    state: {
-      body: current.body,
-      labels: current.labels,
-      assignees: current.assignees,
-      prerequisites: dependencies.prerequisites,
-    },
   };
 }
 
@@ -139,6 +143,8 @@ export class WakeDispatcher {
     const bindingHash = digest(initial);
     const { issue } = initial;
     let workflow = initial.workflow;
+    const destination = () => workflow.repository ?? issue.repository;
+    const destinationId = () => workflow.repositoryId ?? issue.repositoryId;
     let admissionCode;
     const result = await this.#journal.run(
       { operation: 'wake', bindingHash },
@@ -152,6 +158,8 @@ export class WakeDispatcher {
                 current.issue.repository === issue.repository &&
                 current.issue.number === issue.number &&
                 current.actorId === initial.actorId &&
+                current.workflow.repository === workflow.repository &&
+                current.workflow.repositoryId === workflow.repositoryId &&
                 current.workflow.id === workflow.id &&
                 current.workflow.path === workflow.path,
               'WAKE_TARGET_CHANGED',
@@ -166,7 +174,7 @@ export class WakeDispatcher {
         perform: async () => {
           const response = await this.#fetch(
             'https://api.github.com' +
-              `${repoPath(issue.repository)}/actions/workflows/${workflow.id}/dispatches`,
+              `${repoPath(destination())}/actions/workflows/${workflow.id}/dispatches`,
             {
               method: 'POST',
               redirect: 'error',
@@ -194,16 +202,16 @@ export class WakeDispatcher {
             isId(runId) &&
               receipt.run_url ===
                 'https://api.github.com' +
-                  `${repoPath(issue.repository)}/actions/runs/${runId}` &&
+                  `${repoPath(destination())}/actions/runs/${runId}` &&
               receipt.html_url ===
-                `https://github.com/${issue.repository}/actions/runs/${runId}`,
+                `https://github.com/${destination()}/actions/runs/${runId}`,
             'DISPATCH_IDENTITY_UNKNOWN',
           );
           return runId;
         },
         readBack: async (runId) => {
           const run = await this.#reader.get(
-            `${repoPath(issue.repository)}/actions/runs/${runId}`,
+            `${repoPath(destination())}/actions/runs/${runId}`,
             { retryNotFound: true },
           );
           requireThat(
@@ -211,8 +219,8 @@ export class WakeDispatcher {
               run.event === 'workflow_dispatch' &&
               run.workflow_id === workflow.id &&
               run.path === workflow.path &&
-              run.repository?.id === issue.repositoryId &&
-              run.head_repository?.id === issue.repositoryId &&
+              run.repository?.id === destinationId() &&
+              run.head_repository?.id === destinationId() &&
               run.head_sha === workflow.commit &&
               run.head_branch === workflow.ref &&
               run.actor?.id === initial.actorId &&
