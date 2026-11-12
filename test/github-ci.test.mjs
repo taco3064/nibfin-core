@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readPullRequestCI, checkoutIdentity } from '../src/github-ci.mjs';
+import { readPullRequestCI } from '../src/github-ci.mjs';
 import { ciCorrectionFindings } from '../src/ci-recovery.mjs';
 import { gitBlob } from '../src/identity.mjs';
 import { now } from './approval-fixture.mjs';
@@ -223,7 +223,7 @@ function fixture() {
     '/actions/runs/80': run,
     '/actions/runs/80/attempts/1/jobs': [job],
   };
-  for (const ref of [head, preview])
+  for (const ref of [base, head])
     data[`/contents/${workflow.path}?ref=${ref}`] = {
       type: 'file',
       path: workflow.path,
@@ -293,22 +293,25 @@ test(
   },
 );
 
-test(
-  'CI ties native check app, workflow blob, run attempt, ' +
-    'job, checkout and independent review to current PR',
-  async () => {
-    const f = fixture();
-    const result = await readPullRequestCI(f.reader, f.expected, now);
-    assert.equal(result.testedSha, f.preview);
-    assert.deepEqual(result.parents, [f.expected.base, f.expected.head]);
-    assert.equal(result.checks[0].appId, 15368);
-    f.logs(checkoutLog(f.expected.head));
-    assert.equal(
-      (await readPullRequestCI(f.reader, f.expected, now)).testedSha,
-      f.expected.head,
-    );
-  },
-);
+test('CI uses the protected base workflow and native check results', async () => {
+  const f = fixture();
+  f.expected.workflows[0].blob = '9'.repeat(40);
+  delete f.expected.workflows[0].checkoutName;
+  delete f.expected.workflows[0].checkoutStep;
+  f.job.steps = [];
+  f.reader.jobLogs = async () => assert.fail('Successful checks need no logs');
+  const head = await readPullRequestCI(f.reader, f.expected, now);
+  assert.equal(head.testedSha, f.expected.head);
+  assert.deepEqual(head.parents, []);
+  assert.equal(head.checks[0].appId, 15368);
+
+  f.check.head_sha = f.preview;
+  f.data[`/commits/${f.preview}/check-runs?filter=latest`] = [f.check];
+  f.data[`/commits/${f.expected.head}/check-runs?filter=latest`] = [];
+  const preview = await readPullRequestCI(f.reader, f.expected, now);
+  assert.equal(preview.testedSha, f.preview);
+  assert.deepEqual(preview.parents, [f.expected.base, f.expected.head]);
+});
 
 test(
   'wrong app/source, unapproved run, stale ' +
@@ -353,14 +356,12 @@ test(
         f.job.labels.push('self-hosted');
       },
       (f) => {
-        f.job.steps[1].number = 4;
-      },
-      (f) => {
         f.data[`/git/commits/${f.preview}`].parents.reverse();
       },
       (f) => {
-        f.data[`/contents/${f.expected.workflows[0].path}?ref=${f.preview}`].sha =
-          '9'.repeat(40);
+        const path = f.expected.workflows[0].path;
+        const ref = f.expected.head;
+        f.data[`/contents/${path}?ref=${ref}`].sha = '9'.repeat(40);
       },
       (f) => {
         f.policy.required_status_checks.checks[0].app_id = -1;
@@ -385,45 +386,6 @@ test(
     await assert.rejects(readPullRequestCI(f.reader, f.expected, now));
   },
 );
-
-test(
-  'checkout identity excludes later untrusted output and ' +
-    'refuses ambiguous or missing trusted-step markers',
-  () => {
-    const f = fixture(),
-      step = f.job.steps[1],
-      marker = '[command]/usr/bin/git log -1 --format=%H';
-    const valid = checkoutLog(f.preview, marker);
-    assert.equal(
-      checkoutIdentity(
-        valid +
-          `2026-11-03T02:01:01.000Z ${marker}\n` +
-          `2026-11-03T02:01:01.100Z ${'9'.repeat(40)}\n`,
-        step,
-      ),
-      f.preview,
-    );
-    assert.throws(() => checkoutIdentity(valid + valid, step), /AMBIGUOUS_CHECKOUT_LOG/);
-    assert.throws(() => checkoutIdentity('fake green result', step));
-  },
-);
-
-test('native Windows checkout requires the exact command in the trusted step', () => {
-  const f = fixture(), step = f.job.steps[1];
-  const marker = String.raw`[command]"C:\Program Files\Git\bin\git.exe"` +
-    ' log -1 --format=%H';
-  const valid = checkoutLog(f.preview, marker);
-  assert.equal(checkoutIdentity(valid, step), f.preview);
-  for (const changed of [
-    marker.replace('C:', 'D:'), marker.replace('Git\\bin', 'Other\\bin'),
-    marker + ' && echo spoofed', marker.replace('--format=%H', '--format=%s'),
-  ]) assert.throws(() => checkoutIdentity(checkoutLog(f.preview, changed), step),
-    /AMBIGUOUS_CHECKOUT_LOG/);
-  assert.throws(() => checkoutIdentity(valid + checkoutLog(f.preview), step),
-    /AMBIGUOUS_CHECKOUT_LOG/);
-  assert.throws(() => checkoutIdentity(valid.replaceAll(
-    '2026-11-03T02:00:', '2026-11-03T02:02:'), step));
-});
 
 test(
   'closure revalidates the historical PR checks after ' +
@@ -481,8 +443,6 @@ test(
       const f = fixture(),
         merge = '8'.repeat(40),
         tree = 'a'.repeat(40);
-      const tested = target === 'head' ? f.expected.head : f.preview;
-      f.logs(checkoutLog(tested));
       if (target === 'preview') {
         f.check.head_sha = f.preview;
         f.data[`/commits/${f.preview}/check-runs?filter=latest`] = [f.check];

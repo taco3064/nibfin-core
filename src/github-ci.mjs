@@ -1,6 +1,6 @@
 import { repoPath } from './github-read.mjs';
 import { digest, isId, isSha, requireThat } from './identity.mjs';
-import { readPinnedFile, readReviewers } from './github-approval.mjs';
+import { readReviewers } from './github-approval.mjs';
 import { readProtection } from './github-protection.mjs';
 import { readMergeIdentity } from './github-merge.mjs';
 import { failedCheckError } from './ci-recovery.mjs';
@@ -20,45 +20,15 @@ export const pendingCIObservation = (code) => pendingObservations.includes(code)
 export const integrationRepairRequired = code =>
   code === 'PR_BRANCH_UPDATE_REQUIRED' || code === 'PR_MERGE_CONFLICT';
 
-const checkoutCommands = [
-  '[command]/usr/bin/git log -1 --format=%H',
-  String.raw`[command]"C:\Program Files\Git\bin\git.exe" log -1 --format=%H`,
-];
-
-// Only the pinned, reviewed workflow's first checkout step may establish this
-// observation. Native step timing and the first exact checkout log marker bound
-// the region before any candidate test command runs. Logs alone grant nothing.
-export function checkoutIdentity(logs, step) {
-  requireThat(
-    typeof logs === 'string' &&
-      step?.number === 2 &&
-      step.status === 'completed' &&
-      step.conclusion === 'success',
-    'CHECKOUT_STEP_REQUIRED',
-  );
-  const start = Date.parse(step.started_at),
-    end = Date.parse(step.completed_at);
-  requireThat(
-    Number.isFinite(start) && Number.isFinite(end) && start <= end,
-    'INVALID_CHECKOUT_TIMING',
-  );
-  const lines = logs
-    .split('\n')
-    .map((line) => /^(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d+Z) (.*)\r?$/.exec(line))
-    .filter(Boolean)
-    .filter((line) => Date.parse(line[1]) >= start && Date.parse(line[1]) < end + 1000);
-  const markers = lines
-    .map((line, index) => ({ line, index }))
-    .filter(({ line }) => checkoutCommands.includes(line[2].replace(/\r$/, '')));
-  requireThat(markers.length === 1, 'AMBIGUOUS_CHECKOUT_LOG');
-  const sha = lines[markers[0].index + 1]?.[2].trim();
-  requireThat(isSha(sha), 'CHECKOUT_SHA_UNAVAILABLE');
-  return sha;
+async function workflowBlob(reader, root, path, ref) {
+  const file = await reader.get(`${root}/contents/${path}?ref=${ref}`);
+  requireThat(file?.type === 'file' && file.path === path && isSha(file.sha),
+    'CI_WORKFLOW_SOURCE_UNAVAILABLE');
+  return file.sha;
 }
 
-// trusted pins declare a reviewed checkout recipe: first user-code-bearing step
-// is checkout (step 2), pinned actions/checkout, no untrusted commands before it.
-// Unsupported recipes, status contexts and self-hosted CI fail closed.
+// Use GitHub's required check and its PR run. The protected base supplies the
+// current Workflow source so a Candidate cannot substitute its own CI recipe.
 export async function readPullRequestCI(reader, expected, now = Date.now()) {
   requireThat(
     isId(expected?.repositoryId) &&
@@ -72,10 +42,7 @@ export async function readPullRequestCI(reader, expected, now = Date.now()) {
         (pin) =>
           isId(pin.appId) &&
           isId(pin.workflowId) &&
-          isSha(pin.blob) &&
           /^\.github\/workflows\/[A-Za-z0-9_.-]+\.ya?ml$/.test(pin.path) &&
-          pin.checkoutStep === 2 &&
-          /^Run actions\/checkout@[a-f0-9]{40}$/.test(pin.checkoutName) &&
           typeof pin.context === 'string' &&
           pin.context.trim(),
       ) &&
@@ -301,27 +268,16 @@ export async function readPullRequestCI(reader, expected, now = Date.now()) {
           !job.labels.includes('self-hosted'),
         'UNTRUSTED_CI_JOB',
       );
-      const checkout = job.steps?.find((step) => step.number === pin.checkoutStep);
-      requireThat(
-        checkout?.name === pin.checkoutName &&
-          job.steps.filter((step) => step.number < 2).length === 1 &&
-          job.steps[0].name === 'Set up job',
-        'UNTRUSTED_CHECKOUT_RECIPE',
-      );
-      const logs = await reader.jobLogs(expected.repository, job.id);
-      const actualSha = checkoutIdentity(logs, checkout);
-      requireThat(
-        [expected.head, previewSha].includes(actualSha) &&
-          (!onMerge.length || actualSha === previewSha),
-        'STALE_TESTED_SHA',
-      );
-      requireThat(
-        testedSha === undefined || testedSha === actualSha,
-        'MIXED_CHECKOUT_TARGETS',
-      );
+      const [baseBlob, headBlob] = await Promise.all([
+        workflowBlob(reader, root, pin.path, expected.base),
+        workflowBlob(reader, root, pin.path, expected.head),
+      ]);
+      requireThat(baseBlob === headBlob, 'CI_WORKFLOW_CHANGED_BY_PR');
+      // Preserve the tested SHA in a closure receipt issued by an older Core.
+      const actualSha = merged ? expected.admittedCI.testedSha : check.head_sha;
+      requireThat([expected.head, previewSha].includes(actualSha) &&
+        (testedSha === undefined || testedSha === actualSha), 'MIXED_CHECKOUT_TARGETS');
       testedSha = actualSha;
-      await readPinnedFile(reader, expected.repository, pin.path, run.head_sha, pin.blob);
-      await readPinnedFile(reader, expected.repository, pin.path, actualSha, pin.blob);
       const fresh = await reader.get(`${root}/actions/runs/${run.id}`);
       requireThat(
         fresh.run_attempt === run.run_attempt &&
@@ -338,6 +294,7 @@ export async function readPullRequestCI(reader, expected, now = Date.now()) {
             digest(await reader.get(branchPath)) === digest(branch),
           'CI_CHANGED_DURING_READ',
         );
+        const logs = await reader.jobLogs(expected.repository, job.id).catch(() => '');
         throw failedCheckError(expected, run, job, logs);
       }
       unsuccessfulRun ||= run.conclusion !== 'success';
@@ -355,7 +312,7 @@ export async function readPullRequestCI(reader, expected, now = Date.now()) {
         attempt: run.run_attempt,
         jobId: job.id,
         workflowId: pin.workflowId,
-        blob: pin.blob,
+        blob: baseBlob,
       });
     }
     requireThat(matches.length === 1, 'MISSING_OR_AMBIGUOUS_REQUIRED_CHECK');
