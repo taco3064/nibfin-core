@@ -4,12 +4,12 @@ on:
   workflow_call:
     inputs:
       core_commit:
-        description: Exact Core commit also pinned by the adopted caller configuration
-        required: true
+        description: Compatibility input for existing callers
+        required: false
         type: string
     secrets:
       NIBFIN_WAKE_ADOPTION:
-        required: true
+        required: false
       NIBFIN_WAKE_TOKEN:
         required: true
 
@@ -25,34 +25,20 @@ jobs:
       issue_number: ${{ steps.resolve.outputs.issue_number }}
       member_id: ${{ steps.resolve.outputs.member_id }}
     steps:
-      - name: Check fixed Core reference
-        env:
-          CORE_COMMIT: ${{ inputs.core_commit }}
-          WAKE_ADOPTION: ${{ secrets.NIBFIN_WAKE_ADOPTION }}
-        # Inline trusted workflow code runs before checking out any selected
-        # revision. The read token is not supplied to this step.
-        run: |
-          node --input-type=module <<'NODE'
-          const text = process.env.WAKE_ADOPTION;
-          if (!text || text.length > 262144) process.exit(1);
-          const adopted = JSON.parse(text);
-          if (!/^[a-f0-9]{40}$/.test(process.env.CORE_COMMIT) ||
-              adopted.coreCommit !== process.env.CORE_COMMIT) process.exit(1);
-          NODE
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
-          repository: taco3064/nibfin-core
-          ref: ${{ inputs.core_commit }}
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
           persist-credentials: false
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version-file: .node-version
           package-manager-cache: false
-      - name: Resolve current native authority without dispatch
+      - name: Route the current Issue event
         id: resolve
         env:
-          NIBFIN_CORE_COMMIT: ${{ inputs.core_commit }}
-          NIBFIN_WAKE_ADOPTION: ${{ secrets.NIBFIN_WAKE_ADOPTION }}
+          NIBFIN_CORE_COMMIT: ${{ job.workflow_sha }}
+          NIBFIN_WAKE_ADOPTION: ${{ vars.NIBFIN_SHARED_RUNNER_POOL != 'true' && secrets.NIBFIN_WAKE_ADOPTION || '' }}
           NIBFIN_WAKE_TOKEN: ${{ secrets.NIBFIN_WAKE_TOKEN }}
           NIBFIN_SHARED_RUNNER_POOL: ${{ vars.NIBFIN_SHARED_RUNNER_POOL }}
         run: node scripts/issue-ci.mjs
