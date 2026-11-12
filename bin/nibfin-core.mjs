@@ -22,10 +22,10 @@ async function main(args) {
   if (command === 'resolve-wake' && values.length === 0) return runWakeEntry();
   if (command === 'stage' && values.length === 2)
     return launchStage(values[0], values[1]);
-  if (command === 'recover-commit-pr' && [2, 3].includes(values.length))
-    return recoverCommitPr(...values);
-  if (command === 'recover-review' && [2, 3].includes(values.length))
-    return recoverReview(...values);
+  if (command === 'recover-commit-pr' && values.length === 2)
+    return recoverCommitPr(values[0], values[1]);
+  if (command === 'recover-review' && values.length === 2)
+    return recoverReview(values[0], values[1]);
   if (command === 'promote-host' && values.length === 0) return promoteHost();
   if (command === 'contract' && values.length === 0) return consumerContract;
   if (command === 'export-mcp' && values.length === 5) {
@@ -43,8 +43,8 @@ async function main(args) {
         'verify <installation> <approved-pin.json>',
         'install <archive> <new-directory> <approved-pin.json>',
         'stage <adopted-issue-number> <stage|continue>',
-        'recover-commit-pr <issue-number> <pr-head> [shared-repository-id]',
-        'recover-review <issue-number> <pr-head> [shared-repository-id]',
+        'recover-commit-pr <adopted-issue-number> <observed-pr-head>',
+        'recover-review <adopted-issue-number> <observed-pr-head>',
         'promote-host (administrator-only, root-owned rollout plan)',
         'resolve-wake',
         'resolve-event',
