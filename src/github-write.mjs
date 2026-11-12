@@ -3,9 +3,9 @@ import { digest, isDigest, isId, isSha, requireThat } from './identity.mjs';
 import { readMergeIdentity } from './github-merge.mjs';
 
 export class MergeBeforeWrite extends Error {
-  constructor() {
-    super('Merge integration must be observed again');
-    this.code = 'MERGE_REOBSERVE_REQUIRED';
+  constructor(code = 'MERGE_REOBSERVE_REQUIRED') {
+    super(code);
+    this.code = code;
   }
 }
 
@@ -72,9 +72,15 @@ export class GitHubWriter {
         },
         body: JSON.stringify(body),
       });
+      if (operation === 'merge' && response.status === 403)
+        throw new MergeBeforeWrite('GITHUB_MERGE_FORBIDDEN');
+      if (operation === 'merge' && response.status === 405)
+        throw new MergeBeforeWrite('GITHUB_MERGE_BLOCKED');
+      if (operation === 'merge' && response.status === 409) throw new MergeBeforeWrite();
       requireThat(response.ok, 'GITHUB_WRITE_NOT_CONFIRMED');
       return await response.json();
-    } catch {
+    } catch (error) {
+      if (error instanceof MergeBeforeWrite) throw error;
       throw Object.assign(new Error('External effect requires reconciliation'), {
         code: 'EXTERNAL_EFFECT_UNKNOWN',
       });
@@ -247,6 +253,7 @@ export class GitHubWriter {
     baseBranch,
     testMerge,
     candidateBase = base,
+    nativePolicy = false,
   }) {
     requireThat(
       isId(repositoryId) &&
@@ -275,11 +282,13 @@ export class GitHubWriter {
       'STALE_OR_BLOCKED_MERGE',
     );
     if (current.base.sha !== base || current.mergeable !== true ||
-      current.mergeable_state !== 'clean') throw new MergeBeforeWrite();
+      (!nativePolicy && current.mergeable_state !== 'clean')) {
+      throw new MergeBeforeWrite();
+    }
     const branch = await this.#reader.get(
       `${root}/branches/${encodeURIComponent(baseBranch)}`,
     );
-    requireThat(branch.protected === true, 'MERGE_PROTECTION_CHANGED');
+    requireThat(nativePolicy || branch.protected === true, 'MERGE_PROTECTION_CHANGED');
     if (branch.commit?.sha !== base) throw new MergeBeforeWrite();
     const repositoryState = await this.#reader.repository(repository);
     requireThat(

@@ -36,10 +36,12 @@ export function nativeObserver({
     requireThat(Object.hasOwn(stages, stage), 'UNKNOWN_STAGE');
     const approval = await readProtectedApproval(reader, pinned.approval, clock());
     const record = approval.record;
+    const nativePolicy = pinned.approval.kind === 'repository-admission-v1';
     const observed = await readDependencies(reader, record.issue, record.prerequisites);
     requireThat(observed.ready, 'PREREQUISITES_NOT_READY');
     const route = await selectAssignee(observed.issue, async (user) => {
       if (user.id !== record.roles.writer) return false;
+      if (nativePolicy) return true;
       try {
         await readMemberPermission(reader, record.issue.repository, {
           ...user,
@@ -189,9 +191,10 @@ export function nativeObserver({
           number: pr.number,
           head: pr.head.sha,
           base: pr.base.sha,
-          workflows: pinned.ciWorkflows,
-          reviewers: pinned.reviewers,
+          workflows: nativePolicy ? (pinned.ciWorkflows ?? []) : pinned.ciWorkflows,
+          reviewers: nativePolicy ? [] : pinned.reviewers,
           ruleset: pinned.approval.ruleset,
+          nativePolicy,
           includeSources: stage === 'review-pr',
         };
         if (stage === 'close') {

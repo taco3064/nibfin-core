@@ -92,7 +92,7 @@ export async function launchIssueWake(issueNumber, env = process.env, eventBytes
   const adoption = hostWakeAdoption(host, adopted);
   const { runner, binding } = await resolveHostJob(
     reader,
-    { runner: adopted.eventRunner },
+    { runner: adopted.eventRunner, approval: adopted.approval },
     env,
     'issues',
   );
@@ -115,7 +115,7 @@ export async function launchIssueWake(issueNumber, env = process.env, eventBytes
       await inspectHostAdoption(context);
       const fresh = await resolveHostJob(
         reader,
-        { runner: adopted.eventRunner },
+        { runner: adopted.eventRunner, approval: adopted.approval },
         env,
         'issues',
       );

@@ -30,7 +30,7 @@ async function currentPullRequest(reader, prPath, branchPath, pr, branch) {
     current.base?.sha === pr.base.sha && current.base?.ref === pr.base.ref &&
     current.merge_commit_sha === pr.merge_commit_sha &&
     current.mergeable_state === pr.mergeable_state &&
-    target.protected === true && target.commit?.sha === branch.commit.sha;
+    target.commit?.sha === branch.commit.sha;
 }
 
 async function workflowBlob(reader, root, path, ref) {
@@ -42,7 +42,29 @@ async function workflowBlob(reader, root, path, ref) {
 
 // Use GitHub's required check and its PR run. The protected base supplies the
 // current Workflow source so a Candidate cannot substitute its own CI recipe.
+async function nativeRequiredWorkflows(reader, branchPath, root, pr, workflows) {
+  if (pr.mergeable_state !== 'blocked' || !workflows.length) return [];
+  // This lookup only enables correction of recognizable CI failures.
+  // GitHub still decides whether the PR can merge.
+  const [classic, rules] = await Promise.all([
+    reader.get(branchPath + '/protection').catch(() => null),
+    reader.list(root + '/rules/branches/' + encodeURIComponent(pr.base.ref))
+      .catch(() => []),
+  ]);
+  const checks = [
+    ...(classic?.required_status_checks?.checks ?? []),
+    ...rules.filter(rule => rule.type === 'required_status_checks').flatMap(rule =>
+      (rule.parameters?.required_status_checks ?? []).map(check => ({
+        context: check.context, app_id: check.integration_id,
+      }))),
+  ];
+  return workflows.filter(workflow => checks.some(check =>
+    check.context === workflow.context &&
+    (check.app_id == null || check.app_id === -1 || check.app_id === workflow.appId)));
+}
+
 export async function readPullRequestCI(reader, expected, now = Date.now()) {
+  const nativePolicy = expected?.nativePolicy === true;
   requireThat(
     isId(expected?.repositoryId) &&
       isId(expected.number) &&
@@ -50,7 +72,7 @@ export async function readPullRequestCI(reader, expected, now = Date.now()) {
       isSha(expected.head) &&
       isSha(expected.base) &&
       Array.isArray(expected.workflows) &&
-      expected.workflows.length > 0 &&
+      (nativePolicy || expected.workflows.length > 0) &&
       expected.workflows.every(
         (pin) =>
           isId(pin.appId) &&
@@ -84,11 +106,11 @@ export async function readPullRequestCI(reader, expected, now = Date.now()) {
         expected.admittedCI.head === expected.head &&
         expected.admittedCI.base === expected.base &&
         expected.admittedCI.testMerge === expected.testMerge &&
-        expected.workflows.every(
+        (nativePolicy || expected.workflows.every(
           (pin) =>
             isSha(pin.targetSha) &&
             [expected.head, expected.testMerge].includes(pin.targetSha),
-        ),
+        )),
       'INVALID_CLOSURE_CI_PIN',
     );
   const previewSha = merged ? expected.testMerge : pr.merge_commit_sha;
@@ -113,14 +135,14 @@ export async function readPullRequestCI(reader, expected, now = Date.now()) {
     requireThat(pr.mergeable_state !== 'behind', 'PR_BRANCH_UPDATE_REQUIRED');
     requireThat(pr.mergeable !== false, 'PR_MERGE_CONFLICT');
     requireThat(pr.mergeable === null || pr.mergeable === true &&
-      ['clean', 'blocked', 'unstable'].includes(pr.mergeable_state),
+      (nativePolicy || ['clean', 'blocked', 'unstable'].includes(pr.mergeable_state)),
     'CI_PR_NOT_ELIGIBLE');
   }
   requireThat(isSha(previewSha) || (!merged && pr.mergeable === null &&
     previewSha === null), 'CI_PR_NOT_ELIGIBLE');
   const branchPath = `${root}/branches/${encodeURIComponent(pr.base.ref)}`;
   const branch = await reader.get(branchPath);
-  requireThat(branch.protected === true && isSha(branch.commit?.sha),
+  requireThat((nativePolicy || branch.protected === true) && isSha(branch.commit?.sha),
     'CI_PROTECTION_UNAVAILABLE');
   if (merged) {
     await readMergeIdentity(
@@ -141,14 +163,14 @@ export async function readPullRequestCI(reader, expected, now = Date.now()) {
     return expected.admittedCI;
   }
   requireThat(branch.commit.sha === expected.base, 'CI_BASE_CHANGED');
-  const protection = await readProtection(
+  const protection = nativePolicy ? null : await readProtection(
     reader,
     expected.repository,
     pr.base.ref,
     expected.ruleset,
   );
-  const { policy } = protection;
-  requireThat(
+  const policy = protection?.policy;
+  if (policy) requireThat(
     policy.required_status_checks.checks.length === expected.workflows.length &&
       policy.required_status_checks.checks.every((check) =>
         expected.workflows.some(
@@ -157,7 +179,7 @@ export async function readPullRequestCI(reader, expected, now = Date.now()) {
       ),
     'REQUIRED_CHECK_SOURCE_CHANGED',
   );
-  const reviewers = await readReviewers(
+  const reviewers = policy ? await readReviewers(
     reader,
     root,
     expected.repository,
@@ -165,7 +187,7 @@ export async function readPullRequestCI(reader, expected, now = Date.now()) {
     policy,
     expected.reviewers,
     now,
-  );
+  ) : { approved: [] };
   if (pr.mergeable === null) requireThat(false, 'PR_MERGEABILITY_PENDING');
   const preview = await reader.get(`${root}/git/commits/${previewSha}`);
   requireThat(
@@ -182,10 +204,13 @@ export async function readPullRequestCI(reader, expected, now = Date.now()) {
     `${root}/commits/${previewSha}/check-runs?filter=latest`,
     'check_runs',
   );
+  const workflows = nativePolicy
+    ? await nativeRequiredWorkflows(reader, branchPath, root, pr, expected.workflows)
+    : expected.workflows;
   const checks = [],
     sources = [];
   let testedSha, unsuccessfulRun = false;
-  for (const pin of expected.workflows) {
+  for (const pin of workflows) {
     const onMerge = mergeChecks.filter(
       (check) => check.name === pin.context && check.app?.id === pin.appId,
     );
@@ -325,20 +350,21 @@ export async function readPullRequestCI(reader, expected, now = Date.now()) {
     checks.push(matches[0]);
   }
   requireThat(!unsuccessfulRun, 'CI_SOURCE_OR_RESULT_MISMATCH');
-  requireThat(pr.mergeable_state === 'clean', 'CI_PR_NOT_ELIGIBLE');
-  const currentProtection = await readProtection(
+  if (!nativePolicy) requireThat(pr.mergeable_state === 'clean', 'CI_PR_NOT_ELIGIBLE');
+  const currentProtection = nativePolicy ? null : await readProtection(
     reader, expected.repository, pr.base.ref, expected.ruleset,
   );
-  const currentReviewers = await readReviewers(
+  const currentReviewers = currentProtection ? await readReviewers(
     reader, root, expected.repository, pr, currentProtection.policy,
     expected.reviewers, now,
-  );
+  ) : { approved: [] };
   requireThat(
     await currentPullRequest(reader, prPath, branchPath, pr, branch) &&
-      currentProtection.hash === protection.hash &&
+      currentProtection?.hash === protection?.hash &&
       isDeepStrictEqual(currentReviewers.approved, reviewers.approved),
     'CI_CHANGED_DURING_READ',
   );
+  testedSha ??= expected.head;
   const evidence = {
     prId: expected.id,
     head: expected.head,
@@ -347,14 +373,18 @@ export async function readPullRequestCI(reader, expected, now = Date.now()) {
     testMerge: previewSha,
     parents: testedSha === expected.head ? [] : [expected.base, expected.head],
     checks,
-    protectionHash: protection.hash,
+    ...(protection ? { protectionHash: protection.hash } : {}),
     provenanceHash: digest({ sources, reviewers: reviewers.approved }),
     ...(expected.includeSources ? {
       sources: sources.map((source, index) => ({
         ...source,
-        name: expected.workflows[index].context,
-        path: expected.workflows[index].path,
+        name: workflows[index].context,
+        path: workflows[index].path,
       })),
+      ...(nativePolicy ? { observedChecks: [...headChecks, ...mergeChecks].map(check => ({
+        id: check.id, name: check.name, status: check.status,
+        conclusion: check.conclusion,
+      })) } : {}),
     } : {}),
   };
   return evidence;

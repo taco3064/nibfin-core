@@ -32,6 +32,7 @@ export async function observeWake(
     'INVALID_WAKE_PIN',
   );
   const approval = await readProtectedApproval(reader, approvalPin, clock());
+  const nativePolicy = approvalPin.kind === 'repository-admission-v1';
   const record = approval.record,
     issue = record.issue,
     root = repoPath(issue.repository);
@@ -49,7 +50,8 @@ export async function observeWake(
     bindRawScope(record, current);
   const route = await selectAssignee(current, async (user) => {
     if (user.id !== record.roles.writer) return false;
-    await readMemberPermission(reader, issue.repository, { ...user, type: 'User' });
+    if (!nativePolicy)
+      await readMemberPermission(reader, issue.repository, { ...user, type: 'User' });
     return true;
   });
   requireThat(route && dependencies.ready, 'WAKE_TARGET_NOT_READY');
@@ -66,12 +68,12 @@ export async function observeWake(
     actor.type === 'User' && actor.id === actorId && actor.id === record.roles.publisher,
     'WAKE_ACTOR_CHANGED',
   );
-  await readMemberPermission(reader, issue.repository, actor);
+  if (!nativePolicy) await readMemberPermission(reader, issue.repository, actor);
   const repository = await reader.repository(issue.repository);
   const branch = await reader.get(
     `${root}/branches/${encodeURIComponent(repository.default_branch)}`,
   );
-  requireThat(branch.protected === true, 'WAKE_WORKFLOW_SOURCE_CHANGED');
+  requireThat(nativePolicy || branch.protected === true, 'WAKE_WORKFLOW_SOURCE_CHANGED');
   const commit = await readCallerSource(
     reader,
     issue.repository,

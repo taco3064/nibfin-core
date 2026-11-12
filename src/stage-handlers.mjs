@@ -315,6 +315,7 @@ export function stageHandlers({
         baseBranch: context.pr.baseBranch,
         testMerge: context.ci.testMerge,
         candidateBase: context.candidate.base,
+        nativePolicy: context.approval.scopeBinding !== undefined,
       }),
     readBack: async (context, result) => ({
       outcome: 'merged',
