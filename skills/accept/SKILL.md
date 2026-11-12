@@ -49,3 +49,6 @@ references. Use `accepted` only for this exact pre-commit Candidate with no
 blocking findings. Acceptance is neither permission to mutate GitHub nor proof
 that future PR head/CI, final Shape fidelity review, merge or closure succeeded.
 Any material Candidate change requires fresh independent Acceptance.
+No historical Agent transcript or permanent evidence archive is required.
+Perform missing necessary verification against current content or report it as
+blocked. Never infer that an unobserved past approval occurred.
