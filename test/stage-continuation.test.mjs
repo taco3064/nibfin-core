@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { continueStages } from '../src/stage-continuation.mjs';
 import { stageSuccess } from '../src/stage-runtime.mjs';
 import { digest } from '../src/identity.mjs';
+import { issueRequirementsChanged } from '../src/stages.mjs';
 
 function fixture() {
   const receipts = {},
@@ -36,6 +37,32 @@ test('continuation does not replay completed stages after a new dispatch', async
   const count = f.calls.length;
   assert.equal((await continueStages(f.options)).code, 'DELIVERY_ALREADY_RECORDED');
   assert.equal(f.calls.length, count);
+});
+
+test('blocked Shape retries after edits and migrates old receipts', async () => {
+  for (const prior of [undefined, 'Earlier requirements', 'Current requirements']) {
+    const f = fixture();
+    const issue = { body: 'Current requirements\r\n' };
+    f.receipts.shape = { stage: 'shape', outcome: 'blocked', requirementsBody: prior };
+    f.options.refreshRequirements = receipts => issueRequirementsChanged(issue, receipts,
+      () => assert.fail('A failed Shape has no published artifact to read'));
+    const result = await continueStages(f.options);
+    assert.equal(f.calls.includes('shape'), prior !== 'Current requirements');
+    assert.equal(result.stage, prior === 'Current requirements' ? 'shape' : 'close');
+  }
+});
+
+test('published requirements compare actual Issue text', async () => {
+  const issue = { body: 'Published text\r\n' };
+  const shape = { requirementsBody: 'Original input' };
+  const stored = () => assert.fail('New receipts store the actual published text');
+  const published = { requirementsBody: 'Published text' };
+  const receipts = { shape, 'publish-shape': published };
+  assert.equal(await issueRequirementsChanged(issue, receipts, stored), false);
+  issue.body = 'Edited text';
+  assert.equal(await issueRequirementsChanged(issue, receipts, stored), true);
+  receipts.merge = {};
+  assert.equal(await issueRequirementsChanged(issue, receipts, stored), false);
 });
 
 test('a new dispatch resumes only a Core-proven idle interruption', async () => {

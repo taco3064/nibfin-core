@@ -99,9 +99,12 @@ function shapeEvidence(context, requireValidator) {
   }
   if (!context.issue.labels.some(label => label.name === 'shaped')) {
     const requirements = requirementsText(context.issue.body);
-    requireThat(prior ? prior === digest(requirements) :
-      requirements === requirementsText(context.approval.record.scope.body),
-    'SHAPE_REQUIREMENTS_CHANGED');
+    const original = context.receipts.shape?.requirementsBody;
+    const sameRequirements = typeof original === 'string'
+      ? requirements === requirementsText(original)
+      : prior ? prior === digest(requirements)
+        : requirements === requirementsText(context.approval.record.scope.body);
+    requireThat(sameRequirements, 'SHAPE_REQUIREMENTS_CHANGED');
   }
   const author = receipt(context, 'shape', artifacts, 'ready');
   if (requireValidator)
@@ -125,6 +128,22 @@ export function samePublishedRequirements(current, prior) {
   return canonicalCandidateBlock(requirementsText(current)) ===
     canonicalCandidateBlock(requirementsText(prior));
 }
+
+// Older published Shapes can recover their actual text from the evidence store.
+// An older unpublished attempt has no input text to compare and is tried afresh.
+export async function issueRequirementsChanged(issue, receipts, readStoredShape) {
+  const author = receipts.shape;
+  if (!author || receipts.merge) return false;
+  const published = receipts['publish-shape'];
+  if (published) {
+    const prior = published.requirementsBody ??
+      await readStoredShape(published.artifacts.shapeHash);
+    return !samePublishedRequirements(issue.body, prior);
+  }
+  return typeof author.requirementsBody !== 'string' ||
+    requirementsText(issue.body) !== requirementsText(author.requirementsBody);
+}
+
 function publication(context) {
   const artifacts = { shapeHash: context.shape.hash };
   const reviewed = context.receipts['publish-shape']?.artifacts?.requirementsHash;
