@@ -308,10 +308,8 @@ export async function readPullRequestCI(reader, expected, now = Date.now()) {
           job.steps[0].name === 'Set up job',
         'UNTRUSTED_CHECKOUT_RECIPE',
       );
-      const actualSha = checkoutIdentity(
-        await reader.jobLogs(expected.repository, job.id),
-        checkout,
-      );
+      const logs = await reader.jobLogs(expected.repository, job.id);
+      const actualSha = checkoutIdentity(logs, checkout);
       requireThat(
         [expected.head, previewSha].includes(actualSha) &&
           (!onMerge.length || actualSha === previewSha),
@@ -340,7 +338,7 @@ export async function readPullRequestCI(reader, expected, now = Date.now()) {
             digest(await reader.get(branchPath)) === digest(branch),
           'CI_CHANGED_DURING_READ',
         );
-        throw failedCheckError(expected, run, job);
+        throw failedCheckError(expected, run, job, logs);
       }
       unsuccessfulRun ||= run.conclusion !== 'success';
       matches.push({

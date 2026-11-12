@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readPullRequestCI, checkoutIdentity } from '../src/github-ci.mjs';
+import { ciCorrectionFindings } from '../src/ci-recovery.mjs';
 import { gitBlob } from '../src/identity.mjs';
 import { now } from './approval-fixture.mjs';
 import mergedRunObservation from './merged-run-observation.json' with { type: 'json' };
@@ -19,6 +20,14 @@ test('only a failure from the current protected workflow is sent for correction'
         ...f.job, id: 91, name: 'Windows', check_run_url: null,
       };
       failed.conclusion = 'failure';
+      failed.steps.push({
+        name: 'Run affected tests', conclusion: 'failure',
+        started_at: '2026-11-03T02:01:00Z', completed_at: '2026-11-03T02:02:00Z',
+      });
+      f.logs(checkoutLog(f.preview) +
+        '2026-11-03T02:01:01.000Z Error: ERROR: Playwright does not support ' +
+        'chromium-headless-shell on ubuntu26.04-x64\n' +
+        '2026-11-03T02:01:02.000Z private fixture output\n');
       if (variant === 'required') f.check.conclusion = 'failure';
       else f.data['/actions/runs/80/attempts/1/jobs'].push(failed);
       if (variant === 'foreign') failed.run_attempt++;
@@ -33,6 +42,13 @@ test('only a failure from the current protected workflow is sent for correction'
         assert.equal(error.failure.base, f.expected.base);
         assert.equal(error.failure.check, failed.name);
         assert.equal(error.failure.jobId, failed.id);
+        assert.deepEqual(error.failure.diagnostic, {
+          kind: 'playwright-unsupported-target',
+          browser: 'chromium-headless-shell', platform: 'ubuntu26.04-x64',
+        });
+        assert.equal(ciCorrectionFindings(error.failure).at(-1),
+          'Playwright cannot install chromium-headless-shell on ubuntu26.04-x64.');
+        assert.doesNotMatch(JSON.stringify(error.failure), /private fixture output/);
         return true;
       });
     }
