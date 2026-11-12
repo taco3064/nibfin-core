@@ -77,7 +77,8 @@ export async function observeWake(
     issue.repository,
     workflow,
     branch.commit?.sha,
-    wakeRecipe(record.source.commit, workflow, route.userId),
+    workflow.actionCommit === undefined && branch.commit?.sha === workflow.commit
+      ? undefined : wakeRecipe(record.source.commit, workflow, route.userId),
   );
   const actual = await reader.get(`${root}/actions/workflows/${workflow.id}`);
   requireThat(

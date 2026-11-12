@@ -145,7 +145,7 @@ export class CandidateWorkspace {
     requireThat(isSha(base), 'INVALID_WORKSPACE_BASE');
     await this.#command(['read-tree', base]);
     const modified = await this.#command([
-      'diff', '--name-only', '--no-ext-diff', '--no-textconv', pin.parent, '--',
+      'diff', '--name-only', '--no-ext-diff', '--no-textconv', base, '--',
     ]);
     const untracked = await this.#command(['ls-files', '--others', '-z']);
     requireThat(modified.length === 0 && untracked.length === 0,
@@ -163,7 +163,8 @@ export class CandidateWorkspace {
     if (digest(candidate) !== pin.candidateHash) {
       const { changes, ...snapshot } = candidate;
       const diff = await this.#command([
-        'diff', '--cached', '--binary', '--no-ext-diff', '--no-textconv', base, '--',
+        'diff', '--cached', '--binary', '--no-ext-diff', '--no-textconv',
+        pin.parent, '--',
       ]);
       requireThat(digest({ ...snapshot, diffHash: sha256(diff) }) === pin.candidateHash,
         'OPEN_PR_CANDIDATE_MISMATCH');
