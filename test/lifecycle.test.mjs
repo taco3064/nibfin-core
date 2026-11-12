@@ -107,6 +107,7 @@ test(
     const observe = async (stage) => {
       const context = stageFixture(stage);
       context.issue = structuredClone(issue);
+      context.pause.current = context.issue;
       context.receipts = await store.load();
       if (context.receipts.shape?.outcome === 'ready')
         context.shape.body = await store.get(context.receipts.shape.artifacts.shapeHash);

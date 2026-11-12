@@ -1,5 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import { isId, requireThat } from './identity.mjs';
+import { pauseEvent } from './pause.mjs';
 
 export async function forwardSharedWake(resolved, env, fetcher = fetch) {
   if (resolved.status !== 'resolved') return;
@@ -15,6 +16,16 @@ export async function forwardSharedWake(resolved, env, fetcher = fetch) {
     repository: { id: repository.id, full_name: repository.full_name },
     ...(label ? { label: { name: label.name } } : {}),
   };
+  if (pauseEvent(original)) {
+    const { sender } = original;
+    event.sender = { id: sender?.id, login: sender?.login, type: sender?.type };
+    Object.assign(event.issue, {
+      state: issue.state,
+      updated_at: issue.updated_at,
+      labels: issue.labels?.map(({ name }) => ({ name })),
+      assignees: issue.assignees?.map(({ id }) => ({ id })),
+    });
+  }
   const endpoint = 'https://api.github.com/repos/taco3064/nibfin-core/' +
     'actions/workflows/shared-runner.yml/dispatches';
   const response = await fetcher(endpoint, {

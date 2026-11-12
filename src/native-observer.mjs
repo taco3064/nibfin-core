@@ -10,6 +10,8 @@ import { equivalentCandidate } from './candidate-evidence.mjs';
 import { repoPath } from './github-read.mjs';
 import { digest, isDigest, isId, isSha, requireThat } from './identity.mjs';
 import { readAdoptedOpenPr } from './adopt-open-pr.mjs';
+import { observePause } from './pause.mjs';
+import { OperationJournal } from './operation-journal.mjs';
 
 // Wiring belongs to installed Core. Config and inspection functions are never
 // selected by the public stage request. Neither GitHub events nor local JSON
@@ -86,6 +88,15 @@ export function nativeObserver({
       receipts,
       execution: actor,
     };
+    // Repair receipts authenticate native automation effects, never an owner DB.
+    try {
+      const proofs = pinned.pauseStateRoot
+        ? await new OperationJournal(pinned.pauseStateRoot, record.issue).pauseEffects()
+        : [];
+      context.pause = await observePause(reader, record.issue, proofs);
+    } catch (error) {
+      context.pause = { status: 'unknown', code: error.code ?? 'PAUSE_HISTORY_UNKNOWN' };
+    }
     if (receipts.shape?.outcome === 'ready') {
       const body = await store.get(receipts.shape.artifacts.shapeHash);
       context.shape = { body, hash: digest(body) };

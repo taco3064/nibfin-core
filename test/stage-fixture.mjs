@@ -151,5 +151,8 @@ export function stageFixture(stage = 'shape') {
       merged: true,
       mergeCommit: '8'.repeat(40),
     });
+  context.pause = { status: 'clear', issueId: record.issue.id,
+    repositoryId: record.issue.repositoryId, observationHash: 'a'.repeat(64),
+    current: context.issue };
   return context;
 }

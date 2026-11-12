@@ -34,7 +34,7 @@ async function readPrerequisites(reader, issue) {
   }));
 }
 
-export async function readRepositoryApproval(reader, pin, now) {
+async function repositorySubject(reader, pin) {
   const { issueId: id, issueNumber: number, repository, repositoryId, memberId } = pin;
   const issue = { id, number, repository, repositoryId };
   validateIssueIdentity(issue);
@@ -49,6 +49,18 @@ export async function readRepositoryApproval(reader, pin, now) {
       live.url === `https://api.github.com${issuePath(issue)}`,
     'REPOSITORY_ISSUE_IDENTITY_CHANGED',
   );
+  return { issue, live, memberId };
+}
+
+export async function readRepositoryPauseAuthority(reader, pin) {
+  const { issue, memberId } = await repositorySubject(reader, pin);
+  return { approvalHash: digest(pin), record: {
+    issue, roles: { publisher: memberId }, operations: ['wake'],
+  } };
+}
+
+export async function readRepositoryApproval(reader, pin, now) {
+  const { issue, live, memberId } = await repositorySubject(reader, pin);
   const assigned = live.assignees?.find((user) => user.id === memberId);
   requireThat(
     live.labels?.some((label) => label.name === 'scope') && assigned &&

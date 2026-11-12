@@ -9,6 +9,7 @@ import { bindRawScope } from './approval-record.mjs';
 import { digest, isId, isSha, requireThat } from './identity.mjs';
 import { readCallerSource } from './caller-source.mjs';
 import { wakeRecipe } from './caller-recipes.mjs';
+import { observePause, requirePauseClear } from './pause.mjs';
 
 function wakeObservationCode(error, fallback) {
   if (Number.isInteger(error?.status) && error.status >= 400 && error.status <= 599)
@@ -22,7 +23,7 @@ function wakeObservationCode(error, fallback) {
 // Events only locate an adopted Issue identity. No event field grants authority.
 export async function observeWake(
   reader,
-  { approvalPin, workflow, actorId, shared = false },
+  { approvalPin, workflow, actorId, shared = false, pauseProofs = [] },
   clock = Date.now,
 ) {
   requireThat(
@@ -39,6 +40,8 @@ export async function observeWake(
   requireThat(record.operations.includes('wake'), 'WAKE_NOT_APPROVED');
   const dependencies = await readDependencies(reader, issue, record.prerequisites);
   const current = dependencies.issue;
+  const pause = await observePause(reader, issue, pauseProofs);
+  requirePauseClear(pause, issue, current);
   requireThat(
     current.labels.some((label) => label.name === 'scope') &&
       !current.labels.some((label) => label.name === 'delivered'),
@@ -71,6 +74,7 @@ export async function observeWake(
   if (!nativePolicy) await readMemberPermission(reader, issue.repository, actor);
   const observed = {
     issue,
+    pauseHash: pause.observationHash,
     approvalHash: approval.approvalHash,
     actorId,
     route,
@@ -137,7 +141,7 @@ export class WakeDispatcher {
     try {
       initial = await this.#observe(this.#reader);
     } catch (error) {
-      return { status: 'denied',
+      return { status: error.code === 'PAUSE_NOT_PROVEN_CLEAR' ? 'pending' : 'denied',
         code: wakeObservationCode(error, 'WAKE_OBSERVATION_UNAVAILABLE') };
     }
     const bindingHash = digest(initial);
@@ -152,6 +156,8 @@ export class WakeDispatcher {
         admit: async () => {
           try {
             const current = await this.#observe(this.#reader);
+            requireThat(current.pauseHash === initial.pauseHash,
+              'PAUSE_OBSERVATION_CHANGED');
             requireThat(
               current.issue.id === issue.id &&
                 current.issue.repositoryId === issue.repositoryId &&
@@ -233,7 +239,10 @@ export class WakeDispatcher {
     );
     return result.status === 'completed'
       ? { status: 'scheduled', runId: result.runId, bindingHash, stageAdmitted: false }
-      : admissionCode ? { ...result, code: admissionCode } : result;
+      : admissionCode ? { ...result,
+        status: ['PAUSE_NOT_PROVEN_CLEAR', 'PAUSE_OBSERVATION_CHANGED']
+          .includes(admissionCode) ? 'pending' : result.status,
+        code: admissionCode } : result;
   }
 }
 

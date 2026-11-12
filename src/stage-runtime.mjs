@@ -22,7 +22,8 @@ export const stageSuccess = Object.freeze({
 });
 const success = stageSuccess;
 const pendingObservation = code =>
-  pendingCIObservation(code) || pendingMcpObservation(code);
+  pendingCIObservation(code) || pendingMcpObservation(code) ||
+  ['PAUSE_OBSERVATION_CHANGED', 'PAUSE_NOT_PROVEN_CLEAR'].includes(code);
 
 // Construct only in trusted installed Core. Adapters are code-owned and cannot be
 // overridden by a stage request, event, Issue or worktree. No arbitrary command
@@ -91,7 +92,10 @@ export class StageRuntime {
           admit: async () => {
             let fresh;
             try {
-              fresh = decideStage(stage, await this.#observe(stage), this.#clock());
+              const observed = await this.#observe(stage);
+              requireThat(observed.pause?.observationHash ===
+                context.pause.observationHash, 'PAUSE_OBSERVATION_CHANGED');
+              fresh = decideStage(stage, observed, this.#clock());
               if (stage === 'merge' && fresh.status === 'allowed' &&
                 fresh.requestHash !== decision.requestHash) throw new MergeBeforeWrite();
             } catch (error) { admissionError = error; throw error; }

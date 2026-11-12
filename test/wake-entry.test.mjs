@@ -11,7 +11,9 @@ import { resolveWakeDispatch } from '../src/wake-entry.mjs';
 import { approvalProviderFixture } from './github-approval-fixture.mjs';
 import { approvalRecord, now } from './approval-fixture.mjs';
 import { gitBlob } from '../src/identity.mjs';
-import { readFile } from 'node:fs/promises';
+import { readFile, mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 
 function fixture(kind = 'wake') {
@@ -98,6 +100,132 @@ function fixture(kind = 'wake') {
     resolve: () => resolveWakeDispatch(f.reader, adoption, event, invocation, () => now),
   };
 }
+
+function pauseRouteFixture(restore = true) {
+  const f = fixture('issue');
+  f.adoption.eventWorkflow = f.adoption.issues[0].workflow;
+  f.invocation.eventName = 'issues';
+  f.run.event = 'issues';
+  f.run.referenced_workflows[0].path =
+    'taco3064/nibfin-core/.github/workflows/issue.yml@' + f.adoption.coreCommit;
+  const actor = { id: 8, login: 'labeler', type: 'User' };
+  f.run.actor = actor;
+  f.run.triggering_actor = actor;
+  f.data['/collaborators/labeler/permission'] = { user: actor, permission: 'triage' };
+  const events = f.data['/issues/2/events'];
+  const change = (user, present) => {
+    const id = events.length + 1;
+    events.push({ id, event: present ? 'labeled' : 'unlabeled',
+      label: { name: 'pause' }, actor: user, created_at: '2026-11-03T00:00:00Z',
+      url: `https://api.github.com/repos/example/core/issues/events/${id}` });
+    f.issue.labels = f.issue.labels.filter(label => label.name !== 'pause');
+    if (present) f.issue.labels.push({ name: 'pause' });
+    f.issue.updated_at = events.at(-1).created_at;
+  };
+  if (restore) {
+    change({ id: 1, login: 'writer', type: 'User' }, true);
+    change(actor, false);
+  } else {
+    change(actor, true);
+    f.issue.labels = f.issue.labels.filter(label => label.name !== 'scope');
+  }
+  const event = { repository: f.repo, issue: structuredClone(f.issue),
+    action: restore ? 'unlabeled' : 'labeled', label: { name: 'pause' },
+    sender: actor };
+  return { ...f, event, change };
+}
+
+test('read-only pause resolver routes repair despite paused or unknown eligibility',
+  async t => {
+    t.mock.method(Date, 'now', () => now);
+    const f = pauseRouteFixture();
+    f.data['/issues/2/events'] = null;
+    f.issue.assignees = [];
+    const result = await resolveIssueWake(f.reader, f.adoption, f.event, f.invocation);
+    assert.equal(result.member_id, '3');
+    assert.equal(result.stageAdmitted, false);
+    f.event.sender = { ...f.event.sender, id: 99 };
+    await assert.rejects(
+      resolveIssueWake(f.reader, f.adoption, f.event, f.invocation),
+      /PAUSE_EVENT_ACTOR_CHANGED/,
+    );
+  });
+
+test('ordinary wake refuses transient absence and resumes only coherent native removal',
+  async () => {
+    const f = fixture();
+    const events = f.data['/issues/2/events'];
+    const change = (actor, present) => {
+      const id = events.length + 1;
+      events.push({ id, actor, event: present ? 'labeled' : 'unlabeled',
+        label: { name: 'pause' }, created_at: '2026-11-03T00:00:00Z',
+        url: `https://api.github.com/repos/example/core/issues/events/${id}` });
+      f.issue.labels = f.issue.labels.filter(label => label.name !== 'pause');
+      if (present) f.issue.labels.push({ name: 'pause' });
+    };
+    const writer = { id: 1, login: 'writer', type: 'User' };
+    change(writer, true);
+    change(f.pr.merged_by, false);
+    await assert.rejects(f.resolve(), /PAUSE_NOT_PROVEN_CLEAR/);
+    // Later assignment or permission loss must not erase the effective actor.
+    f.issue.assignees = [];
+    await assert.rejects(f.resolve(), /PAUSE_NOT_PROVEN_CLEAR/);
+    f.issue.assignees = [writer];
+    f.data['/collaborators/writer/permission'].permission = 'read';
+    await assert.rejects(f.resolve(), /PAUSE_NOT_PROVEN_CLEAR/);
+    f.data['/collaborators/writer/permission'].permission = 'write';
+    change(writer, true);
+    change(writer, false);
+    assert.equal((await f.resolve()).stage, 'shape');
+    f.data['/issues/2/events'] = null;
+    await assert.rejects(f.resolve(), /PAUSE_NOT_PROVEN_CLEAR/);
+  });
+
+test('existing trusted event entry repairs only pause before ordinary wake eligibility',
+  async t => {
+    t.mock.method(Date, 'now', () => now);
+    for (const restore of [true, false]) {
+      const f = pauseRouteFixture(restore);
+      const root = await mkdtemp(join(tmpdir(), 'nibfin-pause-route-'));
+      t.after(() => rm(root, { recursive: true, force: true }));
+      let writes = 0, inspections = 0;
+      const options = { reader: f.reader, adoption: f.adoption, event: f.event,
+        invocation: f.invocation, token: 'fixture-only', stateRoot: root,
+        inspect: async () => { inspections++; },
+        fetcher: async (url, request) => {
+          if (url === 'https://api.github.com/user')
+            return { ok: true, json: async () => structuredClone(f.pr.merged_by) };
+          writes++;
+          assert.ok(url.endsWith(restore ? '/labels' : '/labels/pause'));
+          assert.equal(request.method, restore ? 'POST' : 'DELETE');
+          f.change(f.pr.merged_by, restore);
+          return { ok: true, json: async () => f.issue.labels };
+        } };
+      const result = await dispatchIssueWake(options);
+      assert.equal(result.status, 'skipped');
+      assert.equal(writes, 1);
+      assert.ok(inspections >= 3);
+      assert.equal(f.issue.labels.some(label => label.name === 'pause'), restore);
+      assert.equal((await dispatchIssueWake(options)).status, 'skipped');
+      assert.equal(writes, 1);
+    }
+  });
+
+test('repository admission routes pause repair even with no scope or assignment',
+  async t => {
+    t.mock.method(Date, 'now', () => now);
+    const f = pauseRouteFixture(false);
+    const old = f.adoption.issues[0];
+    f.adoption.issues = [];
+    f.adoption.repository = { ...old, approvalPin: {
+      kind: 'repository-admission-v1', repository: 'example/core',
+      repositoryId: 10, memberId: 3, source: old.approvalPin.source,
+    } };
+    f.issue.assignees = [];
+    const result = await resolveIssueWake(f.reader, f.adoption, f.event, f.invocation);
+    assert.equal(result.member_id, '3');
+    assert.equal(result.stageAdmitted, false);
+  });
 
 test(
   'dispatch Issue identity resolves to current authorized ' +

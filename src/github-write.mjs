@@ -51,13 +51,19 @@ export class GitHubWriter {
     this.#guard = guard;
     this.#fetch = fetcher;
   }
-  async #write(operation, method, path, body) {
-    const targetHash = digest({ operation, method, path, body });
+  async #write(operation, method, path, body, issue) {
+    const targetHash = digest({ operation, method, path, body: body ?? null });
     const admission = await this.#guard({ operation, targetHash });
     requireThat(
       admission?.targetHash === targetHash && isDigest(admission.bindingHash),
       'WRITE_ADMISSION_DENIED',
     );
+    if (issue && Array.isArray(body?.labels)) {
+      const current = await this.#reader.issue(issue);
+      issueMatches(current, issue);
+      requireThat(labels(current).includes('pause') === body.labels.includes('pause'),
+        'PAUSE_CHANGED_BEFORE_SETTLEMENT');
+    }
     let response;
     try {
       response = await this.#fetch(`https://api.github.com${path}`, {
@@ -105,10 +111,36 @@ export class GitHubWriter {
     requireThat(
       current.state === 'open' &&
         digest(current.body) === expectedBodyHash &&
-        digest(labels(current)) === digest([...expectedLabels].sort()),
+        digest(labels(current).filter(name => name !== 'pause')) ===
+          digest(expectedLabels.filter(name => name !== 'pause').sort()),
       'STALE_ISSUE_WRITE',
     );
     return current;
+  }
+  async repairPause({ issue, expectedBodyHash, expectedLabels, desired }) {
+    requireThat(typeof desired === 'boolean' &&
+      expectedLabels.includes('pause') !== desired, 'INVALID_PAUSE_REPAIR');
+    const repository = await this.#reader.repository(issue.repository);
+    requireThat(repository.id === issue.repositoryId &&
+      repository.full_name === issue.repository && repository.private === false,
+    'REPOSITORY_WRITE_IDENTITY_MISMATCH');
+    const before = await this.#reader.issue(issue);
+    issueMatches(before, issue);
+    requireThat(digest(before.body) === expectedBodyHash &&
+      digest(labels(before)) === digest([...expectedLabels].sort()),
+    'STALE_ISSUE_WRITE');
+    const path = `${issuePath(issue)}/labels`;
+    await this.#write('pause-repair', desired ? 'POST' : 'DELETE',
+      desired ? path : `${path}/pause`, desired ? { labels: ['pause'] } : undefined);
+    const actual = await this.#reader.issue(issue);
+    issueMatches(actual, issue);
+    const expected = expectedLabels.filter(name => name !== 'pause');
+    if (desired) expected.push('pause');
+    requireThat(digest(labels(actual)) === digest(expected.sort()) &&
+      digest(actual.body) === expectedBodyHash && actual.state === before.state &&
+      digest(actual.assignees) === digest(before.assignees) &&
+      actual.title === before.title, 'PAUSE_READBACK_UNKNOWN');
+    return { reference: actual.url };
   }
   async confirmShape({ issue, expectedBodyHash, expectedLabels, body }) {
     requireThat(
@@ -151,7 +183,7 @@ export class GitHubWriter {
     await this.#write('publish-shape', 'PATCH', issuePath(issue), {
       body,
       labels: desired,
-    });
+    }, issue);
     const actual = await this.#reader.issue(issue);
     issueMatches(actual, issue);
     requireThat(
@@ -364,7 +396,7 @@ export class GitHubWriter {
       state: 'closed',
       state_reason: 'completed',
       labels: desired,
-    });
+    }, issue);
     const actual = await this.#reader.issue(issue);
     issueMatches(actual, issue);
     requireThat(

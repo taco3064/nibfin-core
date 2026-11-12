@@ -4,6 +4,7 @@ import { issuePath } from './github-read.mjs';
 import { canonicalCandidateBlock, candidateContract,
   safeCandidatePath } from './candidate-contract.mjs';
 import { requireExecutionIsolation } from './execution-profiles.mjs';
+import { requirePauseClear } from './pause.mjs';
 
 // Adapted from Kairo's pure stage/evidence gates. Only a trusted live observer
 // may supply context and receipts. This module authenticates no JSON caller.
@@ -287,6 +288,20 @@ function ci(context) {
 }
 
 export function decideStage(stage, context, now = Date.now()) {
+  return stageDecision(stage, context, now);
+}
+
+// Installed write adapters may finish the operation already admitted by Runtime.
+// Recheck every other rule; a new pause cannot cancel that stage's settlement.
+// This pure function grants no external write or stage-dispatch capability.
+export function decideSettlement(stage, context, admitted, decision, now = Date.now()) {
+  const original = decideStage(stage, admitted, now);
+  if (original.status !== 'allowed' || digest(original) !== digest(decision))
+    return { status: 'denied', code: 'WRITE_DECISION_MISMATCH' };
+  return stageDecision(stage, context, now, admitted);
+}
+
+function stageDecision(stage, context, now, admitted) {
   try {
     const definition = Object.hasOwn(stages, stage) ? stages[stage] : null;
     requireThat(definition, 'UNKNOWN_STAGE');
@@ -299,6 +314,7 @@ export function decideStage(stage, context, now = Date.now()) {
       'OPERATION_NOT_APPROVED',
     );
     const issue = context.issue;
+    if (!admitted) requirePauseClear(context.pause, record.issue, issue);
     requireThat(
       issue?.node_id === record.issue.id &&
         issue.number === record.issue.number &&
@@ -441,7 +457,8 @@ export function decideStage(stage, context, now = Date.now()) {
   } catch (error) {
     return {
       schemaVersion: 1,
-      status: 'denied',
+      status: error.code === 'PAUSE_NOT_PROVEN_CLEAR' &&
+        context?.pause?.status !== 'paused' ? 'pending' : 'denied',
       stage,
       code: error.code ?? 'INVALID_STAGE_CONTEXT',
     };

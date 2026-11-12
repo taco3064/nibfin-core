@@ -266,6 +266,7 @@ export async function launchStage(issueNumber, stage, env = process.env) {
           approval: adopted.approval,
           runner,
           stateRoot: join(root, 'receipts'),
+          pauseStateRoot: join(host.stateRoot, 'wake'),
           ciWorkflows: adopted.ciWorkflows,
           ...(ciFailure ? { ciFailure } : {}),
           reviewers: adopted.reviewers,

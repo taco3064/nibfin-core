@@ -56,6 +56,8 @@ export class OperationJournal {
         record.payload.schemaVersion === 1 &&
         Array.isArray(record.payload.completed) &&
         record.payload.completed.every(isDigest) &&
+        (record.payload.pauseEffects === undefined ||
+          Array.isArray(record.payload.pauseEffects)) &&
         new Set(record.payload.completed).size === record.payload.completed.length &&
         (record.payload.pending === null || isDigest(record.payload.pending)) &&
         (record.payload.wakeRunId === undefined ||
@@ -80,20 +82,37 @@ export class OperationJournal {
     await rename(temp, join(this.#directory, 'receipts.json'));
     await syncDirectory(this.#directory);
   }
+  async pauseEffects() {
+    try {
+      await privateDirectory(this.root);
+      await privateDirectory(this.#directory);
+    } catch (error) {
+      if (error.code === 'ENOENT') return [];
+      throw error;
+    }
+    await this.#assertUnlocked();
+    const state = await this.#read();
+    requireThat(state.pending === null, 'EXTERNAL_EFFECT_UNKNOWN');
+    return state.pauseEffects ?? [];
+  }
   async assertIdle() {
     await this.#prepare();
+    await this.#assertUnlocked();
+    requireThat((await this.#read()).pending === null, 'EXTERNAL_EFFECT_UNKNOWN');
+  }
+  async #assertUnlocked() {
     await lstat(join(this.#directory, 'execution.lock')).then(
       () => requireThat(false, 'WRITER_NOT_PROVEN_TERMINATED'),
       error => { if (error.code !== 'ENOENT') throw error; },
     );
-    requireThat((await this.#read()).pending === null, 'EXTERNAL_EFFECT_UNKNOWN');
   }
   async run(request, { admit, perform, readBack }) {
     // The binding identifies immutable approval, Scope/Shape, candidate, source,
     // role/session and operation target. All three callbacks belong to trusted
     // Core; none can be supplied by an Agent/worktree or external JSON request.
     requireThat((operations.includes(request?.operation) ||
-      request?.operation === 'release') && isDigest(request.bindingHash) &&
+      ['release', 'pause-repair'].includes(request?.operation)) &&
+      isDigest(request.bindingHash) &&
       [admit, perform, readBack].every(value => typeof value === 'function'),
     'INVALID_OPERATION_REQUEST');
     const decision = digest({
@@ -130,6 +149,17 @@ export class OperationJournal {
         }
         requireThat(await readBack() === request.bindingHash,
           'READBACK_BINDING_MISMATCH');
+        if (request.operation === 'pause-repair') {
+          requireThat(result && isId(result.eventId) && isId(result.actorId) &&
+              (result.rejectedEventId === undefined ||
+                (!result.desired && isId(result.rejectedEventId) &&
+                  result.rejectedEventId < result.eventId)) &&
+            isDigest(result.beforeHash) && typeof result.desired === 'boolean' &&
+            typeof result.issueId === 'string' && isId(result.repositoryId),
+          'PAUSE_REPAIR_RECEIPT_UNKNOWN');
+          state = { ...state,
+            pauseEffects: [...(state.pauseEffects ?? []), result] };
+        }
         await this.#complete(state, decision);
       } catch { return { status: 'pending', code: 'EXTERNAL_EFFECT_UNKNOWN' }; }
       return { status: 'completed', decisionId: decision };

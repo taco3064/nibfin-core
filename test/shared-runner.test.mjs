@@ -1,7 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { sharedRepository, sharedRunner } from '../src/shared-runner.mjs';
-import { readForwardedWake } from '../src/shared-wake.mjs';
+import { forwardSharedWake, readForwardedWake } from '../src/shared-wake.mjs';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 
 const central = 'taco3064/nibfin-core';
 const cli = 'taco3064/gh-nibfin';
@@ -65,4 +68,33 @@ test('forwarded wake must identify the same live adopted repository and issue', 
   assert.throws(() => readForwardedWake(JSON.stringify(request), {
     ...issue, repositoryId: 1,
   }), { code: 'INVALID_SHARED_WAKE' });
+});
+
+test('shared pause wake preserves the actor and original Issue snapshot', async t => {
+  const dir = await mkdtemp(join(tmpdir(), 'nibfin-shared-pause-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const path = join(dir, 'event.json');
+  const sender = { id: 5, type: 'User', login: 'labeler' };
+  const snapshot = {
+    number: issue.number, node_id: issue.id, state: 'open',
+    updated_at: '2026-11-12T00:00:00Z',
+    assignees: [{ id: 6 }], labels: [{ name: 'pause' }],
+  };
+  const event = {
+    action: 'labeled', label: { name: 'pause' }, sender, issue: snapshot,
+    repository: { id: issue.repositoryId, full_name: issue.repository },
+  };
+  await writeFile(path, JSON.stringify(event));
+  let request;
+  await forwardSharedWake({ status: 'resolved', issue_number: '78' }, {
+    GITHUB_EVENT_PATH: path, GITHUB_RUN_ID: '45', GITHUB_RUN_ATTEMPT: '1',
+    NIBFIN_WAKE_TOKEN: 'fixture-only',
+  }, async (_url, options) => {
+    request = options.body;
+    return { status: 200, json: async () => ({
+      workflow_run_id: 46,
+      html_url: 'https://github.com/taco3064/nibfin-core/actions/runs/46',
+    }) };
+  });
+  assert.deepEqual(readForwardedWake(request, issue), { runId: 45, event });
 });

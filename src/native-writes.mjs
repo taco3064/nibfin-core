@@ -1,7 +1,7 @@
 import { GitHubReader } from './github-read.mjs';
 import { integrationRepairRequired, pendingCIObservation } from './github-ci.mjs';
 import { GitHubWriter, MergeBeforeWrite } from './github-write.mjs';
-import { decideStage } from './stages.mjs';
+import { decideStage, decideSettlement } from './stages.mjs';
 import { digest, isDigest, requireThat } from './identity.mjs';
 import { setTimeout } from 'node:timers/promises';
 
@@ -41,7 +41,9 @@ export function nativeWrites({
         'WRITE_CREDENTIAL_IDENTITY_MISMATCH',
       );
       let fresh;
-      try { fresh = decideStage(stage, await observe(stage), clock()); }
+      try {
+        fresh = decideSettlement(stage, await observe(stage), context, decision, clock());
+      }
       catch (error) {
         if (stage === 'merge' && (pendingCIObservation(error.code) ||
           integrationRepairRequired(error.code))) throw new MergeBeforeWrite();

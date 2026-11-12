@@ -13,8 +13,7 @@ import {
   hostWakeExecution,
 } from './host-launcher.mjs';
 import { actionsCaller } from './actions-identity.mjs';
-import { readProtectedApproval } from './github-approval.mjs';
-import { dispatchIssueWake } from './issue-wake.mjs';
+import { dispatchIssueWake, readWakeApproval } from './issue-wake.mjs';
 import { digest, requireThat } from './identity.mjs';
 import { relayHostCommand } from './host-relay.mjs';
 import { targetContextKey } from './controller-contract.mjs';
@@ -112,7 +111,14 @@ export async function launchIssueWake(issueNumber, env = process.env, eventBytes
     executionId: execution.id,
   });
   await authenticate(binding);
-  const approval = await readProtectedApproval(reader, adopted.approval);
+  requireThat(
+    host.runnerUid === undefined || typeof eventBytes === 'string',
+    'CONTROLLER_EVENT_TRANSPORT_REQUIRED',
+  );
+  const bytes = eventBytes ?? await boundedHostFile(env.GITHUB_EVENT_PATH, 1048576);
+  const forwarded = shared ? readForwardedWake(bytes, adopted.isolation.issue) : null;
+  const event = forwarded?.event ?? JSON.parse(bytes);
+  const approval = await readWakeApproval(reader, adopted.approval, event);
   requireThat(
     approval.record.roles.publisher === runner.memberId &&
       approval.record.operations.includes('wake'),
@@ -128,7 +134,7 @@ export async function launchIssueWake(issueNumber, env = process.env, eventBytes
         eventName,
       );
       await authenticate(fresh.binding);
-      const current = await readProtectedApproval(reader, adopted.approval);
+      const current = await readWakeApproval(reader, adopted.approval, event);
       requireThat(
         current.approvalHash === approval.approvalHash &&
           current.record.roles.publisher === runner.memberId &&
@@ -138,13 +144,6 @@ export async function launchIssueWake(issueNumber, env = process.env, eventBytes
       await readSelectedHost(reader, runner);
     };
     await inspect();
-    requireThat(
-      host.runnerUid === undefined || typeof eventBytes === 'string',
-      'CONTROLLER_EVENT_TRANSPORT_REQUIRED',
-    );
-    const bytes = eventBytes ?? await boundedHostFile(env.GITHUB_EVENT_PATH, 1048576);
-    const forwarded = shared ? readForwardedWake(bytes, approval.record.issue) : null;
-    const event = forwarded?.event ?? JSON.parse(bytes);
     requireThat(
       String(event.issue?.number) === issueNumber &&
         event.issue.node_id === approval.record.issue.id,

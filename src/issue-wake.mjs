@@ -4,7 +4,9 @@ import {
   readProtectedApproval,
   readMemberPermission,
 } from './github-approval.mjs';
-import { nativeEdgeIssue, repositoryIssuePin } from './repository-admission.mjs';
+import {
+  nativeEdgeIssue, repositoryIssuePin, readRepositoryPauseAuthority,
+} from './repository-admission.mjs';
 import { selectAssignee } from './selection.mjs';
 import { isDeliveredIssue } from './dependencies.mjs';
 import { observeWake, WakeDispatcher, fanout } from './wakeup.mjs';
@@ -12,6 +14,8 @@ import { OperationJournal } from './operation-journal.mjs';
 import { digest, isId, isSha, requireThat } from './identity.mjs';
 import { readCallerSource } from './caller-source.mjs';
 import { sharedDispatchWorkflow } from './shared-runner.mjs';
+import { pauseEvent } from './pause.mjs';
+import { reconcilePause } from './pause-repair.mjs';
 
 // Hosted preflight only. Event fields locate resources; adopted source pins,
 // current native approval and the dispatch credential supply authority.
@@ -40,7 +44,8 @@ export async function observeIssueEvent(reader, adoption, event, invocation) {
       'reopened',
       'closed',
     ].includes(event?.action) &&
-      (event.action !== 'labeled' || event.label?.name === 'scope') &&
+      (event.action !== 'labeled' ||
+        ['scope', 'pause'].includes(event.label?.name)) &&
       isId(event.issue?.number) &&
       typeof event.issue.node_id === 'string' &&
       !event.issue.pull_request,
@@ -83,6 +88,11 @@ export async function observeIssueEvent(reader, adoption, event, invocation) {
     'UNTRUSTED_ISSUE_EVENT_RUN',
   );
   const recipe = { kind: 'issue', coreCommit: adoption.coreCommit };
+  if (pauseEvent(event)) {
+    requireThat(isId(event.sender?.id) && event.sender.id === run.actor.id &&
+      ['User', 'Bot'].includes(event.sender.type) &&
+      event.sender.login === run.actor.login, 'PAUSE_EVENT_ACTOR_CHANGED');
+  }
   await readCallerSource(reader, invocation.repository, pin, run.head_sha, recipe);
   await readCallerSource(reader, invocation.repository, pin, branch.commit.sha, recipe);
   const workflow = await reader.get(`${root}/actions/workflows/${pin.id}`);
@@ -131,20 +141,33 @@ export function adoptedWake(adoption, identity, peers = []) {
   return selected;
 }
 
+export function readWakeApproval(reader, pin, event) {
+  if (pauseEvent(event) && pin.kind === 'repository-admission-v1')
+    return readRepositoryPauseAuthority(reader, pin);
+  return readProtectedApproval(reader, pin);
+}
+
 export async function resolveIssueWake(reader, adoption, event, invocation) {
   const upstream = await observeIssueEvent(reader, adoption, event, invocation);
   const live = await reader.issue(upstream);
   if (event.action === 'closed')
     requireThat(isDeliveredIssue(live), 'UPSTREAM_NOT_DELIVERED');
   const config = adoptedWake(adoption, upstream);
-  const approval = await readProtectedApproval(reader, config.approvalPin);
+  const approval = await readWakeApproval(reader, config.approvalPin, event);
   requireThat(
     digest(approval.record.issue) === digest(upstream) &&
       approval.record.operations.includes('wake'),
     'EVENT_WAKE_NOT_APPROVED',
   );
   let route;
-  if (event.action === 'closed') {
+  if (pauseEvent(event)) {
+    // Repair uses the adopted publisher's existing event Runner. Assignment and
+    // ordinary wake eligibility cannot prevent negative-state reconciliation.
+    requireThat(isId(config.actorId) &&
+      config.actorId === approval.record.roles.publisher,
+    'PAUSE_REPAIR_ROUTE_NOT_APPROVED');
+    route = { userId: config.actorId };
+  } else if (event.action === 'closed') {
     route = await selectAssignee(live, async (user) => {
       if (user.id !== approval.record.roles.writer) return false;
       if (config.approvalPin.kind !== 'repository-admission-v1')
@@ -215,10 +238,36 @@ export async function dispatchIssueWake({
   let journalEntered = false;
   try {
     const upstream = await observeIssueEvent(reader, adoption, event, invocation);
+    const pauseJournal = new OperationJournal(stateRoot, upstream);
+    if (pauseEvent(event)) {
+      const config = adoptedWake(adoption, upstream, peerRepositories);
+      const pause = await reconcilePause({
+        reader, issue: upstream, token, journal: pauseJournal, fetcher, event,
+        authorize: async () => {
+          await inspect();
+          await observeIssueEvent(reader, adoption, event, invocation);
+          const approval = await readWakeApproval(reader, config.approvalPin, event);
+          const actor = await reader.get('/user');
+          requireThat(digest(approval.record.issue) === digest(upstream) &&
+            approval.record.operations.includes('wake') &&
+            actor.type === 'User' && actor.id === config.actorId &&
+            actor.id === approval.record.roles.publisher,
+          'PAUSE_REPAIR_NOT_APPROVED');
+          await readMemberPermission(reader, upstream.repository, actor);
+          return { approvalHash: approval.approvalHash, actorId: actor.id };
+        },
+      });
+      if (pause.status !== 'clear')
+        return { status: pause.status === 'paused' ? 'skipped' : 'pending',
+          code: pause.code ?? 'ISSUE_PAUSED', stageAdmitted: false };
+    }
     const wake = async (issue) => {
       const config = adoptedWake(adoption, issue, peerRepositories);
+      const pauseProofs = await new OperationJournal(stateRoot, issue).pauseEffects();
       try {
-        await observeWake(reader, { ...config, shared: Boolean(sharedRunner) });
+        await observeWake(reader, {
+          ...config, shared: Boolean(sharedRunner), pauseProofs,
+        });
       } catch (error) {
         if (
           [
@@ -242,7 +291,7 @@ export async function dispatchIssueWake({
           await inspect();
           await observeIssueEvent(current, adoption, event, invocation);
           const observed = await observeWake(current, {
-            ...config, shared: Boolean(sharedRunner),
+            ...config, shared: Boolean(sharedRunner), pauseProofs,
           });
           requireThat(observed.issue.id === issue.id &&
             observed.issue.repositoryId === issue.repositoryId, 'WAKE_TARGET_CHANGED');
@@ -282,7 +331,8 @@ export async function dispatchIssueWake({
     if (journalEntered) throw error;
     // Positively no journal or external write was entered. A malformed or
     // revoked event/graph may be refused without stranding the whole host.
-    return { status: 'denied', code: error.code ?? 'WAKE_PLAN_REFUSED' };
+    return { status: error.code === 'PAUSE_NOT_PROVEN_CLEAR' ? 'pending' : 'denied',
+      code: error.code ?? 'WAKE_PLAN_REFUSED' };
   }
 }
 
