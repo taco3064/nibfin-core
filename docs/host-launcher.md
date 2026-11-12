@@ -116,9 +116,12 @@ Scope, approval or Core source cannot silently reuse it.
 
 Before any workspace mutation, a host-wide exclusive file is created and synced.
 It serializes all Issues on that host. Every writer inspection confirms its
-identity, exactly one registered Runner with the member route (including offline
-registrations), and the absence of all containers except the adopted egress
-gateway on the dedicated daemon. Agent/hook preflights remain mandatory.
+identity, the exact adopted Runner ID/name registration with the member route,
+online status and busy state, and the absence of all containers except the adopted
+egress gateway on the dedicated daemon. Other same-member or unrelated registrations
+do not determine admission or prove Writer exclusivity. GitHub assigns the native
+Job; its full Runner binding remains mandatory. Agent/hook preflights remain
+mandatory.
 
 Only a known non-Pending result or an explicit pre-effect CI observation timeout,
 followed by a clean host inspection, releases the fence. Nonterminal native CI,

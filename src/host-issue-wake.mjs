@@ -9,7 +9,7 @@ import {
 import { privateHostDirectory } from './host-fence.mjs';
 import {
   resolveHostJob,
-  readSingleHost,
+  readSelectedHost,
   hostWakeExecution,
 } from './host-launcher.mjs';
 import { actionsCaller } from './actions-identity.mjs';
@@ -127,7 +127,7 @@ export async function launchIssueWake(issueNumber, env = process.env, eventBytes
           current.record.operations.includes('wake'),
         'EVENT_AUTHORITY_CHANGED',
       );
-      await readSingleHost(reader, runner);
+      await readSelectedHost(reader, runner);
     };
     await inspect();
     requireThat(
