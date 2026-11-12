@@ -266,9 +266,10 @@ artifacts separately. Hook commands are fixed by Core and executed only by the
 offline rootless adapter. Its tests inspect requested Docker contracts but do not
 claim a real container ran in this development environment.
 
-The native CI adapter requires app-bound checks, pinned workflow bytes, current
-attempt/job identity and a checkout log marker confined to the trusted checkout
-step. It does not accept a green unrelated job or later Agent-written log text.
+The native CI adapter reads the PR's existing required GitHub checks and their
+current run and Job identities. It compares the PR Workflow with its protected
+base rather than using a copy of the Workflow version from the host configuration.
+A successful check needs no log download. Failed Job logs may supply diagnostics.
 The PR write adapter checks exact source/base identities before publishing.
 Packaged Scope/Shape are the provided project sources; Deliver/Accept provide the
 role-specific contract. No personal ChatGPT Skill is installed by this package.
