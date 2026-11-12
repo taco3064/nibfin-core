@@ -46,8 +46,11 @@ test('only a failure from the current protected workflow is sent for correction'
           kind: 'playwright-unsupported-target',
           browser: 'chromium-headless-shell', platform: 'ubuntu26.04-x64',
         });
-        assert.equal(ciCorrectionFindings(error.failure).at(-1),
-          'Playwright cannot install chromium-headless-shell on ubuntu26.04-x64.');
+        const findings = ciCorrectionFindings(error.failure);
+        assert.ok(findings.includes(
+          'Playwright cannot install chromium-headless-shell on ubuntu26.04-x64.',
+        ));
+        assert.match(findings.at(-1), /remove the browser download/);
         assert.doesNotMatch(JSON.stringify(error.failure), /private fixture output/);
         return true;
       });
