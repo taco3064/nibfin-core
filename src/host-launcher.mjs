@@ -66,6 +66,7 @@ export async function resolveHostJob(
     actorId: run.actor?.id,
     sourceAnchor: adopted.runner.sourceCommit,
     sourceCommit: run.head_sha,
+    nativePolicy: adopted.approval?.kind === 'repository-admission-v1',
     eventName,
   });
   const binding = await readRunnerBinding(reader, runner);

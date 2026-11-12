@@ -135,7 +135,7 @@ export async function readPinnedFile(reader, repository, path, ref, expectedBlob
 // Scope/Shape/dependencies are separate mandatory admission checks.
 export async function readProtectedApproval(reader, pin, now = Date.now()) {
   if (pin?.kind === 'repository-admission-v1')
-    return readRepositoryApproval(reader, pin, now, readMemberPermission);
+    return readRepositoryApproval(reader, pin, now);
   requireThat(
     isId(pin?.repositoryId) &&
       isId(pin.prNumber) &&

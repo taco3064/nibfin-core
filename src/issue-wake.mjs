@@ -58,7 +58,8 @@ export async function observeIssueEvent(reader, adoption, event, invocation) {
   );
   const run = await reader.get(`${root}/actions/runs/${invocation.runId}`);
   requireThat(
-    branch.protected === true &&
+    (adoption.repository?.approvalPin?.kind === 'repository-admission-v1' ||
+      branch.protected === true) &&
       isSha(branch.commit?.sha) &&
       run.id === invocation.runId &&
       run.run_attempt === 1 &&
@@ -143,7 +144,10 @@ export async function resolveIssueWake(reader, adoption, event, invocation) {
   if (event.action === 'closed') {
     route = await selectAssignee(live, async (user) => {
       if (user.id !== approval.record.roles.writer) return false;
-      await readMemberPermission(reader, upstream.repository, { ...user, type: 'User' });
+      if (config.approvalPin.kind !== 'repository-admission-v1')
+        await readMemberPermission(reader, upstream.repository, {
+          ...user, type: 'User',
+        });
       return true;
     });
     requireThat(route, 'WAKE_TARGET_NOT_READY');

@@ -15,7 +15,6 @@ test('native Scope and assignment admit new Issues under one repository policy',
       repository: f.pin.repository,
       repositoryId: f.pin.repositoryId,
       memberId: member.id,
-      protectionHash: f.pin.protectionHash,
       source: f.pin.source,
     };
     const issue = { ...f.record.issue, number: 42, id: 'I_new' };
@@ -27,12 +26,9 @@ test('native Scope and assignment admit new Issues under one repository policy',
     };
     f.reader.issue = async () => structuredClone(live);
     f.reader.blockedBy = async () => [];
-    const timeline = [
-      { event: 'labeled', label: { name: 'scope' }, actor: member },
-      { event: 'assigned', assignee: member, actor: member },
-    ];
-    f.data['/issues/42/timeline'] = timeline;
-
+    f.reader.get = async path => assert.fail(
+      'Repository admission should not read ' + path,
+    );
     const first = await readProtectedApproval(f.reader, pin, now);
     assert.deepEqual(first.record.issue, issue);
     live.body = 'Published Shape';
@@ -41,12 +37,6 @@ test('native Scope and assignment admit new Issues under one repository policy',
     assert.deepEqual(evidenceBinding({ approval: first }),
       evidenceBinding({ approval: second }));
 
-    timeline.at(-1).actor = { id: 8, login: 'reader', type: 'User' };
-    f.data['/collaborators/reader/permission'] = {
-      user: timeline.at(-1).actor, permission: 'read',
-    };
-    await assert.rejects(readProtectedApproval(f.reader, pin, now),
-      /MEMBER_PERMISSION_REVOKED/);
     live.assignees = [];
     await assert.rejects(readProtectedApproval(f.reader, pin, now),
       /WAKE_TARGET_NOT_READY/);

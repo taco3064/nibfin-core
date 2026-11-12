@@ -255,15 +255,16 @@ function verifyContentReview(context, artifacts) {
 }
 function ci(context) {
   const evidence = context.ci;
+  const nativePolicy = context.approval.scopeBinding !== undefined;
   requireThat(
     evidence &&
       evidence.prId === context.pr.id &&
       evidence.head === context.pr.head &&
       evidence.base === context.pr.base &&
       isSha(evidence.testedSha) &&
-      isDigest(evidence.protectionHash) &&
+      (nativePolicy || isDigest(evidence.protectionHash)) &&
       Array.isArray(evidence.checks) &&
-      evidence.checks.length > 0 &&
+      (nativePolicy || evidence.checks.length > 0) &&
       evidence.checks.every(
         (check) =>
           isId(check.id) &&

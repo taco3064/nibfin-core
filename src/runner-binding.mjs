@@ -71,7 +71,8 @@ export async function readRunnerBinding(reader, expected) {
     const branch = await reader.get(
       `${root}/branches/${encodeURIComponent(repository.default_branch)}`,
     );
-    requireThat(branch.protected === true, 'CALLER_BRANCH_UNPROTECTED');
+    requireThat(expected.nativePolicy || branch.protected === true,
+      'CALLER_BRANCH_UNPROTECTED');
     const recipe =
       expected.actionCommit !== undefined
         ? wakeRecipe(expected.actionCoreCommit, expected, expected.memberId)
@@ -141,8 +142,10 @@ export async function readRunnerBinding(reader, expected) {
       pinned.blob,
     );
   }
-  await readMemberPermission(reader, expected.repository, run.actor);
-  await readMemberPermission(reader, expected.repository, run.triggering_actor);
+  if (!expected.nativePolicy) {
+    await readMemberPermission(reader, expected.repository, run.actor);
+    await readMemberPermission(reader, expected.repository, run.triggering_actor);
+  }
   const workflowPath = `${root}/actions/workflows/${expected.workflowId}`;
   const workflow = await reader.get(workflowPath);
   requireThat(
@@ -200,7 +203,8 @@ export async function readRunnerBinding(reader, expected) {
   );
   // Member authorization is independent of workflow initiator and routing label.
   requireThat(expected.member?.id === expected.memberId, 'MEMBER_BINDING_MISMATCH');
-  await readMemberPermission(reader, expected.repository, expected.member);
+  if (!expected.nativePolicy)
+    await readMemberPermission(reader, expected.repository, expected.member);
   const [latestRun, latestJob, latestRunner, latestWorkflow] = await Promise.all([
     reader.get(runPath), reader.get(jobPath), reader.get(runnerPath),
     reader.get(workflowPath),

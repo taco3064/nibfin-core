@@ -1,6 +1,5 @@
 import { operations, validateApprovalRecord, validateIssueIdentity }
   from './approval-record.mjs';
-import { readProtection } from './github-protection.mjs';
 import { issuePath } from './github-read.mjs';
 import { digest, isId, requireThat } from './identity.mjs';
 
@@ -35,7 +34,7 @@ async function readPrerequisites(reader, issue) {
   }));
 }
 
-export async function readRepositoryApproval(reader, pin, now, memberPermission) {
+export async function readRepositoryApproval(reader, pin, now) {
   const { issueId: id, issueNumber: number, repository, repositoryId, memberId } = pin;
   const issue = { id, number, repository, repositoryId };
   validateIssueIdentity(issue);
@@ -56,23 +55,7 @@ export async function readRepositoryApproval(reader, pin, now, memberPermission)
       ['open', 'closed'].includes(live.state),
     'WAKE_TARGET_NOT_READY',
   );
-  // GitHub's native assignment and label state supply intent. Require their
-  // current setters to be repository collaborators with write access.
-  const timeline = (await reader.list(`${issuePath(issue)}/timeline`)).reverse();
-  const scope = timeline.find((item) =>
-    ['labeled', 'unlabeled'].includes(item.event) && item.label?.name === 'scope');
-  const assignment = timeline.find((item) =>
-    ['assigned', 'unassigned'].includes(item.event) && item.assignee?.id === memberId);
-  requireThat(scope?.event === 'labeled' && assignment?.event === 'assigned',
-    'WAKE_TARGET_NOT_READY');
-  const actors = new Map([assigned, scope.actor, assignment.actor]
-    .map((user) => [user?.id, user]));
-  const [protection, prerequisites] = await Promise.all([
-    readProtection(reader, repository, repo.default_branch, pin.ruleset),
-    readPrerequisites(reader, issue),
-    ...Array.from(actors.values(), (user) => memberPermission(reader, repository, user)),
-  ]);
-  requireThat(protection.hash === pin.protectionHash, 'PROTECTION_CHANGED');
+  const prerequisites = await readPrerequisites(reader, issue);
   const record = validateApprovalRecord({
     schemaVersion: 1,
     issue,
@@ -92,6 +75,5 @@ export async function readRepositoryApproval(reader, pin, now, memberPermission)
     scopeBinding: digest(issue),
     approvalHash: digest(pin),
     reviewers: [],
-    requiredChecks: protection.policy.required_status_checks.checks,
   };
 }
