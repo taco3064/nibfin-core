@@ -22,6 +22,8 @@ export function stageFixture(stage = 'shape') {
     main: { repositoryId: 10, head: '1'.repeat(40), observationHash: '9'.repeat(64) },
     approval: { record, approvalHash: 'd'.repeat(64) },
     source: record.source,
+    pause: { status: 'clear', effective: false, visible: false, repair: false,
+      issue: record.issue, observationHash: 'a'.repeat(64) },
     issue: {
       node_id: record.issue.id,
       number: record.issue.number,

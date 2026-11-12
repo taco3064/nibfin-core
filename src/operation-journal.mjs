@@ -54,6 +54,12 @@ export class OperationJournal {
       const record = JSON.parse(await handle.readFile('utf8'));
       requireThat(record.hash === digest(record.payload) &&
         record.payload.schemaVersion === 1 &&
+        (record.payload.pauseDecisions === undefined ||
+          Array.isArray(record.payload.pauseDecisions) &&
+          record.payload.pauseDecisions.every(proof =>
+            isDigest(proof?.eventHash) && isDigest(proof.observationHash) &&
+            ['allowed', 'denied', 'repair'].includes(proof.qualification) &&
+            typeof proof.desired === 'boolean')) &&
         Array.isArray(record.payload.completed) &&
         record.payload.completed.every(isDigest) &&
         new Set(record.payload.completed).size === record.payload.completed.length &&
@@ -79,6 +85,60 @@ export class OperationJournal {
     finally { await handle.close(); }
     await rename(temp, join(this.#directory, 'receipts.json'));
     await syncDirectory(this.#directory);
+  }
+  async pauseEvidence() {
+    try { await privateDirectory(this.root); }
+    catch (error) {
+      if (error.code === 'ENOENT') return { decisions: [], pending: false };
+      throw error;
+    }
+    await this.#prepare();
+    const state = await this.#read();
+    return { decisions: state.pauseDecisions ?? [], pending: state.pending !== null };
+  }
+  async recordPauseDecision(proof) {
+    requireThat(isDigest(proof?.eventHash) && isDigest(proof.observationHash) &&
+      ['allowed', 'denied'].includes(proof.qualification) &&
+      typeof proof.desired === 'boolean', 'INVALID_PAUSE_DECISION');
+    return this.#withLock(digest(proof), async state => {
+      requireThat(state.pending === null, 'EXTERNAL_EFFECT_UNKNOWN');
+      const decisions = state.pauseDecisions ?? [];
+      const previous = decisions.find(item => item.eventHash === proof.eventHash);
+      requireThat(!previous || digest(previous) === digest(proof),
+        'PAUSE_DECISION_CHANGED');
+      if (!previous) await this.#write({ ...state,
+        pauseDecisions: [...decisions, proof] });
+      return { status: 'completed' };
+    });
+  }
+  // Same lock and durable intent as delivery; this receipt binds one native
+  // label effect. Uncertain writes remain pending and are never blindly retried.
+  async repairPause(request, { admit, perform, readBack }) {
+    requireThat(isDigest(request?.bindingHash) &&
+      typeof request.desired === 'boolean', 'INVALID_PAUSE_REPAIR');
+    const decision = digest({ operation: 'repair-pause', ...request });
+    return this.#withLock(decision, async state => {
+      if (state.pending !== null)
+        return { status: 'pending', code: 'EXTERNAL_EFFECT_UNKNOWN' };
+      if (state.completed.includes(decision))
+        return { status: 'denied', code: 'REPLAYED_OPERATION' };
+      try {
+        requireThat(await admit() === request.bindingHash, 'PAUSE_ADMISSION_CHANGED');
+      } catch { return { status: 'denied', code: 'ADMISSION_FAILED' }; }
+      await this.#write({ ...state, pending: decision });
+      try {
+        await perform();
+        const proof = await readBack();
+        requireThat(isDigest(proof?.eventHash) &&
+          proof.observationHash === request.bindingHash &&
+          proof.qualification === 'repair' && proof.desired === request.desired,
+        'PAUSE_REPAIR_READBACK_UNKNOWN');
+        state = { ...state,
+          pauseDecisions: [...(state.pauseDecisions ?? []), proof] };
+        await this.#complete(state, decision);
+        return { status: 'completed', decisionId: decision };
+      } catch { return { status: 'pending', code: 'EXTERNAL_EFFECT_UNKNOWN' }; }
+    });
   }
   async assertIdle() {
     await this.#prepare();

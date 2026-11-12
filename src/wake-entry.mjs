@@ -102,7 +102,7 @@ export async function resolveWakeDispatch(
     };
   };
   const caller = await readCaller();
-  const wake = await observeWake(reader, selected, clock);
+  const wake = await observeWake(reader, { ...selected, routingOnly: true }, clock);
   requireThat(
     wake.issue.number === Number(inputs.issue_number),
     'WAKE_ISSUE_NUMBER_CHANGED',

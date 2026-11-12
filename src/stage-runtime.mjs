@@ -91,7 +91,11 @@ export class StageRuntime {
           admit: async () => {
             let fresh;
             try {
-              fresh = decideStage(stage, await this.#observe(stage), this.#clock());
+              const observation = await this.#observe(stage);
+              requireThat(
+                digest(observation.pause ?? null) === digest(context.pause ?? null),
+                'PAUSE_OBSERVATION_CHANGED');
+              fresh = decideStage(stage, observation, this.#clock());
               if (stage === 'merge' && fresh.status === 'allowed' &&
                 fresh.requestHash !== decision.requestHash) throw new MergeBeforeWrite();
             } catch (error) { admissionError = error; throw error; }

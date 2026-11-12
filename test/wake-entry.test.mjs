@@ -1,3 +1,4 @@
+import { pauseFixture, people } from './pause-fixture.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
@@ -333,3 +334,46 @@ test(
     assert.deepEqual(result, { status: 'denied', code: 'UPSTREAM_NOT_DELIVERED' });
   },
 );
+
+test('pause reconciliation traverses read-only routing and authenticated controller',
+  async t => {
+  const f = fixture('issue');
+  t.mock.method(Date, 'now', () => now);
+  const p = await pauseFixture(t);
+  Object.assign(p.repository, f.repo, { owner: f.pr.merged_by });
+  p.issue.body = f.record.scope.body;
+  p.issue.assignees = f.issue.assignees;
+  f.reader.repository = p.reader.repository;
+  f.reader.issue = p.reader.issue;
+  const list = f.reader.list;
+  f.reader.list = path => path.endsWith('/events') ? p.reader.list(path) : list(path);
+  f.adoption.eventWorkflow = f.adoption.issues[0].workflow;
+  f.invocation.eventName = 'issues';
+  f.run.event = 'issues';
+  f.run.referenced_workflows[0].path =
+    'taco3064/nibfin-core/.github/workflows/issue.yml@' + f.adoption.coreCommit;
+  const dispatch = event => dispatchIssueWake({
+    reader: f.reader, adoption: f.adoption, invocation: f.invocation,
+    event: { ...event, repository: f.repo }, token: 'fixture-token',
+    stateRoot: p.root, inspect: async () => {}, fetcher: p.fetcher,
+  });
+  const pause = p.emit(f.pr.merged_by, 'labeled');
+  const route = await resolveIssueWake(f.reader, f.adoption,
+    { ...pause, repository: f.repo }, f.invocation);
+  assert.equal(route.status, 'resolved');
+  assert.equal(route.stageAdmitted, false);
+  assert.deepEqual(await dispatch(pause), { status: 'skipped', code: 'ISSUE_PAUSED' });
+  f.data['/collaborators/stranger/permission'] = {
+    user: people.stranger, permission: 'write',
+  };
+  const removal = p.emit(people.stranger, 'unlabeled');
+  f.run.actor = people.stranger;
+  f.run.triggering_actor = people.stranger;
+  assert.equal((await resolveIssueWake(f.reader, f.adoption,
+    { ...removal, repository: f.repo }, f.invocation)).status, 'resolved');
+  assert.deepEqual(await dispatch(removal), { status: 'skipped', code: 'ISSUE_PAUSED' });
+  assert.equal(p.writes(), 1);
+  const forged = { ...removal, sender: f.pr.merged_by, repository: f.repo };
+  await assert.rejects(observeIssueEvent(f.reader, f.adoption, forged, f.invocation),
+    /UNTRUSTED_PAUSE_ACTOR/);
+});

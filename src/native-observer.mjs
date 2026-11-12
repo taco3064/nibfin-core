@@ -1,3 +1,5 @@
+import { observePause } from './pause.mjs';
+import { OperationJournal } from './operation-journal.mjs';
 import { readProtectedApproval, readMemberPermission } from './github-approval.mjs';
 import { readCurrentMain } from './current-main.mjs';
 import { readRunnerBinding } from './runner-binding.mjs';
@@ -37,6 +39,11 @@ export function nativeObserver({
     const approval = await readProtectedApproval(reader, pinned.approval, clock());
     const record = approval.record;
     const nativePolicy = pinned.approval.kind === 'repository-admission-v1';
+    const pauseEvidence = pinned.pauseJournalRoot
+      ? await new OperationJournal(pinned.pauseJournalRoot, record.issue).pauseEvidence()
+      : { decisions: [], pending: false };
+    const pause = await observePause(reader, record.issue, pauseEvidence.decisions);
+    if (pauseEvidence.pending) pause.status = 'pending';
     const observed = await readDependencies(reader, record.issue, record.prerequisites);
     requireThat(observed.ready, 'PREREQUISITES_NOT_READY');
     const route = await selectAssignee(observed.issue, async (user) => {
@@ -79,6 +86,8 @@ export function nativeObserver({
       approval,
       main,
       issue: observed.issue,
+      pause: pause.current && digest(pause.current) === digest(observed.issue) ? pause
+        : { status: 'pending', code: 'PAUSE_OBSERVATION_CHANGED' },
       dependencies: { ready: true, identities: record.prerequisites },
       route,
       runner,

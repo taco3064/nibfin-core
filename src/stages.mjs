@@ -1,3 +1,4 @@
+import { requireUnpaused } from './pause.mjs';
 import { digest, isDigest, isId, isSha, requireThat } from './identity.mjs';
 import { validateApprovalRecord } from './approval-record.mjs';
 import { issuePath } from './github-read.mjs';
@@ -299,6 +300,7 @@ export function decideStage(stage, context, now = Date.now()) {
       'OPERATION_NOT_APPROVED',
     );
     const issue = context.issue;
+    requireUnpaused(context.pause, record.issue);
     requireThat(
       issue?.node_id === record.issue.id &&
         issue.number === record.issue.number &&

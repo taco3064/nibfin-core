@@ -1,4 +1,4 @@
-import { GitHubReader } from './github-read.mjs';
+import { issuePath, GitHubReader } from './github-read.mjs';
 import { integrationRepairRequired, pendingCIObservation } from './github-ci.mjs';
 import { GitHubWriter, MergeBeforeWrite } from './github-write.mjs';
 import { decideStage } from './stages.mjs';
@@ -30,7 +30,7 @@ export function nativeWrites({
       original.status === 'allowed' && digest(original) === digest(decision),
       'WRITE_DECISION_MISMATCH',
     );
-    return async ({ operation, targetHash }) => {
+    return async ({ operation, targetHash, settlementLabel }) => {
       requireThat(
         operation === original.operation && isDigest(targetHash),
         'WRITE_TARGET_INVALID',
@@ -41,7 +41,28 @@ export function nativeWrites({
         'WRITE_CREDENTIAL_IDENTITY_MISMATCH',
       );
       let fresh;
-      try { fresh = decideStage(stage, await observe(stage), clock()); }
+      try {
+        let observed = await observe(stage);
+        if (settlementLabel !== undefined) {
+          // Account only for the confirmed additive effect of this admitted
+          // lifecycle operation, binding the exact remaining PATCH payload.
+          const label = stage === 'publish-shape' ? 'shaped' : 'delivered';
+          const body = stage === 'publish-shape' ? { body: context.shape.body }
+            : { state: 'closed', state_reason: 'completed' };
+          requireThat(['publish-shape', 'close'].includes(stage) &&
+            settlementLabel === label &&
+            !context.issue.labels.some(item => item.name === label) &&
+            observed.issue.labels.filter(item => item.name === label).length === 1 &&
+            targetHash === digest({ operation, method: 'PATCH',
+              path: issuePath(context.approval.record.issue), body }),
+          'WRITE_SETTLEMENT_MISMATCH');
+          observed = { ...observed, issue: { ...observed.issue,
+            labels: observed.issue.labels.filter(item => item.name !== label) } };
+        }
+        // This guard settles the stage already admitted by StageRuntime. Pause
+        // gates the next admission; all positive authority is still read fresh.
+        fresh = decideStage(stage, { ...observed, pause: context.pause }, clock());
+      }
       catch (error) {
         if (stage === 'merge' && (pendingCIObservation(error.code) ||
           integrationRepairRequired(error.code))) throw new MergeBeforeWrite();

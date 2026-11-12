@@ -243,3 +243,35 @@ test('an authorized Issue edit during admission requires a fresh decision', asyn
   );
   assert.equal(f.performed(), 0);
 });
+
+test('an admitted stage settles after pause; its next invocation cannot begin',
+  async t => {
+  const f = await fixture(t);
+  const perform = f.adapters.handlers.shape.perform;
+  f.adapters.handlers.shape.perform = async () => {
+    const result = await perform();
+    f.context.pause = { ...f.context.pause, status: 'paused', effective: true,
+      visible: true };
+    f.context.issue.labels.push({ name: 'pause' });
+    return result;
+  };
+  const runtime = new StageRuntime(f.adapters);
+  const settled = await runtime.run(request);
+  assert.equal(settled.status, 'completed');
+  assert.equal(f.saved.length, 1);
+  assert.equal((await runtime.run(request)).code, 'ISSUE_PAUSED');
+  assert.equal(f.performed(), 1);
+});
+
+test('pause observation changes between stage admission reads prevent execution',
+  async t => {
+  const f = await fixture(t);
+  let reads = 0;
+  f.adapters.observe = async () => {
+    const value = structuredClone(f.context);
+    if (++reads > 1) value.pause.observationHash = 'b'.repeat(64);
+    return value;
+  };
+  assert.notEqual((await new StageRuntime(f.adapters).run(request)).status, 'completed');
+  assert.equal(f.performed(), 0);
+});
