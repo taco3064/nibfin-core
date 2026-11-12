@@ -61,6 +61,8 @@ for (const kind of ['wake', 'action-wake', 'action-dispatch']) {
         await readCallerSource(reader, 'example/core', pin, head, recipe),
         head,
       );
+      assert.equal(await readCallerSource(reader, 'example/core',
+        { ...pin, blob: '0'.repeat(40) }, head, recipe), head);
       if (recipe.kind === 'action-wake') {
         for (const changed of [{ actionCommit: 'e'.repeat(40) }, { memberId: 3 }]) {
           await assert.rejects(

@@ -3,31 +3,30 @@ import { readPinnedFile } from './github-approval.mjs';
 import { isSha, requireThat } from './identity.mjs';
 import { callerRecipe } from './caller-recipes.mjs';
 
-// Arbitrary callers require their exact adopted commit. Only a complete fixed,
-// codeless Core recipe may run at a descendant with unchanged file history.
-// Installed Core, reusable workflow and approval source pins never advance here.
+// Read the Workflow from the authenticated run or the current protected branch.
+// The installed Core controls which caller operations it accepts.
 export async function readCallerSource(reader, repository, workflow, current, recipe) {
-  await readCallerContinuity(reader, repository, workflow, current);
-  if (current !== workflow.commit || recipe?.kind === 'action-wake') {
-    requireThat(recipe, 'CALLER_EXACT_COMMIT_REQUIRED');
-    const source = await readPinnedFile(
-      reader,
-      repository,
-      workflow.path,
-      workflow.commit,
-      workflow.blob,
-    );
-    const kinds = recipe.kind === 'action-wake'
-      ? ['action-wake', 'action-dispatch']
-      : [recipe.kind];
-    const normalized = source.replaceAll('\r\n', '\n');
-    requireThat(kinds.some(kind =>
-      normalized === callerRecipe(kind, recipe.coreCommit, recipe)),
-    'CALLER_NOT_FIXED_RECIPE');
+  if (!recipe) {
+    await readCallerContinuity(reader, repository, workflow, current);
+    requireThat(current === workflow.commit, 'CALLER_EXACT_COMMIT_REQUIRED');
+    return current;
   }
+  requireThat(isSha(current) && /^\.github\/workflows\/[A-Za-z0-9_.-]+\.ya?ml$/.test(
+    workflow.path), 'INVALID_CALLER_SOURCE');
+  const file = await reader.get(
+    `${repoPath(repository)}/contents/${workflow.path}?ref=${current}`,
+  );
+  requireThat(file?.type === 'file' && file.path === workflow.path &&
+    file.encoding === 'base64' && typeof file.content === 'string',
+    'CALLER_SOURCE_UNAVAILABLE');
+  const source = Buffer.from(file.content, 'base64').toString('utf8');
+  const kinds = recipe.kind === 'action-wake'
+    ? ['action-wake', 'action-dispatch'] : [recipe.kind];
+  requireThat(kinds.some(kind =>
+    source.replaceAll('\r\n', '\n') === callerRecipe(kind, recipe.coreCommit, recipe)),
+  'CALLER_NOT_FIXED_RECIPE');
   return current;
 }
-
 // Revocation check for the current default branch. This does not authorize code
 // from that branch to run in an already authenticated, pinned older Actions job.
 export async function readCallerContinuity(reader, repository, workflow, current) {

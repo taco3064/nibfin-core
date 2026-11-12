@@ -1,17 +1,25 @@
-import { digest, isDigest } from './identity.mjs';
+import { isDeepStrictEqual } from 'node:util';
 
-// The binary Git diff includes the changed paths, modes and before/after bytes.
-// The full Candidate still pins the exact checkout for hooks and publication.
-export function candidateContentHash(candidate) {
-  const { repository, repositoryId, issueId, diffHash, paths, obligations,
-    artifacts, hookSources } = candidate;
-  return digest({ repository, repositoryId, issueId, diffHash, paths, obligations,
-    artifacts, hookSources });
+function candidateContent(candidate) {
+  const { base, tree, changes, diffHash, ...content } = candidate;
+  return content;
 }
 
-export async function equivalentCandidate(store, candidate, hash) {
-  if (!isDigest(hash) || !candidate) return false;
-  if (hash === digest(candidate)) return true;
-  const previous = await store.get(hash);
-  return candidateContentHash(previous) === candidateContentHash(candidate);
+export function sameCandidate(left, right) {
+  return left.base === right.base && left.tree === right.tree &&
+    (left.changes === undefined || right.changes === undefined ||
+      left.changes === right.changes) &&
+    isDeepStrictEqual(candidateContent(left), candidateContent(right));
+}
+
+// Native Git change records describe affected paths, modes and objects.
+export function sameCandidateChanges(left, right) {
+  return sameCandidate(left, right) ||
+    (typeof left.changes === 'string' && left.changes === right.changes &&
+      isDeepStrictEqual(candidateContent(left), candidateContent(right)));
+}
+
+export async function equivalentCandidate(store, candidate, reference) {
+  return Boolean(reference && candidate &&
+    sameCandidateChanges(await store.get(reference), candidate));
 }

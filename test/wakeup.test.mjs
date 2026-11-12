@@ -29,7 +29,7 @@ async function dispatchFixture(t, failure) {
     workflow,
     actorId: 3,
     approvalHash: 'a'.repeat(64),
-    stateHash: 'b'.repeat(64),
+    state: { body: 'Original' },
     route: { userId: 1 },
   };
   let writes = 0,
@@ -43,8 +43,10 @@ async function dispatchFixture(t, failure) {
       if (failure === 'revoked' && reads > 1) throw new Error('Revoked');
       if (failure === 'http' && reads > 1)
         throw Object.assign(new Error('Private provider diagnostic'), { status: 401 });
+      if (failure === 'target' && reads > 1)
+        return { ...observed, issue: { ...issue, number: 3 } };
       if (failure === 'changed' && reads > 1)
-        return { ...observed, stateHash: 'c'.repeat(64) };
+        return { ...observed, state: { body: 'Edited' } };
       return observed;
     },
     fetcher: async (url, options) => {
@@ -114,7 +116,7 @@ test(
 test('wake reports why its second observation failed before sending a dispatch',
   async (t) => {
     for (const [failure, code] of [
-      ['http', 'GITHUB_READ_HTTP_401'], ['changed', 'WAKE_ADMISSION_CHANGED'],
+      ['http', 'GITHUB_READ_HTTP_401'], ['target', 'WAKE_TARGET_CHANGED'],
     ]) {
       const f = await dispatchFixture(t, failure);
       assert.deepEqual(await f.dispatcher.dispatch(), { status: 'denied', code });
@@ -122,6 +124,12 @@ test('wake reports why its second observation failed before sending a dispatch',
     }
   },
 );
+
+test('wake continues after an Issue edit that keeps the route eligible', async t => {
+  const f = await dispatchFixture(t, 'changed');
+  assert.equal((await f.dispatcher.dispatch()).status, 'scheduled');
+  assert.equal(f.writes(), 1);
+});
 
 test('wake recovers an acknowledged run after a failed read without dispatching again',
   async (t) => {
@@ -258,9 +266,9 @@ test(
           return { status: 'scheduled' };
         },
       });
-      if (changed) await assert.rejects(promise, /FANOUT_GRAPH_CHANGED/);
-      else assert.equal((await promise).length, 1);
-      assert.equal(wakes, changed ? 0 : 1);
+      assert.equal((await promise).length, 1);
+      assert.equal(wakes, 1);
+      assert.equal(reads, 1);
     }
   },
 );
