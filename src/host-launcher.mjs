@@ -5,6 +5,7 @@ import { readRunnerBinding } from './runner-binding.mjs';
 import { readProtectedApproval } from './github-approval.mjs';
 import { actionsCaller } from './actions-identity.mjs';
 import { readCurrentMain } from './current-main.mjs';
+import { hostMainReader } from './github-host-read.mjs';
 import { codexStageExecutor } from './codex-stage.mjs';
 import { CandidateWorkspace } from './workspace.mjs';
 import { stages, issueRequirementsChanged } from './stages.mjs';
@@ -16,7 +17,9 @@ import { acquireHostFence, issueStatePath, privateHostDirectory } from './host-f
 import { idleContainers } from './host-containers.mjs';
 import { OperationJournal } from './operation-journal.mjs';
 import { settleHostStage } from './host-stage-settlement.mjs';
-import { observationFailureCode } from './observation-failure.mjs';
+import {
+  observationFailureCode, retryGitHubObservation,
+} from './observation-failure.mjs';
 import { readNotionProposal } from './notion-proposal.mjs';
 import { prepareHostJobMcp } from './mcp-job-host.mjs';
 
@@ -229,7 +232,9 @@ export async function launchStage(issueNumber, stage, env = process.env) {
     }
     await privateHostDirectory(workspaceRoot);
     if (fresh) {
-      const main = await readCurrentMain(reader, approval.record.issue);
+      const main = await retryGitHubObservation(() =>
+        readCurrentMain(reader, approval.record.issue,
+          hostMainReader(token), approval.repository));
       await new CandidateWorkspace(workspaceRoot, approval.record.issue).prepare(
         main.head,
       );
@@ -261,6 +266,7 @@ export async function launchStage(issueNumber, stage, env = process.env) {
           runner,
           stateRoot: join(root, 'receipts'),
           stateBinding: binding,
+          hostGitHubReads: true,
           pauseJournalRoot: join(host.stateRoot, 'wake'),
           ciWorkflows: adopted.ciWorkflows,
           ...(ciFailure ? { ciFailure } : {}),

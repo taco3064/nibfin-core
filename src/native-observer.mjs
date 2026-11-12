@@ -23,6 +23,8 @@ export function nativeObserver({
   inspectIsolation,
   inspectSource,
   inspectCaller,
+  hostMain,
+  localCommit,
   clock = Date.now,
   stores = (binding) => new EvidenceStore(config.stateRoot, binding),
 }) {
@@ -82,7 +84,9 @@ export function nativeObserver({
     const stateBinding = pinned.stateBinding;
     const store = stores(evidenceBinding({ approval, stateBinding })),
       receipts = await store.load();
-    const main = await readCurrentMain(reader, record.issue);
+    const main = await readCurrentMain(
+      reader, record.issue, hostMain, approval.repository,
+    );
     const context = {
       approval,
       ...(stateBinding ? { stateBinding } : {}),
@@ -155,7 +159,8 @@ export function nativeObserver({
       );
       const published = saved.candidateHash === digest(context.candidate ?? null)
         ? context.candidate : await store.get(saved.candidateHash);
-      const commit = await reader.get(`${root}/git/commits/${pr.head.sha}`);
+      const commit = await localCommit?.(pr.head.sha) ??
+        await reader.get(`${root}/git/commits/${pr.head.sha}`);
       requireThat(
         commit.sha === pr.head.sha && isSha(commit.tree?.sha),
         'PR_HEAD_TREE_UNAVAILABLE',
@@ -223,7 +228,9 @@ export function nativeObserver({
               ?.targetSha,
           }));
         }
-        context.ci = await readPullRequestCI(reader, expected, clock());
+        context.ci = await readPullRequestCI(reader, expected, clock(), {
+          repository: approval.repository, pr,
+        });
       }
     }
     context.isolation = await inspectIsolation(stage, {

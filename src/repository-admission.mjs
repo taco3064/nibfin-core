@@ -70,6 +70,7 @@ export async function readRepositoryApproval(reader, pin, now) {
   }, now, { repositoryAdmission: true });
   return {
     record,
+    repository: repo,
     // Publishing Shape rewrites the Issue body. Stage-specific requirements
     // checks still use current content. Keep local receipts addressable.
     scopeBinding: digest(issue),

@@ -4,6 +4,7 @@ import { continueStages } from '../src/stage-continuation.mjs';
 import { stageSuccess } from '../src/stage-runtime.mjs';
 import { digest } from '../src/identity.mjs';
 import { issueRequirementsChanged } from '../src/stages.mjs';
+import { githubReadWaiting } from '../src/observation-failure.mjs';
 
 function fixture() {
   const receipts = {},
@@ -51,6 +52,27 @@ test('blocked Shape retries after edits and migrates old receipts', async () => 
     assert.equal(result.stage, prior === 'Current requirements' ? 'shape' : 'close');
   }
 });
+
+test('temporary pre-effect GitHub reads resume Accept without replaying Deliver',
+  async () => {
+    const f = fixture();
+    const execute = f.options.execute;
+    const delays = [];
+    let accept = 0;
+    let now = 0;
+    f.options.clock = () => now;
+    f.options.wait = async delay => { delays.push(delay); now += delay; };
+    f.options.execute = async stage => {
+      if (stage === 'accept' && ++accept < 3) {
+        return { stage, status: 'pending', code: githubReadWaiting, retryAfterMs: 60000 };
+      }
+      return execute(stage);
+    };
+    assert.equal((await continueStages(f.options)).stage, 'close');
+    assert.equal(accept, 3);
+    assert.deepEqual(delays, [60000, 60000]);
+    assert.equal(f.calls.filter(stage => stage === 'deliver').length, 1);
+  });
 
 test('published requirements compare actual Issue text', async () => {
   const issue = { body: 'Published text\r\n' };

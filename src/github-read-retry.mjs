@@ -5,13 +5,28 @@ const networkErrors = new Set([
   'UND_ERR_CONNECT_TIMEOUT', 'UND_ERR_HEADERS_TIMEOUT', 'UND_ERR_SOCKET',
 ]);
 
+export function transientGitHubRead(error) {
+  return error?.transientGitHubRead === true;
+}
+
+export function retryableGitHubStatus(response) {
+  const status = response.status;
+  return status >= 500 && status <= 504 || rateLimited(response);
+}
+
+function rateLimited(response) {
+  return response.status === 429 || response.status === 403 &&
+    (response.headers?.get('x-ratelimit-remaining') === '0' ||
+      Boolean(response.headers?.get('retry-after')));
+}
+
 function retryDelay(response, retryNotFound, attempt) {
   const fallback = 500 * 2 ** attempt;
   const status = response.status;
   const headers = response.headers;
   const retryAfter = headers?.get?.('retry-after');
   const exhausted = headers?.get?.('x-ratelimit-remaining') === '0';
-  if (status === 429 || status === 403 && (exhausted || retryAfter)) {
+  if (rateLimited(response)) {
     if (retryAfter && /^\d+$/.test(retryAfter))
       return Math.max(fallback, Number(retryAfter) * 1000);
     const reset = headers?.get?.('x-ratelimit-reset');
@@ -36,7 +51,10 @@ export async function fetchGitHubRead(fetcher, url, options, {
     } catch (error) {
       const transient = error.name === 'TimeoutError' ||
         networkErrors.has(error.cause?.code ?? error.code);
-      if (!transient || attempt === 2) throw error;
+      if (!transient) throw error;
+      if (attempt === 2) {
+        throw Object.assign(error, { transientGitHubRead: true });
+      }
       delay = 500 * 2 ** attempt;
       if (delay > waitBudget) throw error;
     }

@@ -1,5 +1,5 @@
 // Selective adaptation of Kairo's GitHub reader. No writes or offline fallback.
-import { fetchGitHubRead } from './github-read-retry.mjs';
+import { fetchGitHubRead, retryableGitHubStatus } from './github-read-retry.mjs';
 
 export function repoPath(repository) {
   if (typeof repository !== 'string' ||
@@ -40,7 +40,15 @@ export class GitHubReader {
     }, { retryNotFound });
     if (!response.ok) {
       const status = response.status;
-      throw Object.assign(new Error(`GitHub read failed: HTTP ${status}`), { status });
+      throw Object.assign(new Error(`GitHub read failed: HTTP ${status}`), {
+        status,
+        transientGitHubRead: retryableGitHubStatus(response),
+        retryAfter: response.headers?.get('retry-after'),
+        rateLimitReset: response.headers?.get('x-ratelimit-remaining') === '0'
+          ? response.headers.get('x-ratelimit-reset') : null,
+        requestId: response.headers?.get('x-github-request-id'),
+        resource: path.split('?')[0],
+      });
     }
     return response.json();
   }
