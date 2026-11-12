@@ -1,3 +1,4 @@
+import { pauseTrigger, reconcilePause } from './pause-controller.mjs';
 import { readFile } from 'node:fs/promises';
 import { GitHubReader, repoPath } from './github-read.mjs';
 import {
@@ -40,7 +41,7 @@ export async function observeIssueEvent(reader, adoption, event, invocation) {
       'reopened',
       'closed',
     ].includes(event?.action) &&
-      (event.action !== 'labeled' || event.label?.name === 'scope') &&
+      (event.action !== 'labeled' || ['scope', 'pause'].includes(event.label?.name)) &&
       isId(event.issue?.number) &&
       typeof event.issue.node_id === 'string' &&
       !event.issue.pull_request,
@@ -82,6 +83,9 @@ export async function observeIssueEvent(reader, adoption, event, invocation) {
       run.referenced_workflows[0].sha === adoption.coreCommit,
     'UNTRUSTED_ISSUE_EVENT_RUN',
   );
+  if (pauseTrigger(event)) requireThat(event.sender?.type === 'User' &&
+    event.sender.id === run.actor.id && event.sender.login === run.actor.login,
+  'UNTRUSTED_PAUSE_ACTOR');
   const recipe = { kind: 'issue', coreCommit: adoption.coreCommit };
   await readCallerSource(reader, invocation.repository, pin, run.head_sha, recipe);
   await readCallerSource(reader, invocation.repository, pin, branch.commit.sha, recipe);
@@ -144,7 +148,7 @@ export async function resolveIssueWake(reader, adoption, event, invocation) {
     'EVENT_WAKE_NOT_APPROVED',
   );
   let route;
-  if (event.action === 'closed') {
+  if (event.action === 'closed' || pauseTrigger(event)) {
     route = await selectAssignee(live, async (user) => {
       if (user.id !== approval.record.roles.writer) return false;
       if (config.approvalPin.kind !== 'repository-admission-v1')
@@ -155,7 +159,9 @@ export async function resolveIssueWake(reader, adoption, event, invocation) {
     });
     requireThat(route, 'WAKE_TARGET_NOT_READY');
   } else {
-    route = (await observeWake(reader, { ...config, shared: invocation.shared })).route;
+    route = (await observeWake(reader, {
+      ...config, shared: invocation.shared, routingOnly: true,
+    })).route;
   }
   return {
     status: 'resolved',
@@ -215,8 +221,33 @@ export async function dispatchIssueWake({
   let journalEntered = false;
   try {
     const upstream = await observeIssueEvent(reader, adoption, event, invocation);
+    const pauseJournal = new OperationJournal(stateRoot, upstream);
+    if (pauseTrigger(event)) {
+      const config = adoptedWake(adoption, upstream);
+      const approval = await readProtectedApproval(reader, config.approvalPin);
+      requireThat(digest(approval.record.issue) === digest(upstream) &&
+        approval.record.operations.includes('wake') &&
+        approval.record.roles.publisher === config.actorId, 'EVENT_WAKE_NOT_APPROVED');
+      journalEntered = true;
+      const pause = await reconcilePause({ reader, issue: upstream, event,
+        journal: pauseJournal, token, fetcher, actorId: config.actorId,
+        inspect: async () => {
+          await inspect();
+          await observeIssueEvent(reader, adoption, event, invocation);
+          const fresh = await readProtectedApproval(reader, config.approvalPin);
+          requireThat(fresh.approvalHash === approval.approvalHash,
+            'EVENT_AUTHORITY_CHANGED');
+        },
+      });
+      if (pause.status !== 'clear') return {
+        status: pause.status === 'paused' ? 'skipped' : 'pending', code: pause.code,
+      };
+    }
     const wake = async (issue) => {
       const config = adoptedWake(adoption, issue, peerRepositories);
+      const evidence = await new OperationJournal(stateRoot, issue).pauseEvidence();
+      requireThat(!evidence.pending, 'EXTERNAL_EFFECT_UNKNOWN');
+      config.pauseDecisions = evidence.decisions;
       try {
         await observeWake(reader, { ...config, shared: Boolean(sharedRunner) });
       } catch (error) {
@@ -225,6 +256,8 @@ export async function dispatchIssueWake({
             'WAKE_TARGET_NOT_READY',
             'INACTIVE_WAKE_TARGET',
             'WAKE_ENTRY_NOT_APPROVED',
+            'ISSUE_PAUSED',
+            'PAUSE_OBSERVATION_UNKNOWN',
           ].includes(error.code)
         ) {
           return { status: 'skipped', code: error.code };

@@ -1,3 +1,4 @@
+import { observePause, requireUnpaused } from './pause.mjs';
 import { GitHubReader, repoPath } from './github-read.mjs';
 import {
   readProtectedApproval,
@@ -22,7 +23,8 @@ function wakeObservationCode(error, fallback) {
 // Events only locate an adopted Issue identity. No event field grants authority.
 export async function observeWake(
   reader,
-  { approvalPin, workflow, actorId, shared = false },
+  { approvalPin, workflow, actorId, shared = false, pauseDecisions = [],
+    routingOnly = false },
   clock = Date.now,
 ) {
   requireThat(
@@ -39,6 +41,11 @@ export async function observeWake(
   requireThat(record.operations.includes('wake'), 'WAKE_NOT_APPROVED');
   const dependencies = await readDependencies(reader, issue, record.prerequisites);
   const current = dependencies.issue;
+  const pause = await observePause(reader, issue, pauseDecisions);
+  if (!routingOnly) {
+    requireUnpaused(pause, issue);
+    requireThat(digest(pause.current) === digest(current), 'PAUSE_OBSERVATION_CHANGED');
+  }
   requireThat(
     current.labels.some((label) => label.name === 'scope') &&
       !current.labels.some((label) => label.name === 'delivered'),
@@ -75,6 +82,7 @@ export async function observeWake(
     actorId,
     route,
     entryStage,
+    pause,
     state: {
       body: current.body,
       labels: current.labels,
@@ -158,6 +166,7 @@ export class WakeDispatcher {
                 current.issue.repository === issue.repository &&
                 current.issue.number === issue.number &&
                 current.actorId === initial.actorId &&
+                digest(current.pause ?? null) === digest(initial.pause ?? null) &&
                 current.workflow.repository === workflow.repository &&
                 current.workflow.repositoryId === workflow.repositoryId &&
                 current.workflow.id === workflow.id &&

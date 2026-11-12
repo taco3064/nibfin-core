@@ -11,7 +11,15 @@ export async function forwardSharedWake(resolved, env, fetcher = fetch) {
     'INVALID_SHARED_WAKE_ORIGIN');
   const event = {
     action,
-    issue: { number: issue.number, node_id: issue.node_id },
+    issue: { number: issue.number, node_id: issue.node_id,
+      state: issue.state, updated_at: issue.updated_at,
+      assignees: issue.assignees?.map(({ id, login, type }) => ({ id, login, type })),
+      labels: issue.labels?.filter(item => ['pause', 'delivered'].includes(item.name))
+        .map(({ name }) => ({ name })),
+    },
+    sender: original.sender && {
+      id: original.sender.id, login: original.sender.login, type: original.sender.type,
+    },
     repository: { id: repository.id, full_name: repository.full_name },
     ...(label ? { label: { name: label.name } } : {}),
   };
