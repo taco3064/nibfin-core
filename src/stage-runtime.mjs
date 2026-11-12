@@ -147,6 +147,9 @@ export class StageRuntime {
               binding: decision.binding,
               execution: context.execution,
               artifacts: verified.artifacts,
+              ...(stage === 'shape' ? { requirementsBody: context.issue.body } : {}),
+              ...(stage === 'publish-shape'
+                ? { requirementsBody: context.shape.body } : {}),
               outcome: verified.outcome,
               findings: verified.findings,
               references: verified.references,

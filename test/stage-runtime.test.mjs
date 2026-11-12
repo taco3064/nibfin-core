@@ -137,6 +137,7 @@ test('a finished Author with invalid obligations writes a blocked receipt', asyn
   const runtime = new StageRuntime(f.adapters);
   assert.equal((await runtime.run(request)).code, 'STAGE_REQUIRES_CORRECTION');
   assert.match(f.saved[0].findings[0], /invalid candidate obligations/);
+  assert.equal(f.saved[0].requirementsBody, f.context.issue.body);
   assert.equal((await runtime.run(request)).code, 'REPLAYED_OPERATION');
 });
 

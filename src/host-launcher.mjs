@@ -7,8 +7,7 @@ import { actionsCaller } from './actions-identity.mjs';
 import { readCurrentMain } from './current-main.mjs';
 import { codexStageExecutor } from './codex-stage.mjs';
 import { CandidateWorkspace } from './workspace.mjs';
-import { stages, evidenceBinding, requirementsText,
-  samePublishedRequirements } from './stages.mjs';
+import { stages, evidenceBinding, issueRequirementsChanged } from './stages.mjs';
 import { EvidenceStore } from './evidence-store.mjs';
 import { continueStages } from './stage-continuation.mjs';
 import { setTimeout } from 'node:timers/promises';
@@ -288,17 +287,9 @@ export async function launchStage(issueNumber, stage, env = process.env) {
             store,
             execute,
             refreshRequirements: async receipts => {
-              const saved = receipts.shape?.artifacts?.shapeHash;
-              if (!saved || receipts.merge) return false;
-              const current = await reader.issue(approval.record.issue);
-              const previous = await store.get(saved);
-              if (receipts['publish-shape'] || current.labels.some(
-                label => label.name === 'shaped')) {
-                return !samePublishedRequirements(current.body, previous);
-              }
-              const prior = receipts.shape.artifacts.requirementsHash;
-              return prior !== undefined &&
-                prior !== digest(requirementsText(current.body));
+              if (!receipts.shape || receipts.merge) return false;
+              const issue = await reader.issue(approval.record.issue);
+              return issueRequirementsChanged(issue, receipts, hash => store.get(hash));
             },
             inspect: inspectWriter,
             wait: setTimeout,

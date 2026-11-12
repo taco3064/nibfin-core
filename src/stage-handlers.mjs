@@ -2,7 +2,6 @@ import { digest, isDigest, requireThat } from './identity.mjs';
 import { parseAgentResult } from './agent-result.mjs';
 import { candidateContract } from './candidate-contract.mjs';
 import { runCandidateHooks } from './hooks.mjs';
-import { requirementsText } from './stages.mjs';
 import { codexIdle, codexPreflightExits, idleDiagnostic } from './codex-bootstrap.mjs';
 import { ciCorrectionFindings } from './ci-recovery.mjs';
 
@@ -88,7 +87,6 @@ export function stageHandlers({
             references: [context.issue.url],
             artifacts: {
               shapeHash: await store.put(body),
-              requirementsHash: digest(requirementsText(body)),
             },
           };
         }
@@ -152,7 +150,6 @@ export function stageHandlers({
             };
           }
           artifacts.shapeHash = await store.put(result.body);
-          artifacts.requirementsHash = digest(requirementsText(context.issue.body));
         }
         if (stage === 'validate-shape') {
           const prior = context.receipts.shape.artifacts.requirementsHash;
