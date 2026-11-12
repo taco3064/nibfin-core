@@ -3,7 +3,7 @@ import { decideStage, stages } from './stages.mjs';
 import { MergeBeforeWrite } from './github-write.mjs';
 import { integrationRepairRequired, pendingCIObservation } from './github-ci.mjs';
 import { pendingMcpObservation } from './mcp-pending.mjs';
-import { observationFailureCode } from './observation-failure.mjs';
+import { githubReadWait, observationFailureCode } from './observation-failure.mjs';
 import { codexIdle, codexPreflightExits } from './codex-bootstrap.mjs';
 import { ciFailureResult } from './ci-recovery.mjs';
 
@@ -166,6 +166,9 @@ export class StageRuntime {
       );
       const ciFailure = ciFailureResult(admissionError, stage);
       if (ciFailure) return ciFailure;
+      const waiting = githubReadWait(admissionError, this.#clock());
+      if (waiting && outcome.code === 'ADMISSION_FAILED')
+        return { schemaVersion: 1, stage, ...waiting };
       if (pendingObservation(admissionError?.code) ||
         integrationRepairRequired(admissionError?.code)) {
         return { schemaVersion: 1, stage, code: admissionError.code,

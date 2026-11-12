@@ -63,7 +63,7 @@ async function nativeRequiredWorkflows(reader, branchPath, root, pr, workflows) 
     (check.app_id == null || check.app_id === -1 || check.app_id === workflow.appId)));
 }
 
-export async function readPullRequestCI(reader, expected, now = Date.now()) {
+export async function readPullRequestCI(reader, expected, now = Date.now(), observed) {
   const nativePolicy = expected?.nativePolicy === true;
   requireThat(
     isId(expected?.repositoryId) &&
@@ -89,14 +89,14 @@ export async function readPullRequestCI(reader, expected, now = Date.now()) {
   );
   const root = repoPath(expected.repository),
     prPath = `${root}/pulls/${expected.number}`;
-  const repository = await reader.repository(expected.repository);
+  const repository = observed?.repository ?? await reader.repository(expected.repository);
   requireThat(
     repository.id === expected.repositoryId &&
       repository.full_name === expected.repository &&
       repository.private === false,
     'CI_REPOSITORY_CHANGED',
   );
-  const pr = await reader.get(prPath);
+  const pr = observed?.pr ?? await reader.get(prPath);
   const merged = expected.mergedCommit !== undefined;
   if (merged)
     requireThat(
@@ -210,6 +210,7 @@ export async function readPullRequestCI(reader, expected, now = Date.now()) {
   const checks = [],
     sources = [];
   let testedSha, unsuccessfulRun = false;
+  const runsBySuite = new Map();
   for (const pin of workflows) {
     const onMerge = mergeChecks.filter(
       (check) => check.name === pin.context && check.app?.id === pin.appId,
@@ -226,10 +227,11 @@ export async function readPullRequestCI(reader, expected, now = Date.now()) {
         isId(check.id) && isId(check.check_suite?.id),
         'INVALID_CHECK_IDENTITY',
       );
-      const runs = await reader.list(
-        `${root}/actions/runs?check_suite_id=${check.check_suite.id}`,
-        'workflow_runs',
-      );
+      const suite = check.check_suite.id;
+      if (!runsBySuite.has(suite)) runsBySuite.set(suite, await reader.list(
+        `${root}/actions/runs?check_suite_id=${suite}`, 'workflow_runs',
+      ));
+      const runs = runsBySuite.get(suite);
       requireThat(runs.length === 1, 'AMBIGUOUS_CHECK_RUN_SOURCE');
       const run = runs[0];
       if (run.event !== 'pull_request') continue;

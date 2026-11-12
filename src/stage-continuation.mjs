@@ -5,6 +5,9 @@ import { equivalentCandidate } from './candidate-evidence.mjs';
 import { integrationRepairRequired, pendingCIObservation } from './github-ci.mjs';
 import { codexIdle } from './codex-bootstrap.mjs';
 import { requiredCheckFailed } from './ci-recovery.mjs';
+import {
+  githubReadDelay, githubReadWaiting, retryGitHubObservation,
+} from './observation-failure.mjs';
 
 const agentStages = new Set(['shape', 'validate-shape', 'deliver', 'accept']);
 const correctionStages = new Set(['accept', 'review-pr']);
@@ -81,7 +84,8 @@ export async function continueStages({
   correctionRepairs = 2,
 }) {
   const previous = await store.load();
-  const changed = await refreshRequirements(previous);
+  const changed = await retryGitHubObservation(() => refreshRequirements(previous),
+    { wait, clock, timeout: ciTimeout });
   const initial = changed ? {} : await currentReceipts(store, previous);
   const repairCandidate = async (rejected, ciFailure) => {
     await inspect();
@@ -126,6 +130,7 @@ export async function continueStages({
     await inspect();
     const deadline = clock() + ciTimeout;
     let retriedIdle = false;
+    let readRetries = 0;
     for (;;) {
       result = await execute(stage);
       if (stage === 'accept' && !retriedIdle && result.status === 'denied' &&
@@ -137,12 +142,16 @@ export async function continueStages({
           continue;
         }
       }
-      // Only explicit pre-effect CI observations can wait.
-      // Unknown writes and arbitrary observation errors stop.
-      if (!pendingCIObservation(result.code) || result.status !== 'pending') break;
-      if (clock() >= deadline) return result;
+      // Only recognized pre-effect waits can re-enter the same stage.
+      const readWaiting = result.code === githubReadWaiting;
+      if (result.status !== 'pending' ||
+        !(pendingCIObservation(result.code) || readWaiting)) break;
+      const delay = readWaiting
+        ? githubReadDelay(result.retryAfterMs, readRetries++)
+        : 5000;
+      if (clock() + delay > deadline) return result;
       await inspect();
-      await wait(5000);
+      await wait(delay);
     }
     if (['review-pr', 'merge'].includes(stage) && repairIntegration &&
       integrationRepairRequired(result.code)) {

@@ -505,6 +505,21 @@ export class CandidateWorkspace {
     const contentChanged = !sameCandidateChanges(candidate, state.original);
     return { status: 'rebased', head, candidate, contentChanged };
   }
+  async localCommit(head) {
+    requireThat(isSha(head), 'INVALID_PR_HEAD');
+    await this.#privateRoot();
+    const output = await this.#command([
+      'show', '-s', '--no-show-signature', '--format=%H%n%T%n%P', head,
+    ]).catch(error => {
+      if (error.code === 'PROCESS_FAILED') return null;
+      throw error;
+    });
+    if (!output) return null;
+    const [sha, tree, parents] = output.toString().trim().split('\n');
+    requireThat(sha === head && isSha(tree), 'PR_HEAD_TREE_UNAVAILABLE');
+    return { sha, tree: { sha: tree },
+      parents: (parents ?? '').split(' ').filter(Boolean).map(sha => ({ sha })) };
+  }
   async hookBaseline() {
     await this.#privateRoot();
     return join(this.#root, 'repository.git');

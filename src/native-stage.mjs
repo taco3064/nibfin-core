@@ -8,7 +8,7 @@ import { evidenceBinding, stages } from './stages.mjs';
 import { digest, requireThat } from './identity.mjs';
 import { pendingCIObservation } from './github-ci.mjs';
 import { pendingMcpObservation } from './mcp-pending.mjs';
-import { observationFailureCode } from './observation-failure.mjs';
+import { githubReadWait, observationFailureCode } from './observation-failure.mjs';
 import { ciFailureResult } from './ci-recovery.mjs';
 
 export function validStageRequest(request) {
@@ -33,6 +33,7 @@ export function nativeStageExecutor({
   inspectIsolation,
   inspectSource,
   inspectCaller,
+  hostMain,
   agent,
   workspace,
   sandbox,
@@ -56,6 +57,8 @@ export function nativeStageExecutor({
     inspectIsolation,
     inspectSource,
     inspectCaller,
+    hostMain,
+    localCommit: workspace.localCommit?.bind(workspace),
     clock,
   });
   return Object.freeze({
@@ -67,6 +70,8 @@ export function nativeStageExecutor({
       try {
         initial = await observeNative(stage);
       } catch (error) {
+        const waiting = githubReadWait(error, clock());
+        if (waiting) return { schemaVersion: 1, stage, ...waiting };
         return ciFailureResult(error, stage) ?? {
           schemaVersion: 1,
           stage,
