@@ -7,7 +7,7 @@ description: Independently inspect one exact Candidate against the current autho
 
 Begin only with the trusted runtime's assigned independent execution identity.
 Read the current authorized Issue, independently published Shape, current product
-authority, Candidate base/tree/diff identity and full changed-path inventory.
+authority and full changed-path inventory.
 Use historical Scope only where it resolves a concrete discrepancy or the
 applicable runtime explicitly requires it.
 Check the supplied artifact identities, required hook evidence and current
@@ -20,12 +20,15 @@ credential/isolation boundaries and permitted operation limits. Explain semantic
 Scope drift with exact clauses and code references; do not invent a new product
 requirement merely because another implementation would be possible.
 
-Compare the exact Candidate with current main for changes that affect its code,
-interfaces, or acceptance criteria. Continue acceptance when main has advanced
-without affecting the work. If upstream changes expose a conflict, incompatible
-behavior, or invalidated check, identify the affected code or criterion and
-request a targeted correction or verification. A different base commit alone
-does not require a rebase, fresh tests, or a blocked outcome.
+Use the diff between the working branch and current main as the review scope.
+In an isolated checkout, compare the changed paths in /work with /main using
+the supplied changed-path inventory. Include related interfaces when needed to
+verify behavior. If upstream changes expose a conflict, incompatible behavior,
+or invalidated check, identify the affected code or criterion and request a
+targeted correction or verification. Do not require a matching hash, fixed
+version, or particular base commit for acceptance. If a proposed design
+genuinely needs an exception, explain the concrete need and ask the Owner
+before adopting it.
 
 Use only the assigned read-only evidence/worktree and separately provided
 restricted test facilities. Never modify the Candidate to make it pass, reuse the

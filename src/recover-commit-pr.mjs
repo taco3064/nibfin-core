@@ -5,10 +5,10 @@ import { rootOwnedPath } from './host-paths.mjs';
 import { hostExecution } from './host-launcher.mjs';
 import { idleContainers } from './host-containers.mjs';
 import { readProtectedApproval } from './github-approval.mjs';
-import { EvidenceStore } from './evidence-store.mjs';
+import { issueProgress } from './issue-progress.mjs';
 import { OperationJournal } from './operation-journal.mjs';
 import {
-  evidenceBinding, samePublishedRequirements, stageRequestHash,
+  samePublishedRequirements, stageRequestHash,
 } from './stages.mjs';
 import { digest, isId, isSha, requireThat } from './identity.mjs';
 import { repoPath } from './github-read.mjs';
@@ -118,10 +118,9 @@ async function reconcileOperation({ host, hostBytes, adopted, reader },
     job.status === 'completed' && job.run_id === run.id &&
     job.name === runner.jobName && job.runner_id === runner.runnerId,
   'RECOVERY_EXECUTION_MISMATCH');
-  const binding = evidenceBinding({ approval });
   requireThat(record.issue.id === subject.id, 'RECOVERY_ISSUE_CHANGED');
   const receiptsRoot = join(issueRoot, 'receipts');
-  const store = new EvidenceStore(receiptsRoot, binding);
+  const { binding, store } = await issueProgress(issueRoot, approval);
   const receipts = await store.load();
   const prior = receipts['commit-pr'], deliver = receipts.deliver;
   requireThat(prior?.outcome === 'published' && deliver?.outcome === 'ready' &&

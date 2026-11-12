@@ -51,6 +51,10 @@ or acceptance fields; Core constructs those from trusted observations.
 
 ## Parallel main changes
 
+Do not introduce a hash or fixed version as a condition for starting or
+resuming delivery. If the design genuinely needs an exception, explain the
+concrete need and ask the Owner before adopting it.
+
 Read the latest main and current Issue. Before final acceptance/review/merge,
 Core must rebase this work onto current main (or prove that it already starts
 there). Resolve ordinary code/test conflicts within the approved Scope/Shape;

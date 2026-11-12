@@ -7,8 +7,8 @@ import { actionsCaller } from './actions-identity.mjs';
 import { readCurrentMain } from './current-main.mjs';
 import { codexStageExecutor } from './codex-stage.mjs';
 import { CandidateWorkspace } from './workspace.mjs';
-import { stages, evidenceBinding, issueRequirementsChanged } from './stages.mjs';
-import { EvidenceStore } from './evidence-store.mjs';
+import { stages, issueRequirementsChanged } from './stages.mjs';
+import { issueProgress } from './issue-progress.mjs';
 import { continueStages } from './stage-continuation.mjs';
 import { setTimeout } from 'node:timers/promises';
 import { digest, isId, requireThat } from './identity.mjs';
@@ -218,14 +218,8 @@ export async function launchStage(issueNumber, stage, env = process.env) {
     const openPr = (context.targetHost ?? host).openPrHandoffs?.[issueNumber];
     const journal = new OperationJournal(join(root, 'receipts'), approval.record.issue);
     if (openPr) await journal.assertIdle();
-    const evidence = evidenceBinding({ approval });
-    const workspaceRoot = join(root, `workspace-${evidence.sourceHash}`);
-    const store = new EvidenceStore(join(root, 'receipts'), evidence);
-    const workspaceBinding = {
-      kind: 'host-workspace',
-      directory: workspaceRoot,
-      binding: evidence,
-    };
+    const { workspaceRoot, binding, store, marker: workspaceBinding } =
+      await issueProgress(root, approval);
     let fresh = false;
     try {
       await mkdir(workspaceRoot, { mode: 0o700 });
@@ -266,6 +260,7 @@ export async function launchStage(issueNumber, stage, env = process.env) {
           approval: adopted.approval,
           runner,
           stateRoot: join(root, 'receipts'),
+          stateBinding: binding,
           pauseJournalRoot: join(host.stateRoot, 'wake'),
           ciWorkflows: adopted.ciWorkflows,
           ...(ciFailure ? { ciFailure } : {}),
