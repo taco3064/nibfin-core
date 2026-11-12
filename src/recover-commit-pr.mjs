@@ -14,6 +14,10 @@ import { digest, isId, isSha, requireThat } from './identity.mjs';
 import { repoPath } from './github-read.mjs';
 import { issueStatePath, privateHostDirectory } from './host-fence.mjs';
 import { targetContextKey } from './controller-contract.mjs';
+import { linuxBootId, proveDifferentBoot } from './linux-boot.mjs';
+import {
+  exclusiveRecovery, recoveryFile, inspectRecoveryFile, syncRecoveryDirectory,
+} from './recovery-lock.mjs';
 
 // This entry is invoked locally as the administrator-owned controller, using a
 // verified recovery package. The Runner's fixed sudo relay cannot invoke it.
@@ -32,7 +36,35 @@ async function recover(issueNumber, expectedHead, stage) {
   const load = coreRoot === '/opt/nibfin/core' ? loadHostAdoption :
     installed.loadHostAdoption;
   const target = process.env[targetContextKey];
-  const { host, hostBytes, adopted, reader } = await load(issueNumber, target);
+  const context = await load(issueNumber, target);
+  return recoverAdoptedOperation(context, expectedHead, stage);
+}
+
+// Private dependency seams for local fixtures; CLI always uses trusted defaults.
+export async function recoverAdoptedOperation(context, expectedHead, stage, {
+  observeBoot = linuxBootId, containers = idleContainers,
+  approvalReader = readProtectedApproval,
+} = {}) {
+  requireThat(isSha(expectedHead) && ['commit-pr', 'review-pr'].includes(stage),
+    'INVALID_RECOVERY_REQUEST');
+  try {
+    const issueRoot = issueStatePath(context.host.stateRoot,
+      context.adopted.isolation.issue);
+    await privateHostDirectory(issueRoot);
+    return await exclusiveRecovery(issueRoot, () => reconcileOperation(context,
+      expectedHead, stage, { observeBoot, containers, approvalReader }));
+  } catch (error) {
+    // Failure to settle this execution is unresolved recovery, never permission
+    // to launch again. Expose only a bounded, credential-free diagnostic.
+    const code = typeof error?.code === 'string' &&
+      /^[A-Z][A-Z0-9_]{0,79}$/.test(error.code)
+      ? error.code : 'RECOVERY_OBSERVATION_UNAVAILABLE';
+    return { status: 'pending', code };
+  }
+}
+
+async function reconcileOperation({ host, hostBytes, adopted, reader },
+  expectedHead, stage, { observeBoot, containers, approvalReader }) {
   const subject = adopted.isolation.issue;
   const issueRoot = issueStatePath(host.stateRoot, subject);
   const scopedFence = join(issueRoot, 'stage.lock');
@@ -42,36 +74,35 @@ async function recover(issueNumber, expectedHead, stage) {
     fencePath = join(host.stateRoot, 'stage.lock');
     return boundedHostFile(fencePath, 16384, true);
   });
+  const fenceSnapshot = await recoveryFile(fencePath);
+  requireThat(fenceSnapshot.bytes === fenceBytes, 'HOST_FENCE_CHANGED');
   const fence = JSON.parse(fenceBytes);
   const priorJob = fence.binding?.execution;
   requireThat(fence.binding?.host === digest(hostBytes) &&
-    (fencePath !== scopedFence || fence.binding.issueId === subject.id) &&
+    fence.binding.issueId === subject.id &&
     isId(fence.pid) && isId(priorJob?.runId) && isId(priorJob.jobId) &&
     isId(priorJob.attempt), 'INVALID_RECOVERY_FENCE');
   const runner = adopted.runner;
   const root = repoPath(subject.repository);
   const executionRoot = repoPath(runner.repository);
   const checkQuiescence = async () => {
-    try { process.kill(fence.pid, 0); }
-    catch (error) {
-      requireThat(error.code === 'ESRCH', 'WRITER_NOT_PROVEN_TERMINATED');
-      const runners = await reader.list(executionRoot + '/actions/runners', 'runners');
-      const label = 'nibfin-user-' + host.memberId;
-      const routes = runners.filter(r =>
-        (!runner.target || r.id === runner.runnerId) &&
-        r.labels?.some(l => l.name === label));
-      requireThat(routes.length === 1 && routes[0].id === runner.runnerId &&
-        routes[0].status === 'offline' && !routes[0].busy, 'RECOVERY_RUNNER_NOT_OFFLINE');
-      await idleContainers(adopted.isolation, subject);
-      requireThat(await boundedHostFile(fencePath, 16384, true) === fenceBytes,
-        'HOST_FENCE_CHANGED');
-      return;
-    }
-    requireThat(false, 'WRITER_NOT_PROVEN_TERMINATED');
+    await privateHostDirectory(host.stateRoot);
+    await privateHostDirectory(issueRoot);
+    await privateHostDirectory(dirname(fencePath));
+    await proveDifferentBoot(fence.bootId, observeBoot);
+    const runners = await reader.list(executionRoot + '/actions/runners', 'runners');
+    const label = 'nibfin-user-' + host.memberId;
+    const routes = runners.filter(r =>
+      (!runner.target || r.id === runner.runnerId) &&
+      r.labels?.some(l => l.name === label));
+    requireThat(routes.length === 1 && routes[0].id === runner.runnerId &&
+      routes[0].status === 'offline' && !routes[0].busy, 'RECOVERY_RUNNER_NOT_OFFLINE');
+    await containers(adopted.isolation, subject);
+    await inspectRecoveryFile(fencePath, fenceSnapshot);
   };
   await checkQuiescence();
   const [approval, run, job, actor] = await Promise.all([
-    readProtectedApproval(reader, adopted.approval),
+    approvalReader(reader, adopted.approval),
     reader.get(executionRoot + '/actions/runs/' + priorJob.runId),
     reader.get(executionRoot + '/actions/jobs/' + priorJob.jobId),
     reader.get('/user'),
@@ -169,8 +200,10 @@ async function recover(issueNumber, expectedHead, stage) {
           outcome: 'published', findings: [], references: [pr.html_url],
         });
       };
-      result = review ? await journal.recoverReview(requestHash, confirm)
-        : await journal.recoverCommitPr(decision, confirm);
+      result = review ? await journal.recoverReview(requestHash, confirm,
+        { pid: fence.pid, prove: checkQuiescence })
+        : await journal.recoverCommitPr(decision, confirm,
+          { pid: fence.pid, prove: checkQuiescence });
       break;
     } catch (error) {
       if (error.code !== 'RECOVERY_DECISION_MISMATCH') throw error;
@@ -191,8 +224,9 @@ async function recover(issueNumber, expectedHead, stage) {
   }
   requireThat(await boundedHostFile(archive, 16384, true) === fenceBytes,
     'RECOVERY_ARCHIVE_CHANGED');
+  await syncRecoveryDirectory(host.stateRoot);
+  await checkQuiescence();
   await unlink(fencePath);
-  const directory = await open(dirname(fencePath), 'r');
-  try { await directory.sync(); } finally { await directory.close(); }
+  await syncRecoveryDirectory(dirname(fencePath));
   return result;
 }

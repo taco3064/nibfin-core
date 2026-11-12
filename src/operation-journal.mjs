@@ -5,12 +5,11 @@ import { randomUUID } from 'node:crypto';
 import { digest, isDigest, isId, requireThat } from './identity.mjs';
 import { operations } from './approval-record.mjs';
 import { MergeBeforeWrite } from './github-write.mjs';
+import {
+  retainedRecovery, recoveryFile, inspectRecoveryFile,
+  syncRecoveryDirectory as syncDirectory,
+} from './recovery-lock.mjs';
 
-async function syncDirectory(path) {
-  const handle = await open(path, constants.O_RDONLY |
-    constants.O_DIRECTORY | constants.O_NOFOLLOW);
-  try { await handle.sync(); } finally { await handle.close(); }
-}
 async function privateDirectory(path) {
   const stat = await lstat(path);
   requireThat(stat.isDirectory() && !stat.isSymbolicLink() &&
@@ -136,8 +135,8 @@ export class OperationJournal {
       return { status: 'completed', decisionId: decision };
     });
   }
-  async recoverCommitPr(decision, readBack) {
-    return this.#reconcile(decision, readBack);
+  async recoverCommitPr(decision, readBack, proof) {
+    return this.#reconcile(decision, readBack, proof);
   }
   async #finishWake(state, decision, runId, request, readBack) {
     try {
@@ -149,22 +148,46 @@ export class OperationJournal {
       return { status: 'pending', code: 'EXTERNAL_EFFECT_UNKNOWN', runId };
     }
   }
-  async recoverReview(bindingHash, readBack) {
+  async recoverReview(bindingHash, readBack, proof) {
     requireThat(isDigest(bindingHash), 'INVALID_RECOVERY_REQUEST');
-    return this.#reconcile(digest({ operation: 'review-pr', bindingHash }), readBack);
+    const decision = digest({ operation: 'review-pr', bindingHash });
+    return this.#reconcile(decision, readBack, proof);
   }
-  async #reconcile(decision, readBack) {
+  async #reconcile(decision, readBack, proof) {
     requireThat(isDigest(decision) && typeof readBack === 'function',
       'INVALID_RECOVERY_REQUEST');
-    return this.#withLock(decision, async state => {
+    const reconcile = async (state, inspect = async () => {}) => {
       requireThat(state.pending === decision ||
         state.pending === null && state.completed.includes(decision),
       'RECOVERY_DECISION_MISMATCH');
+      const journalPath = join(this.#directory, 'receipts.json');
+      const snapshot = await recoveryFile(journalPath, 8 * 1024 * 1024);
+      requireThat(digest(JSON.parse(snapshot.bytes).payload) === digest(state),
+        'RECOVERY_JOURNAL_CHANGED');
       const receiptHash = await readBack();
       requireThat(isDigest(receiptHash), 'INVALID_RECOVERY_RECEIPT');
+      await inspect();
+      await privateDirectory(this.root);
+      await privateDirectory(this.#directory);
+      await inspectRecoveryFile(journalPath, snapshot, 8 * 1024 * 1024);
+      requireThat(digest(await this.#read()) === digest(state),
+        'RECOVERY_JOURNAL_CHANGED');
       if (state.pending === decision) await this.#complete(state, decision);
       return { status: 'completed', decisionId: decision, receiptHash };
-    });
+    };
+    await this.#prepare();
+    if (proof) {
+      requireThat(isId(proof.pid) && typeof proof.prove === 'function',
+        'INVALID_RECOVERY_PROOF');
+      const retained = await lstat(join(this.#directory, 'execution.lock')).then(
+        () => true, error => {
+          if (error.code !== 'ENOENT') throw error;
+          return false;
+        });
+      if (retained) return retainedRecovery(this.#directory, decision, proof,
+        async inspect => reconcile(await this.#read(), inspect));
+    }
+    return this.#withLock(decision, state => reconcile(state, proof?.prove));
   }
   async #complete(state, decision) {
     const { wakeRunId: _, ...prior } = state;
