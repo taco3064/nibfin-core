@@ -22,7 +22,8 @@ export async function forwardSharedWake(resolved, env, fetcher = fetch) {
     Object.assign(event.issue, {
       state: issue.state,
       updated_at: issue.updated_at,
-      labels: issue.labels?.map(({ name }) => ({ name })),
+      labels: issue.labels?.filter(({ name }) => ['pause', 'delivered'].includes(name))
+        .map(({ name }) => ({ name })),
       assignees: issue.assignees?.map(({ id }) => ({ id })),
     });
   }

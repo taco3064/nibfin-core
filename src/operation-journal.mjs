@@ -95,6 +95,25 @@ export class OperationJournal {
     requireThat(state.pending === null, 'EXTERNAL_EFFECT_UNKNOWN');
     return state.pauseEffects ?? [];
   }
+  async recordPauseAuthorization(proof, inspect) {
+    requireThat(proof.authorized === true && isId(proof.eventId) &&
+      isId(proof.actorId) && isId(proof.repositoryId) && isDigest(proof.beforeHash) &&
+      typeof proof.issueId === 'string' && typeof proof.desired === 'boolean',
+    'INVALID_PAUSE_AUTHORIZATION');
+    const result = await this.#withLock(digest(proof), async state => {
+      requireThat(state.pending === null, 'EXTERNAL_EFFECT_UNKNOWN');
+      const effects = state.pauseEffects ?? [];
+      const prior = effects.find(item => item.eventId === proof.eventId);
+      if (prior) {
+        requireThat(digest(prior) === digest(proof), 'PAUSE_AUTHORIZATION_CHANGED');
+        return true;
+      }
+      await inspect();
+      await this.#write({ ...state, pauseEffects: [...effects, proof] });
+      return true;
+    });
+    requireThat(result === true, result?.code ?? 'PAUSE_AUTHORIZATION_NOT_RECORDED');
+  }
   async assertIdle() {
     await this.#prepare();
     await this.#assertUnlocked();

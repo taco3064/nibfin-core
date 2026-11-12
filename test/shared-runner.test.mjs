@@ -84,7 +84,12 @@ test('shared pause wake preserves the actor and original Issue snapshot', async 
     action: 'labeled', label: { name: 'pause' }, sender, issue: snapshot,
     repository: { id: issue.repositoryId, full_name: issue.repository },
   };
-  await writeFile(path, JSON.stringify(event));
+  const unrelated = Array.from({ length: 100 }, (_, index) => ({
+    name: `unrelated-${index}-${'x'.repeat(40)}`,
+  }));
+  await writeFile(path, JSON.stringify({
+    ...event, issue: { ...snapshot, labels: [...snapshot.labels, ...unrelated] },
+  }));
   let request;
   await forwardSharedWake({ status: 'resolved', issue_number: '78' }, {
     GITHUB_EVENT_PATH: path, GITHUB_RUN_ID: '45', GITHUB_RUN_ATTEMPT: '1',

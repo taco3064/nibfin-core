@@ -44,16 +44,24 @@ export async function labelPermission(reader, repository, actor) {
   return { admin, edit };
 }
 
-async function qualifies(reader, repository, issue, actor) {
+function personalOwner(repository, actor) {
+  return actor.type === 'User' && repository.owner.type === 'User' &&
+    repository.owner.id === actor.id;
+}
+
+async function qualifies(reader, repository, issue, actor, desired = true) {
   actorIdentity(actor);
-  if (issue.state !== 'open' || pauseLabels(issue).includes('delivered')) return false;
+  if (desired && (issue.state !== 'open' || pauseLabels(issue).includes('delivered')))
+    return false;
   if (actor.type !== 'User') return false;
-  if (repository.owner.type === 'User' && repository.owner.id === actor.id) return true;
-  const permission = await labelPermission(reader, repository.full_name, actor);
-  if (repository.owner.type === 'Organization' && permission.admin) return true;
+  if (personalOwner(repository, actor)) return true;
   requireThat(Array.isArray(issue.assignees) &&
     issue.assignees.every(user => isId(user?.id)), 'PAUSE_ASSIGNMENT_UNKNOWN');
-  return permission.edit && issue.assignees.some(user => user.id === actor.id);
+  const assigned = issue.assignees.some(user => user.id === actor.id);
+  if (repository.owner.type === 'User' && !assigned) return false;
+  const permission = await labelPermission(reader, repository.full_name, actor);
+  return (repository.owner.type === 'Organization' && permission.admin) ||
+    (assigned && permission.edit);
 }
 
 export function pauseSnapshot(issue) {
@@ -62,28 +70,26 @@ export function pauseSnapshot(issue) {
     assignees: issue.assignees ?? null, updatedAt: issue.updated_at ?? null };
 }
 
-// Use only the authenticated addition's Issue snapshot for these negative facts.
-// A live permission denial may reflect revocation after a successful label edit.
-function rejectedAddition(event, events, repository) {
-  if (event?.action !== 'labeled' || !pauseEvent(event)) return undefined;
+async function assessEvent(reader, event, events, repository) {
+  if (!pauseEvent(event)) return undefined;
+  const desired = event.action === 'labeled';
   const snapshot = event.issue;
   if (!isId(event.sender?.id) || !['open', 'closed'].includes(snapshot?.state) ||
     !Array.isArray(snapshot.labels) || !Array.isArray(snapshot.assignees) ||
     !snapshot.assignees.every(user => isId(user?.id))) return undefined;
   const labels = pauseLabels(snapshot);
-  if (!labels.includes('pause')) return undefined;
-  const matches = events.filter(item => item.event === 'labeled' &&
+  if (labels.includes('pause') !== desired) return undefined;
+  const matches = events.filter(item => item.event === event.action &&
     item.actor?.id === event.sender?.id &&
     item.created_at === snapshot.updated_at);
   if (matches.length !== 1 || matches[0] !== events.at(-1)) return undefined;
-  const unassigned = repository.owner.type === 'User' &&
-    event.sender.id !== repository.owner.id &&
-    !snapshot.assignees.some(user => user.id === event.sender.id);
-  if (snapshot.state === 'closed' || labels.includes('delivered') || unassigned)
-    return matches[0].id;
+  const native = matches[0];
+  const allowed = await qualifies(reader, repository, snapshot, native.actor, desired)
+    .catch(() => undefined);
+  return { id: native.id, allowed };
 }
 
-function repairProof(proofs, identity, event, prefix) {
+function eventProof(proofs, identity, event, prefix) {
   if (!event) return undefined;
   return proofs.find(item => item.eventId === event.id &&
     item.actorId === event.actor?.id && item.desired === (event.event === 'labeled') &&
@@ -111,15 +117,15 @@ export async function observePause(reader, identity, proofs = [], event) {
         typeof event.label?.name === 'string')), 'PAUSE_HISTORY_UNKNOWN');
     const events = all.filter(event =>
       ['labeled', 'unlabeled'].includes(event?.event) && event.label?.name === 'pause');
-    const rejected = rejectedAddition(event, events, repository);
+    const assessment = await assessEvent(reader, event, events, repository);
     let previousId = 0, previousTime = 0, visible = false, owner = null;
     let uncertainOwner = false;
-    let rejectedEventId;
+    let rejectedEventId, authorization;
     const prefix = [], qualifications = new Map();
     for (const [index, event] of events.entries()) {
       const time = Date.parse(event.created_at);
       requireThat(isId(event.id) && event.id > previousId &&
-        Number.isFinite(time) && time >= previousTime && time <= Date.now() &&
+        Number.isFinite(time) && time >= previousTime &&
         event.url === `https://api.github.com${repoPath(identity.repository)}/` +
           `issues/events/${event.id}`, 'PAUSE_HISTORY_UNKNOWN');
       actorIdentity(event.actor);
@@ -127,37 +133,43 @@ export async function observePause(reader, identity, proofs = [], event) {
       previousTime = time;
       const desired = event.event === 'labeled';
       requireThat(desired || visible, 'PAUSE_HISTORY_INCONSISTENT');
-      // Native duplicate additions may occur but never replace an effective owner.
-      const proof = repairProof(proofs, identity, event, prefix);
+      const proof = eventProof(proofs, identity, event, prefix);
+      const observed = !proof && assessment?.id === event.id
+        ? assessment.allowed : undefined;
+      if (!proof && observed === true) authorization = {
+        issueId: identity.id, repositoryId: identity.repositoryId,
+        eventId: event.id, actorId: event.actor.id, desired, beforeHash: digest(prefix),
+        authorized: true,
+      };
       if (desired && owner && !visible && event.actor.type === 'Bot')
         requireThat(proof, 'PAUSE_RESTORATION_UNPROVEN');
-      if (proof) {
+      if (proof && !proof.authorized) {
         requireThat(desired === Boolean(owner) || (!desired && uncertainOwner),
           'PAUSE_REPAIR_PROOF_CONFLICT');
         if (!desired) { owner = null; uncertainOwner = false; }
       } else if (desired && !owner) {
-        const next = repairProof(proofs, identity, events[index + 1],
+        const next = eventProof(proofs, identity, events[index + 1],
           [...prefix, event]);
-        if (event.id === rejected || next?.rejectedEventId === event.id) {
-          if (event.id === rejected) rejectedEventId = rejected;
+        if (observed === false || next?.rejectedEventId === event.id) {
+          if (observed === false) rejectedEventId = event.id;
           visible = true;
           prefix.push(event);
           continue;
         }
-        if (!qualifications.has(event.actor.id)) {
+        const accepted = proof?.authorized || observed === true;
+        if (!accepted && !qualifications.has(event.actor.id)) {
           qualifications.set(event.actor.id,
-            await qualifies(reader, repository, issue, event.actor));
+            await qualifies(reader, repository, issue, event.actor)
+              .catch(() => undefined));
         }
-        const qualified = qualifications.get(event.actor.id);
-        // A current denial cannot disprove a human's historical qualification.
-        // Permission revocation need not update the Issue or append an event.
-        // Retain the possible creator even when this is the latest native event;
-        // only their removal can release this restriction without rejection proof.
+        const qualified = accepted || qualifications.get(event.actor.id);
+        // Historical uncertainty retains the pause until an authorized removal.
         if (qualified || event.actor.type === 'User') {
           owner = event.actor.id;
           uncertainOwner = !qualified;
         }
-      } else if (!desired && owner === event.actor.id) {
+      } else if (!desired && (proof?.authorized || observed === true ||
+        personalOwner(repository, event.actor))) {
         owner = null;
         uncertainOwner = false;
       }
@@ -180,7 +192,8 @@ export async function observePause(reader, identity, proofs = [], event) {
       issueId: identity.id, repositoryId: identity.repositoryId,
       observationHash: digest(snapshot), desired: effective, present,
       events, current, ...(owner ? { actorId: owner } : {}),
-      ...(rejectedEventId ? { rejectedEventId } : {}) };
+      ...(rejectedEventId ? { rejectedEventId } : {}),
+      ...(authorization ? { authorization } : {}) };
   } catch (error) {
     return { status: 'unknown', issueId: identity.id,
       repositoryId: identity.repositoryId, code: error.code ?? 'PAUSE_HISTORY_UNKNOWN' };

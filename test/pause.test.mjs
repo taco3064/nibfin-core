@@ -44,7 +44,7 @@ test('unassigned, insufficient, completed and mismatched identities fail closed'
       if (kind === 'identity') f.permissions.get(member.login).user = other;
       const event = additionEvent(f.issue, f.add(member));
       const result = await observePause(f.reader, identity, [], event);
-      const ambiguous = ['identity', 'read'].includes(kind);
+      const ambiguous = kind === 'identity';
       assert.equal(result.status, ambiguous ? 'unknown' : 'repair', kind);
       if (result.status === 'repair') assert.equal(result.desired, false);
     }
@@ -54,28 +54,42 @@ test('unassigned, insufficient, completed and mismatched identities fail closed'
     assert.equal((await observe(f)).status, 'unknown');
   });
 
-test('only original actor resumes; repeated additions and later episodes retain actor',
-  async () => {
+test('the repository owner can resume a pause added by an assignee', async () => {
     const f = pauseFixture();
     f.add(member);
     f.add(owner);
     assert.equal((await observe(f)).actorId, member.id);
     f.add(owner, false);
-    const gap = await observe(f);
-    assert.equal(gap.status, 'repair');
-    assert.equal(gap.desired, true);
-    assert.equal(gap.actorId, member.id);
-    assert.throws(() => requirePauseClear(gap, identity, f.issue));
+    assert.equal((await observe(f)).status, 'clear');
+});
+
+test('a newly assigned collaborator can resume another actor’s pause', async t => {
+  const f = await repairFixture(t);
+  f.add(owner);
+  const removal = additionEvent(f.issue, f.add(member, false));
+  assert.equal((await observe(f)).status, 'repair');
+  assert.equal((await f.repair(removal)).status, 'clear');
+  f.issue.assignees = [];
+  assert.equal((await f.repair()).status, 'clear');
+  assert.equal(f.state.writes, 0);
+});
+
+test('organization admin can resume and unassigned triage cannot control pause',
+  async t => {
+    const f = await repairFixture(t);
+    f.repository.owner = { id: 50, type: 'Organization' };
+    f.permissions.get(other.login).permission = 'triage';
+    assert.equal((await f.repair(additionEvent(f.issue, f.add(other)))).status,
+      'clear');
+    assert.equal(f.state.writes, 1);
     f.add(member);
-    f.add(member, false);
-    assert.equal((await observe(f)).status, 'clear');
-    f.add(owner);
-    assert.equal((await observe(f)).actorId, owner.id);
-    f.add(member, false);
-    assert.equal((await observe(f)).status, 'repair');
-    f.add(owner);
-    f.add(owner, false);
-    assert.equal((await observe(f)).status, 'clear');
+    assert.equal((await f.repair(additionEvent(f.issue, f.add(other, false)))).status,
+      'paused');
+    assert.equal(f.state.writes, 2);
+    f.permissions.get(other.login).permission = 'admin';
+    const removal = additionEvent(f.issue, f.add(other, false));
+    assert.equal((await f.repair(removal)).status, 'clear');
+    assert.equal(f.state.writes, 2);
   });
 
 test('history absence, malformed order, truncation and unstable reads stay Unknown',
@@ -152,7 +166,7 @@ test('minimal journaled repairs remove invalid additions and authenticate restor
       assert.equal(f.state.writes, 1);
       if (restore) {
         assert.equal((await observe(f)).status, 'unknown');
-        f.add(member, false);
+        f.add(owner, false);
         const resumed = await observePause(f.reader, identity, proof);
         assert.equal(resumed.status, 'clear');
         assert.equal((await f.repair()).status, 'clear');
@@ -226,29 +240,27 @@ test('the actual repair credential must match the freshly authorized actor', asy
   await f.journal.assertIdle();
 });
 
-test('later qualification changes cannot erase the original pause actor', async t => {
+test('later qualification changes preserve an accepted pause', async t => {
   for (const change of ['unassigned', 'revoked', 'closed', 'delivered']) {
     const f = await repairFixture(t);
-    f.add(member);
-    assert.equal((await observe(f)).actorId, member.id);
+    assert.equal((await f.repair(additionEvent(f.issue, f.add(member)))).actorId,
+      member.id);
     if (change === 'unassigned') f.issue.assignees = [];
     if (change === 'revoked') f.permissions.get(member.login).permission = 'read';
     if (change === 'closed') f.issue.state = 'closed';
     if (change === 'delivered') f.issue.labels.push({ name: 'delivered' });
-    f.add(owner, false);
-    const gap = await observe(f);
-    assert.equal(gap.status, 'unknown', change);
+    const removal = additionEvent(f.issue, f.add(other, false));
+    const gap = await observePause(f.reader, identity, await f.journal.pauseEffects());
+    assert.equal(gap.status, 'repair', change);
     assert.equal(gap.actorId, member.id, change);
     assert.throws(() => requirePauseClear(gap, identity, f.issue));
     const context = stageFixture();
     context.pause = gap;
     assert.equal(decideStage('shape', context, now).code, 'PAUSE_NOT_PROVEN_CLEAR');
-    assert.equal((await f.repair()).status, 'unknown');
-    assert.equal(f.state.writes, 0);
-    f.add(owner);
-    assert.equal((await observe(f)).actorId, member.id);
-    f.add(member, false);
-    assert.equal((await observe(f)).status, 'clear');
+    assert.equal((await f.repair(removal)).status, 'paused');
+    assert.equal(f.state.writes, 1);
+    f.add(owner, false);
+    assert.equal((await f.repair()).status, 'clear');
   }
 });
 
@@ -282,7 +294,7 @@ test('an earlier rejected snapshot cannot authorize removal of a later pause',
   async t => {
   const f = await repairFixture(t);
   const stale = additionEvent(f.issue, f.add(other));
-  f.add(other, false);
+  f.add(owner, false);
   f.issue.assignees.push(other);
   f.add(other);
   assert.equal((await f.repair(stale)).status, 'paused');
@@ -297,21 +309,20 @@ test('revocation without an Issue event or timestamp change cannot authorize Res
     const originalAddition = additionEvent(f.issue, event);
     f.issue.updated_at = event.created_at;
     const original = structuredClone(f.events);
-    assert.equal((await observe(f)).status, 'paused');
+    assert.equal((await f.repair(originalAddition)).status, 'paused');
     f.permissions.get(member.login).permission = 'read';
-    const revoked = await observe(f);
-    assert.equal(revoked.status, 'unknown');
+    const revoked = await f.repair(originalAddition);
+    assert.equal(revoked.status, 'paused');
     assert.equal(revoked.actorId, member.id);
     assert.equal(revoked.desired, true);
     assert.throws(() => requirePauseClear(revoked, identity, f.issue));
-    assert.equal((await f.repair(originalAddition)).status, 'unknown');
+    assert.equal((await f.repair(originalAddition)).status, 'paused');
     assert.equal(f.state.writes, 0);
     assert.deepEqual(f.events, original);
+    const revokedRemoval = additionEvent(f.issue, f.add(member, false));
+    assert.equal((await f.repair(revokedRemoval)).status, 'paused');
+    assert.equal(f.state.writes, 1);
     f.add(owner, false);
-    assert.equal((await f.repair()).status, 'unknown');
-    assert.equal(f.state.writes, 0);
-    f.add(owner);
-    f.add(member, false);
     const resumed = await f.repair();
     assert.equal(resumed.status, 'clear');
     requirePauseClear(resumed, identity, f.issue);

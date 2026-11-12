@@ -47,7 +47,7 @@ test('authorized Resume preserves other admission guards',
   async t => {
   const f = await nativeFixture(t);
   addNative(f, 1, true);
-  addNative(f, 1, false);
+  addNative(f, 3, false);
   const context = await f.observe('shape');
   assert.equal(context.pause.status, 'clear');
   assert.equal(decideStage('shape', context, now).status, 'allowed');

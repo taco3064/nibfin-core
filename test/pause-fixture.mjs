@@ -14,7 +14,7 @@ export const identity = { id: 'I_pause', number: 7,
   repositoryId: 10, repository: 'example/core' };
 
 export function additionEvent(issue, native) {
-  return { action: 'labeled', label: { name: 'pause' }, sender: native.actor,
+  return { action: native.event, label: { name: 'pause' }, sender: native.actor,
     issue: { ...structuredClone(issue), updated_at: native.created_at } };
 }
 
@@ -35,7 +35,8 @@ export function pauseFixture() {
   const add = (actor = owner, desired = true) => {
     const id = events.length + 1;
     const event = { id, event: desired ? 'labeled' : 'unlabeled',
-      created_at: '2026-11-12T00:00:00Z', actor: structuredClone(actor),
+      created_at: new Date(Date.UTC(2026, 10, 12, 0, 0, id)).toISOString(),
+      actor: structuredClone(actor),
       label: { name: 'pause' },
       url: `https://api.github.com/repos/example/core/issues/events/${id}` };
     events.push(event);

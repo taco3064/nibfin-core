@@ -165,7 +165,7 @@ test('ordinary wake refuses transient absence and resumes only coherent native r
     };
     const writer = { id: 1, login: 'writer', type: 'User' };
     change(writer, true);
-    change(f.pr.merged_by, false);
+    change({ id: 8, login: 'other', type: 'User' }, false);
     await assert.rejects(f.resolve(), /PAUSE_NOT_PROVEN_CLEAR/);
     // Later assignment or permission loss must not erase the effective actor.
     f.issue.assignees = [];
@@ -175,7 +175,7 @@ test('ordinary wake refuses transient absence and resumes only coherent native r
     await assert.rejects(f.resolve(), /PAUSE_NOT_PROVEN_CLEAR/);
     f.data['/collaborators/writer/permission'].permission = 'write';
     change(writer, true);
-    change(writer, false);
+    change(f.pr.merged_by, false);
     assert.equal((await f.resolve()).stage, 'shape');
     f.data['/issues/2/events'] = null;
     await assert.rejects(f.resolve(), /PAUSE_NOT_PROVEN_CLEAR/);

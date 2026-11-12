@@ -17,8 +17,22 @@ export async function reconcilePause({
         'PAUSE_REPAIR_CREDENTIAL_CHANGED');
       return approved;
     };
-    const proofs = await journal.pauseEffects();
-    const initial = await observePause(reader, issue, proofs, event);
+    let proofs = await journal.pauseEffects();
+    let initial = await observePause(reader, issue, proofs, event);
+    if (initial.authorization) {
+      const observed = initial;
+      const authority = await authorityForWrite();
+      await journal.recordPauseAuthorization(observed.authorization, async () => {
+        requireThat(digest(await authorityForWrite()) === digest(authority),
+          'PAUSE_REPAIR_AUTHORITY_CHANGED');
+        const current = await observePause(reader, issue, proofs, event);
+        requireThat(current.observationHash === observed.observationHash &&
+          digest(current.authorization) === digest(observed.authorization),
+        'PAUSE_AUTHORIZATION_CHANGED');
+      });
+      proofs = await journal.pauseEffects();
+      initial = await observePause(reader, issue, proofs);
+    }
     if (initial.status !== 'repair') return initial;
     const authority = await authorityForWrite();
     const bindingHash = digest({ issue, authority,
