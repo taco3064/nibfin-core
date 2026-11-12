@@ -5,6 +5,7 @@ import {
   observeIssueEvent,
   fanoutOutcome,
   resolveIssueWake,
+  resolveSharedIssueWake,
   dispatchIssueWake,
 } from '../src/issue-wake.mjs';
 import { callerRecipe } from '../src/caller-recipes.mjs';
@@ -33,7 +34,8 @@ function fixture(kind = 'wake') {
   const body = callerRecipe(kind, record.source.commit);
   const workflow = {
     id: 5,
-    path: '.github/workflows/nibfin.yml',
+    path: kind === 'issue' ? '.github/workflows/nibfin-issue.yml'
+      : '.github/workflows/nibfin.yml',
     commit: '9'.repeat(40),
     blob: gitBlob(body),
   };
@@ -294,6 +296,72 @@ test(
     await assert.rejects(observe());
   },
 );
+
+test('shared Issue wake uses the GitHub workflow identity without an adoption secret',
+  async () => {
+    const f = fixture('issue');
+    const commit = f.invocation.coreCommit;
+    f.run.event = f.invocation.eventName = 'issues';
+    f.run.referenced_workflows[0].path =
+      `taco3064/nibfin-core/.github/workflows/issue.yml@${commit}`;
+    f.issue.assignees = [f.pr.merged_by];
+    const event = { repository: f.repo, action: 'assigned', issue: f.issue };
+    const invocation = { ...f.invocation, shared: true };
+    const resolve = () => resolveSharedIssueWake(f.reader, event, invocation);
+    assert.deepEqual(await resolve(), {
+      status: 'resolved', issue_number: '2',
+      member_id: String(f.pr.merged_by.id), stageAdmitted: false,
+    });
+    f.reader.blockedBy = async () => [{ state: 'open' }];
+    await assert.rejects(resolve(), /WAKE_TARGET_NOT_READY/);
+    event.action = 'labeled';
+    event.label = { name: 'pause' };
+    event.sender = f.pr.merged_by;
+    assert.equal((await resolve()).status, 'resolved');
+    event.action = 'closed';
+    f.issue.state = 'closed';
+    f.issue.labels.push({ name: 'shaped' }, { name: 'delivered' });
+    assert.equal((await resolve()).status, 'resolved');
+    invocation.coreCommit = 'f'.repeat(40);
+    await assert.rejects(resolve(), /UNTRUSTED_ISSUE_EVENT_RUN/);
+  });
+
+test('shared Issue wake checks out the reusable workflow source provided by GitHub',
+  async () => {
+    const workflow = await readFile(
+      new URL('../.github/workflows/issue.yml', import.meta.url), 'utf8',
+    );
+    assert.ok(workflow.includes('repository: ${{ job.workflow_repository }}'));
+    assert.ok(workflow.includes('ref: ${{ job.workflow_sha }}'));
+    assert.ok(workflow.includes('NIBFIN_CORE_COMMIT: ${{ job.workflow_sha }}'));
+    assert.ok(!workflow.includes('inputs.core_commit'));
+  });
+
+test('the installed Core can read a forwarded event from before a rollout', async () => {
+  const f = fixture('issue');
+  const workflow = f.adoption.eventWorkflow = f.adoption.issues[0].workflow;
+  const current = f.adoption.coreCommit;
+  const old = 'f'.repeat(40);
+  f.run.event = f.invocation.eventName = 'issues';
+  f.run.status = 'completed';
+  f.run.conclusion = 'success';
+  f.run.referenced_workflows = [{
+    path: `taco3064/nibfin-core/.github/workflows/issue.yml@${old}`, sha: old,
+  }];
+  const oldHead = 'e'.repeat(40);
+  f.run.head_sha = oldHead;
+  const source = f.data[`/contents/${workflow.path}?ref=${workflow.commit}`];
+  f.data[`/contents/${workflow.path}?ref=${oldHead}`] = {
+    ...source, content: Buffer.from(callerRecipe('issue', old)).toString('base64'),
+  };
+  const event = { repository: f.repo, action: 'assigned', issue: f.issue };
+  const observe = () => observeIssueEvent(f.reader, f.adoption, event, {
+    ...f.invocation, forwarded: true,
+  });
+  assert.equal((await observe()).id, f.issue.node_id);
+  f.run.referenced_workflows[0].sha = current;
+  await assert.rejects(observe(), /UNTRUSTED_ISSUE_EVENT_RUN/);
+});
 
 test('fanout preserves unknown and denied dispatch results at the CLI boundary', () => {
   const results = [

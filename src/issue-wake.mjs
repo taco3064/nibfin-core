@@ -14,20 +14,21 @@ import { digest, isId, isSha, requireThat } from './identity.mjs';
 import { readCallerSource } from './caller-source.mjs';
 import { sharedDispatchWorkflow } from './shared-runner.mjs';
 
-// Hosted preflight only. Event fields locate resources; adopted source pins,
-// current native approval and the dispatch credential supply authority.
+const issueCallerPath = '.github/workflows/nibfin-issue.yml';
+const reusableIssuePath = 'taco3064/nibfin-core/.github/workflows/issue.yml';
+
+// Event fields locate resources. The GitHub run establishes the event's source.
 export async function observeIssueEvent(reader, adoption, event, invocation) {
-  const pin = adoption?.eventWorkflow,
-    root = repoPath(invocation.repository);
+  const root = repoPath(invocation.repository);
+  const hostedRelay = invocation.shared && !adoption;
   requireThat(
-    adoption?.schemaVersion === 1 &&
-      isSha(adoption.coreCommit) &&
-      adoption.coreCommit === invocation.coreCommit &&
-      Array.isArray(adoption.issues) &&
+    isSha(invocation.coreCommit) &&
+      (hostedRelay || (adoption?.schemaVersion === 1 &&
+        adoption.coreCommit === invocation.coreCommit &&
+        Array.isArray(adoption.issues) && isId(adoption.eventWorkflow?.id))) &&
       invocation.eventName === 'issues' &&
       invocation.attempt === 1 &&
-      isId(invocation.runId) &&
-      isId(pin?.id),
+      isId(invocation.runId),
     'INVALID_ISSUE_WAKE',
   );
   requireThat(
@@ -55,21 +56,19 @@ export async function observeIssueEvent(reader, adoption, event, invocation) {
       event.repository.full_name === repository.full_name,
     'ISSUE_EVENT_REPOSITORY_CHANGED',
   );
-  const branch = await reader.get(
-    `${root}/branches/${encodeURIComponent(repository.default_branch)}`,
-  );
   const run = await reader.get(`${root}/actions/runs/${invocation.runId}`);
+  const pin = hostedRelay ? { id: run.workflow_id, path: issueCallerPath }
+    : adoption.eventWorkflow;
+  const reference = run.referenced_workflows?.[0];
+  const eventCommit = invocation.forwarded ? reference?.sha : invocation.coreCommit;
   requireThat(
-    (adoption.repository?.approvalPin?.kind === 'repository-admission-v1' ||
-      branch.protected === true) &&
-      isSha(branch.commit?.sha) &&
-      run.id === invocation.runId &&
+    run.id === invocation.runId &&
       run.run_attempt === 1 &&
       run.event === 'issues' &&
       (run.status === 'in_progress' ||
         (invocation.forwarded && run.status === 'completed' &&
           run.conclusion === 'success')) &&
-      run.workflow_id === pin.id &&
+      isId(pin.id) && run.workflow_id === pin.id &&
       run.path === pin.path &&
       run.head_branch === repository.default_branch &&
       run.repository?.id === repository.id &&
@@ -78,17 +77,26 @@ export async function observeIssueEvent(reader, adoption, event, invocation) {
       isId(run.actor?.id) &&
       Array.isArray(run.referenced_workflows) &&
       run.referenced_workflows.length === 1 &&
-      run.referenced_workflows[0].path ===
-        `taco3064/nibfin-core/.github/workflows/issue.yml@${adoption.coreCommit}` &&
-      run.referenced_workflows[0].sha === adoption.coreCommit,
+      isSha(eventCommit) && reference?.path === `${reusableIssuePath}@${eventCommit}` &&
+      reference.sha === eventCommit,
     'UNTRUSTED_ISSUE_EVENT_RUN',
   );
   if (pauseTrigger(event)) requireThat(event.sender?.type === 'User' &&
     event.sender.id === run.actor.id && event.sender.login === run.actor.login,
   'UNTRUSTED_PAUSE_ACTOR');
-  const recipe = { kind: 'issue', coreCommit: adoption.coreCommit };
-  await readCallerSource(reader, invocation.repository, pin, run.head_sha, recipe);
-  await readCallerSource(reader, invocation.repository, pin, branch.commit.sha, recipe);
+  await readCallerSource(reader, invocation.repository, pin, run.head_sha, {
+    kind: 'issue', coreCommit: eventCommit,
+  });
+  if (!hostedRelay) {
+    const branch = await reader.get(
+      `${root}/branches/${encodeURIComponent(repository.default_branch)}`,
+    );
+    requireThat(adoption.repository?.approvalPin?.kind === 'repository-admission-v1' ||
+      branch.protected === true, 'UNTRUSTED_ISSUE_EVENT_RUN');
+    await readCallerSource(reader, invocation.repository, pin, branch.commit?.sha, {
+      kind: 'issue', coreCommit: invocation.coreCommit,
+    });
+  }
   const workflow = await reader.get(`${root}/actions/workflows/${pin.id}`);
   requireThat(
     workflow.state === 'active' && workflow.path === pin.path,
@@ -171,11 +179,33 @@ export async function resolveIssueWake(reader, adoption, event, invocation) {
   };
 }
 
-// Hosted invocation has read capabilities only; it never journals or dispatches.
+export async function resolveSharedIssueWake(reader, event, invocation) {
+  const issue = await observeIssueEvent(reader, null, event, invocation);
+  const [live, actor] = await Promise.all([reader.issue(issue), reader.get('/user')]);
+  const scope = live.labels?.some(label => label.name === 'scope');
+  requireThat(scope && actor.type === 'User', 'WAKE_TARGET_NOT_READY');
+  if (event.action === 'closed') {
+    requireThat(isDeliveredIssue(live), 'UPSTREAM_NOT_DELIVERED');
+  } else if (!pauseTrigger(event)) {
+    requireThat(live.state === 'open' &&
+      !live.labels.some(label => label.name === 'delivered'), 'INACTIVE_WAKE_TARGET');
+    const prerequisites = await reader.blockedBy(issue);
+    requireThat(prerequisites.every(isDeliveredIssue), 'WAKE_TARGET_NOT_READY');
+  }
+  const route = await selectAssignee(live, async user => user.id === actor.id);
+  requireThat(route, 'WAKE_TARGET_NOT_READY');
+  return {
+    status: 'resolved', issue_number: String(issue.number),
+    member_id: String(route.userId), stageAdmitted: false,
+  };
+}
+
+// The hosted job routes locators. The installed Core admits and journals work.
 export async function runIssueWake(env = process.env) {
+  const shared = env.NIBFIN_SHARED_RUNNER_POOL === 'true';
   requireThat(
-    typeof env.NIBFIN_WAKE_ADOPTION === 'string' &&
-      env.NIBFIN_WAKE_ADOPTION.length <= 262144 &&
+    (shared || (typeof env.NIBFIN_WAKE_ADOPTION === 'string' &&
+      env.NIBFIN_WAKE_ADOPTION.length <= 262144)) &&
       typeof env.NIBFIN_WAKE_TOKEN === 'string' &&
       env.NIBFIN_WAKE_TOKEN.trim() &&
       typeof env.GITHUB_EVENT_PATH === 'string',
@@ -183,19 +213,18 @@ export async function runIssueWake(env = process.env) {
   );
   const bytes = await readFile(env.GITHUB_EVENT_PATH, 'utf8');
   requireThat(Buffer.byteLength(bytes) <= 1048576, 'WAKE_EVENT_TOO_LARGE');
-  return resolveIssueWake(
-    new GitHubReader(env.NIBFIN_WAKE_TOKEN),
-    JSON.parse(env.NIBFIN_WAKE_ADOPTION),
-    JSON.parse(bytes),
-    {
-      repository: env.GITHUB_REPOSITORY,
-      eventName: env.GITHUB_EVENT_NAME,
-      runId: Number(env.GITHUB_RUN_ID),
-      attempt: Number(env.GITHUB_RUN_ATTEMPT),
-      coreCommit: env.NIBFIN_CORE_COMMIT,
-      shared: env.NIBFIN_SHARED_RUNNER_POOL === 'true',
-    },
-  ).catch((error) => {
+  const reader = new GitHubReader(env.NIBFIN_WAKE_TOKEN), event = JSON.parse(bytes);
+  const invocation = {
+    repository: env.GITHUB_REPOSITORY,
+    eventName: env.GITHUB_EVENT_NAME,
+    runId: Number(env.GITHUB_RUN_ID),
+    attempt: Number(env.GITHUB_RUN_ATTEMPT),
+    coreCommit: env.NIBFIN_CORE_COMMIT,
+    shared,
+  };
+  const result = shared ? resolveSharedIssueWake(reader, event, invocation)
+    : resolveIssueWake(reader, JSON.parse(env.NIBFIN_WAKE_ADOPTION), event, invocation);
+  return result.catch((error) => {
     const idle = ['WAKE_TARGET_NOT_READY', 'INACTIVE_WAKE_TARGET',
       'UPSTREAM_NOT_DELIVERED', 'UNSUPPORTED_ISSUE_EVENT'];
     if (idle.includes(error.code))
