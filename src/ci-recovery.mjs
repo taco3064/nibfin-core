@@ -62,6 +62,13 @@ export function ciCorrectionFindings(failure) {
     findings.push(
       `Playwright cannot install ${diagnostic.browser} on ${diagnostic.platform}.`,
     );
+    if (diagnostic.browser.startsWith('chromium')) {
+      findings.push(
+        'Run the browser tests with Chrome or Chromium already on the CI runner. ' +
+        'Select the installed browser in Playwright and remove the browser download ' +
+        'from the test command. Keep the browser assertions enabled.',
+      );
+    }
   }
   return findings;
 }
