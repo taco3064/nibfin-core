@@ -1,7 +1,7 @@
 import { repoPath } from './github-read.mjs';
 import { digest, isId, isSha, requireThat } from './identity.mjs';
 import { readMemberPermission, readPinnedFile } from './github-approval.mjs';
-import { readCallerSource } from './caller-source.mjs';
+import { readCallerSource, readCallerContinuity } from './caller-source.mjs';
 import { wakeRecipe } from './caller-recipes.mjs';
 
 // Provider-side binding only. The caller is trusted Core, executing from an
@@ -88,7 +88,10 @@ export async function readRunnerBinding(reader, expected) {
               }
             : undefined;
     await readCallerSource(reader, expected.repository, pin, run.head_sha, recipe);
-    await readCallerSource(reader, expected.repository, pin, branch.commit?.sha, recipe);
+    const latest = branch.commit?.sha;
+    if (recipe)
+      await readCallerSource(reader, expected.repository, pin, latest, recipe);
+    else await readCallerContinuity(reader, expected.repository, pin, latest);
   }
   requireThat(
     run?.id === expected.runId &&
@@ -205,11 +208,18 @@ export async function readRunnerBinding(reader, expected) {
   requireThat(
     latestRun.id === run.id && latestRun.run_attempt === run.run_attempt &&
       latestRun.status === run.status && latestRun.head_sha === run.head_sha &&
+      latestRun.actor?.id === run.actor.id &&
+      latestRun.triggering_actor?.id === run.triggering_actor.id &&
       latestJob.id === job.id && latestJob.run_id === job.run_id &&
       latestJob.run_attempt === job.run_attempt && latestJob.status === job.status &&
-      latestJob.runner_id === job.runner_id &&
+      latestJob.runner_id === job.runner_id && latestJob.name === job.name &&
+      latestJob.labels?.includes(label) && latestJob.labels.includes('self-hosted') &&
       latestRunner.id === runner.id && latestRunner.status === runner.status &&
-      latestRunner.busy === runner.busy &&
+      latestRunner.busy === runner.busy && latestRunner.name === runner.name &&
+      typeof latestRunner.os === 'string' &&
+      latestRunner.os.toLowerCase() === runnerOS &&
+      latestRunner.labels?.some(item => item.name === label) &&
+      latestRunner.labels.some(item => item.name === 'self-hosted') &&
       latestWorkflow.id === workflow.id && latestWorkflow.path === workflow.path &&
       latestWorkflow.state === workflow.state &&
       (await reader.repository(expected.repository)).default_branch ===

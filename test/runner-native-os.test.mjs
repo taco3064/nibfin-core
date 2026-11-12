@@ -12,7 +12,7 @@ test('native Runner OS casing yields the adopted canonical OS', async () => {
     assert.equal(result.os, 'linux');
     hashes.add(result.observationHash);
   }
-  assert.equal(hashes.size, 3, 'observation must retain the raw native response');
+  assert.equal(hashes.size, 1, 'casing does not change native Job identity');
 });
 
 test('normalization cannot admit a different or malformed Runner OS', async () => {
@@ -26,14 +26,14 @@ test('normalization cannot admit a different or malformed Runner OS', async () =
   }
 });
 
-test('raw native OS drift during observation remains rejected', async () => {
+test('a different OS during observation remains rejected', async () => {
   const f = runnerProviderFixture();
   f.runner.os = 'Linux';
   const get = f.reader.get;
   let reads = 0;
   f.reader.get = async (path) => {
     const value = await get(path);
-    if (path.endsWith('/actions/runners/40') && ++reads === 2) value.os = 'linux';
+    if (path.endsWith('/actions/runners/40') && ++reads === 2) value.os = 'Windows';
     return value;
   };
   await assert.rejects(
