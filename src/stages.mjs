@@ -25,6 +25,18 @@ const uuid = (value) =>
   typeof value === 'string' &&
   /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(value);
 export function evidenceBinding(context) {
+  if (context.stateBinding) return context.stateBinding;
+  const { approval } = context;
+  if (approval.scopeBinding !== undefined) {
+    // Repository admission already identifies this Issue independently of Core.
+    const issue = approval.scopeBinding;
+    return {
+      issueId: approval.record.issue.id,
+      approvalHash: issue,
+      scopeHash: issue,
+      sourceHash: issue,
+    };
+  }
   return {
     issueId: context.approval.record.issue.id,
     approvalHash: context.approval.approvalHash,
@@ -145,6 +157,7 @@ export async function issueRequirementsChanged(issue, receipts, readStoredShape)
 }
 
 function publication(context) {
+  requireThat(context.shape, 'PUBLISHED_SHAPE_RECEIPT_MISSING');
   const artifacts = { shapeHash: context.shape.hash };
   const reviewed = context.receipts['publish-shape']?.artifacts?.requirementsHash;
   receipt(context, 'publish-shape', {

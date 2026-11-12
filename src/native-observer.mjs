@@ -79,11 +79,13 @@ export function nativeObserver({
     );
     const source = await inspectSource();
     requireThat(digest(source) === digest(record.source), 'INSTALLED_SOURCE_CHANGED');
-    const store = stores(evidenceBinding({ approval })),
+    const stateBinding = pinned.stateBinding;
+    const store = stores(evidenceBinding({ approval, stateBinding })),
       receipts = await store.load();
     const main = await readCurrentMain(reader, record.issue);
     const context = {
       approval,
+      ...(stateBinding ? { stateBinding } : {}),
       main,
       issue: observed.issue,
       pause: pause.current && digest(pause.current) === digest(observed.issue) ? pause

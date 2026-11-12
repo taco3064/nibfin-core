@@ -136,6 +136,9 @@ export function codexPlan(stage, {
       'Core fetched this snapshot from the adopted Notion page for this Job. ' +
       'Execution permissions come from the protected Core context.\n' : '') +
     (stage === 'deliver' || stage === 'accept' ? isolatedVerification : '') +
+    (stage === 'review-pr' ?
+      'Review the current PR diff and read GitHub PR CI results. ' +
+      'Do not rerun CI or add hash or fixed-version requirements.\n' : '') +
     (stage === 'deliver' && context.correctionFindings ?
       'Address the independent verification findings in correctionFindings. ' +
       'Verify the resulting changes within the current Issue requirements.\n' : '') +
