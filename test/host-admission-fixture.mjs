@@ -8,7 +8,7 @@ import { gitBlob } from '../src/identity.mjs';
 import { callerRecipe } from '../src/caller-recipes.mjs';
 
 let root;
-let context, protectedCalls = 0, dispatches = 0;
+let context, protectedCalls = 0, dispatches = 0, bootFailure = false;
 const adoption = await import('../src/host-adoption.mjs');
 mock.module('../src/host-adoption.mjs', { namedExports: {
   ...adoption,
@@ -39,7 +39,13 @@ const fence = await import('../src/host-fence.mjs');
 mock.module('../src/host-fence.mjs', { namedExports: {
   ...fence,
   issueStatePath: () => root,
-  acquireHostFence: async () => ({ inspect: async () => 'fence' }),
+  acquireHostFence: async (...args) => {
+    if (bootFailure) return fence.acquireHostFence(...args, async () => {
+      throw Object.assign(new Error('kernel read failed'),
+        { code: 'BOOT_OBSERVATION_UNAVAILABLE' });
+    });
+    return { inspect: async () => 'fence' };
+  },
   privateHostDirectory: async () => {},
 } });
 const containers = await import('../src/host-containers.mjs');
@@ -142,6 +148,7 @@ async function scenario(kind, selected, change = () => {}, invalid = false) {
       }));
   } catch (error) {
     if (!invalid) throw error;
+    if (bootFailure) assert.equal(error.code, 'BOOT_OBSERVATION_UNAVAILABLE');
   }
   assert.equal(protectedCalls, kind === 'stage' && !invalid ? 1 : 0);
   assert.equal(dispatches, kind === 'wake' && !invalid ? 1 : 0);
@@ -180,6 +187,8 @@ try {
       ({ f }) => { f.reader.list = async () => { throw new Error('403'); }; },
     ]) await scenario(kind, 40, mutate, true);
   }
+  bootFailure = true;
+  await scenario('stage', 40, () => {}, true);
   console.log('Both launcher paths: multi-host admission and rejection passed.');
 } finally {
   mock.restoreAll();

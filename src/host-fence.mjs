@@ -3,6 +3,8 @@ import { lstat, open, realpath, unlink } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { digest, isId, requireThat } from './identity.mjs';
+import { isBootId, linuxBootId } from './linux-boot.mjs';
+import { syncRecoveryDirectory } from './recovery-lock.mjs';
 
 export function issueStatePath(stateRoot, issue) {
   requireThat(isId(issue?.repositoryId) && isId(issue.number), 'INVALID_HOST_ISSUE');
@@ -18,8 +20,10 @@ export async function privateHostDirectory(path) {
 
 // GitHub schedules the Job. Keep local recovery evidence for this Issue until
 // its containers and external effects are settled.
-export async function acquireHostFence(root, binding) {
+export async function acquireHostFence(root, binding, observeBoot = linuxBootId) {
   await privateHostDirectory(root);
+  const bootId = await observeBoot();
+  requireThat(isBootId(bootId), 'INVALID_BOOT_OBSERVATION');
   const path = join(root, 'stage.lock'), nonce = randomUUID();
   let handle;
   const flags = constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY |
@@ -31,12 +35,8 @@ export async function acquireHostFence(root, binding) {
     }
     throw error;
   }
-  const bytes = JSON.stringify({ nonce, binding, pid: process.pid });
-  const sync = async () => {
-    const dir = await open(root,
-      constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
-    try { await dir.sync(); } finally { await dir.close(); }
-  };
+  const bytes = JSON.stringify({ nonce, binding, pid: process.pid, bootId });
+  const sync = () => syncRecoveryDirectory(root);
   try {
     await handle.writeFile(bytes);
     await handle.sync();

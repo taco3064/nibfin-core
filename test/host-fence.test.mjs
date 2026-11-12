@@ -32,3 +32,20 @@ test('unresolved fence is preserved when no live holder can be confirmed',
       { code: 'HOST_EXECUTION_UNRESOLVED' });
     assert.equal(await readFile(path, 'utf8'), original);
   });
+
+test('trusted boot identity is durable before launch and observation fails closed',
+  async t => {
+    const root = await mkdtemp(join(tmpdir(), 'nibfin-fence-'));
+    t.after(() => rm(root, { recursive: true, force: true }));
+    const bootId = '11111111-1111-4111-8111-111111111111';
+    const fence = await acquireHostFence(root, { job: 1 }, async () => bootId);
+    const path = join(root, 'stage.lock');
+    assert.equal(JSON.parse(await readFile(path, 'utf8')).bootId, bootId);
+    await fence.release();
+    for (const observe of [async () => 'malformed', async () => {
+      throw new Error('kernel boot interface unavailable');
+    }]) {
+      await assert.rejects(acquireHostFence(root, { job: 2 }, observe));
+      await assert.rejects(readFile(path), { code: 'ENOENT' });
+    }
+  });

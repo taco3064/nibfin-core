@@ -114,8 +114,8 @@ Workspace creation also writes its authority binding into the existing evidence
 store. An existing workspace without that current binding stops Pending; changed
 Scope, approval or Core source cannot silently reuse it.
 
-Before any workspace mutation, a host-wide exclusive file is created and synced.
-It serializes all Issues on that host. Every writer inspection confirms its
+Before any workspace mutation, a per-Issue exclusive file is created and synced.
+It serializes stages for that Issue on the host. Every writer inspection confirms its
 identity, the exact adopted Runner ID/name registration with the member route,
 online status and busy state, and the absence of all containers except the adopted
 egress gateway on the dedicated daemon. Other same-member or unrelated registrations
@@ -135,7 +135,12 @@ registration is not proof that the old host stopped. This launcher does not
 automatically adopt a replacement host or claim cross-host crash recovery.
 
 For a published PR repair whose head read-back was interrupted, stop the adopted
-Runner and wait for GitHub to report it offline. As the host controller, run
+Runner and wait for GitHub to report it offline. Recovery requires the same
+trusted Linux host to have entered a different kernel boot. The durable host
+fence records `/proc/sys/kernel/random/boot_id` before any Writer starts. A
+missing PID, a completed Job, a rerun or a removed Label cannot replace this
+proof. Same-boot interruptions and legacy fences without a valid boot identity
+remain Pending. As the host controller, run
 `nibfin-core.mjs recover-commit-pr <issue-number> <observed-pr-head>` from a
 verified, administrator-installed Core package. This can use a separate recovery
 package while the previous Core remains adopted. It verifies the original
@@ -143,6 +148,20 @@ pending decision against the terminal Job, open PR, branch, and exact Candidate
 tree and parent. It records the observed publication and archives the fence
 after confirming there are no remaining execution containers. It does not push
 or retry the GitHub operation. Restart the adopted Runner after settlement.
+The existing `recover-review <issue-number> <observed-pr-head>` command uses the
+same boot proof and retains its closed-session and prior-review evidence gates.
+
+A retained `execution.lock` is reconciled only for the exact interrupted
+operation, controller PID and confirmed result. Ordinary journal acquisition
+continues to refuse retained locks. Recovery attempts are serialized; changed
+fences, locks or journal state, unknown containers and failed provider read-back
+preserve unresolved evidence. A crash that retains a recovery guard stays
+Pending for trusted investigation; it is never reclaimed by PID absence or age.
+After successful reconciliation, use the ordinary `stage <issue> continue` path.
+It reuses valid receipts from the first unfinished stage and reapplies current
+admission. Recovery does not start a Writer or bypass permission, assignment,
+native dependencies, approval, isolation or CI. Local fixture tests simulate
+different boots; they do not certify an actual reboot or live GitHub mutation.
 
 ## Validation boundary
 
