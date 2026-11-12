@@ -51,8 +51,12 @@ test('existing workspace and immutable receipts remain readable after rollout',
       execution: { runId: 18, actorId: 7 },
     };
     const original = await store.append(shape);
+    const deliver = { ...shape, stage: 'deliver' };
+    const delivered = await store.append(deliver);
     const next = await issueProgress(root, approval('next'));
     assert.equal(next.workspaceRoot, workspaceRoot);
     assert.deepEqual(await next.store.get(original), shape);
     assert.deepEqual((await next.store.load()).shape, shape);
+    assert.deepEqual((await next.store.load()).deliver, deliver);
+    assert.deepEqual(await next.store.get(delivered), deliver);
   });

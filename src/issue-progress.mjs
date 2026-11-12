@@ -1,28 +1,19 @@
-import { constants } from 'node:fs';
-import { lstat, open, readdir, realpath } from 'node:fs/promises';
+import { readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { EvidenceStore } from './evidence-store.mjs';
+import { boundedHostFile } from './host-adoption.mjs';
 import { privateHostDirectory } from './host-fence.mjs';
 import { digest, isDigest, isId, requireThat } from './identity.mjs';
 import { stageSuccess } from './stage-runtime.mjs';
 import { evidenceBinding, stages } from './stages.mjs';
 
 async function readLegacyObject(directory, name) {
-  let file;
   try {
-    file = await open(join(directory, name), constants.O_RDONLY | constants.O_NOFOLLOW);
+    const bytes = await boundedHostFile(join(directory, name), 8 * 1024 * 1024, true);
+    return JSON.parse(bytes);
   } catch (error) {
     if (error.code === 'ENOENT' && name === 'shape.json') return null;
     throw error;
-  }
-  try {
-    const stat = await file.stat();
-    requireThat(stat.isFile() && stat.uid === process.getuid() && stat.nlink === 1 &&
-      (stat.mode & 0o077) === 0 && stat.size <= 8 * 1024 * 1024,
-    'UNTRUSTED_EVIDENCE_FILE');
-    return JSON.parse(await file.readFile('utf8'));
-  } finally {
-    await file.close();
   }
 }
 
@@ -73,9 +64,7 @@ export async function issueProgress(root, approval) {
     return openProgress(root, binding, `workspace-${binding.sourceHash}`);
   const current = openProgress(root, binding, 'workspace');
   try {
-    const stat = await lstat(current.workspaceRoot);
-    requireThat(stat.isDirectory() && await realpath(current.workspaceRoot) ===
-      current.workspaceRoot, 'UNTRUSTED_WORKSPACE_DIRECTORY');
+    await privateHostDirectory(current.workspaceRoot);
     return current;
   } catch (error) {
     if (error.code !== 'ENOENT') throw error;
