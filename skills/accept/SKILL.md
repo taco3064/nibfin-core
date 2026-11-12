@@ -20,6 +20,13 @@ credential/isolation boundaries and permitted operation limits. Explain semantic
 Scope drift with exact clauses and code references; do not invent a new product
 requirement merely because another implementation would be possible.
 
+Compare the exact Candidate with current main for changes that affect its code,
+interfaces, or acceptance criteria. Continue acceptance when main has advanced
+without affecting the work. If upstream changes expose a conflict, incompatible
+behavior, or invalidated check, identify the affected code or criterion and
+request a targeted correction or verification. A different base commit alone
+does not require a rebase, fresh tests, or a blocked outcome.
+
 Use only the assigned read-only evidence/worktree and separately provided
 restricted test facilities. Never modify the Candidate to make it pass, reuse the
 writer's session, publish a Shape, edit metadata/dependencies, commit, push, merge,
@@ -42,10 +49,3 @@ references. Use `accepted` only for this exact pre-commit Candidate with no
 blocking findings. Acceptance is neither permission to mutate GitHub nor proof
 that future PR head/CI, final Shape fidelity review, merge or closure succeeded.
 Any material Candidate change requires fresh independent Acceptance.
-
-
-Inspect the current main snapshot as well as the exact rebased Candidate. Do not
-approve a Candidate based on earlier main or reuse acceptance of an earlier
-Head. No historical Agent transcript or permanent evidence archive is required;
-missing necessary verification must be performed against current content or
-reported blocked. Never infer that an unobserved past approval occurred.
