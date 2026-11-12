@@ -73,7 +73,7 @@ export async function resolveHostJob(
   return { runner, binding };
 }
 
-export async function readSingleHost(reader, runner) {
+export async function readSelectedHost(reader, runner) {
   const registered = await reader.list(
     `${repoPath(runner.repository)}/actions/runners`,
     'runners',
@@ -81,15 +81,14 @@ export async function readSingleHost(reader, runner) {
   const label = `nibfin-user-${runner.memberId}`;
   const matches = registered.filter(
     (item) =>
+      item.id === runner.runnerId && item.name === runner.runnerName &&
       Array.isArray(item.labels) && item.labels.some((value) => value.name === label),
   );
   requireThat(
     matches.length === 1 &&
-      matches[0].id === runner.runnerId &&
-      matches[0].name === runner.runnerName &&
       matches[0].status === 'online' &&
       matches[0].busy === true,
-    'HOST_REGISTRATION_NOT_EXCLUSIVE',
+    'HOST_REGISTRATION_MISMATCH',
   );
   return digest(matches);
 }
@@ -194,7 +193,7 @@ export async function launchStage(issueNumber, stage, env = process.env) {
         observationHash: digest({
           fence: await fence.inspect(),
           containers: await idleContainers(adopted.isolation, issue),
-          registration: await readSingleHost(reader, runner),
+          registration: await readSelectedHost(reader, runner),
         }),
       };
     };

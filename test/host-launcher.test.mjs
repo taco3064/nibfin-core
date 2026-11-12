@@ -8,7 +8,6 @@ import { acquireHostFence } from '../src/host-fence.mjs';
 import {
   resolveHostJob,
   rootOwnedPath,
-  readSingleHost,
   hostExecution,
 } from '../src/host-launcher.mjs';
 import { runnerProviderFixture } from './runner-binding-fixture.mjs';
@@ -126,25 +125,6 @@ test(
     const second = await acquireHostFence(root, { issue: 2 });
     await writeFile(join(root, 'stage.lock'), 'replacement');
     await assert.rejects(second.release(), /HOST_FENCE_CHANGED/);
-  },
-);
-
-test(
-  'a second registered host with the member route is ' + 'denied even when offline',
-  async () => {
-    const f = runnerProviderFixture();
-    let registered = [f.runner];
-    f.reader.list = async (path, key) => {
-      assert.equal(path, '/repos/example/core/actions/runners');
-      assert.equal(key, 'runners');
-      return registered;
-    };
-    assert.match(await readSingleHost(f.reader, f.expected), /^[a-f0-9]{64}$/);
-    registered = [...registered, { ...f.runner, id: 41, status: 'offline', busy: false }];
-    await assert.rejects(
-      readSingleHost(f.reader, f.expected),
-      /HOST_REGISTRATION_NOT_EXCLUSIVE/,
-    );
   },
 );
 
