@@ -5,6 +5,7 @@ import { command, deliveryTransportTimeout } from './process.mjs';
 import { requireThat, isId } from './identity.mjs';
 import {
   contextKeys,
+  targetContextKey,
   controllerProgram,
   controllerRelayProgram,
   controllerRelayArguments,
@@ -31,6 +32,8 @@ export async function relayHostCommand(operation, values, env = process.env) {
   );
   await rootOwnedPath(controllerProgram);
   const context = Object.fromEntries(contextKeys.map((key) => [key, env[key]]));
+  if (env[targetContextKey] !== undefined)
+    context[targetContextKey] = env[targetContextKey];
   const request = validateControllerRequest({
     schemaVersion: 1,
     command: operation,

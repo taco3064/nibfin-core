@@ -36,7 +36,7 @@ export async function prepareHostJobMcp({ host, runner, reader, approval }, {
   // Initial support is the independently inspected single-entry Action chain.
   requireThat(!runner.reusable &&
     !runner.wakeWorkflow, 'UNSUPPORTED_MCP_JOB_CALLER');
-  await verifyActionEntry(reader, runner.actionCommit);
+  if (!runner.target) await verifyActionEntry(reader, runner.actionCommit);
   const claim = await claimJob(host.stateRoot, runner);
   await inspectEndpoint(host.mcp);
   const copies = join(claim.directory, digest(claim.binding) + '.copies');

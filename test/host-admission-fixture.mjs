@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { runnerProviderFixture } from './runner-binding-fixture.mjs';
 import { gitBlob } from '../src/identity.mjs';
+import { callerRecipe } from '../src/caller-recipes.mjs';
 
 let root;
 let context, protectedCalls = 0, dispatches = 0;
@@ -88,6 +89,15 @@ async function scenario(kind, selected, change = () => {}, invalid = false) {
     eventRunner.reusable.commit;
   if (kind === 'wake') {
     f.run.event = 'issues';
+    const recipe = callerRecipe('issue', eventRunner.reusable.commit);
+    const callerPath = `/contents/${eventRunner.workflowPath}?ref=` +
+      eventRunner.sourceCommit;
+    eventRunner.workflowBlob = gitBlob(recipe);
+    Object.assign(f.data[callerPath], {
+      sha: eventRunner.workflowBlob,
+      content: Buffer.from(recipe).toString('base64'),
+      size: Buffer.byteLength(recipe),
+    });
     f.run.referenced_workflows = [{
       path: eventRunner.reusable.ref, sha: eventRunner.reusable.commit,
     }];

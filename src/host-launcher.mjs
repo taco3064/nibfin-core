@@ -24,6 +24,7 @@ import {
   loadHostAdoption, inspectHostAdoption, readGlobalInstructions,
 } from './host-adoption.mjs';
 import { relayHostCommand } from './host-relay.mjs';
+import { targetContextKey } from './controller-contract.mjs';
 export { rootOwnedPath } from './host-adoption.mjs';
 
 // Environment identifies candidates to read. Native job and signed OIDC checks
@@ -69,6 +70,8 @@ export async function resolveHostJob(
     nativePolicy: adopted.approval?.kind === 'repository-admission-v1',
     eventName,
   });
+  if (runner.target) requireThat(runner.actorId === runner.memberId,
+    'SHARED_DISPATCH_ACTOR_MISMATCH');
   const binding = await readRunnerBinding(reader, runner);
   return { runner, binding };
 }
@@ -145,7 +148,8 @@ export async function launchStage(issueNumber, stage, env = process.env) {
   );
   const relayed = await relayHostCommand('stage', [issueNumber, stage], env);
   if (relayed !== null) return relayed;
-  const { host, hostBytes, adopted, token, reader } = await loadHostAdoption(issueNumber);
+  const context = await loadHostAdoption(issueNumber, env[targetContextKey]);
+  const { host, hostBytes, adopted, token, reader } = context;
   const { runner, binding } = await resolveHostJob(reader, adopted, env);
   let execution = hostExecution(runner, stage === 'continue' ? 'shape' : stage);
   const caller = {
@@ -186,7 +190,7 @@ export async function launchStage(issueNumber, stage, env = process.env) {
   let mcpJob;
   try {
     const inspectWriter = async () => {
-      await inspectHostAdoption({ host, hostBytes, adopted });
+      await inspectHostAdoption(context);
       return {
         executionId: execution.id,
         writerStatus: 'exclusive',
@@ -211,7 +215,7 @@ export async function launchStage(issueNumber, stage, env = process.env) {
       });
       await privateHostDirectory(join(root, name));
     }
-    const openPr = host.openPrHandoffs?.[issueNumber];
+    const openPr = (context.targetHost ?? host).openPrHandoffs?.[issueNumber];
     const journal = new OperationJournal(join(root, 'receipts'), approval.record.issue);
     if (openPr) await journal.assertIdle();
     const evidence = evidenceBinding({ approval });

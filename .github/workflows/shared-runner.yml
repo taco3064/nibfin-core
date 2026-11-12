@@ -1,0 +1,48 @@
+name: Nibfin shared Runner
+run-name: Nibfin ${{ inputs.repository_id }} #${{ inputs.issue_number }} ${{ inputs.stage }}
+on:
+  workflow_dispatch:
+    inputs:
+      repository_id: { required: true, type: string }
+      issue_number: { required: true, type: string }
+      issue_id: { required: false, type: string }
+      stage: { required: false, type: string, default: continue }
+      wake_event: { required: false, type: string }
+permissions:
+  contents: read
+  id-token: write
+concurrency:
+  group: nibfin-shared-${{ inputs.repository_id }}-${{ inputs.issue_number }}-${{ inputs.stage == 'wake' }}
+  cancel-in-progress: false
+jobs:
+  shared-stage:
+    runs-on: [self-hosted, linux, nibfin-shared]
+    timeout-minutes: 180
+    steps:
+      - name: Run installed Core
+        working-directory: /opt/nibfin/core
+        shell: bash --noprofile --norc -e {0}
+        env:
+          NIBFIN_TARGET_REPOSITORY_ID: ${{ inputs.repository_id }}
+          NIBFIN_ISSUE: ${{ inputs.issue_number }}
+          NIBFIN_STAGE: ${{ inputs.stage }}
+        run: |
+          if [[ "$NIBFIN_STAGE" == wake ]]; then
+            set -- dispatch-event "$NIBFIN_ISSUE"
+          else
+            set -- stage "$NIBFIN_ISSUE" "$NIBFIN_STAGE"
+          fi
+          version=$(/bin/cat .node-version)
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          exec /usr/bin/env -i PATH=/usr/bin:/bin LANG=C.UTF-8 \
+            GITHUB_REPOSITORY="$GITHUB_REPOSITORY" \
+            GITHUB_RUN_ID="$GITHUB_RUN_ID" \
+            GITHUB_RUN_ATTEMPT="$GITHUB_RUN_ATTEMPT" \
+            GITHUB_EVENT_NAME="$GITHUB_EVENT_NAME" \
+            GITHUB_EVENT_PATH="$GITHUB_EVENT_PATH" \
+            RUNNER_ENVIRONMENT="$RUNNER_ENVIRONMENT" \
+            ACTIONS_ID_TOKEN_REQUEST_URL="$ACTIONS_ID_TOKEN_REQUEST_URL" \
+            ACTIONS_ID_TOKEN_REQUEST_TOKEN="$ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            NIBFIN_TARGET_REPOSITORY_ID="$NIBFIN_TARGET_REPOSITORY_ID" \
+            "/opt/nibfin/tools/node-v${version}-linux-x64/bin/node" \
+            /opt/nibfin/core/bin/nibfin-core.mjs "$@"

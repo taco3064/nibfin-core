@@ -20,6 +20,8 @@ const publicCodes = new Set([
   'RULESET_NOT_ADOPTED',
   'MEMBER_PERMISSION_REVOKED',
   'WAKE_WORKFLOW_SOURCE_CHANGED',
+  'INVALID_SHARED_WAKE_ORIGIN',
+  'SHARED_WAKE_DISPATCH_UNKNOWN',
 ]);
 const publicHttpStatuses = new Set([401, 403, 404, 429, 500, 502, 503, 504]);
 const fallbackCode = 'WAKE_RESOLUTION_FAILED';
@@ -28,7 +30,8 @@ function diagnosticCode(error) {
   try {
     if (!(error instanceof Error)) return fallbackCode;
     const code = Object.getOwnPropertyDescriptor(error, 'code')?.value;
-    if (publicCodes.has(code)) return code;
+    if (publicCodes.has(code) ||
+      /^SHARED_WAKE_HTTP_(401|403|404|422|429|5\d\d)$/.test(code ?? '')) return code;
     const status = Object.getOwnPropertyDescriptor(error, 'status')?.value;
     return publicHttpStatuses.has(status)
       ? `GITHUB_READ_HTTP_${status}`
