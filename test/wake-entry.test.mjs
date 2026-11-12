@@ -6,6 +6,7 @@ import {
   resolveIssueWake,
   dispatchIssueWake,
 } from '../src/issue-wake.mjs';
+import { callerRecipe } from '../src/caller-recipes.mjs';
 import { resolveWakeDispatch } from '../src/wake-entry.mjs';
 import { approvalProviderFixture } from './github-approval-fixture.mjs';
 import { approvalRecord, now } from './approval-fixture.mjs';
@@ -13,7 +14,7 @@ import { gitBlob } from '../src/identity.mjs';
 import { readFile } from 'node:fs/promises';
 import { spawnSync } from 'node:child_process';
 
-function fixture() {
+function fixture(kind = 'wake') {
   const record = approvalRecord();
   record.operations.push('wake');
   record.source.repository = 'taco3064/nibfin-core';
@@ -28,7 +29,7 @@ function fixture() {
     labels: [{ name: 'scope' }],
     assignees: [member],
   };
-  const body = 'Protected dispatcher caller\n';
+  const body = callerRecipe(kind, record.source.commit);
   const workflow = {
     id: 5,
     path: '.github/workflows/nibfin.yml',
@@ -255,7 +256,7 @@ test(
   'Issue events are hosted locators bound to adopted ' +
     'caller source; reruns and forks deny',
   async () => {
-    const f = fixture();
+    const f = fixture('issue');
     f.adoption.eventWorkflow = f.adoption.issues[0].workflow;
     f.invocation.eventName = 'issues';
     f.run.event = 'issues';
@@ -307,7 +308,7 @@ test('fanout preserves unknown and denied dispatch results at the CLI boundary',
 test(
   'manual closure is refused before Runner routing or ' + 'durable dispatch intent',
   async () => {
-    const f = fixture();
+    const f = fixture('issue');
     f.adoption.eventWorkflow = f.adoption.issues[0].workflow;
     f.invocation.eventName = 'issues';
     f.run.event = 'issues';

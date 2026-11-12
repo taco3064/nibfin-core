@@ -1,7 +1,8 @@
+import { isDeepStrictEqual } from 'node:util';
 import { readFile } from 'node:fs/promises';
 import { GitHubReader, repoPath } from './github-read.mjs';
 import { observeWake } from './wakeup.mjs';
-import { digest, isId, isSha, requireThat } from './identity.mjs';
+import { isId, isSha, requireThat } from './identity.mjs';
 import { readCallerSource } from './caller-source.mjs';
 
 // Adoption is supplied by the protected caller's administrator, never dispatch
@@ -91,14 +92,14 @@ export async function resolveWakeDispatch(
       kind: 'wake',
       coreCommit: adoption.coreCommit,
     });
-    return digest({
+    return {
       id: run.id,
       attempt: run.run_attempt,
       source: run.head_sha,
       actor: run.actor.id,
       workflow: run.workflow_id,
       path: run.path,
-    });
+    };
   };
   const caller = await readCaller();
   const wake = await observeWake(reader, selected, clock);
@@ -106,7 +107,7 @@ export async function resolveWakeDispatch(
     wake.issue.number === Number(inputs.issue_number),
     'WAKE_ISSUE_NUMBER_CHANGED',
   );
-  requireThat((await readCaller()) === caller, 'WAKE_CALLER_CHANGED');
+  requireThat(isDeepStrictEqual(await readCaller(), caller), 'WAKE_CALLER_CHANGED');
   return {
     status: 'resolved',
     issue_number: String(wake.issue.number),
