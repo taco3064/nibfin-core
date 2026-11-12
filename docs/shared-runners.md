@@ -24,3 +24,6 @@ repository ID, Issue number and optional stage. Omitting the stage runs
 `continue`. Core checks the live Issue in the target repository and authenticates
 the GitHub Job in the execution repository. The two Runners retain distinct
 gateway networks and work directories when they run Jobs for the same target.
+
+For local recovery of a shared Job, use the host configuration of the slot
+that ran the Job and set `NIBFIN_TARGET_REPOSITORY_ID` to the original target.

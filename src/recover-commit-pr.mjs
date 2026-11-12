@@ -13,24 +13,26 @@ import {
 import { digest, isId, isSha, requireThat } from './identity.mjs';
 import { repoPath } from './github-read.mjs';
 import { issueStatePath, privateHostDirectory } from './host-fence.mjs';
+import { targetContextKey } from './controller-contract.mjs';
 
 // This entry is invoked locally as the administrator-owned controller, using a
 // verified recovery package. The Runner's fixed sudo relay cannot invoke it.
-export async function recoverCommitPr(issueNumber, expectedHead, repositoryId) {
-  return recover(issueNumber, expectedHead, 'commit-pr', repositoryId);
+export async function recoverCommitPr(issueNumber, expectedHead) {
+  return recover(issueNumber, expectedHead, 'commit-pr');
 }
 
-export async function recoverReview(issueNumber, expectedHead, repositoryId) {
-  return recover(issueNumber, expectedHead, 'review-pr', repositoryId);
+export async function recoverReview(issueNumber, expectedHead) {
+  return recover(issueNumber, expectedHead, 'review-pr');
 }
 
-async function recover(issueNumber, expectedHead, stage, repositoryId) {
+async function recover(issueNumber, expectedHead, stage) {
   requireThat(process.getuid?.() > 0 && isSha(expectedHead), 'INVALID_RECOVERY_REQUEST');
   await rootOwnedPath(coreRoot);
   const installed = await import('/opt/nibfin/core/src/host-adoption.mjs');
   const load = coreRoot === '/opt/nibfin/core' ? loadHostAdoption :
     installed.loadHostAdoption;
-  const { host, hostBytes, adopted, reader } = await load(issueNumber, repositoryId);
+  const target = process.env[targetContextKey];
+  const { host, hostBytes, adopted, reader } = await load(issueNumber, target);
   const subject = adopted.isolation.issue;
   const issueRoot = issueStatePath(host.stateRoot, subject);
   const scopedFence = join(issueRoot, 'stage.lock');
