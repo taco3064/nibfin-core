@@ -1,5 +1,6 @@
 import { digest, isDigest, requireThat } from './identity.mjs';
 import { parseAgentResult } from './agent-result.mjs';
+import { sameCandidate } from './candidate-evidence.mjs';
 import { candidateContract } from './candidate-contract.mjs';
 import { runCandidateHooks } from './hooks.mjs';
 import { codexIdle, codexPreflightExits, idleDiagnostic } from './codex-bootstrap.mjs';
@@ -31,8 +32,7 @@ export function stageHandlers({
           return { publishedShape: context.issue.body };
         if (['accept', 'review-pr'].includes(stage))
           requireThat(
-            digest(await workspace.capture(context.shape.body)) ===
-              digest(context.candidate),
+            sameCandidate(await workspace.capture(context.shape.body), context.candidate),
             'REVIEW_CANDIDATE_CHANGED',
           );
         let candidate = context.candidate;
@@ -92,7 +92,7 @@ export function stageHandlers({
         }
         if (stage === 'deliver' && execution.retainedCandidate) {
           const candidate = await workspace.capture(context.shape.body);
-          requireThat(digest(candidate) === digest(execution.retainedCandidate),
+          requireThat(sameCandidate(candidate, execution.retainedCandidate),
             'REBASED_WORKTREE_CHANGED');
           const candidateHash = await store.put(candidate);
           return {
@@ -182,8 +182,7 @@ export function stageHandlers({
         }
         if (['accept', 'review-pr'].includes(stage)) {
           requireThat(
-            digest(await workspace.capture(context.shape.body)) ===
-              digest(context.candidate),
+            sameCandidate(await workspace.capture(context.shape.body), context.candidate),
             'REVIEW_CHANGED_CANDIDATE',
           );
           artifacts.candidateHash = digest(context.candidate);

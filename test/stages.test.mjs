@@ -155,7 +155,7 @@ test('unrelated checks and foreign test-merge parents deny merge', () => {
         c.ci.checks[0].conclusion = 'neutral';
       },
       (c) => {
-        c.ci.provenanceHash = '';
+        c.ci.checks[0].appId = 0;
       },
       (c) => {
         c.ci.testedSha = '9'.repeat(40);
@@ -256,6 +256,7 @@ test('publication uses the validated current requirements', () => {
   assert.equal(decideStage('publish-shape', c, now).code, 'SHAPE_REQUIREMENTS_CHANGED');
   const requirementsHash = digest(c.issue.body);
   c.receipts.shape.artifacts.requirementsHash = requirementsHash;
+  c.receipts.shape.requirementsBody = c.issue.body;
   c.receipts['validate-shape'].artifacts.requirementsHash = requirementsHash;
   assert.equal(decideStage('publish-shape', c, now).status, 'allowed');
   c.issue.body += ' plus a new requirement';

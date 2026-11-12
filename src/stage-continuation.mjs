@@ -1,4 +1,4 @@
-import { stages } from './stages.mjs';
+import { stages, samePublishedRequirements } from './stages.mjs';
 import { stageSuccess } from './stage-runtime.mjs';
 import { digest, isDigest, requireThat } from './identity.mjs';
 import { equivalentCandidate } from './candidate-evidence.mjs';
@@ -30,6 +30,13 @@ async function reportedReceipt(store, stage, result) {
 // This only drives the existing ordered stage contract. There is no second
 // lifecycle store: every next operation still enters StageRuntime admission.
 // The installed launcher holds its host fence across this entire call.
+async function sameShape(store, left, right) {
+  if (left === right) return true;
+  if (!left || !right) return false;
+  const [first, second] = await Promise.all([store.get(left), store.get(right)]);
+  return samePublishedRequirements(first, second);
+}
+
 async function currentReceipts(store, previous) {
   const shape = previous.shape?.artifacts?.shapeHash;
   const candidate = previous.deliver?.artifacts?.candidateHash;
@@ -39,7 +46,7 @@ async function currentReceipts(store, previous) {
   for (const stage of Object.keys(stages)) {
     const entry = previous[stage];
     const artifacts = entry?.artifacts;
-    if ((artifacts?.shapeHash && artifacts.shapeHash !== shape) ||
+    if ((artifacts?.shapeHash && !await sameShape(store, artifacts.shapeHash, shape)) ||
       (artifacts?.candidateHash && artifacts.candidateHash !== candidate &&
         (!reusable.includes(stage) || entry.outcome !== stageSuccess[stage] ||
           !await equivalentCandidate(store, snapshot, artifacts.candidateHash)))) break;
@@ -54,7 +61,8 @@ async function canReuseReview(store) {
   const published = receipts['commit-pr'];
   const delivered = receipts.deliver?.artifacts;
   if (review?.outcome !== 'approved' || published?.outcome !== 'published' ||
-    !delivered || review.artifacts.shapeHash !== delivered.shapeHash ||
+    !delivered || !await sameShape(store, review.artifacts.shapeHash,
+      delivered.shapeHash) ||
     review.artifacts.prId !== published.artifacts.prId ||
     review.artifacts.prNumber !== published.artifacts.prNumber) return false;
   return equivalentCandidate(store, await store.get(delivered.candidateHash),

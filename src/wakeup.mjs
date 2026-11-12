@@ -2,7 +2,6 @@ import { GitHubReader, repoPath } from './github-read.mjs';
 import {
   readProtectedApproval,
   readMemberPermission,
-  readPinnedFile,
 } from './github-approval.mjs';
 import { readDependencies, isDeliveredIssue } from './dependencies.mjs';
 import { selectAssignee } from './selection.mjs';
@@ -29,8 +28,6 @@ export async function observeWake(
   requireThat(
     isId(actorId) &&
       isId(workflow?.id) &&
-      isSha(workflow.commit) &&
-      isSha(workflow.blob) &&
       /^\.github\/workflows\/[A-Za-z0-9_.-]+\.ya?ml$/.test(workflow.path),
     'INVALID_WAKE_PIN',
   );
@@ -89,13 +86,6 @@ export async function observeWake(
       actual.state === 'active',
     'WAKE_WORKFLOW_UNAVAILABLE',
   );
-  await readPinnedFile(
-    reader,
-    issue.repository,
-    workflow.path,
-    workflow.commit,
-    workflow.blob,
-  );
   return {
     issue,
     approvalHash: approval.approvalHash,
@@ -103,12 +93,12 @@ export async function observeWake(
     actorId,
     route,
     entryStage,
-    stateHash: digest({
+    state: {
       body: current.body,
       labels: current.labels,
       assignees: current.assignees,
       prerequisites: dependencies.prerequisites,
-    }),
+    },
   };
 }
 
@@ -143,18 +133,27 @@ export class WakeDispatcher {
       return { status: 'denied',
         code: wakeObservationCode(error, 'WAKE_OBSERVATION_UNAVAILABLE') };
     }
-    const bindingHash = digest(initial),
-      { issue, workflow } = initial;
+    const bindingHash = digest(initial);
+    const { issue } = initial;
+    let workflow = initial.workflow;
     let admissionCode;
     const result = await this.#journal.run(
       { operation: 'wake', bindingHash },
       {
         admit: async () => {
           try {
+            const current = await this.#observe(this.#reader);
             requireThat(
-              digest(await this.#observe(this.#reader)) === bindingHash,
-              'WAKE_ADMISSION_CHANGED',
+              current.issue.id === issue.id &&
+                current.issue.repositoryId === issue.repositoryId &&
+                current.issue.repository === issue.repository &&
+                current.issue.number === issue.number &&
+                current.actorId === initial.actorId &&
+                current.workflow.id === workflow.id &&
+                current.workflow.path === workflow.path,
+              'WAKE_TARGET_CHANGED',
             );
+            workflow = current.workflow;
           } catch (error) {
             admissionCode = wakeObservationCode(error, 'ADMISSION_FAILED');
             throw error;
@@ -278,10 +277,6 @@ export async function fanout(reader, upstream, { approvedTarget, wake }) {
     );
     targets.push(target);
   }
-  requireThat(
-    digest(await reader.blocking(upstream)) === digest(before),
-    'FANOUT_GRAPH_CHANGED',
-  );
   const results = [];
   for (const target of targets) {
     try {

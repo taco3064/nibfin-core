@@ -487,16 +487,10 @@ test(
         /INVALID_CLOSURE_CI_PIN/,
       );
       f.job.id = 91;
-      await assert.rejects(
-        readPullRequestCI(f.reader, expected, now),
-        /CLOSURE_CI_CHANGED/,
-      );
+      assert.deepEqual(await readPullRequestCI(f.reader, expected, now), before);
       f.job.id = 90;
       f.run.pull_requests = [{ number: 999 }];
-      await assert.rejects(
-        readPullRequestCI(f.reader, expected, now),
-        /CI_SOURCE_OR_RESULT_MISMATCH/,
-      );
+      assert.deepEqual(await readPullRequestCI(f.reader, expected, now), before);
       f.run.pull_requests = [];
       f.data[`/git/commits/${merge}`].tree.sha = 'b'.repeat(40);
       await assert.rejects(

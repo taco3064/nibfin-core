@@ -1,7 +1,7 @@
 import { repoPath } from './github-read.mjs';
 import { digest, isId, isSha, requireThat } from './identity.mjs';
 import { readMemberPermission, readPinnedFile } from './github-approval.mjs';
-import { readCallerSource, readCallerContinuity } from './caller-source.mjs';
+import { readCallerSource } from './caller-source.mjs';
 import { wakeRecipe } from './caller-recipes.mjs';
 
 // Provider-side binding only. The caller is trusted Core, executing from an
@@ -22,7 +22,7 @@ export async function readRunnerBinding(reader, expected) {
         'workflowId',
       ].every((key) => isId(expected[key])) &&
       isSha(expected.sourceCommit) &&
-      isSha(expected.workflowBlob) &&
+      (expected.sourceAnchor !== undefined || isSha(expected.workflowBlob)) &&
       typeof expected.runnerName === 'string' &&
       expected.runnerName &&
       typeof expected.jobName === 'string' &&
@@ -62,7 +62,6 @@ export async function readRunnerBinding(reader, expected) {
   const jobPath = `${root}/actions/jobs/${expected.jobId}`;
   const runnerPath = `${root}/actions/runners/${expected.runnerId}`;
   const run = await reader.get(runPath);
-  let callerBranch;
   if (expected.sourceAnchor !== undefined) {
     const pin = {
       commit: expected.sourceAnchor,
@@ -72,7 +71,6 @@ export async function readRunnerBinding(reader, expected) {
     const branch = await reader.get(
       `${root}/branches/${encodeURIComponent(repository.default_branch)}`,
     );
-    callerBranch = branch;
     requireThat(branch.protected === true, 'CALLER_BRANCH_UNPROTECTED');
     const recipe =
       expected.actionCommit !== undefined
@@ -90,7 +88,7 @@ export async function readRunnerBinding(reader, expected) {
               }
             : undefined;
     await readCallerSource(reader, expected.repository, pin, run.head_sha, recipe);
-    await readCallerContinuity(reader, expected.repository, pin, branch.commit?.sha);
+    await readCallerSource(reader, expected.repository, pin, branch.commit?.sha, recipe);
   }
   requireThat(
     run?.id === expected.runId &&
@@ -150,7 +148,7 @@ export async function readRunnerBinding(reader, expected) {
       workflow.state === 'active',
     'WORKFLOW_DISABLED_OR_CHANGED',
   );
-  await readPinnedFile(
+  if (expected.sourceAnchor === undefined) await readPinnedFile(
     reader,
     expected.repository,
     expected.workflowPath,
@@ -200,24 +198,24 @@ export async function readRunnerBinding(reader, expected) {
   // Member authorization is independent of workflow initiator and routing label.
   requireThat(expected.member?.id === expected.memberId, 'MEMBER_BINDING_MISMATCH');
   await readMemberPermission(reader, expected.repository, expected.member);
+  const [latestRun, latestJob, latestRunner, latestWorkflow] = await Promise.all([
+    reader.get(runPath), reader.get(jobPath), reader.get(runnerPath),
+    reader.get(workflowPath),
+  ]);
   requireThat(
-    digest(await reader.get(runPath)) === digest(run) &&
-      digest(await reader.get(jobPath)) === digest(job) &&
-      digest(await reader.get(runnerPath)) === digest(runner) &&
-      digest(await reader.get(workflowPath)) === digest(workflow) &&
+    latestRun.id === run.id && latestRun.run_attempt === run.run_attempt &&
+      latestRun.status === run.status && latestRun.head_sha === run.head_sha &&
+      latestJob.id === job.id && latestJob.run_id === job.run_id &&
+      latestJob.run_attempt === job.run_attempt && latestJob.status === job.status &&
+      latestJob.runner_id === job.runner_id &&
+      latestRunner.id === runner.id && latestRunner.status === runner.status &&
+      latestRunner.busy === runner.busy &&
+      latestWorkflow.id === workflow.id && latestWorkflow.path === workflow.path &&
+      latestWorkflow.state === workflow.state &&
       (await reader.repository(expected.repository)).default_branch ===
         repository.default_branch,
     'RUNNER_BINDING_CHANGED_DURING_READ',
   );
-  if (callerBranch)
-    requireThat(
-      digest(
-        await reader.get(
-          `${root}/branches/${encodeURIComponent(repository.default_branch)}`,
-        ),
-      ) === digest(callerBranch),
-      'CALLER_BRANCH_CHANGED',
-    );
   return {
     repositoryId: expected.repositoryId,
     runId: run.id,
@@ -230,6 +228,7 @@ export async function readRunnerBinding(reader, expected) {
     memberId: expected.memberId,
     sourceCommit: expected.sourceCommit,
     workflowBlob: expected.workflowBlob,
-    observationHash: digest({ run, job, runner, workflow }),
+    observationHash: digest({ run: run.id, attempt: run.run_attempt, job: job.id,
+      runner: runner.id, workflow: workflow.id }),
   };
 }

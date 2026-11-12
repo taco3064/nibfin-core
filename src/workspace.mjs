@@ -14,7 +14,7 @@ import { dirname, join, resolve } from 'node:path';
 import { command } from './process.mjs';
 import { digest, sha256, isDigest, isSha, requireThat } from './identity.mjs';
 import { validateIssueIdentity } from './approval-record.mjs';
-import { candidateContentHash } from './candidate-evidence.mjs';
+import { sameCandidate, sameCandidateChanges } from './candidate-evidence.mjs';
 import { safeCandidatePath, candidateContract } from './candidate-contract.mjs';
 
 // Selective workspace adaptation: Core owns the bare repository outside the
@@ -145,7 +145,7 @@ export class CandidateWorkspace {
     requireThat(isSha(base), 'INVALID_WORKSPACE_BASE');
     await this.#command(['read-tree', base]);
     const modified = await this.#command([
-      'diff', '--name-only', '--no-ext-diff', '--no-textconv', base, '--',
+      'diff', '--name-only', '--no-ext-diff', '--no-textconv', pin.parent, '--',
     ]);
     const untracked = await this.#command(['ls-files', '--others', '-z']);
     requireThat(modified.length === 0 && untracked.length === 0,
@@ -160,7 +160,14 @@ export class CandidateWorkspace {
     await this.#command(['read-tree', '-m', '-u', base, pin.head]);
     await writeFile(basePath, pin.parent, { mode: 0o600 });
     const candidate = await this.capture(shapeBody);
-    requireThat(digest(candidate) === pin.candidateHash, 'OPEN_PR_CANDIDATE_MISMATCH');
+    if (digest(candidate) !== pin.candidateHash) {
+      const { changes, ...snapshot } = candidate;
+      const diff = await this.#command([
+        'diff', '--cached', '--binary', '--no-ext-diff', '--no-textconv', base, '--',
+      ]);
+      requireThat(digest({ ...snapshot, diffHash: sha256(diff) }) === pin.candidateHash,
+        'OPEN_PR_CANDIDATE_MISMATCH');
+    }
     return candidate;
   }
   async clearIgnoredDependencies(shapeBody) {
@@ -313,15 +320,9 @@ export class CandidateWorkspace {
     await this.#command(['update-index', '-z', '--index-info'], index.join(''));
     const tree = (await this.#command(['write-tree'])).toString().trim();
     requireThat(isSha(tree), 'INVALID_TREE_IDENTITY');
-    const diff = await this.#command([
-      'diff',
-      '--cached',
-      '--binary',
-      '--no-ext-diff',
-      '--no-textconv',
-      base,
-      '--',
-    ]);
+    const changes = (await this.#command([
+      'diff', '--cached', '--raw', '--no-abbrev', '--no-renames', '-z', base, '--',
+    ])).toString();
     const paths = (
       await this.#command(['diff', '--cached', '--name-only', '-z', base, '--'])
     )
@@ -363,7 +364,7 @@ export class CandidateWorkspace {
       issueId: this.#issue.id,
       base,
       tree,
-      diffHash: sha256(diff),
+      changes,
       paths,
       obligations,
       artifacts: await manifest(obligations.artifacts),
@@ -373,7 +374,7 @@ export class CandidateWorkspace {
   async rebase(candidate, shapeBody, latestMain, timestamp) {
     requireThat(isSha(latestMain), 'INVALID_REBASE_TARGET');
     requireThat(
-      digest(await this.capture(shapeBody)) === digest(candidate),
+      sameCandidate(await this.capture(shapeBody), candidate),
       'REBASE_CANDIDATE_CHANGED',
     );
     if (candidate.base === latestMain) return { status: 'unchanged', candidate };
@@ -500,8 +501,7 @@ export class CandidateWorkspace {
       'REBASED_WORKTREE_CHANGED',
     );
     await unlink(join(this.#root, 'rebase.json'));
-    const contentChanged =
-      candidateContentHash(candidate) !== candidateContentHash(state.original);
+    const contentChanged = !sameCandidateChanges(candidate, state.original);
     return { status: 'rebased', head, candidate, contentChanged };
   }
   async hookBaseline() {
@@ -552,7 +552,7 @@ export class CandidateWorkspace {
   }
   async commit(candidate, shapeBody, timestamp) {
     requireThat(
-      digest(await this.capture(shapeBody)) === digest(candidate),
+      sameCandidate(await this.capture(shapeBody), candidate),
       'CANDIDATE_CHANGED_AFTER_ACCEPT',
     );
     requireThat(

@@ -194,7 +194,7 @@ async function assertCorrectionContinues(failedStage, failure) {
       assert.deepEqual(findings, rejected ? failure : undefined);
       const candidate = {
         repository: 'example/core', repositoryId: 10, issueId: 'I_target',
-        diffHash: String(++revision).repeat(64), paths: ['src/example.mjs'],
+        changes: String(++revision), paths: ['src/example.mjs'],
         obligations: { artifacts: [], hooks: [] }, artifacts: [], hookSources: [],
       };
       candidateHash = digest(candidate);
@@ -238,7 +238,7 @@ test('unchanged rebase retains hooks, Accept and Final Review evidence', async (
   const shapeHash = 'a'.repeat(64);
   const old = { base: '1'.repeat(40), tree: '2'.repeat(40),
     repository: 'example/core', repositoryId: 10, issueId: 'I_target',
-    diffHash: 'b'.repeat(64), paths: ['src/example.mjs'],
+    changes: 'changed path', paths: ['src/example.mjs'],
     obligations: { artifacts: [], hooks: [] }, artifacts: [], hookSources: [] };
   const rebased = { ...old, base: '3'.repeat(40), tree: '4'.repeat(40) };
   const candidateHash = digest(old), nextHash = digest(rebased);

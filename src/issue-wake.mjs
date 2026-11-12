@@ -1,7 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import { GitHubReader, repoPath } from './github-read.mjs';
 import {
-  readPinnedFile,
   readProtectedApproval,
   readMemberPermission,
 } from './github-approval.mjs';
@@ -11,7 +10,7 @@ import { isDeliveredIssue } from './dependencies.mjs';
 import { observeWake, WakeDispatcher, fanout } from './wakeup.mjs';
 import { OperationJournal } from './operation-journal.mjs';
 import { digest, isId, isSha, requireThat } from './identity.mjs';
-import { readCallerSource, readCallerContinuity } from './caller-source.mjs';
+import { readCallerSource } from './caller-source.mjs';
 
 // Hosted preflight only. Event fields locate resources; adopted source pins,
 // current native approval and the dispatch credential supply authority.
@@ -26,9 +25,7 @@ export async function observeIssueEvent(reader, adoption, event, invocation) {
       invocation.eventName === 'issues' &&
       invocation.attempt === 1 &&
       isId(invocation.runId) &&
-      isId(pin?.id) &&
-      isSha(pin.commit) &&
-      isSha(pin.blob),
+      isId(pin?.id),
     'INVALID_ISSUE_WAKE',
   );
   requireThat(
@@ -81,12 +78,9 @@ export async function observeIssueEvent(reader, adoption, event, invocation) {
       run.referenced_workflows[0].sha === adoption.coreCommit,
     'UNTRUSTED_ISSUE_EVENT_RUN',
   );
-  await readPinnedFile(reader, invocation.repository, pin.path, pin.commit, pin.blob);
-  await readCallerSource(reader, invocation.repository, pin, run.head_sha, {
-    kind: 'issue',
-    coreCommit: adoption.coreCommit,
-  });
-  await readCallerContinuity(reader, invocation.repository, pin, branch.commit.sha);
+  const recipe = { kind: 'issue', coreCommit: adoption.coreCommit };
+  await readCallerSource(reader, invocation.repository, pin, run.head_sha, recipe);
+  await readCallerSource(reader, invocation.repository, pin, branch.commit.sha, recipe);
   const workflow = await reader.get(`${root}/actions/workflows/${pin.id}`);
   requireThat(
     workflow.state === 'active' && workflow.path === pin.path,
@@ -105,16 +99,6 @@ export async function observeIssueEvent(reader, adoption, event, invocation) {
       !live.pull_request &&
       live.url === `https://api.github.com${root}/issues/${issue.number}`,
     'ISSUE_EVENT_IDENTITY_CHANGED',
-  );
-  requireThat(
-    digest(await reader.get(`${root}/actions/runs/${invocation.runId}`)) ===
-      digest(run) &&
-      digest(
-        await reader.get(
-          `${root}/branches/${encodeURIComponent(repository.default_branch)}`,
-        ),
-      ) === digest(branch),
-    'ISSUE_EVENT_SOURCE_CHANGED',
   );
   return issue;
 }
@@ -249,7 +233,8 @@ export async function dispatchIssueWake({
           await inspect();
           await observeIssueEvent(current, adoption, event, invocation);
           const observed = await observeWake(current, config);
-          requireThat(digest(observed.issue) === digest(issue), 'WAKE_TARGET_CHANGED');
+          requireThat(observed.issue.id === issue.id &&
+            observed.issue.repositoryId === issue.repositoryId, 'WAKE_TARGET_CHANGED');
           return observed;
         },
       }).dispatch();

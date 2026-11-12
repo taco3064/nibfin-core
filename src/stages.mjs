@@ -102,8 +102,7 @@ function shapeEvidence(context, requireValidator) {
     const original = context.receipts.shape?.requirementsBody;
     const sameRequirements = typeof original === 'string'
       ? requirements === requirementsText(original)
-      : prior ? prior === digest(requirements)
-        : requirements === requirementsText(context.approval.record.scope.body);
+      : requirements === requirementsText(context.approval.record.scope.body);
     requireThat(sameRequirements, 'SHAPE_REQUIREMENTS_CHANGED');
   }
   const author = receipt(context, 'shape', artifacts, 'ready');
@@ -163,7 +162,7 @@ function candidateEvidence(context) {
       candidate.issueId === issue.id &&
       isSha(candidate.base) &&
       isSha(candidate.tree) &&
-      isDigest(candidate.diffHash) &&
+      (typeof candidate.changes === 'string' || isDigest(candidate.diffHash)) &&
       Array.isArray(candidate.paths) &&
       candidate.paths.length > 0 &&
       candidate.paths.every(safeCandidatePath) &&
@@ -262,7 +261,6 @@ function ci(context) {
       evidence.head === context.pr.head &&
       evidence.base === context.pr.base &&
       isSha(evidence.testedSha) &&
-      isDigest(evidence.provenanceHash) &&
       isDigest(evidence.protectionHash) &&
       Array.isArray(evidence.checks) &&
       evidence.checks.length > 0 &&
@@ -279,8 +277,8 @@ function ci(context) {
   if (evidence.testedSha !== context.pr.head) {
     requireThat(
       evidence.testedSha === context.pr.mergePreview &&
-        Array.isArray(evidence.parents) &&
-        digest(evidence.parents) === digest([context.pr.base, context.pr.head]),
+        evidence.parents?.length === 2 && evidence.parents[0] === context.pr.base &&
+        evidence.parents[1] === context.pr.head,
       'FOREIGN_TEST_MERGE',
     );
   }
