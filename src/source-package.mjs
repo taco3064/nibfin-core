@@ -12,6 +12,9 @@ export const includesPackagePath = (path) =>
   [
     'scripts/package-ci.mjs',
     'scripts/release-ci.mjs',
+    'scripts/host-auto-rollout.py',
+    'scripts/nibfin-rollout.service',
+    'scripts/nibfin-rollout.timer',
     'package.json',
     'package-lock.json',
     '.node-version',
