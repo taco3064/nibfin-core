@@ -29,7 +29,9 @@ mock.module('../src/github-approval.mjs', { namedExports: {
     },
   }),
 } });
+const hostRead = await import('../src/github-host-read.mjs');
 mock.module('../src/github-host-read.mjs', { namedExports: {
+  ...hostRead,
   hostMainReader: () => async () => ({ head: 'a'.repeat(40) }),
 } });
 mock.module('../src/workspace.mjs', { namedExports: {
@@ -164,7 +166,8 @@ async function scenario(kind, selected, change = () => {}, invalid = false) {
     if (!invalid) throw error;
     if (bootFailure) assert.equal(error.code, 'BOOT_OBSERVATION_UNAVAILABLE');
   }
-  assert.equal(protectedCalls, kind === 'stage' && !invalid ? 1 : 0);
+  assert.equal(protectedCalls, kind === 'stage' && !invalid ? 1 : 0,
+    JSON.stringify(result));
   assert.equal(dispatches, kind === 'wake' && !invalid ? 1 : 0);
   if (!invalid) {
     assert.equal(await readSelectedHost(f.reader, f.expected), before);
