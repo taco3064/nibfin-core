@@ -150,9 +150,9 @@ function issueIdentity(issue, expected) {
 
 // Read history twice around current Issue reads. Pagination failure, churn or
 // inconsistent current label membership can never manufacture a clear result.
-export async function observePause(reader, expected, decisions = []) {
+export async function observePause(reader, expected, decisions = [], options = {}) {
   try {
-    const repository = await reader.repository(expected.repository);
+    const repository = options.repository ?? await reader.repository(expected.repository);
     requireThat(
       repository.id === expected.repositoryId &&
         repository.full_name === expected.repository &&
@@ -180,6 +180,7 @@ export async function observePause(reader, expected, decisions = []) {
       observationHash: digest({ issue: expected, current: after, repository, events }),
     };
   } catch (error) {
+    if (options.propagateTransient && error.transientGitHubRead === true) throw error;
     return { status: 'pending', code: error.code ?? 'PAUSE_OBSERVATION_UNKNOWN' };
   }
 }

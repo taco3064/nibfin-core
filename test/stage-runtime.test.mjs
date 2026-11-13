@@ -272,6 +272,24 @@ test('pause observation changes between stage admission reads prevent execution'
     if (++reads > 1) value.pause.observationHash = 'b'.repeat(64);
     return value;
   };
-  assert.notEqual((await new StageRuntime(f.adapters).run(request)).status, 'completed');
+    const result = await new StageRuntime(f.adapters).run(request);
+    assert.equal(result.code, 'PAUSE_OBSERVATION_CHANGED');
   assert.equal(f.performed(), 0);
+});
+
+test('a rate-limited second admission waits before starting the role', async t => {
+  const f = await fixture(t);
+  let reads = 0;
+  f.adapters.observe = async () => {
+    if (++reads === 2) throw Object.assign(new Error('Limited'), {
+      status: 403, transientGitHubRead: true, retryAfter: '120',
+    });
+    return structuredClone(f.context);
+  };
+  const result = await new StageRuntime(f.adapters).run(request);
+  assert.equal(result.status, 'pending');
+  assert.equal(result.code, 'GITHUB_READ_RETRY_PENDING');
+  assert.equal(result.retryAfterMs, 120000);
+  assert.equal(f.performed(), 0);
+  assert.equal(f.saved.length, 0);
 });

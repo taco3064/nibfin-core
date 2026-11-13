@@ -83,7 +83,7 @@ export class StageRuntime {
     const decision = decideStage(stage, context, this.#clock());
     if (decision.status !== 'allowed') return decision;
     const frozenContextHash = digest(context);
-    let result, receiptHash, receipt, admissionError;
+    let result, receiptHash, receipt, admissionError, freshDenial;
     try {
       const outcome = await this.#journal.run(
         { operation: decision.operation, bindingHash: decision.requestHash },
@@ -96,13 +96,14 @@ export class StageRuntime {
                 digest(observation.pause ?? null) === digest(context.pause ?? null),
                 'PAUSE_OBSERVATION_CHANGED');
               fresh = decideStage(stage, observation, this.#clock());
+              if (fresh.status !== 'allowed') freshDenial = fresh;
               if (stage === 'merge' && fresh.status === 'allowed' &&
                 fresh.requestHash !== decision.requestHash) throw new MergeBeforeWrite();
+              requireThat(
+                fresh.status === 'allowed' && fresh.requestHash === decision.requestHash,
+                'ADMISSION_CHANGED',
+              );
             } catch (error) { admissionError = error; throw error; }
-            requireThat(
-              fresh.status === 'allowed' && fresh.requestHash === decision.requestHash,
-              'ADMISSION_CHANGED',
-            );
             return fresh.requestHash;
           },
           perform: async () => {
@@ -169,10 +170,17 @@ export class StageRuntime {
       const waiting = githubReadWait(admissionError, this.#clock());
       if (waiting && outcome.code === 'ADMISSION_FAILED')
         return { schemaVersion: 1, stage, ...waiting };
+      if (outcome.code === 'ADMISSION_FAILED' && freshDenial) return freshDenial;
       if (pendingObservation(admissionError?.code) ||
         integrationRepairRequired(admissionError?.code)) {
         return { schemaVersion: 1, stage, code: admissionError.code,
           status: pendingObservation(admissionError.code) ? 'pending' : 'denied' };
+      }
+      if (outcome.code === 'ADMISSION_FAILED' && admissionError) {
+        const code = admissionError.code;
+        const changed = ['PAUSE_OBSERVATION_CHANGED', 'ADMISSION_CHANGED'];
+        return { schemaVersion: 1, stage, status: 'denied',
+          code: changed.includes(code) ? code : observationFailureCode(admissionError) };
       }
       if (outcome.status !== 'completed') return { schemaVersion: 1, stage, ...outcome };
       const knownInterruption = result?.code === codexIdle.code ||
