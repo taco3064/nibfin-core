@@ -1,3 +1,5 @@
+<img src="website/public/apple-touch-icon.png" alt="Nibfin logo" width="112" height="112">
+
 # Nibfin Core
 
 Core delivery engine, Skills, and reusable workflows for Nibfin.
