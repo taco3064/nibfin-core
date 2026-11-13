@@ -30,6 +30,7 @@ ISSUE = ".github/workflows/nibfin-issue.yml"
 WAKE = ".github/workflows/nibfin-wake.yml"
 SHARED = ".github/workflows/shared-runner.yml"
 RATE_WAIT = Path("/run/nibfin-rollout-rate-limit")
+LAST_PR_CLEANUP = Path("/run/nibfin-rollout-pr-cleanup")
 ENV = {"PATH": "/usr/local/bin:/usr/bin:/bin", "LANG": "C", "GH_PROMPT_DISABLED": "1"}
 
 
@@ -54,9 +55,9 @@ class RateLimited(RuntimeError):
     pass
 
 
-def api(path):
+def api(path, *options):
     response = subprocess.run(
-        ("/usr/bin/gh", "api", "--include", path),
+        ("/usr/bin/gh", "api", "--include", path, *options),
         env={**ENV, "GH_TOKEN": github_token}, capture_output=True, timeout=90,
     )
     headers, _, body = response.stdout.replace(b"\r\n", b"\n").partition(b"\n\n")
@@ -210,6 +211,88 @@ def read_consumer(repo, config, pins):
     return base, pr
 
 
+def close_superseded_rollouts(core):
+    superseded = {}
+    for repo in HOSTS:
+        pull_requests = []
+        page = 1
+        while True:
+            query = f"state=open&base=main&per_page=100&page={page}"
+            batch = api(f"repos/{repo}/pulls?{query}")
+            pull_requests.extend(batch)
+            if len(batch) < 100:
+                break
+            page += 1
+        for pr in pull_requests:
+            close_superseded_pr(repo, pr, core, superseded)
+
+
+def close_superseded_pr(repo, pr, core, superseded):
+    branch = pr["head"]["ref"]
+    match = re.fullmatch(r"cd/(consumers|action)-([a-f0-9]{12})(-[a-f0-9]{12})?",
+                         branch)
+    head_repo = pr["head"]["repo"]
+    if not match or not head_repo or head_repo["full_name"] != repo:
+        return
+    kind, prefix, action_suffix = match.groups()
+    if prefix == core[:12] or (kind == "consumers") != bool(action_suffix):
+        return
+    if kind == "action" and repo != ACTION:
+        return
+    if pr["title"] != f"Prepare Core {prefix} rollout" or not re.fullmatch(
+        r"Core CD run \d+\. Consumer merge waits for the safe host stop\.",
+        pr["body"] or "",
+    ):
+        return
+
+    path = f"repos/{repo}/pulls/{pr['number']}"
+    commits = api(f"{path}/commits?per_page=2")
+    if len(commits) != 1 or commits[0]["sha"] != pr["head"]["sha"]:
+        return
+    commit = commits[0]["commit"]
+    subject = re.fullmatch(r"Prepare Core ([a-f0-9]{40}) rollout\s*", commit["message"])
+    if not subject or not subject[1].startswith(prefix) or commit["author"]["email"] != (
+        "nibfin-cd@users.noreply.github.com"
+    ):
+        return
+    previous = subject[1]
+    if previous not in superseded:
+        comparison = api(f"repos/{CORE}/compare/{previous}...{core}")
+        superseded[previous] = (comparison["status"] == "ahead" and
+                                comparison["merge_base_commit"]["sha"] == previous)
+    if not superseded[previous]:
+        return
+
+    allowed = {"core-source.json"} if kind == "action" else {PIN_PATH, ISSUE, WAKE}
+    if kind == "consumers" and repo.endswith("/gh-nibfin"):
+        allowed.add("internal/cli/producers.json")
+    files = api(f"{path}/files?per_page={len(allowed) + 1}")
+    if not files or not all(pin_only_change(file, allowed) for file in files):
+        return
+    current = api(path)
+    if (current["state"] == "open" and current["head"]["sha"] == pr["head"]["sha"]
+            and current["title"] == pr["title"] and current["body"] == pr["body"]):
+        api(path, "--method", "PATCH", "-f", "state=closed")
+        print(f"Closed superseded rollout {repo}#{pr['number']}", flush=True)
+
+
+def pin_only_change(file, allowed):
+    if (file["filename"] not in allowed or file["status"] != "modified"
+            or not file.get("patch")):
+        return False
+    changed = [line[1:].strip() for line in file["patch"].splitlines()
+               if line.startswith(("+", "-"))]
+    if len(changed) != file["additions"] + file["deletions"]:
+        return False
+    if file["filename"].endswith(".yml"):
+        pin = r'(?:core_commit: |# Core source: )?[a-f0-9]{40}"?'
+    else:
+        pin = (r'"(?:commit|archiveHash|manifestHash|digest)": '
+               r'"(?:sha256:)?[a-f0-9]+",?|"id": \d+,?')
+    return (file["additions"] == file["deletions"] and bool(changed) and
+            all(re.fullmatch(pin, line) for line in changed))
+
+
 def host_fenced(hosts):
     roots = {Path(config["stateRoot"]) for config in hosts.values()}
     return any((path / "stage.lock").exists() or any(path.glob("issue-*/stage.lock"))
@@ -302,8 +385,13 @@ def stage_package(pins, artifacts):
 
 def rollout(hosts, selected):
     run_id, pins, artifacts = selected
-    if not (CONFIG / "rollout-plan.json").exists() and not idle(hosts):
-        print(f"CD {run_id} waiting for Runners, queued Jobs or unresolved executions")
+    plan = CONFIG / "rollout-plan.json"
+    cleanup_done = LAST_PR_CLEANUP.exists() and json.loads(
+        LAST_PR_CLEANUP.read_text()
+    ) == run_id
+    waiting = f"CD {run_id} waiting for Runners, queued Jobs or unresolved executions"
+    if cleanup_done and not plan.exists() and not idle(hosts):
+        print(waiting)
         return
     core, action = pins["core"]["commit"], pins["action"]["commit"]
     action_main = main_sha(ACTION)
@@ -316,16 +404,27 @@ def rollout(hosts, selected):
     if any(pr is False for _, pr in consumers.values()):
         print(f"CD {run_id} waiting for consumer PR checks and mergeability")
         return
+    if not plan.exists() and not cleanup_done:
+        try:
+            close_superseded_rollouts(core)
+        except RateLimited:
+            raise
+        except (RuntimeError, KeyError, OSError, ValueError,
+                subprocess.TimeoutExpired) as error:
+            print(f"CD {run_id} rollout PR cleanup failed: {error}", file=sys.stderr)
+        write_config(LAST_PR_CLEANUP, run_id)
+        if not idle(hosts):
+            print(waiting)
+            return
     source = stage_package(pins, artifacts)
     services = [f"{repo.split('/')[1]}-runner.service" for repo in hosts]
-    plan = CONFIG / "rollout-plan.json"
     wanted = {"pin": pins["core"], "actionCommit": action}
     stopped = plan.exists() and json.loads(plan.read_text()) == wanted and all(
         run("systemctl", "show", "-p", "ActiveState", "--value", service).strip()
         == b"inactive" for service in services
     )
     if not stopped and not idle(hosts):
-        print(f"CD {run_id} waiting for Runners, queued Jobs or unresolved executions")
+        print(waiting)
         return
     if not stopped:
         write_config(plan, wanted)
@@ -383,8 +482,6 @@ def main():
         if time.time() < json.loads(RATE_WAIT.read_text()):
             return
         RATE_WAIT.unlink()
-    if host_fenced(hosts) and not (CONFIG / "rollout-plan.json").exists():
-        return
     github_token = Path(hosts[CORE]["tokenFile"]).read_text().strip()
     require(bool(github_token), "Host GitHub credential is missing")
     current = hosts[CORE]["installation"]["pin"]["commit"]
