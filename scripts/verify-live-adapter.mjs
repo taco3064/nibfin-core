@@ -86,7 +86,9 @@ try {
     await mkdir(request[key], { mode: 0o700 });
   }
   request.auth = join(root, 'original-auth.json');
-  await writeFile(request.auth, '{}', { mode: 0o600 });
+  // An empty object can be reported as logged in by the CLI.
+  const invalidLogin = 'null';
+  await writeFile(request.auth, invalidLogin, { mode: 0o600 });
   const content = 'Synthetic adapter verification; no inference permitted.';
   request.plan = codexPlan('shape', {
     model: 'probe-only',
@@ -101,7 +103,7 @@ try {
   assert.equal(proof.stdout, 'NIBFIN_PROBE_PASSED\n');
   assert.equal(proof.policyHash, request.plan.policyHash);
   assert.equal((await stat(request.auth)).mode & 0o777, 0o600);
-  assert.equal(await readFile(request.auth, 'utf8'), '{}');
+  assert.equal(await readFile(request.auth, 'utf8'), invalidLogin);
   assert.ok(!(await readdir(root)).some((name) => name.startsWith('agent-auth-')));
   assert.equal(
     (await docker(['ps', '-aq', '--filter', 'name=nibfin-agent-'])).stdout
