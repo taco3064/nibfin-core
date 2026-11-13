@@ -9,7 +9,11 @@ const run = {
   status: 'completed', conclusion: 'failure', event: 'workflow_dispatch',
   actor: { id: 3 },
 };
-const marker = '2026-11-13T00:00:00Z NIBFIN_SAFE_GITHUB_RETRY 2 1 60000';
+const marker = '2026-11-13T00:00:00Z ' + JSON.stringify({
+  schemaVersion: 1, status: 'pending', code: 'GITHUB_READ_RETRY_PENDING',
+  stage: 'continue', retrySettled: true, retryRun: 2, retryAttempt: 1,
+  retryAfterMs: 60000,
+});
 
 test('retry marker binds the settled result to this run and attempt', () => {
   assert.equal(retryDelay(marker, 2, 1), 60000);

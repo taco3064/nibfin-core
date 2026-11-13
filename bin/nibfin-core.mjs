@@ -94,14 +94,6 @@ async function main(args) {
 main(process.argv.slice(2))
   .then((result) => {
     process.stdout.write(JSON.stringify(result) + '\n');
-    if (result.retrySettled && Number.isSafeInteger(result.retryRun) &&
-      Number.isSafeInteger(result.retryAttempt) &&
-      Number.isSafeInteger(result.retryAfterMs)) {
-      process.stdout.write(
-        `NIBFIN_SAFE_GITHUB_RETRY ${result.retryRun} ${result.retryAttempt} ` +
-        `${result.retryAfterMs}\n`,
-      );
-    }
     if (result.status === 'denied') process.exitCode = 1;
     if (result.status === 'pending') process.exitCode = 2;
   })
