@@ -44,8 +44,10 @@ test('only the proven privileged direct parent can carry socket groups', async (
   assert.equal(guard.pid, 41);
   guard.verifyStatus(files.get('/proc/41/status'));
   await guard.check();
-  // An identical simultaneous monitor is still forbidden to the Runner scan.
-  assert.throws(() => verifyRunnerProcess(files.get('/proc/41/status'), 997, 986));
+  const monitor = files.get('/proc/41/status');
+  verifyRunnerProcess(monitor, 997, 986);
+  const mixed = monitor.replace('Uid:\t997\t0\t0\t0', 'Uid:\t997\t0\t997\t0');
+  assert.throws(() => verifyRunnerProcess(mixed, 997, 986));
 });
 
 test('argv cannot substitute for privileged identity or exact groups', async () => {
