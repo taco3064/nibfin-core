@@ -1,3 +1,4 @@
+import { releaseVersion } from './release-version.mjs';
 import { repoPath } from './github-read.mjs';
 import { digest, isSha, isDigest, isId, sha256, requireThat } from './identity.mjs';
 
@@ -11,9 +12,13 @@ export function releaseAssets(built) {
       built.sha256 === sha256(built.bytes),
     'INVALID_RELEASE_BUILD',
   );
+  if (built.manifest.releaseVersion !== undefined)
+    releaseVersion(built.manifest.releaseVersion);
   const pin = {
     repository: built.manifest.repository,
     commit: built.manifest.commit,
+    ...(built.manifest.releaseVersion === undefined
+      ? {} : { releaseVersion: built.manifest.releaseVersion }),
     archiveHash: built.sha256,
     manifestHash: built.manifestHash,
   };
