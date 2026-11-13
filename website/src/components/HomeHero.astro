@@ -1,6 +1,6 @@
 ---
 import DefaultHero from '@astrojs/starlight/components/Hero.astro';
-import { Button } from './ui/button';
+import { ButtonLink } from './ui/button';
 
 const { entry } = Astro.locals.starlightRoute;
 const hero = entry.data.hero;
@@ -23,14 +23,11 @@ const hero = entry.data.hero;
       </div>
       <div class="actions flex flex-wrap">
         {hero.actions.map(({ link, text, variant }) => (
-          <Button
-            asChild
-            size="lg"
-            className="h-auto min-h-11 whitespace-normal border-solid px-4"
+          <ButtonLink
+            href={link}
+            label={text}
             variant={variant === 'secondary' ? 'outline' : 'default'}
-          >
-            <a href={link}>{text}</a>
-          </Button>
+          />
         ))}
       </div>
     </div>
