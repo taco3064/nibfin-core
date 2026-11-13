@@ -95,7 +95,8 @@ async function connectGuest(path, port, guest, signal) {
     } catch (error) {
       socket.destroy();
       if (!['ENOENT', 'ECONNREFUSED'].includes(error.code) &&
-        error.message !== 'JOB_VM_CHANNEL_CLOSED') throw error;
+        !['JOB_VM_CHANNEL_CLOSED', 'JOB_VM_HANDSHAKE_TIMEOUT'].includes(error.message))
+        throw error;
       await delay(100, undefined, { signal });
     } finally {
       signal.removeEventListener('abort', abort);
@@ -129,7 +130,7 @@ export async function runJobVm({ executable, kernel, rootDisk, stateRoot, memory
     await writeFile(config, JSON.stringify({
       'boot-source': {
         kernel_image_path: kernel,
-        boot_args: 'console=ttyS0 reboot=k panic=1 pci=off root=/dev/vda rw',
+        boot_args: 'quiet console=ttyS0 reboot=k panic=1 pci=off root=/dev/vda rw',
       },
       drives: [{
         drive_id: 'root', path_on_host: disk, is_root_device: true, is_read_only: false,

@@ -26,7 +26,10 @@ export async function openJobVmExecRelay(path, connect) {
   });
   await new Promise((resolve, reject) => {
     server.once('error', reject);
-    server.listen(path, resolve);
+    server.listen(path, () => {
+      server.removeListener('error', reject);
+      resolve();
+    });
   });
   const close = async () => {
     for (const socket of sessions) socket.destroy();
