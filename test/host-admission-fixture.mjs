@@ -1,6 +1,6 @@
 import { mock } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { runnerProviderFixture } from './runner-binding-fixture.mjs';
@@ -19,11 +19,24 @@ mock.module('../src/host-adoption.mjs', { namedExports: {
 const approval = await import('../src/github-approval.mjs');
 mock.module('../src/github-approval.mjs', { namedExports: {
   ...approval, readProtectedApproval: async () => ({
-    approvalHash: 'same', record: {
-      issue: { id: 'I_target', number: 2 },
+    approvalHash: 'same', scopeBinding: 'a'.repeat(64),
+    repository: { id: 10, full_name: 'example/core', default_branch: 'main',
+      private: false },
+    record: {
+      issue: { id: 'I_target', number: 2, repository: 'example/core',
+        repositoryId: 10 },
       roles: { author: 2, publisher: 2 }, operations: ['wake'],
     },
   }),
+} });
+mock.module('../src/github-host-read.mjs', { namedExports: {
+  hostMainReader: () => async () => ({ head: 'a'.repeat(40) }),
+} });
+mock.module('../src/workspace.mjs', { namedExports: {
+  CandidateWorkspace: class {
+    constructor(directory) { this.work = join(directory, 'work'); }
+    async prepare() { await mkdir(this.work); }
+  },
 } });
 const actions = await import('../src/actions-identity.mjs');
 mock.module('../src/actions-identity.mjs', { namedExports: {
@@ -74,6 +87,7 @@ const { launchStage, readSelectedHost } = await import('../src/host-launcher.mjs
 const { launchIssueWake } = await import('../src/host-issue-wake.mjs');
 
 async function scenario(kind, selected, change = () => {}, invalid = false) {
+  root = await mkdtemp(join(rootBase, 'scenario-'));
   const f = runnerProviderFixture();
   if (selected === 41) {
     f.expected.runnerId = f.runner.id = f.job.runner_id = 41;
@@ -158,8 +172,8 @@ async function scenario(kind, selected, change = () => {}, invalid = false) {
   }
 }
 
+const rootBase = await mkdtemp(join(tmpdir(), 'nibfin-admission-'));
 try {
-  root = await mkdtemp(join(tmpdir(), 'nibfin-admission-'));
   for (const kind of ['stage', 'wake']) {
     for (const selected of [40, 41]) {
       await scenario(kind, selected);
@@ -192,5 +206,5 @@ try {
   console.log('Both launcher paths: multi-host admission and rejection passed.');
 } finally {
   mock.restoreAll();
-  await rm(root, { recursive: true, force: true });
+  await rm(rootBase, { recursive: true, force: true });
 }
