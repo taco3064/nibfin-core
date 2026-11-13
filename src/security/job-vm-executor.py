@@ -19,7 +19,7 @@ MAX_TREE = 64 * 1024 * 1024
 MAX_FILE = 16 * 1024 * 1024
 MAX_ENTRIES = 10000
 CODEX = "/usr/local/bin/codex"
-ROOTS = ("work", "main", "input", "session")
+ROOTS = ("work", "main", "input")
 ENV = {
     "HOME": "/tmp/tool-home",
     "PATH": "/opt/nibfin/project/bin:/usr/local/bin:/usr/bin:/bin",
@@ -94,12 +94,14 @@ def workspace(client):
     try:
         request = json.loads(frame)
         if request["operation"] == "prepare":
-            for name in ROOTS:
-                root = Path("/") / name
-                if root.exists():
-                    shutil.rmtree(root)
-                root.mkdir()
-                restore(root, request["trees"].get(name, []))
+            name = request["name"]
+            if name not in ROOTS:
+                raise ValueError("Unsupported workspace root")
+            root = Path("/") / name
+            if root.exists():
+                shutil.rmtree(root)
+            root.mkdir()
+            restore(root, request["files"])
             Path(ENV["HOME"]).mkdir(parents=True, exist_ok=True)
             result = {"ready": True}
         elif request["operation"] == "collect":
@@ -139,5 +141,6 @@ def listen(port, handler):
 
 if __name__ == "__main__":
     os.umask(0o077)
+    Path("/session").mkdir(exist_ok=True)
     threading.Thread(target=listen, args=(EXEC_PORT, execute), daemon=True).start()
     listen(WORKSPACE_PORT, workspace)

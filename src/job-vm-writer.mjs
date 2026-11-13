@@ -30,12 +30,11 @@ export async function runJobVmWriter(config, input, execute) {
     const { result, files } = await runJobVm(config, {
       signal, log, async useGuest(connect, directory) {
         const request = payload => transfer(connect, payload, signal);
-        const trees = {};
         for (const name of ['work', 'main', 'input']) {
-          trees[name] = await snapshotJobVmWorkspace(input[name]);
+          const files = await snapshotJobVmWorkspace(input[name]);
+          const setup = await request({ operation: 'prepare', name, files });
+          requireThat(setup?.ready === true, 'JOB_VM_WORKSPACE_TRANSFER_FAILED');
         }
-        const setup = await request({ operation: 'prepare', trees });
-        requireThat(setup?.ready === true, 'JOB_VM_WORKSPACE_TRANSFER_FAILED');
         const relay = join(directory, 'exec.sock');
         const close = await openJobVmExecRelay(relay, connect);
         try {
@@ -49,7 +48,7 @@ export async function runJobVmWriter(config, input, execute) {
       },
     });
     if (files) await installJobVmWorkspace(input.work, files);
-    return { ...result };
+    return result;
   } finally {
     process.off('SIGTERM', cancel);
     process.off('SIGINT', cancel);
