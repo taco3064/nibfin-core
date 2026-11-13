@@ -11,6 +11,7 @@ import { verifyInstalledSource } from './source-package.mjs';
 
 const coreRoot = '/opt/nibfin/core';
 const planPath = '/etc/nibfin/rollout-plan.json';
+const e2eHost = 'host.nibfin-e2e.json';
 const repositories = [
   ['nibfin-core', 'host.json'],
   ['nibfin-act', 'host.nibfin-act.json'],
@@ -47,6 +48,42 @@ export function validateRolloutHost(repository, current, next, pin, source, acti
     next.repository.eventCaller?.reusable?.commit === pin.commit &&
     digest(next.sharedRunner ?? null) === digest(current.sharedRunner ?? null),
   'ROLLOUT_HOST_BINDING_MISMATCH');
+}
+
+export function validateE2eRollout(next, primary, source) {
+  const config = next.repository;
+  const { reusable, ...runner } = config?.eventRunner ?? {};
+  const event = config?.eventRunner;
+  const approval = config?.approval;
+  const repository = 'taco3064/nibfin-e2e';
+  const core = source.commit;
+  requireThat(
+    ['schemaVersion', 'kind', 'uid', 'memberId', 'stateRoot', 'tokenFile', 'authFile']
+      .every(key => next[key] === primary[key]) &&
+      digest(next.installation) === digest(primary.installation) &&
+      next.runnerId === primary.sharedRunner?.runner?.runnerId &&
+      approval?.kind === 'repository-admission-v1' &&
+      approval.repository === repository && approval.memberId === primary.memberId &&
+      approval.repositoryId === 1445256917 &&
+      digest(approval.source) === digest(source) &&
+      event?.repository === repository && event.repositoryId === approval.repositoryId &&
+      event.runnerId === next.runnerId && event.memberId === next.memberId &&
+      event.workflowPath === '.github/workflows/nibfin-issue.yml' &&
+      reusable?.commit === core && next.repository.eventCaller?.eventName === 'issues' &&
+      digest(config.runner) === digest(runner) &&
+      digest(config.isolation) === digest(primary.repository.isolation) &&
+      Object.keys(next.issues ?? {}).length === 0,
+    'ROLLOUT_E2E_BINDING_MISMATCH',
+  );
+  return approval.repositoryId;
+}
+
+async function readOptionalHost(path) {
+  try { return await readTrusted(path); }
+  catch (error) {
+    if (error.code === 'ENOENT') return null;
+    throw error;
+  }
 }
 
 async function requireMissing(path, code) {
@@ -91,7 +128,23 @@ async function promoteLockedHost() {
       plan.pin, source, plan.actionCommit);
     return { repository, name, path, current, next };
   }));
-  const oldPin = hosts[0].current.value.installation.pin;
+  const primary = hosts[0];
+  const e2ePath = join('/etc/nibfin', e2eHost);
+  const e2e = await readOptionalHost(join(stagedConfig, e2eHost));
+  const currentE2e = await readOptionalHost(e2ePath);
+  requireThat(e2e || !currentE2e, 'ROLLOUT_E2E_CONFIGURATION_MISSING');
+  const targets = [...hosts];
+  if (e2e) {
+    const id = validateE2eRollout(e2e.value, primary.next.value, source);
+    const { sharedRunner } = primary.next.value;
+    sharedRunner.repositories = [...new Set([...sharedRunner.repositories, id])];
+    primary.next.value.wakePeerFiles = [
+      ...new Set([...primary.next.value.wakePeerFiles, e2ePath]),
+    ];
+    primary.next.bytes = JSON.stringify(primary.next.value);
+    targets.push({ path: e2ePath, current: currentE2e, next: e2e });
+  }
+  const oldPin = primary.current.value.installation.pin;
   requireThat(hosts.every(host => digest(host.current.value.installation.pin) ===
     digest(oldPin)), 'ROLLOUT_EXISTING_HOSTS_DIVERGED');
   const agentProfiles = hosts.map(host => host.next.value.repository.isolation.agent);
@@ -134,22 +187,25 @@ async function promoteLockedHost() {
   try {
     await rename(staged, coreRoot);
     stagedIsLive = true;
-    for (const host of hosts) {
+    for (const host of targets) {
       await replace(host.path, host.next.bytes);
       changed.push(host);
     }
     await verifyInstalledSource(coreRoot, plan.pin);
-    for (const host of hosts) {
+    for (const host of targets) {
       requireThat((await readTrusted(host.path)).bytes === host.next.bytes,
         'ROLLOUT_HOST_READBACK_MISMATCH');
     }
   } catch (error) {
-    for (const host of changed.reverse()) await replace(host.path, host.current.bytes);
+    for (const host of changed.reverse()) {
+      if (host.current) await replace(host.path, host.current.bytes);
+      else await unlink(host.path);
+    }
     if (stagedIsLive) await rename(coreRoot, staged);
     await rename(backup, coreRoot);
     throw error;
   }
   return { status: 'installed', source, actionCommit: plan.actionCommit,
-    repositories: repositories.map(([repository]) => `taco3064/${repository}`),
+    repositories: targets.map(host => host.next.value.repository.runner.repository),
     backup };
 }

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { validateRolloutHost } from '../src/host-rollout.mjs';
+import { validateE2eRollout, validateRolloutHost } from '../src/host-rollout.mjs';
 
 const pin = { repository: 'taco3064/nibfin-core', commit: 'a'.repeat(40) };
 const source = { repository: pin.repository, commit: pin.commit };
@@ -31,4 +31,29 @@ test('host promotion requires the same Core and Action for all bindings', () => 
       { ...next, tokenFile: '/other' }, pin, source, action),
     { code: 'ROLLOUT_HOST_BINDING_MISMATCH' });
   }
+});
+
+test('E2E adoption binds the shared host and verified Issue caller', () => {
+  const primary = staged('nibfin-core');
+  primary.sharedRunner = { runner: { runnerId: primary.runnerId } };
+  primary.repository.isolation = { kind: 'linux-rootful-docker-v1' };
+  const repository = 'taco3064/nibfin-e2e';
+  const repositoryId = 1445256917;
+  const runner = { repository, repositoryId, runnerId: primary.runnerId,
+    memberId: primary.memberId, workflowPath: '.github/workflows/nibfin-issue.yml' };
+  const next = { ...primary, issues: {}, repository: {
+    runner,
+    approval: { kind: 'repository-admission-v1', repository, repositoryId,
+      memberId: primary.memberId, source },
+    eventRunner: { ...runner, reusable: { commit: pin.commit } },
+    eventCaller: { eventName: 'issues' },
+    isolation: primary.repository.isolation,
+  } };
+  assert.equal(validateE2eRollout(next, primary, source), repositoryId);
+  const wrong = structuredClone(next);
+  wrong.repository.eventRunner.reusable.commit = 'c'.repeat(40);
+  assert.throws(() => validateE2eRollout(wrong, primary, source),
+    { code: 'ROLLOUT_E2E_BINDING_MISMATCH' });
+  assert.throws(() => validateE2eRollout({ ...next, tokenFile: '/other' },
+    primary, source), { code: 'ROLLOUT_E2E_BINDING_MISMATCH' });
 });

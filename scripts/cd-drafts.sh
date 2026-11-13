@@ -47,6 +47,11 @@ prepare() {
     git switch -c "$branch"
     if [[ "$kind" == action ]]; then
       cp "$work/core-source.json" core-source.json
+    elif [[ "$repo" == nibfin-e2e ]]; then
+      jq -er --arg core "$core" '
+        .issue | join("\n") | rtrimstr("\n") | gsub("CORE_COMMIT"; $core)
+      ' \
+        "$work/caller-recipes.json" > .github/workflows/nibfin-issue.yml
     else
       old_core=$(jq -er '.core.commit' .nibfin/producer-pins.json)
       old_action=$(jq -er '.action.commit' .nibfin/producer-pins.json)
@@ -124,7 +129,9 @@ if [[ -z "$action" ]]; then
   prepare nibfin-act action
 else
   consumer_pins
-  for repo in nibfin-core nibfin-act gh-nibfin; do
+  gh api "repos/$GITHUB_REPOSITORY/contents/src/caller-recipes.json?ref=$core" \
+    -H "Accept: application/vnd.github.raw+json" > "$work/caller-recipes.json"
+  for repo in nibfin-core nibfin-act gh-nibfin nibfin-e2e; do
     prepare "$repo" consumers
   done
   if [[ "$automatic" == true ]]; then
