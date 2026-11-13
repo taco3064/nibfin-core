@@ -9,7 +9,7 @@ export async function checkDocs(directory = 'website') {
   const load = (path) => readFile(join(directory, path), 'utf8');
   const checklist = JSON.parse(await load('evidence/checklist.json'));
   // This audit owns onboarding; neighboring guides have their own checks.
-  const pages = ['index.md', 'getting-started.md', 'installation.md',
+  const pages = ['index.mdx', 'getting-started.md', 'installation.md',
     'cli.md', 'runners.md'];
   assert.deepEqual(Object.keys(checklist.pages).sort(), [...pages].sort(),
     'Onboarding audit inventory changed');

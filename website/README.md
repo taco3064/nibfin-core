@@ -45,7 +45,7 @@ exact final PR head. See THEME.md for the rendered test matrix.
 
 Edit English Markdown/MDX in `website/src/content/docs/`. Every document needs a
 `title` in frontmatter. Starlight owns routing and search; `src/content.config.ts`
-uses its loader/schema. `index.md` maps to the selected base index;
+uses its loader/schema. `index.mdx` maps to the selected base index;
 `guides/start.md` maps to `<base>guides/start/`. Configure the sidebar in
 `website/navigation.mjs` using content slugs such as `index` or `guides/start`.
 Astro generates `.astro/` metadata and `dist/` static
