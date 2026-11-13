@@ -50,7 +50,10 @@ for (const theme of ['light', 'dark']) {
       await expect(actions).toHaveCount(2);
       await expect(actions.first()).toHaveClass(/\bbg-primary\b/);
       await expect(actions.last()).toHaveClass(/\bborder-border\b/);
-      await expect(page.locator('.nf-delivery-steps > li')).toHaveCount(3);
+      const steps = page.locator('.nf-delivery-steps > li');
+      await expect(steps).toHaveCount(3);
+      await expect(steps.first()).toHaveCSS('border-left-width', '0px');
+      await expect(steps.first()).toHaveCSS('border-top-width', '1px');
       const boxes = [];
       for (const action of await actions.all()) {
         await tabTo(page, action);
