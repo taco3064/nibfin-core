@@ -127,6 +127,10 @@ idle. During promotion it updates the E2E caller on `main` and registers E2E
 with the Core shared Runner pool. No separate E2E Runner registration is needed.
 To check routing after promotion, follow an E2E Issue event to the Core shared
 Runner wake, then check the linked stage run for the expected Issue and role.
+On a two-Runner host, check the enrollment in the configuration each Runner
+sees. A Runner service can bind a repository-specific file to
+`/etc/nibfin/host.json`. Each view used by the shared pool needs the E2E peer
+file and its repository ID in the shared Runner allowlist.
 
 Core prepares the Issue workspace from freshly read main, keeping Git metadata
 outside the Agent mount. Later stages reuse that workspace and receipts; they
