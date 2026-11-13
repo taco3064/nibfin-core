@@ -211,6 +211,8 @@ export async function readPullRequestCI(reader, expected, now = Date.now(), obse
     sources = [];
   let testedSha, unsuccessfulRun = false;
   const runsBySuite = new Map();
+  const jobsByRun = new Map();
+  const checkedRuns = new Map();
   for (const pin of workflows) {
     const onMerge = mergeChecks.filter(
       (check) => check.name === pin.context && check.app?.id === pin.appId,
@@ -280,10 +282,11 @@ export async function readPullRequestCI(reader, expected, now = Date.now(), obse
             ),
         'CI_SOURCE_OR_RESULT_MISMATCH',
       );
-      const jobs = await reader.list(
-        `${root}/actions/runs/${run.id}/attempts/${run.run_attempt}/jobs`,
-        'jobs',
-      );
+      const attempt = `${run.id}/attempts/${run.run_attempt}`;
+      if (!jobsByRun.has(attempt)) jobsByRun.set(attempt, await reader.list(
+        `${root}/actions/runs/${attempt}/jobs`, 'jobs',
+      ));
+      const jobs = jobsByRun.get(attempt);
       const matchingJobs = jobs.filter(
         (job) =>
           job.check_run_url === `https://api.github.com${root}/check-runs/${check.id}`,
@@ -312,15 +315,8 @@ export async function readPullRequestCI(reader, expected, now = Date.now(), obse
       requireThat([expected.head, previewSha].includes(actualSha) &&
         (testedSha === undefined || testedSha === actualSha), 'MIXED_CHECKOUT_TARGETS');
       testedSha = actualSha;
-      const fresh = await reader.get(`${root}/actions/runs/${run.id}`);
-      requireThat(
-        fresh.run_attempt === run.run_attempt &&
-          fresh.status === 'completed' &&
-          fresh.conclusion === run.conclusion &&
-          fresh.head_sha === expected.head &&
-          fresh.check_suite_id === run.check_suite_id,
-        'CI_RERUN_OR_REVOCATION',
-      );
+      checkedRuns.set(run.id, run);
+      if (failed) await verifyCurrentRun(reader, root, run, expected.head);
       if (failed) {
         requireThat(candidates.length === 1, 'MISSING_OR_AMBIGUOUS_REQUIRED_CHECK');
         requireThat(
@@ -352,6 +348,8 @@ export async function readPullRequestCI(reader, expected, now = Date.now(), obse
     checks.push(matches[0]);
   }
   requireThat(!unsuccessfulRun, 'CI_SOURCE_OR_RESULT_MISMATCH');
+  for (const run of checkedRuns.values())
+    await verifyCurrentRun(reader, root, run, expected.head);
   if (!nativePolicy) requireThat(pr.mergeable_state === 'clean', 'CI_PR_NOT_ELIGIBLE');
   const currentProtection = nativePolicy ? null : await readProtection(
     reader, expected.repository, pr.base.ref, expected.ruleset,
@@ -390,4 +388,11 @@ export async function readPullRequestCI(reader, expected, now = Date.now(), obse
     } : {}),
   };
   return evidence;
+}
+
+async function verifyCurrentRun(reader, root, run, head) {
+  const fresh = await reader.get(`${root}/actions/runs/${run.id}`);
+  requireThat(fresh.run_attempt === run.run_attempt && fresh.status === 'completed' &&
+    fresh.conclusion === run.conclusion && fresh.head_sha === head &&
+    fresh.check_suite_id === run.check_suite_id, 'CI_RERUN_OR_REVOCATION');
 }

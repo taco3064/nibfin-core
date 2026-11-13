@@ -39,7 +39,8 @@ export async function readRepositoryApproval(reader, pin, now) {
   const issue = { id, number, repository, repositoryId };
   validateIssueIdentity(issue);
   requireThat(isId(memberId), 'INVALID_REPOSITORY_ADMISSION');
-  const [repo, live] = await Promise.all([
+  const grouped = await reader.admissionIssue?.(issue);
+  const [repo, live] = grouped ? [grouped.repository, grouped.issue] : await Promise.all([
     reader.repository(repository), reader.issue(issue),
   ]);
   requireThat(
@@ -55,7 +56,7 @@ export async function readRepositoryApproval(reader, pin, now) {
       ['open', 'closed'].includes(live.state),
     'WAKE_TARGET_NOT_READY',
   );
-  const prerequisites = await readPrerequisites(reader, issue);
+  const prerequisites = grouped?.prerequisites ?? await readPrerequisites(reader, issue);
   const record = validateApprovalRecord({
     schemaVersion: 1,
     issue,
@@ -71,6 +72,8 @@ export async function readRepositoryApproval(reader, pin, now) {
   return {
     record,
     repository: repo,
+    // Pause's before/after comparison uses matching REST representations.
+    issue: grouped ? undefined : live,
     // Publishing Shape rewrites the Issue body. Stage-specific requirements
     // checks still use current content. Keep local receipts addressable.
     scopeBinding: digest(issue),

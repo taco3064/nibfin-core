@@ -45,10 +45,14 @@ export function nativeObserver({
       ? await new OperationJournal(pinned.pauseJournalRoot, record.issue).pauseEvidence()
       : { decisions: [], pending: false };
     const pause = await observePause(reader, record.issue, pauseEvidence.decisions, {
-      repository: approval.repository, propagateTransient: true,
+      repository: approval.repository, issue: approval.issue, propagateTransient: true,
     });
     if (pauseEvidence.pending) pause.status = 'pending';
-    const observed = await readDependencies(reader, record.issue, record.prerequisites);
+    const observed = await readDependencies(reader, record.issue, record.prerequisites, {
+      repository: approval.repository, issue: pause.current,
+    });
+    requireThat(!nativePolicy || observed.issue.body === record.scope.body,
+      'ISSUE_REQUIREMENTS_CHANGED_DURING_READ');
     requireThat(observed.ready, 'PREREQUISITES_NOT_READY');
     const route = await selectAssignee(observed.issue, async (user) => {
       if (user.id !== record.roles.writer) return false;
@@ -68,21 +72,6 @@ export function nativeObserver({
       route && route.userId === pinned.runner.memberId,
       'ASSIGNEE_RUNNER_BINDING_CHANGED',
     );
-    const runner = await readRunnerBinding(reader, pinned.runner);
-    const caller = await inspectCaller(runner);
-    requireThat(
-      caller?.repositoryId === runner.repositoryId &&
-        caller.runId === runner.runId &&
-        caller.attempt === runner.attempt &&
-        caller.checkRunId === runner.checkRunId &&
-        caller.actorId === runner.actorId &&
-        caller.sourceCommit === runner.sourceCommit &&
-        caller.expiresAt > clock() &&
-        isDigest(caller.identityHash),
-      'AUTHENTICATED_CALLER_REQUIRED',
-    );
-    const source = await inspectSource();
-    requireThat(digest(source) === digest(record.source), 'INSTALLED_SOURCE_CHANGED');
     const stateBinding = pinned.stateBinding;
     const store = stores(evidenceBinding({ approval, stateBinding })),
       receipts = await store.load();
@@ -98,8 +87,6 @@ export function nativeObserver({
         : { status: 'pending', code: 'PAUSE_OBSERVATION_CHANGED' },
       dependencies: { ready: true, identities: record.prerequisites },
       route,
-      runner,
-      source,
       receipts,
       execution: actor,
     };
@@ -235,6 +222,24 @@ export function nativeObserver({
         });
       }
     }
+    // A pending CI observation needs no Runner or isolation check. Any stage
+    // which can proceed still revalidates both before the journal admits it.
+    const runner = await readRunnerBinding(reader, pinned.runner);
+    const caller = await inspectCaller(runner);
+    requireThat(
+      caller?.repositoryId === runner.repositoryId &&
+        caller.runId === runner.runId &&
+        caller.attempt === runner.attempt &&
+        caller.checkRunId === runner.checkRunId &&
+        caller.actorId === runner.actorId &&
+        caller.sourceCommit === runner.sourceCommit &&
+        caller.expiresAt > clock() &&
+        isDigest(caller.identityHash),
+      'AUTHENTICATED_CALLER_REQUIRED',
+    );
+    const source = await inspectSource();
+    requireThat(digest(source) === digest(record.source), 'INSTALLED_SOURCE_CHANGED');
+    Object.assign(context, { runner, source });
     context.isolation = await inspectIsolation(stage, {
       issue: record.issue,
       execution: actor,

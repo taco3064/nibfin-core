@@ -4,7 +4,8 @@ import { issuePath } from './github-read.mjs';
 // Manual bootstrap gates are not normal protected-delivery prerequisites.
 export function isDeliveredIssue(issue) {
   return issue?.state === 'closed' && Array.isArray(issue.labels) &&
-    ['scope', 'shaped', 'delivered'].every(name => issue.labels.some(label => label?.name === name));
+    ['scope', 'shaped', 'delivered'].every(name =>
+      issue.labels.some(label => label?.name === name));
 }
 
 function identity(issue) {
@@ -15,15 +16,17 @@ function identity(issue) {
   issuePath(issue);
 }
 
-async function readIssue(reader, issue) {
+async function readIssue(reader, issue, observed = {}) {
   identity(issue);
-  const repository = await reader.repository(issue.repository);
-  if (repository.id !== issue.repositoryId || repository.full_name !== issue.repository || repository.private !== false) {
+  const repository = observed.repository ?? await reader.repository(issue.repository);
+  if (repository.id !== issue.repositoryId ||
+      repository.full_name !== issue.repository || repository.private !== false) {
     throw new Error('Public repository identity changed or is inaccessible');
   }
-  const remote = await reader.issue(issue);
-  if (remote.node_id !== issue.id || remote.number !== issue.number || remote.pull_request ||
-      remote.url !== `https://api.github.com${issuePath(issue)}` || !['open', 'closed'].includes(remote.state)) {
+  const remote = observed.issue ?? await reader.issue(issue);
+  if (remote.node_id !== issue.id || remote.number !== issue.number ||
+      remote.pull_request || remote.url !== `https://api.github.com${issuePath(issue)}` ||
+      !['open', 'closed'].includes(remote.state)) {
     throw new Error('Issue identity changed or is inaccessible');
   }
   return remote;
@@ -34,30 +37,39 @@ function edgesMatch(edges, expected) {
   const ids = edges.map(edge => edge.node_id);
   return new Set(ids).size === ids.length && expected.every(item => {
     const edge = edges.find(value => value.node_id === item.id);
-    return edge?.number === item.number && !edge.pull_request && edge.url === `https://api.github.com${issuePath(item)}`;
+    return edge?.number === item.number && !edge.pull_request &&
+      edge.url === `https://api.github.com${issuePath(item)}`;
   });
 }
 
 // expected is the approved original dependency identity, never a stored live graph.
 // This result is an observation only; execution still requires Core authorization.
-export async function readDependencies(reader, issue, expected) {
+export async function readDependencies(reader, issue, expected, observed) {
   identity(issue);
-  if (!Array.isArray(expected)) throw new Error('Approved prerequisite identities required');
+  if (!Array.isArray(expected))
+    throw new Error('Approved prerequisite identities required');
   expected.forEach(identity);
-  if (new Set(expected.map(item => item.id)).size !== expected.length || expected.some(item => item.id === issue.id)) {
+  if (new Set(expected.map(item => item.id)).size !== expected.length ||
+      expected.some(item => item.id === issue.id)) {
     throw new Error('Duplicate or self prerequisite');
   }
-  const current = await readIssue(reader, issue);
+  const current = await readIssue(reader, issue, observed);
   if (current.state !== 'open') throw new Error('Target Issue is not open');
   const before = await reader.blockedBy(issue);
-  if (!edgesMatch(before, expected)) throw new Error('Native Blocked by differs from approved prerequisites');
+  if (!edgesMatch(before, expected))
+    throw new Error('Native Blocked by differs from approved prerequisites');
   const prerequisites = [];
   for (const item of expected) {
-    const remote = await readIssue(reader, item);
-    prerequisites.push({ ...item, state: remote.state, completed: isDeliveredIssue(remote) });
+    const repository = item.repository === issue.repository
+      ? observed?.repository : undefined;
+    const remote = await readIssue(reader, item, { repository });
+    prerequisites.push({ ...item, state: remote.state,
+      completed: isDeliveredIssue(remote) });
   }
   // A graph change during cross-repository reads must not yield eligibility.
   const after = await reader.blockedBy(issue);
-  if (!edgesMatch(after, expected)) throw new Error('Native Blocked by changed during observation');
-  return { issue: current, prerequisites, ready: prerequisites.every(item => item.completed) };
+  if (!edgesMatch(after, expected))
+    throw new Error('Native Blocked by changed during observation');
+  return { issue: current, prerequisites,
+    ready: prerequisites.every(item => item.completed) };
 }
