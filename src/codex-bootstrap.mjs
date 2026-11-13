@@ -60,7 +60,7 @@ for (const path of paths) {
 }
 const net = require('node:net');
 const socket = net.connect({host: process.argv[1], port: 3128});
-socket.once('connect', () => process.exit(43));
+socket.once('connect', () => process.argv[3] === 'vm' ? passed() : process.exit(43));
 const passed = () => {
   fs.writeSync(1, 'NIBFIN_PROBE_PASSED\\n');
   process.exit(0);
@@ -70,12 +70,13 @@ setTimeout(() => { socket.destroy(); passed(); }, 1500);
 `;
 
 // Both bootstrap and real CLI diagnostics use these exact argument recipes.
-export function sandboxProbeArguments(plan, proxyHost, controllerPid) {
+export function sandboxProbeArguments(plan, proxyHost, controllerPid, jobVm = false) {
   return [
     ...plan.settings, 'sandbox', '--permissions-profile', 'nibfin',
     '--include-managed-config', '--cd', '/tmp/tool-home', '--',
     '/usr/local/bin/node', '-e', denialProbe, proxyHost,
     ...(controllerPid === undefined ? [] : [String(controllerPid)]),
+    ...(jobVm ? ['vm'] : []),
   ];
 }
 
@@ -215,7 +216,7 @@ export async function bootstrap() {
       setting.replace('"/work" = "write"', '"/work" = "read"') : setting),
   } : plan;
   const probe = await runCodex(
-    sandboxProbeArguments(probePlan, proxyHost, process.pid), {
+    sandboxProbeArguments(probePlan, proxyHost, process.pid, jobVm), {
     environment: { ...process.env, HOME: '/tmp/tool-home' },
   }).catch(error => {
     throw new Error('SANDBOX_PROBE_FAILED', { cause: error });
