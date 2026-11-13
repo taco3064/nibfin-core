@@ -18,6 +18,7 @@ from pathlib import Path
 
 CORE = "taco3064/nibfin-core"
 ACTION = "taco3064/nibfin-act"
+E2E = "taco3064/nibfin-e2e"
 CONFIG = Path("/etc/nibfin")
 INSTALL = Path("/opt/nibfin")
 CLI = INSTALL / "core/bin/nibfin-core.mjs"
@@ -27,6 +28,7 @@ HOSTS = {
     ACTION: "host.nibfin-act.json",
     "taco3064/gh-nibfin": "host.gh-nibfin.json",
 }
+E2E_HOST = "host.nibfin-e2e.json"
 PIN_PATH = ".nibfin/producer-pins.json"
 ISSUE = ".github/workflows/nibfin-issue.yml"
 WAKE = ".github/workflows/nibfin-wake.yml"
@@ -93,7 +95,9 @@ def content(repo, path, commit):
 
 
 def artifact(artifacts, name, files):
-    matches = [item for item in artifacts if item["name"] == name and not item["expired"]]
+    matches = [
+        item for item in artifacts if item["name"] == name and not item["expired"]
+    ]
     require(len(matches) == 1, f"Expected one unexpired {name} artifact")
     item = matches[0]
     require(0 < item["size_in_bytes"] < 40 * 1024 * 1024, "Artifact size out of bounds")
@@ -145,6 +149,8 @@ def next_rollout(current, target=None):
 
 
 def consumer_workflows(repo, base):
+    if repo == E2E:
+        return (ISSUE,)
     if repo == CORE:
         workflows = api(f"repos/{repo}/contents/.github/workflows?ref={base}")
         if not any(item["path"] == WAKE for item in workflows):
@@ -152,8 +158,15 @@ def consumer_workflows(repo, base):
     return ISSUE, WAKE
 
 
+def e2e_issue_recipe(commit):
+    raw, _ = content(CORE, "src/caller-recipes.json", commit)
+    return "\n".join(json.loads(raw)["issue"]).replace("CORE_COMMIT", commit).encode()
+
+
 def replacements(repo, config, pins, base, workflows):
     core, action = pins["core"]["commit"], pins["action"]["commit"]
+    if repo == E2E:
+        return {ISSUE: e2e_issue_recipe(core)}
     previous = config["repository"]["runner"]
     old_core, old_action = previous["actionCoreCommit"], previous["actionCommit"]
     versions = ((ISSUE, (old_core, core)), (WAKE, (old_core, core),
@@ -177,10 +190,12 @@ def replacements(repo, config, pins, base, workflows):
 def read_consumer(repo, config, pins):
     base = main_sha(repo)
     workflows = consumer_workflows(repo, base)
-    existing = json.loads(content(repo, PIN_PATH, base)[0])
     core, action = pins["core"]["commit"], pins["action"]["commit"]
     expected = {k: pins[k] for k in ("core", "action", "artifact")}
-    if existing == expected:
+    if repo == E2E:
+        if content(repo, ISSUE, base)[0] == e2e_issue_recipe(core):
+            return base, None
+    elif json.loads(content(repo, PIN_PATH, base)[0]) == expected:
         for path, ids in ((ISSUE, [core]), (WAKE, [core, action])):
             if path not in workflows:
                 continue
@@ -203,7 +218,8 @@ def read_consumer(repo, config, pins):
             f"{repo} rollout PR contains unexpected changes")
     for path, expected in files.items():
         value, _ = content(repo, path, pr["headRefOid"])
-        require((value if isinstance(expected, bytes) else json.loads(value)) == expected,
+        actual = value if isinstance(expected, bytes) else json.loads(value)
+        require(actual == expected,
                 f"{repo} rollout PR changed {path} unexpectedly")
     checks = pr["statusCheckRollup"]
     if not checks or pr["mergeStateStatus"] != "CLEAN" or not all(
@@ -215,7 +231,7 @@ def read_consumer(repo, config, pins):
 
 def close_superseded_rollouts(core):
     superseded = {}
-    for repo in HOSTS:
+    for repo in (*HOSTS, E2E):
         pull_requests = []
         page = 1
         while True:
@@ -317,6 +333,13 @@ def idle(hosts, include_queued=True):
         require(runner is not None, f"{repo} adopted Runner is missing")
         if runner["busy"]:
             return False
+        additional = config.get("sharedRunner", {}).get("additionalRunner")
+        if additional:
+            match = next((r for r in runners if r["id"] == additional["id"]), None)
+            require(match and match["name"] == additional["name"],
+                    "Additional shared Runner is missing")
+            if match["busy"]:
+                return False
         workflows = [(repo, path) for path in consumer_workflows(repo, "main")]
         if shared:
             workflows.append((runner_repo, SHARED))
@@ -385,6 +408,54 @@ def stage_package(pins, artifacts):
         return result["source"]
 
 
+def configure_e2e(host, base, pins, source, issue_blob):
+    """Bind the Issue caller to the shared pool through the verified rollout."""
+    repo = api(f"repos/{E2E}")
+    require(repo["full_name"] == E2E and not repo["private"] and
+            repo["default_branch"] == "main", "Unexpected E2E repository")
+    repository_id = repo["id"]
+    branch = api(f"repos/{E2E}/branches/main")
+    require(branch["protected"] and branch["commit"]["sha"] == base,
+            "E2E main changed or is unprotected")
+    protection = api(f"repos/{E2E}/branches/main/protection/required_status_checks")
+    require({"context": "verify", "app_id": 15368} in protection["checks"],
+            "E2E verify is not required")
+    event = api(f"repos/{E2E}/actions/workflows/nibfin-issue.yml")
+    require(event["path"] == ISSUE and event["state"] == "active",
+            "E2E Issue workflow is unavailable")
+    caller, blob = content(E2E, ISSUE, base)
+    core = pins["core"]["commit"]
+    require(caller == e2e_issue_recipe(core), "E2E Issue caller differs from Core recipe")
+    primary = host["sharedRunner"]["runner"]
+    runner = {
+        "repository": E2E, "repositoryId": repository_id,
+        "runnerId": primary["runnerId"], "runnerName": primary["runnerName"],
+        "memberId": host["memberId"], "workflowId": event["id"],
+        "workflowPath": ISSUE, "sourceCommit": base, "workflowBlob": blob,
+    }
+    path = ".github/workflows/issue.yml"
+    ref = f"{CORE}/{path}@{core}"
+    config = {key: host[key] for key in (
+        "schemaVersion", "kind", "uid", "memberId", "installation",
+        "stateRoot", "tokenFile", "authFile",
+    )}
+    config.update(runnerId=runner["runnerId"], issues={})
+    config["repository"] = {
+        "approval": {"kind": "repository-admission-v1", "repository": E2E,
+                     "repositoryId": repository_id, "memberId": host["memberId"],
+                     "source": source},
+        "runner": runner,
+        "eventRunner": {**runner, "reusable": {
+            "repository": CORE, "path": path, "commit": core, "ref": ref,
+            "blob": issue_blob,
+        }},
+        "eventCaller": {"eventName": "issues", "reusable": {"commit": core, "ref": ref}},
+        "isolation": host["repository"]["isolation"],
+        "reviewers": [],
+    }
+    return config
+
+
 def rollout(hosts, selected):
     run_id, pins, artifacts = selected
     plan = CONFIG / "rollout-plan.json"
@@ -403,6 +474,7 @@ def rollout(hosts, selected):
             "Action main does not contain the verified Core pin")
     consumers = {repo: read_consumer(repo, config, pins)
                  for repo, config in hosts.items()}
+    consumers[E2E] = read_consumer(E2E, None, pins)
     if any(pr is False for _, pr in consumers.values()):
         print(f"CD {run_id} waiting for consumer PR checks and mergeability")
         return
@@ -447,6 +519,11 @@ def rollout(hosts, selected):
         require(remaining is None, f"{repo} rollout did not land on main")
         next_config = configure(repo, config, base, pins, source, issue_blob)
         write_config(staged_configs / HOSTS[repo], next_config)
+    base, remaining = read_consumer(E2E, None, pins)
+    require(remaining is None, "E2E rollout did not land on main")
+    primary = json.loads((staged_configs / HOSTS[CORE]).read_text())
+    e2e = configure_e2e(primary, base, pins, source, issue_blob)
+    write_config(staged_configs / E2E_HOST, e2e)
     result = json.loads(run("node", CLI, "promote-host"))
     require(result["status"] == "installed", "Host promotion failed")
     print(f"CD {run_id} installed Core {core} with Action {action}", flush=True)
@@ -455,7 +532,9 @@ def rollout(hosts, selected):
 
 def start_enabled(services):
     for service in services:
-        enabled = subprocess.run(("systemctl", "is-enabled", "--quiet", service), env=ENV)
+        enabled = subprocess.run(
+            ("systemctl", "is-enabled", "--quiet", service), env=ENV
+        )
         if enabled.returncode == 0:
             run("systemctl", "start", service)
 
@@ -470,7 +549,8 @@ def clean_superseded_staged_packages(current):
     mounts = run("findmnt", "--list", "--noheadings", "--output", "TARGET")
     for path in staged:
         match = re.fullmatch(r"core-staged-([a-f0-9]{40})", path.name)
-        if not match or path.is_symlink() or not path.is_dir() or path.stat().st_uid != 0:
+        if (not match or path.is_symlink() or not path.is_dir()
+                or path.stat().st_uid != 0):
             continue
         revision = match[1]
         if revision == current or path.stat().st_mode & 0o022:
@@ -516,14 +596,17 @@ def refresh_rollout_service(host):
 
 
 def finish(services):
-    for name in HOSTS.values():
+    names = [*HOSTS.values(), E2E_HOST]
+    for name in names:
         path = CONFIG / name
+        if name == E2E_HOST and not path.exists():
+            continue
         uid = json.loads(path.read_text())["uid"]
         user = pwd.getpwuid(uid).pw_name
         run("/usr/sbin/runuser", "-u", user, "--", "/usr/bin/test", "-r", path)
     start_enabled(services)
     staged_configs = CONFIG / "rollout"
-    for name in HOSTS.values():
+    for name in names:
         (staged_configs / name).unlink(missing_ok=True)
     if staged_configs.exists():
         staged_configs.rmdir()

@@ -58,11 +58,13 @@ export function hostWakeAdoption(host, adopted) {
   };
 }
 
-async function readWakePeers(host) {
+async function readWakePeers(host, targetHost) {
   const paths = host.wakePeerFiles ?? [];
   requireThat(Array.isArray(paths) && paths.length <= 10 &&
     new Set(paths).size === paths.length, 'INVALID_WAKE_PEERS');
   const peers = [];
+  if (targetHost !== host)
+    peers.push(hostWakeAdoption(host, host.repository).repository);
   for (const path of paths) {
     requireThat(/^\/etc\/nibfin\/host\.[A-Za-z0-9_-]+\.json$/.test(path),
       'INVALID_WAKE_PEER_PATH');
@@ -75,11 +77,13 @@ async function readWakePeers(host) {
         digest(peer.installation) === digest(host.installation),
       'WAKE_PEER_NOT_ADOPTED',
     );
-    peers.push(hostWakeAdoption(peer, peer.repository).repository);
+    const targetId = targetHost.repository.approval.repositoryId;
+    if (peer.repository.approval.repositoryId !== targetId)
+      peers.push(hostWakeAdoption(peer, peer.repository).repository);
   }
   const repositories = peers.map(peer => peer.approvalPin.repositoryId);
   requireThat(new Set(repositories).size === repositories.length &&
-    !repositories.includes(host.repository?.approval.repositoryId),
+    !repositories.includes(targetHost.repository?.approval.repositoryId),
   'AMBIGUOUS_WAKE_PEER');
   return peers;
 }
@@ -153,7 +157,7 @@ export async function launchIssueWake(
       'EVENT_ISSUE_CHANGED',
     );
     const peerRepositories = event.action === 'closed'
-      ? await readWakePeers(targetHost) : [];
+      ? await readWakePeers(host, targetHost) : [];
     const stateRoot = join(host.stateRoot, 'wake');
     await mkdir(stateRoot, { mode: 0o700 }).catch((error) => {
       if (error.code !== 'EEXIST') throw error;
@@ -179,7 +183,7 @@ export async function launchIssueWake(
         await inspect();
         if (event.action === 'closed')
           requireThat(
-            digest(await readWakePeers(targetHost)) === digest(peerRepositories),
+            digest(await readWakePeers(host, targetHost)) === digest(peerRepositories),
             'WAKE_PEERS_CHANGED');
       },
     });
