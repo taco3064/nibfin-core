@@ -10,6 +10,7 @@ import {
   controllerRelayProgram,
   controllerRelayArguments,
   controllerRoute,
+  controllerRunnerUids,
   validateControllerRequest,
 } from './controller-contract.mjs';
 
@@ -25,7 +26,7 @@ export async function relayHostCommand(operation, values, env = process.env) {
   const host = JSON.parse(await boundedHostFile(hostFile, 262144));
   if (!controllerRoute(host) || process.getuid() === host.uid) return null;
   requireThat(
-    process.getuid() === host.runnerUid &&
+    controllerRunnerUids(host).includes(process.getuid()) &&
       host.installation?.directory === coreRoot &&
       coreRoot === '/opt/nibfin/core',
     'UNTRUSTED_CONTROLLER_CALLER',

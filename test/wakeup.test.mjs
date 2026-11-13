@@ -34,6 +34,12 @@ async function dispatchFixture(t, failure, shared = false) {
     state: { body: 'Original' },
     route: { userId: 1 },
   };
+  if (failure === 'pause-metadata' || failure === 'pause-changed') {
+    observed.pause = {
+      status: 'clear', effective: false, visible: false, repair: false, events: [],
+      repository: { pushed_at: 'before' },
+    };
+  }
   let writes = 0,
     reads = 0,
     runReads = 0;
@@ -47,6 +53,12 @@ async function dispatchFixture(t, failure, shared = false) {
         throw Object.assign(new Error('Private provider diagnostic'), { status: 401 });
       if (failure === 'target' && reads > 1)
         return { ...observed, issue: { ...issue, number: 3 } };
+      if (failure === 'pause-metadata' && reads > 1)
+        return { ...observed, pause: { ...observed.pause,
+          repository: { pushed_at: 'after' }, events: [{ event: 'assigned' }] } };
+      if (failure === 'pause-changed' && reads > 1)
+        return { ...observed, pause: { ...observed.pause,
+          events: [{ event: 'labeled', label: { name: 'pause' } }] } };
       if (failure === 'changed' && reads > 1)
         return { ...observed, state: { body: 'Edited' } };
       return observed;
@@ -127,6 +139,7 @@ test('wake reports why its second observation failed before sending a dispatch',
   async (t) => {
     for (const [failure, code] of [
       ['http', 'GITHUB_READ_HTTP_401'], ['target', 'WAKE_TARGET_CHANGED'],
+      ['pause-changed', 'WAKE_PAUSE_CHANGED'],
     ]) {
       const f = await dispatchFixture(t, failure);
       assert.deepEqual(await f.dispatcher.dispatch(), { status: 'denied', code });
@@ -136,9 +149,11 @@ test('wake reports why its second observation failed before sending a dispatch',
 );
 
 test('wake continues after an Issue edit that keeps the route eligible', async t => {
-  const f = await dispatchFixture(t, 'changed');
-  assert.equal((await f.dispatcher.dispatch()).status, 'scheduled');
-  assert.equal(f.writes(), 1);
+  for (const change of ['changed', 'pause-metadata']) {
+    const f = await dispatchFixture(t, change);
+    assert.equal((await f.dispatcher.dispatch()).status, 'scheduled');
+    assert.equal(f.writes(), 1);
+  }
 });
 
 test('wake recovers an acknowledged run after a failed read without dispatching again',

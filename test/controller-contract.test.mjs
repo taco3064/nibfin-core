@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { Readable } from 'node:stream';
 import {
   controllerRoute,
+  controllerRunnerUids,
   validateControllerRequest,
   readControllerInput,
 } from '../src/controller-contract.mjs';
@@ -41,6 +42,15 @@ test('rootful requires distinct small Runner/controller UIDs and one backend', (
     { issues: { 2: { isolation: { kind: 'linux-rootless-docker-v1' } } } },
   ]) {
     assert.throws(() => controllerRoute({ ...host, ...changed }));
+  }
+});
+
+test('a second shared Runner must have a distinct unprivileged UID', () => {
+  const second = uid => ({ ...host, sharedRunner: { additionalRunner: { uid } } });
+  assert.equal(controllerRoute(second(996)), true);
+  assert.deepEqual(controllerRunnerUids(second(996)), [997, 996]);
+  for (const uid of [0, 997, 999, 65536, undefined]) {
+    assert.throws(() => controllerRoute(second(uid)), /INVALID_CONTROLLER_SEPARATION/);
   }
 });
 

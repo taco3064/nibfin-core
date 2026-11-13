@@ -4,7 +4,7 @@ import { repoPath } from './github-read.mjs';
 
 export const sharedWorkflowPath = '.github/workflows/shared-runner.yml';
 
-export function sharedRunner(host, target) {
+export function sharedRunner(host, target, runnerUid = host.runnerUid) {
   const config = host.sharedRunner;
   const { runner, caller } = config ?? {};
   requireThat(
@@ -23,7 +23,16 @@ export function sharedRunner(host, target) {
     'SHARED_RUNNER_NOT_ADOPTED',
   );
   const { repositoryId, runnerId } = host.repository.runner;
-  return { runner: { ...runner, target, gateway: { repositoryId, runnerId } }, caller };
+  let selected = runner;
+  if (runnerUid !== host.runnerUid) {
+    const additional = config.additionalRunner;
+    requireThat(additional?.uid === runnerUid && isId(additional.id) &&
+      additional.id !== runner.runnerId && typeof additional.name === 'string' &&
+      additional.name && additional.name !== runner.runnerName,
+    'SHARED_RUNNER_NOT_ADOPTED');
+    selected = { ...runner, runnerId: additional.id, runnerName: additional.name };
+  }
+  return { runner: { ...selected, target, gateway: { repositoryId, runnerId } }, caller };
 }
 
 export async function sharedRepository(host, repositoryId, readPeer) {

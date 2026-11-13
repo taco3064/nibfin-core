@@ -19,6 +19,11 @@ export const contextKeys = Object.freeze([
 
 export const targetContextKey = 'NIBFIN_TARGET_REPOSITORY_ID';
 
+export function controllerRunnerUids(host) {
+  const shared = host.sharedRunner?.additionalRunner;
+  return shared ? [host.runnerUid, shared.uid] : [host.runnerUid];
+}
+
 export function controllerRoute(host) {
   const issues = Object.values(host.issues ?? {});
   if (host.repository) issues.push(host.repository);
@@ -29,12 +34,11 @@ export function controllerRoute(host) {
     );
     return false;
   }
+  const runnerUids = controllerRunnerUids(host);
   requireThat(
-    isId(host.uid) &&
-      isId(host.runnerUid) &&
-      host.uid < 65536 &&
-      host.runnerUid < 65536 &&
-      host.uid !== host.runnerUid &&
+    isId(host.uid) && host.uid < 65536 &&
+      new Set(runnerUids).size === runnerUids.length &&
+      runnerUids.every(uid => isId(uid) && uid < 65536 && uid !== host.uid) &&
       issues.length > 0 &&
       issues.every((x) => x.isolation?.kind === 'linux-rootful-docker-v1'),
     'INVALID_CONTROLLER_SEPARATION',

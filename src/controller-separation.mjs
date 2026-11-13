@@ -2,7 +2,9 @@ import { lstat, realpath, readdir, readFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { command } from './process.mjs';
 import { requireThat } from './identity.mjs';
-import { controllerRoute, controllerRelayProgram } from './controller-contract.mjs';
+import {
+  controllerRoute, controllerRelayProgram, controllerRunnerUids,
+} from './controller-contract.mjs';
 import { controllerParentGuard } from './controller-parent.mjs';
 import { rootOwnedPath } from './host-paths.mjs';
 import { rootfulSocket, verifyDockerSocket } from './docker-backend.mjs';
@@ -60,8 +62,11 @@ export async function verifyControllerSeparation(host) {
   );
   const socket = await lstat(rootfulSocket);
   const options = { env: { PATH: '/usr/bin:/bin', LANG: 'C' } };
-  const account = await command('/usr/bin/id', ['-G', String(host.runnerUid)], options);
-  requireRunnerGroups(account.stdout.toString(), socket.gid);
+  const runnerUids = controllerRunnerUids(host);
+  for (const uid of runnerUids) {
+    const account = await command('/usr/bin/id', ['-G', String(uid)], options);
+    requireRunnerGroups(account.stdout.toString(), socket.gid);
+  }
   for (const path of [dirname(rootfulSocket), rootfulSocket]) {
     const acl = await command('/usr/bin/getfacl', ['-cp', path], options);
     requirePlainAcl(acl.stdout.toString());
@@ -71,7 +76,7 @@ export async function verifyControllerSeparation(host) {
     try {
       const status = await readFile(`/proc/${pid}/status`, 'utf8');
       if (Number(pid) === parent?.pid) parent.verifyStatus(status);
-      else verifyRunnerProcess(status, host.runnerUid, socket.gid);
+      else for (const uid of runnerUids) verifyRunnerProcess(status, uid, socket.gid);
     } catch (error) {
       if (error.code !== 'ENOENT' && error.code !== 'ESRCH') throw error;
     }

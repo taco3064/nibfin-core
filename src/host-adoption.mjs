@@ -78,7 +78,7 @@ export async function inspectHostAdoption({ host, hostBytes, adopted, targetSour
 
 // Fixed administrator-owned backend. Neither entry accepts a host path,
 // credential, adapter or policy from workflow inputs or event contents.
-export async function loadHostAdoption(issueNumber, targetRepositoryId) {
+export async function loadHostAdoption(issueNumber, targetRepositoryId, runnerUid) {
   requireThat(
     /^[1-9][0-9]*$/.test(issueNumber) && isId(Number(issueNumber)),
     'INVALID_ADOPTED_ISSUE',
@@ -140,7 +140,7 @@ export async function loadHostAdoption(issueNumber, targetRepositoryId) {
     const { repository, repositoryId } = target;
     adopted = {
       ...adopted,
-      ...sharedRunner(host, { repository, repositoryId }),
+      ...sharedRunner(host, { repository, repositoryId }, runnerUid),
       isolation: { ...host.repository.isolation, issue: target },
     };
   }
