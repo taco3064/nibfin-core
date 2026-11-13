@@ -171,8 +171,10 @@ socket.pipe(process.stdout);
     return arg.replace(/}$/, ', "/run/nibfin-docker" = "write" }');
   }).flatMap(arg => arg === 'exec' ? [
     '-c',
-    'permissions.nibfin.network.unix_sockets={ "/run/nibfin-docker/docker.sock" = "allow" }',
-    '-c', 'shell_environment_policy.set.DOCKER_HOST="unix:///run/nibfin-docker/docker.sock"',
+    'permissions.nibfin.network.unix_sockets={ ' +
+      '"/run/nibfin-docker/docker.sock" = "allow" }',
+    '-c', 'shell_environment_policy.set.DOCKER_HOST=' +
+      '"unix:///run/nibfin-docker/docker.sock"',
     arg,
   ] : [arg]);
 }
