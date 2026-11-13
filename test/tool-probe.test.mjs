@@ -35,11 +35,12 @@ function executeProbe(unavailable) {
 
 test('preparation rejects missing companion executables before success', () => {
   for (const file of ['npm', 'npx', 'pip', 'pip3', 'gofmt'])
-    assert.throws(() => executeProbe(file), /executable unavailable/);
+    assert.throws(() => executeProbe(file), /NIBFIN_TOOL_PROBE_[A-Z0-9]+_COMMAND_FAILED/);
 });
 
 test('preparation exercises Python modules and bounds every subprocess', () => {
-  assert.throws(() => executeProbe('python-runtime'), /runtime library unavailable/);
+  assert.throws(() => executeProbe('python-runtime'),
+    /NIBFIN_TOOL_PROBE_PYTHON3_COMMAND_FAILED/);
   const { calls, output } = executeProbe();
   assert.equal(output, 'NIBFIN_TOOLS_VERIFIED\n');
   const python = calls.find(call => call.file === 'python3' && call.args[0] === '-c');

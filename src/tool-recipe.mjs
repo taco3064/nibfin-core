@@ -58,11 +58,18 @@ export function versionProbe(tools, versions) {
   return `
 const {execFileSync} = require('node:child_process');
 const check = (file, args, expected, path) => {
-  const result = execFileSync(file, args, {
-    env: {PATH: path, HOME: '/tmp', GOTOOLCHAIN: 'local'},
-    timeout: 15000, maxBuffer: 65536, encoding: 'utf8',
-  }).trim();
-  if (expected !== undefined && result !== expected) throw Error('version mismatch');
+  const tool = file.split('/').at(-1).toUpperCase().replace(/[^A-Z0-9]/g, '_');
+  let result;
+  try {
+    result = execFileSync(file, args, {
+        env: {PATH: path, HOME: '/tmp', GOTOOLCHAIN: 'local'},
+      timeout: 15000, maxBuffer: 65536, encoding: 'utf8',
+    }).trim();
+  } catch {
+    throw Error('NIBFIN_TOOL_PROBE_' + tool + '_COMMAND_FAILED');
+  }
+  if (expected !== undefined && result !== expected)
+    throw Error('NIBFIN_TOOL_PROBE_' + tool + '_VERSION_MISMATCH');
 };
 const fixed = '/usr/local/bin:/usr/bin:/bin';
 const project = ${JSON.stringify(projectToolPath)};

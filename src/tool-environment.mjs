@@ -131,7 +131,17 @@ export class ToolEnvironmentPreparer {
         '--tmpfs', '/tmp:rw,nosuid,nodev,size=64m,mode=1777',
         '--entrypoint', '/usr/local/bin/node', image, '-e',
         versionProbe(tools, recipe.versions),
-      ], { timeout: 90000, limit: 65536 });
+      ], { timeout: 90000, limit: 65536, allowedExitCodes: [0, 1, 125, 126, 127] });
+      if (result.exitCode) {
+        const output = result.stderr.toString();
+        const probe = /\bNIBFIN_TOOL_PROBE_[A-Z0-9_]+\b/.exec(output)?.[0];
+        const code = probe ?? ({
+          125: 'TOOL_PROBE_DOCKER_FAILED',
+          126: 'TOOL_PROBE_NOT_EXECUTABLE',
+          127: 'TOOL_PROBE_EXECUTABLE_MISSING',
+        }[result.exitCode] ?? 'TOOL_PROBE_FAILED');
+        throw new ToolPreparationError('image validation', code, code);
+      }
       requireThat(result.stdout.toString() === 'NIBFIN_TOOLS_VERIFIED\n',
         'TOOL_VERSION_MISMATCH');
     } finally {
@@ -210,10 +220,12 @@ export class ToolEnvironmentPreparer {
       return image;
     } catch (error) {
       if (error instanceof ToolPreparationError) throw error;
+      const known = /^[A-Z][A-Z0-9_]{1,79}$/.test(error.code ?? '')
+        ? error.code : 'TOOL_PREPARATION_FAILED';
       throw new ToolPreparationError(phase,
         error.code === 'PROCESS_TIMEOUT' ? 'timed out' : 'failed',
         error.code === 'PROCESS_TIMEOUT'
-          ? 'TOOL_PREPARATION_TIMEOUT' : 'TOOL_PREPARATION_FAILED');
+          ? 'TOOL_PREPARATION_TIMEOUT' : known);
     } finally {
       if (temporaryRoot) await rm(temporaryRoot, { recursive: true, force: true });
     }
