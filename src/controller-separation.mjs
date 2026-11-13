@@ -36,7 +36,11 @@ export function requireRunnerGroups(text, socketGid) {
 export function verifyRunnerProcess(status, runnerUid, socketGid) {
   const uids = /^Uid:[ \t]*(\d+[ \t]+\d+[ \t]+\d+[ \t]+\d+)$/m.exec(status);
   requireThat(uids, 'PROCESS_IDENTITY_UNPROVEN');
-  if (!uids[1].split(/\s+/).map(Number).includes(runnerUid)) return;
+  const [real, effective, saved, filesystem] = uids[1].split(/\s+/).map(Number);
+  // A concurrent privileged sudo monitor retains the Runner real UID.
+  // Only the kernel's fully privileged identity is outside the Runner scan.
+  if (real === runnerUid && effective === 0 && saved === 0 && filesystem === 0) return;
+  if (![real, effective, saved, filesystem].includes(runnerUid)) return;
   const gids = /^Gid:[ \t]*(\d+[ \t]+\d+[ \t]+\d+[ \t]+\d+)$/m.exec(status);
   const groups = /^Groups:[ \t]*([^\n]*)$/m.exec(status);
   requireThat(gids && groups, 'RUNNER_PROCESS_GROUPS_UNPROVEN');
