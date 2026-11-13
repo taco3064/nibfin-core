@@ -212,7 +212,7 @@ test('build failure and timeout keep prior environments and redact raw output',
         assert.equal(error.message.includes('timed out'),
           code === 'PROCESS_TIMEOUT');
         assert.equal(error.diagnosticCode, code === 'PROCESS_TIMEOUT'
-          ? 'TOOL_PREPARATION_TIMEOUT' : 'TOOL_PREPARATION_FAILED');
+          ? 'TOOL_PREPARATION_TIMEOUT' : 'PROCESS_FAILED');
         return true;
       });
       assert.equal(await f.preparer.prepare({ node: '22.15.0' }), good);
