@@ -119,7 +119,8 @@ async function fixture(t, fault, rootful = false, mcp = false, project = false) 
           State: { Running: true },
           Config: {
             Image: config.image,
-            Entrypoint: ['node'],
+            Entrypoint: [fault === 'gateway-entrypoint'
+              ? '/usr/local/bin/node' : 'node'],
             Cmd: ['/proxy.mjs'],
             Env: ['PATH=/usr/bin', ...((mcp || project) ?
               ['NIBFIN_MCP_POLICY_DIRECTORY=/mcp-policy'] : [])]
@@ -304,6 +305,14 @@ test('rootful gateway cannot override the adopted user namespace', async (t) => 
     changed.calls.some((c) => c[0] === 'create'),
     false,
   );
+});
+
+test('gateway entrypoint must match the production contract', async t => {
+  const positive = await fixture(t);
+  await positive.sandbox.preflight();
+  const changed = await fixture(t, 'gateway-entrypoint');
+  await assert.rejects(changed.sandbox.preflight(), /AGENT_EGRESS_NOT_ISOLATED/);
+  assert.equal(changed.calls.some(call => call[0] === 'create'), false);
 });
 
 test('MCP gateway rejects added or duplicate Env keys, tolerates order', async t => {

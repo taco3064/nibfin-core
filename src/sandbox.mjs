@@ -1,6 +1,7 @@
 import { lstat, realpath } from 'node:fs/promises';
 import { isAbsolute, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { projectToolPath } from './tool-catalog.mjs';
 import { command } from './process.mjs';
 import { digest, requireThat } from './identity.mjs';
 import {
@@ -150,6 +151,8 @@ export class OfflineSandbox {
       '/work',
       '--env',
       'HOME=/tmp',
+      '--env',
+      `PATH=${projectToolPath}`,
       '--env',
       'GIT_CONFIG_NOSYSTEM=1',
       '--env',
