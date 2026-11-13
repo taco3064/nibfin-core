@@ -9,7 +9,8 @@ mkdir -p /dev/pts /run/nibfin-docker /tmp /sys/fs/cgroup
 mount -t devpts devpts /dev/pts
 mount -t cgroup2 none /sys/fs/cgroup
 
-if test -b /dev/vdb; then
+if grep -q 'nibfin.project-tools=1' /proc/cmdline; then
+    test -b /dev/vdb
     mkdir -p /opt/nibfin
     rm -rf /opt/nibfin/project
     tar -xf /dev/vdb -C /opt/nibfin

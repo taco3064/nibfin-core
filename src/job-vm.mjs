@@ -147,7 +147,10 @@ export async function runJobVm({ executable, kernel, rootDisk, stateRoot, memory
     await writeFile(config, JSON.stringify({
       'boot-source': {
         kernel_image_path: kernel,
-        boot_args: 'quiet console=ttyS0 reboot=k panic=1 pci=off root=/dev/vda rw',
+        boot_args: [
+          'quiet console=ttyS0 reboot=k panic=1 pci=off root=/dev/vda rw',
+          ...(tools ? ['nibfin.project-tools=1'] : []),
+        ].join(' '),
       },
       drives: [{
         drive_id: 'root', path_on_host: disk, is_root_device: true, is_read_only: false,
