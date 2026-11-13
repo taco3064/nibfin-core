@@ -88,9 +88,7 @@ const control = spawnSync('/usr/local/bin/codex', controlArgs,
 writeSync(2, JSON.stringify({ controlExitCode: control.status,
   stdout: control.stdout, stderr: control.stderr }) + '\\n');
 if (control.status !== 37 || control.stdout !== 'CONTROL_EXECUTED') process.exit(2);
-// Exit 43 follows all file-denial checks and confirms permitted loopback access.
-// verify-live-adapter checks denial against the actual non-loopback gateway.
-process.exit(result.status === 43 && result.stdout === '' ? 0 : 1);
+process.exit(result.status === 0 && result.stdout === 'NIBFIN_PROBE_PASSED\\n' ? 0 : 1);
 `;
   await writeFile(join(root, 'input/probe.mjs'), script);
   const mounts = ['work', 'main', 'input', 'io', 'auth', 'agent-home'].flatMap((part) => {
