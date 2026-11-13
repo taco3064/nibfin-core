@@ -11,6 +11,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import time
 import zipfile
 from pathlib import Path
 
@@ -28,6 +29,7 @@ PIN_PATH = ".nibfin/producer-pins.json"
 ISSUE = ".github/workflows/nibfin-issue.yml"
 WAKE = ".github/workflows/nibfin-wake.yml"
 SHARED = ".github/workflows/shared-runner.yml"
+RATE_WAIT = Path("/run/nibfin-rollout-rate-limit")
 ENV = {"PATH": "/usr/local/bin:/usr/bin:/bin", "LANG": "C", "GH_PROMPT_DISABLED": "1"}
 
 
@@ -48,8 +50,34 @@ def gh(*args):
     return run("/usr/bin/gh", *args, env={**ENV, "GH_TOKEN": github_token})
 
 
+class RateLimited(RuntimeError):
+    pass
+
+
 def api(path):
-    return json.loads(gh("api", path))
+    response = subprocess.run(
+        ("/usr/bin/gh", "api", "--include", path),
+        env={**ENV, "GH_TOKEN": github_token}, capture_output=True, timeout=90,
+    )
+    headers, _, body = response.stdout.replace(b"\r\n", b"\n").partition(b"\n\n")
+    values = dict(
+        line.lower().split(b":", 1) for line in headers.splitlines()[1:] if b":" in line
+    )
+    if response.returncode:
+        retry = values.get(b"retry-after", b"").strip()
+        remaining = values.get(b"x-ratelimit-remaining", b"").strip()
+        reset = values.get(b"x-ratelimit-reset", b"").strip()
+        diagnostic = response.stderr.lower()
+        if (remaining == b"0" or retry.isdigit() or b"http 429" in diagnostic or
+                b"rate limit exceeded" in diagnostic):
+            now = int(time.time())
+            delay = int(retry) if retry.isdigit() else 60
+            deadline = max(now + delay, int(reset) + 1 if
+                           remaining == b"0" and reset.isdigit() else 0)
+            write_config(RATE_WAIT, deadline)
+            raise RateLimited(f"GitHub rate limit; retry after {deadline}")
+        raise RuntimeError(f"GitHub read failed: {path.split('?')[0]}")
+    return json.loads(body)
 
 
 def main_sha(repo):
@@ -182,12 +210,24 @@ def read_consumer(repo, config, pins):
     return base, pr
 
 
+def host_fenced(hosts):
+    roots = {Path(config["stateRoot"]) for config in hosts.values()}
+    return any((path / "stage.lock").exists() or any(path.glob("issue-*/stage.lock"))
+               for path in roots)
+
+
 def idle(hosts, include_queued=True):
+    if host_fenced(hosts):
+        return False
+    registrations = {}
+    checked_workflows = set()
     for repo, config in hosts.items():
         shared = config.get("sharedRunner", {}).get("runner")
         runner_repo = shared["repository"] if shared else repo
         runner_id = shared["runnerId"] if shared else config["runnerId"]
-        runners = api(f"repos/{runner_repo}/actions/runners")["runners"]
+        if runner_repo not in registrations:
+            registrations[runner_repo] = api(f"repos/{runner_repo}/actions/runners")
+        runners = registrations[runner_repo]["runners"]
         runner = next((r for r in runners if r["id"] == runner_id), None)
         require(runner is not None, f"{repo} adopted Runner is missing")
         if runner["busy"]:
@@ -196,6 +236,9 @@ def idle(hosts, include_queued=True):
         if shared:
             workflows.append((runner_repo, SHARED))
         for workflow_repo, workflow in workflows:
+            if (workflow_repo, workflow) in checked_workflows:
+                continue
+            checked_workflows.add((workflow_repo, workflow))
             filename = Path(workflow).name
             path = f"repos/{workflow_repo}/actions/workflows/{filename}/runs"
             active = api(path + "?status=in_progress&per_page=1")["total_count"]
@@ -204,9 +247,7 @@ def idle(hosts, include_queued=True):
             ]
             if active or queued:
                 return False
-    return not any((path / "stage.lock").exists() or any(path.glob("issue-*/stage.lock"))
-                   for path in (Path(config["stateRoot"])
-                                for config in hosts.values()))
+    return not host_fenced(hosts)
 
 
 def configure(repo, config, base, pins, source, issue_blob):
@@ -261,6 +302,9 @@ def stage_package(pins, artifacts):
 
 def rollout(hosts, selected):
     run_id, pins, artifacts = selected
+    if not (CONFIG / "rollout-plan.json").exists() and not idle(hosts):
+        print(f"CD {run_id} waiting for Runners, queued Jobs or unresolved executions")
+        return
     core, action = pins["core"]["commit"], pins["action"]["commit"]
     action_main = main_sha(ACTION)
     comparison = api(f"repos/{ACTION}/compare/{action}...{action_main}")["status"]
@@ -335,6 +379,12 @@ def main():
     require(os.getuid() == 0, "Rollout must run as host administrator")
     hosts = {repo: json.loads((CONFIG / name).read_text())
              for repo, name in HOSTS.items()}
+    if RATE_WAIT.exists():
+        if time.time() < json.loads(RATE_WAIT.read_text()):
+            return
+        RATE_WAIT.unlink()
+    if host_fenced(hosts) and not (CONFIG / "rollout-plan.json").exists():
+        return
     github_token = Path(hosts[CORE]["tokenFile"]).read_text().strip()
     require(bool(github_token), "Host GitHub credential is missing")
     current = hosts[CORE]["installation"]["pin"]["commit"]
@@ -355,6 +405,8 @@ def main():
 if __name__ == "__main__":
     try:
         main()
+    except RateLimited as error:
+        print(f"Nibfin rollout: {error}", file=sys.stderr)
     except (RuntimeError, KeyError, OSError, ValueError,
             subprocess.TimeoutExpired) as error:
         print(f"Nibfin rollout: {error}", file=sys.stderr)
