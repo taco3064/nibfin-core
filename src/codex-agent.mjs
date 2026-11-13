@@ -2,7 +2,7 @@ import { CandidateWorkspace } from './workspace.mjs';
 import { constants } from 'node:fs';
 import { open, lstat, realpath, mkdir, writeFile } from 'node:fs/promises';
 import { resolve, join } from 'node:path';
-import { readSkill, skillIdentity } from './skills.mjs';
+import { readEffectiveSkill, skillIdentity } from './skills.mjs';
 import { codexPlan } from './codex-plan.mjs';
 import { parseAgentResult } from './agent-result.mjs';
 import { RoleSessions } from './role-sessions.mjs';
@@ -44,8 +44,8 @@ export class CodexRoleAgent {
         'UNTRUSTED_AGENT_AUTH_FILE');
       secrets = subscriptionSecrets(JSON.parse(await credential.readFile('utf8')));
     } finally { await credential.close(); }
-    const skill = await readSkill(config.coreRoot, stage,
-      config.skills[skillIdentity(stage)]);
+    const skill = await readEffectiveSkill(config.coreRoot, stage,
+      config.skills[skillIdentity(stage)], config.project, config.projectRoot);
     return this.#sessions.run(stage, context, async session => {
       const plan = codexPlan(stage, { model: config.model,
         threadId: session.threadId, skill, context,

@@ -53,9 +53,27 @@ Validated tools reach the Agent and offline Hooks environment boundaries;
 additional domains reach the Agent network configuration boundary. This reader
 neither installs tools nor changes the proxy allowlist or container image.
 Validated Skill declarations and the target work-tree root reach the role Agent
-configuration. ENV-01 does not open or apply custom Skill files, so their content
-is not snapshotted. SKILL-01 must resolve paths with real filesystem containment
-(including symlink escape protection) and read current development work-tree
-content when each later role starts. Extend appends to the built-in instructions;
-override replaces their instruction content. Role identities, permissions and
-protected delivery gates remain Core-owned.
+configuration. Declarations remain selected for the Job, while SKILL-01 reads the
+configured file afresh at each role start from that active work tree. It never
+loads project instructions from the dispatch repository, installed Core, or the
+separate current-main snapshot.
+
+An omitted identity uses the complete built-in Skill. Extend preserves the full
+built-in text first, then a blank-line/horizontal-rule boundary, then the complete
+project text. Override supplies only project text, including empty or incomplete
+instructions without built-in front matter. There is no semantic validation,
+automatic repair, or fallback after a loader or role-result failure. Installed
+built-in integrity checks still apply whenever built-in instructions are used.
+Shape Author, independent Validator, and final Shaper Review share the shape
+setting but keep distinct execution roles; no scope or separate review keys exist.
+
+Configured paths must end in .md (case insensitive) and identify regular files.
+The Linux loader rejects symlinks in every configured path component and pins
+parent directory descriptors before opening children, preventing a concurrent
+path replacement from redirecting a read outside the work tree. Missing,
+unreadable, non-Markdown, directory, or unsafe files fail before the affected
+role launches with an ordinary PROJECT_SKILL_UNREADABLE_OR_UNSAFE error; lexical
+configuration errors name the relevant configuration field. Diagnostics do not
+include file contents or host paths. Role identities, permissions, isolation,
+credential handling, required results, GitHub controls, and protected delivery
+gates remain Core-owned, independently of the project instruction text.
