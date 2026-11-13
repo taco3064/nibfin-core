@@ -11,6 +11,7 @@ mount -t cgroup2 none /sys/fs/cgroup
 
 # The daemon runs entirely in the VM. No Docker socket or host directory is
 # attached to the guest. This entry point supports offline Docker workloads.
-dockerd --iptables=false --ip6tables=false --userland-proxy=false \
+dockerd -H unix:///run/docker.sock \
+    --iptables=false --ip6tables=false --userland-proxy=false \
     --bridge=none --ip-forward=false --storage-driver=vfs &
 exec /usr/bin/python3 /opt/nibfin/job-vm-executor.py

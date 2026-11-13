@@ -24,6 +24,7 @@ ENV = {
     "HOME": "/tmp/tool-home",
     "PATH": "/opt/nibfin/project/bin:/usr/local/bin:/usr/bin:/bin",
     "LANG": "C.UTF-8",
+    "DOCKER_HOST": "unix:///run/docker.sock",
 }
 
 
