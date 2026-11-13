@@ -22,7 +22,7 @@ export class CodexRoleAgent {
     this.#config = structuredClone(config); this.#isolator = isolator;
     this.#sessions = new RoleSessions(config.stateRoot); this.#prepareMain = prepareMain;
   }
-  async run(stage, context) {
+  async run(stage, context, comparisonBase = context.main.head) {
     const config = this.#config, root = resolve(config.stateRoot);
     const auth = resolve(config.authFile);
     const rootStat = await lstat(root);
@@ -55,8 +55,8 @@ export class CodexRoleAgent {
       const io = join(root, `execution-${context.execution.id}`);
       await mkdir(io, { mode: 0o700 });
       const main = await this.#prepareMain(join(io, 'current-main'),
-        context.approval.record.issue, context.main.head);
-      requireThat(main.base === context.main.head, 'AGENT_MAIN_SNAPSHOT_CHANGED');
+        context.approval.record.issue, comparisonBase);
+      requireThat(main.base === comparisonBase, 'AGENT_MAIN_SNAPSHOT_CHANGED');
       const input = join(io, 'input'), output = join(io, 'output');
       await mkdir(input, { mode: 0o700 }); await mkdir(output, { mode: 0o700 });
       await writeFile(join(input, 'result-schema.json'), JSON.stringify(plan.schema),

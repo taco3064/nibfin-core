@@ -1,5 +1,11 @@
 import { isDeepStrictEqual } from 'node:util';
 
+export function enforcementPaths(paths) {
+  return paths.filter(path =>
+    path.startsWith('.nibfin/') || path.startsWith('.github/workflows/') ||
+    ['.github/CODEOWNERS', 'CODEOWNERS', 'docs/CODEOWNERS'].includes(path));
+}
+
 function candidateContent(candidate) {
   const { base, tree, changes, diffHash, ...content } = candidate;
   return content;

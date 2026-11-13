@@ -315,8 +315,7 @@ export class CandidateWorkspace {
           if (error.code !== 'ENOENT') throw error;
         },
       );
-    const base = await readFile(join(this.#root, 'base'), 'utf8');
-    requireThat(isSha(base), 'INVALID_WORKSPACE_BASE');
+    const base = await this.comparisonBase();
     const obligations = candidateContract(shapeBody);
     const files = await this.#files(
       [...obligations.artifacts, ...obligations.hooks].map((entry) => entry.path),
@@ -540,6 +539,12 @@ export class CandidateWorkspace {
   async hookBaseline() {
     await this.#privateRoot();
     return join(this.#root, 'repository.git');
+  }
+  async comparisonBase() {
+    await this.#privateRoot();
+    const base = await readFile(join(this.#root, 'base'), 'utf8');
+    requireThat(isSha(base), 'INVALID_WORKSPACE_BASE');
+    return base;
   }
   async push(head, branch, token, guard, expectedHead = null) {
     requireThat(

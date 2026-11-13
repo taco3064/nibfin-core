@@ -1,6 +1,6 @@
 import { digest, isDigest, requireThat } from './identity.mjs';
 import { parseAgentResult } from './agent-result.mjs';
-import { sameCandidate } from './candidate-evidence.mjs';
+import { enforcementPaths, sameCandidate } from './candidate-evidence.mjs';
 import { candidateContract } from './candidate-contract.mjs';
 import { runCandidateHooks } from './hooks.mjs';
 import { codexIdle, codexPreflightExits, idleDiagnostic } from './codex-bootstrap.mjs';
@@ -17,6 +17,20 @@ export function stageHandlers({
   publishCommit,
   clock = Date.now,
 }) {
+  const pathFindings = paths => paths.map(path =>
+    `Restore ${path} to the workspace base. Changes require separate approval.`);
+  const captureDelivery = async (context, candidate, references) => {
+    const shapeHash = context.shape.hash;
+    const restricted = enforcementPaths(candidate.paths);
+    if (restricted.length) {
+      const findings = pathFindings(restricted);
+      for (const finding of findings) console.error(`Nibfin deliver: ${finding}`);
+      return { outcome: 'changes_required', findings, references,
+        artifacts: { shapeHash } };
+    }
+    return { outcome: 'ready', findings: [], references,
+      artifacts: { shapeHash, candidateHash: await store.put(candidate) } };
+  };
   const handlers = {};
   for (const stage of [
     'shape',
@@ -44,7 +58,10 @@ export function stageHandlers({
           reference = context.issue.url.replace(/\/issues\/\d+$/, `/pulls/${pin.number}`);
         }
         let rebase;
-        if (stage === 'deliver' && candidate && context.rebaseTarget &&
+        const restricted = stage === 'deliver' && candidate?.paths
+          ? enforcementPaths(candidate.paths) : [];
+        if (stage === 'deliver' && candidate && !restricted.length &&
+          context.rebaseTarget &&
           candidate.base !== context.rebaseTarget) {
           rebase = await workspace.rebase(
             candidate,
@@ -60,8 +77,14 @@ export function stageHandlers({
           receipt.artifacts.shapeHash === context.shape.hash &&
           receipt.artifacts.candidateHash ===
             context.receipts.deliver?.artifacts.candidateHash);
+        const previousDelivery = context.receipts.deliver;
+        const deliveryFindings = previousDelivery?.outcome === 'changes_required' &&
+          previousDelivery.artifacts.shapeHash === context.shape.hash
+          ? previousDelivery.findings : undefined;
         const findings = context.ciFailure
-          ? ciCorrectionFindings(context.ciFailure) : correction?.findings;
+          ? ciCorrectionFindings(context.ciFailure)
+          : deliveryFindings ?? (restricted.length
+            ? pathFindings(restricted) : correction?.findings);
         if (!findings && (reference || rebase) &&
           (!rebase || (rebase.status === 'rebased' && !rebase.contentChanged))) {
           return { retainedCandidate: rebase?.candidate ?? candidate, reference };
@@ -94,12 +117,8 @@ export function stageHandlers({
           const candidate = await workspace.capture(context.shape.body);
           requireThat(sameCandidate(candidate, execution.retainedCandidate),
             'REBASED_WORKTREE_CHANGED');
-          const candidateHash = await store.put(candidate);
-          return {
-            outcome: 'ready', findings: [],
-            references: [execution.reference ?? 'evidence:' + digest(context.candidate)],
-            artifacts: { shapeHash: context.shape.hash, candidateHash },
-          };
+          return captureDelivery(context, candidate,
+            [execution.reference ?? 'evidence:' + digest(context.candidate)]);
         }
         requireThat(
           execution?.executionId === context.execution.id &&
@@ -178,7 +197,7 @@ export function stageHandlers({
             );
           }
           const candidate = await workspace.capture(context.shape.body);
-          artifacts.candidateHash = await store.put(candidate);
+          return captureDelivery(context, candidate, result.evidenceReferences);
         }
         if (['accept', 'review-pr'].includes(stage)) {
           requireThat(
