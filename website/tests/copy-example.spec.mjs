@@ -123,7 +123,6 @@ test('static reading works without JavaScript', async ({ browser, baseURL }) => 
 });
 
 async function assertIslandMapping(page, hover = false) {
-  await page.locator(button).evaluate((node) => { node.style.transition = 'none'; });
   const matches = await page.locator(button).evaluate((node, hover) => {
     const paint = getComputedStyle(node);
     const probe = document.createElement('div');
