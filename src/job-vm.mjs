@@ -1,7 +1,8 @@
 import { execFile, spawn } from 'node:child_process';
+import { constants } from 'node:fs';
 import { createConnection } from 'node:net';
 import { promisify } from 'node:util';
-import { chmod, lstat, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { access, chmod, lstat, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { randomInt } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -105,16 +106,29 @@ async function connectGuest(path, port, guest, signal) {
   }
 }
 
+export async function preflightJobVm(config) {
+  const { executable, kernel, rootDisk, stateRoot, memoryMiB } = config;
+  requireThat(process.platform === 'linux' && Number.isSafeInteger(memoryMiB) &&
+    memoryMiB >= 128 && memoryMiB <= 8192, 'INVALID_JOB_VM_CONFIGURATION');
+  await Promise.all([parentGuard, executable, kernel, rootDisk].map(checkAsset));
+  await privateHostDirectory(stateRoot);
+  await access(executable, constants.X_OK);
+  for (const device of ['/dev/kvm', '/dev/vhost-vsock']) {
+    await access(device, constants.R_OK | constants.W_OK).catch(cause => {
+      const code = 'JOB_VM_DEVICE_UNAVAILABLE';
+      throw Object.assign(new Error(code, { cause }), { code });
+    });
+  }
+}
+
 // Boot a prepared image with a private writable disk. The caller owns the Job
 // lifetime. The guest can receive connections through its private vsock endpoint.
 export async function runJobVm({ executable, kernel, rootDisk, stateRoot, memoryMiB },
   { signal, log, useGuest }) {
-  requireThat(process.platform === 'linux' && Number.isSafeInteger(memoryMiB) &&
-    memoryMiB >= 128 && memoryMiB <= 8192 && signal, 'INVALID_JOB_VM_CONFIGURATION');
+  requireThat(signal, 'INVALID_JOB_VM_CONFIGURATION');
   signal.throwIfAborted();
-  await Promise.all([parentGuard, executable, kernel, rootDisk].map(checkAsset));
+  await preflightJobVm({ executable, kernel, rootDisk, stateRoot, memoryMiB });
   signal.throwIfAborted();
-  await privateHostDirectory(stateRoot);
   const directory = await mkdtemp(join(stateRoot, 'job-vm-'));
   let guest;
   const connections = new Set();
