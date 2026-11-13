@@ -13,15 +13,22 @@ export function processGroupAbsent(pid) {
   }
 }
 
-function stopDescendants(pid) {
+function waitForGroupExit(pid, milliseconds) {
+  const deadline = Date.now() + milliseconds;
+  const wait = new Int32Array(new SharedArrayBuffer(4));
+  while (!processGroupAbsent(pid) && Date.now() < deadline) {
+    Atomics.wait(wait, 0, 0, 50);
+  }
+  return processGroupAbsent(pid);
+}
+
+function stopDescendants(pid, exited) {
   if (process.platform !== 'linux' || !pid || processGroupAbsent(pid)) return;
+  // Build helpers can exit just after their npm parent.
+  if (exited && waitForGroupExit(pid, 1000)) return;
   try { process.kill(-pid, 'SIGKILL'); }
   catch (error) { if (error.code !== 'ESRCH') throw error; }
-  const deadline = Date.now() + 3000;
-  while (!processGroupAbsent(pid) && Date.now() < deadline) {
-    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50);
-  }
-  if (!processGroupAbsent(pid)) {
+  if (!waitForGroupExit(pid, 3000)) {
     throw Object.assign(new Error('Website child termination unverified'),
       { terminationUnknown: true });
   }
@@ -58,7 +65,7 @@ export function runNpm(args, {
     ? new Error(`Website command timed out after ${timeout} ms: npm ${args.join(' ')}`,
       { cause: result.error })
     : result.error;
-  try { stopDescendants(result.pid); }
+  try { stopDescendants(result.pid, Number.isInteger(result.status)); }
   catch (cleanupError) {
     const error = failure
       ? new AggregateError([failure, cleanupError],
