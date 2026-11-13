@@ -1,5 +1,6 @@
 import { pauseTrigger, reconcilePause } from './pause-controller.mjs';
 import { readFile } from 'node:fs/promises';
+import { retryGitHubObservation } from './observation-failure.mjs';
 import { GitHubReader, repoPath } from './github-read.mjs';
 import {
   readProtectedApproval,
@@ -19,6 +20,10 @@ const reusableIssuePath = 'taco3064/nibfin-core/.github/workflows/issue.yml';
 
 // Event fields locate resources. The GitHub run establishes the event's source.
 export async function observeIssueEvent(reader, adoption, event, invocation) {
+  return (await readIssueEvent(reader, adoption, event, invocation)).issue;
+}
+
+async function readIssueEvent(reader, adoption, event, invocation) {
   const root = repoPath(invocation.repository);
   const hostedRelay = invocation.shared && !adoption;
   requireThat(
@@ -116,7 +121,7 @@ export async function observeIssueEvent(reader, adoption, event, invocation) {
       live.url === `https://api.github.com${root}/issues/${issue.number}`,
     'ISSUE_EVENT_IDENTITY_CHANGED',
   );
-  return issue;
+  return { issue, live };
 }
 
 export function adoptedWake(adoption, identity, peers = []) {
@@ -180,8 +185,8 @@ export async function resolveIssueWake(reader, adoption, event, invocation) {
 }
 
 export async function resolveSharedIssueWake(reader, event, invocation) {
-  const issue = await observeIssueEvent(reader, null, event, invocation);
-  const [live, actor] = await Promise.all([reader.issue(issue), reader.get('/user')]);
+  const { issue, live } = await readIssueEvent(reader, null, event, invocation);
+  const actor = await reader.get('/user');
   const scope = live.labels?.some(label => label.name === 'scope');
   requireThat(scope && actor.type === 'User', 'WAKE_TARGET_NOT_READY');
   if (event.action === 'closed') {
@@ -222,8 +227,10 @@ export async function runIssueWake(env = process.env) {
     coreCommit: env.NIBFIN_CORE_COMMIT,
     shared,
   };
-  const result = shared ? resolveSharedIssueWake(reader, event, invocation)
-    : resolveIssueWake(reader, JSON.parse(env.NIBFIN_WAKE_ADOPTION), event, invocation);
+  const result = retryGitHubObservation(() => shared
+    ? resolveSharedIssueWake(reader, event, invocation)
+    : resolveIssueWake(reader, JSON.parse(env.NIBFIN_WAKE_ADOPTION), event, invocation),
+  { timeout: 90000 });
   return result.catch((error) => {
     const idle = ['WAKE_TARGET_NOT_READY', 'INACTIVE_WAKE_TARGET',
       'UPSTREAM_NOT_DELIVERED', 'UNSUPPORTED_ISSUE_EVENT'];
