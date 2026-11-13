@@ -32,7 +32,8 @@
 }
 
 .nf-delivery-steps > li {
-  @apply grid gap-x-6 gap-y-1 border-t border-solid border-border py-4;
+  @apply grid gap-x-6 gap-y-1 py-4;
+  border-block-start: 1px solid var(--nf-border);
 }
 
 .nf-delivery-steps strong {
