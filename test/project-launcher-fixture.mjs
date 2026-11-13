@@ -25,7 +25,8 @@ const runner = { repository: 'owner/execution', repositoryId: 1,
   target: issue, sourceCommit: 'a'.repeat(40) };
 const repository = { id: 2, full_name: issue.repository, default_branch: 'main',
   private: false, archived: false, disabled: false };
-const approval = { repository, approvalHash: 'b'.repeat(64), scopeBinding: 'c'.repeat(64),
+const approval = {
+  repository, approvalHash: 'b'.repeat(64), scopeBinding: 'c'.repeat(64),
   record: { issue, roles: { writer: 4, author: 4 }, source: {} } };
 const reader = {
   list: async path => path.endsWith('/runners')
@@ -131,20 +132,20 @@ try {
   assert.equal(invalid.code, 'PROJECT_CONFIG_INVALID');
   assert.match(invalid.configurationError, /\.nibfin\.json: root: invalid JSON/);
   assert.equal(runs, 0);
-  assert.equal(prepared, 1);
-  assert.equal(retired, 1);
-  assert.equal(stopped, 1);
+  assert.equal(prepared, 0);
+  assert.equal(retired, 0);
+  assert.equal(stopped, 0);
   await assert.rejects(access(lock), { code: 'ENOENT' });
   await writeFile(join(work, '.nibfin.json'), '{"tools":{"node":"22.15.0"}}');
   assert.equal((await launchStage('189', 'deliver', env)).status, 'ready');
   assert.equal(runs, 1);
   assert.equal(mainReads, 2, 'Adopted workspace does not reread main');
-  assert.equal(retired, 2);
-  assert.equal(stopped, 2);
+  assert.equal(retired, 1);
+  assert.equal(stopped, 1);
   await assert.rejects(access(lock), { code: 'ENOENT' });
 
   if (scenario === 'retry') {
-    assert.deepEqual(observations, { adoption: 3, job: 3, approval: 3 });
+    assert.deepEqual(observations, { adoption: 5, job: 4, approval: 3 });
     const pending = await launchStage('189', 'continue', env);
     assert.equal(pending.status, 'pending');
     assert.equal(pending.code, 'GITHUB_READ_RETRY_PENDING');
@@ -155,14 +156,16 @@ try {
     assert.equal(retryDelay(JSON.stringify(pending), 20, 1), 60000);
     assert.equal(retryDelay(JSON.stringify(pending), 21, 1), null);
     assert.equal(retryDelay(JSON.stringify(pending), 20, 2), null);
-    assert.equal(retired, 3);
-    assert.equal(stopped, 3);
+    assert.equal(retired, 2);
+    assert.equal(stopped, 2);
     await assert.rejects(access(lock), { code: 'ENOENT' });
   } else {
     // Failed settlement must preserve the durable fence and deny another entry.
     await writeFile(join(work, '.nibfin.json'), '{invalid');
     unsafeJournal = scenario === 'journal';
     unsafeMcp = scenario === 'mcp';
+    if (unsafeMcp)
+      await writeFile(join(work, '.nibfin.json'), '{"tools":{"node":"22.15.0"}}');
     // Initial inspection succeeds; journal settlement makes containers uncertain.
     failContainerSettlement = scenario === 'containers';
     const unresolved = await launchStage('189', 'deliver', env);
@@ -171,12 +174,12 @@ try {
       : scenario === 'containers' ? 'WRITER_NOT_PROVEN_TERMINATED'
         : 'HOST_EXECUTION_UNRESOLVED');
     await access(lock);
-    assert.equal(runs, 1);
-    assert.equal(retired, 2);
-    assert.equal(stopped, 3);
+    assert.equal(runs, unsafeMcp ? 2 : 1);
+    assert.equal(retired, 1);
+    assert.equal(stopped, unsafeMcp ? 2 : 1);
     const retry = await launchStage('189', 'deliver', env);
     assert.equal(retry.code, 'HOST_EXECUTION_UNRESOLVED');
-    assert.equal(prepared, 3);
+    assert.equal(prepared, unsafeMcp ? 2 : 1);
   }
 } finally {
   // All mocked resources are stopped; retain no disposable recovery fixture.
