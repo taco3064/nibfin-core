@@ -10,6 +10,7 @@ import { withUserMcp } from './mcp-agent.mjs';
 import { loadUserMcp } from './mcp-source.mjs';
 import { runJobVmWriter } from './job-vm-writer.mjs';
 import { preflightJobVm } from './job-vm.mjs';
+import { issueContainerLabel } from './host-containers.mjs';
 
 // Fixed composition for the provisional Codex adapter. The privileged launcher
 // supplies adopted paths and native writer proof. No request can import a host
@@ -62,19 +63,24 @@ export async function codexStageExecutor({
       profile.issue.repository === target.repository,
     'HOST_WORKSPACE_SUBJECT_CHANGED',
   );
-  const { agent: agentSandbox, hooks: hookSandbox } = await codexEnvironment(
+  const environment = await codexEnvironment(
     profile,
     coreRoot,
     adopted.runner,
     project,
     { toolEnvironment },
   );
+  const { agent: agentSandbox, hooks: hookSandbox, image } = environment;
   const writer = jobVm && actor.role === 'writer' ? {
     async preflight(...args) {
       await preflightJobVm(jobVm);
       return agentSandbox.preflight(...args);
     },
-    execute: input => runJobVmWriter(jobVm, input,
+    execute: input => runJobVmWriter(jobVm, { ...input,
+      ...(Object.keys(project?.tools ?? {}).length ? { tools: {
+        image, endpoint: profile.agent, label: issueContainerLabel(profile.issue),
+      } } : {}),
+    },
       options => agentSandbox.execute(options)),
   } : agentSandbox;
   const inheritedAgent = withUserMcp(writer, mcpSource,

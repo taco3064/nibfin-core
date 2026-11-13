@@ -18,5 +18,7 @@ block and vsock, cgroup v2, and Docker namespaces. The controller identity
 needs access to `/dev/kvm` and `/dev/vhost-vsock`.
 
 The guest currently has no external network interface. Production adoption
-still needs project tool image transfer and restricted package/registry access
-where the project requires them.
+still needs restricted package and registry access
+where the project requires it. When an Issue selects project tools, Core copies
+the tool directory from the selected Agent image into the guest. Core leaves
+the host Agent and Hook image selection on the existing path.

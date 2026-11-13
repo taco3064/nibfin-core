@@ -124,7 +124,7 @@ export async function preflightJobVm(config) {
 // Boot a prepared image with a private writable disk. The caller owns the Job
 // lifetime. The guest can receive connections through its private vsock endpoint.
 export async function runJobVm({ executable, kernel, rootDisk, stateRoot, memoryMiB },
-  { signal, log, useGuest }) {
+  { signal, log, useGuest, prepareTools }) {
   requireThat(signal, 'INVALID_JOB_VM_CONFIGURATION');
   signal.throwIfAborted();
   await preflightJobVm({ executable, kernel, rootDisk, stateRoot, memoryMiB });
@@ -142,6 +142,8 @@ export async function runJobVm({ executable, kernel, rootDisk, stateRoot, memory
     const config = join(directory, 'vm.json');
     const channel = join(directory, 'guest.sock');
     await copyDisk(rootDisk, disk, signal);
+    const tools = await prepareTools?.(directory);
+    signal.throwIfAborted();
     await writeFile(config, JSON.stringify({
       'boot-source': {
         kernel_image_path: kernel,
@@ -149,7 +151,10 @@ export async function runJobVm({ executable, kernel, rootDisk, stateRoot, memory
       },
       drives: [{
         drive_id: 'root', path_on_host: disk, is_root_device: true, is_read_only: false,
-      }],
+      }, ...(tools ? [{
+        drive_id: 'tools', path_on_host: tools, is_root_device: false,
+        is_read_only: true,
+      }] : [])],
       'machine-config': { vcpu_count: 1, mem_size_mib: memoryMiB },
       ...(useGuest ? { vsock: {
         guest_cid: randomInt(3, 0x7fffffff), uds_path: 'guest.sock',

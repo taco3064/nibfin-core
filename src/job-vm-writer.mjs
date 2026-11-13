@@ -6,6 +6,7 @@ import { exchangeJobVmFrame } from './job-vm-channel.mjs';
 import { openJobVmExecRelay } from './job-vm-exec-relay.mjs';
 import { snapshotJobVmWorkspace } from './job-vm-workspace.mjs';
 import { installJobVmWorkspace } from './job-vm-install.mjs';
+import { archiveJobVmTools } from './job-vm-tools.mjs';
 import { deliveryRoleTimeout } from './process.mjs';
 import { requireThat } from './identity.mjs';
 
@@ -31,7 +32,10 @@ export async function runJobVmWriter(config, input, execute) {
   process.on('SIGINT', cancel);
   try {
     const { result, files } = await runJobVm(config, {
-      signal, log, async useGuest(connect, directory) {
+      signal, log,
+      prepareTools: input.tools && (directory => archiveJobVmTools(
+        input.tools.endpoint, input.tools.image, directory, input.tools.label)),
+      async useGuest(connect, directory) {
         const request = payload => transfer(connect, payload, signal);
         for (const name of ['work', 'main', 'input']) {
           const files = await snapshotJobVmWorkspace(input[name]);

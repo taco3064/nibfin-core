@@ -27,6 +27,7 @@ export async function codexEnvironment(profile, coreRoot, runner, project, {
   const containerLabel = runner ? issueContainerLabel(profile.issue) : undefined;
   const gatewayLabel = runner ? runnerGatewayLabel(runner.gateway ?? runner) : undefined;
   return Object.freeze({
+    image: image ?? profile.agent.image,
     agent: new AgentSandbox({ ...profile.agent, coreRoot,
       ...(image ? { image } : {}),
       projectTools: project?.tools, additionalDomains: project?.allowedDomains },
