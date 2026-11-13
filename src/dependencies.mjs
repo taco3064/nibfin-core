@@ -1,4 +1,5 @@
 import { issuePath } from './github-read.mjs';
+import { isDeepStrictEqual } from 'node:util';
 
 // Native lifecycle state is an eligibility condition, not an execution grant.
 // Manual bootstrap gates are not normal protected-delivery prerequisites.
@@ -55,14 +56,19 @@ export async function readDependencies(reader, issue, expected, observed) {
   }
   const current = await readIssue(reader, issue, observed);
   if (current.state !== 'open') throw new Error('Target Issue is not open');
-  const before = await reader.blockedBy(issue);
-  if (!edgesMatch(before, expected))
-    throw new Error('Native Blocked by differs from approved prerequisites');
+  if (!observed?.dependencies) {
+    const before = await reader.blockedBy(issue);
+    if (!edgesMatch(before, expected))
+      throw new Error('Native Blocked by differs from approved prerequisites');
+  }
   const prerequisites = [];
-  for (const item of expected) {
+  for (const [index, item] of expected.entries()) {
+    const grouped = observed?.dependencies?.[index];
+    if (observed?.dependencies && !isDeepStrictEqual(grouped?.identity, item))
+      throw new Error('Grouped dependency identity changed during observation');
     const repository = item.repository === issue.repository
       ? observed?.repository : undefined;
-    const remote = await readIssue(reader, item, { repository });
+    const remote = grouped ?? await readIssue(reader, item, { repository });
     prerequisites.push({ ...item, state: remote.state,
       completed: isDeliveredIssue(remote) });
   }
