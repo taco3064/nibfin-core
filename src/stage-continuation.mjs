@@ -50,6 +50,8 @@ async function currentReceipts(store, previous, repairDelivery) {
     const entry = previous[stage];
     if (stage === 'deliver' && repairDelivery &&
       (entry?.outcome === 'changes_required' ||
+        (entry?.outcome === 'blocked' &&
+          previous['commit-pr']?.outcome === 'published') ||
         (snapshot?.paths && enforcementPaths(snapshot.paths).length))) break;
     const artifacts = entry?.artifacts;
     if ((artifacts?.shapeHash && !await sameShape(store, artifacts.shapeHash, shape)) ||

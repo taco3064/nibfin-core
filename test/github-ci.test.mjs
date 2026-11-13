@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readPullRequestCI } from '../src/github-ci.mjs';
-import { ciCorrectionFindings } from '../src/ci-recovery.mjs';
+import { ciCorrectionFindings, failedCheckError } from '../src/ci-recovery.mjs';
 import { gitBlob } from '../src/identity.mjs';
 import { now } from './approval-fixture.mjs';
 import mergedRunObservation from './merged-run-observation.json' with { type: 'json' };
@@ -575,3 +575,26 @@ test(
     );
   },
 );
+
+test('CI correction includes a bounded code and source location', () => {
+  const prefix = '2026-11-03T02:01:01.000Z ';
+  const job = { steps: [{ conclusion: 'failure',
+    started_at: '2026-11-03T02:01:00.000Z',
+    completed_at: '2026-11-03T02:02:00.000Z' }] };
+  const expected = { repository: 'example/core' }, run = { id: 42 };
+  const logs = [
+    prefix + 'Error: AGENT_EGRESS_NOT_ISOLATED',
+    prefix + '    at probe (file:///home/runner/work/core/core/scripts/probe.mjs:7:2)',
+    prefix + 'Authorization: Bearer secret-fixture',
+    '2026-11-03T02:03:00.000Z Error: OTHER_STEP_ERROR',
+  ].join('\n');
+  const { failure } = failedCheckError(expected, run, job, logs);
+  assert.deepEqual(failure.diagnostic, {
+    kind: 'error-code', error: 'AGENT_EGRESS_NOT_ISOLATED',
+    location: 'scripts/probe.mjs:7',
+  });
+  assert.doesNotMatch(JSON.stringify(failure), /secret-fixture|OTHER_STEP_ERROR/);
+  assert.match(ciCorrectionFindings(failure).at(-1), /scripts\/probe\.mjs:7/);
+  const unavailable = failedCheckError(expected, run, job, null).failure;
+  assert.match(ciCorrectionFindings(unavailable).at(-1), /could not retrieve/);
+});
