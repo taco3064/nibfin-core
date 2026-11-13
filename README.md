@@ -1,4 +1,4 @@
-<img src="website/public/apple-touch-icon.png" alt="Nibfin logo" width="112" height="112">
+<img src="website/src/assets/nibfin-logo.png" alt="Nibfin logo" width="240">
 
 # Nibfin Core
 
