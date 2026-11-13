@@ -2,6 +2,7 @@
 """Receive workspace copies and run the Codex executor inside a disposable VM."""
 
 import base64
+import selectors
 import json
 import os
 import re
@@ -14,6 +15,8 @@ from pathlib import Path
 
 WORKSPACE_PORT = 4020
 EXEC_PORT = 4021
+EGRESS_PORT = 4022
+PROXY_PORT = 3128
 MAX_FRAME = 96 * 1024 * 1024
 MAX_TREE = 64 * 1024 * 1024
 MAX_FILE = 16 * 1024 * 1024
@@ -25,6 +28,8 @@ ENV = {
     "PATH": "/opt/nibfin/project/bin:/usr/local/bin:/usr/bin:/bin",
     "LANG": "C.UTF-8",
     "DOCKER_HOST": "unix:///run/nibfin-docker/docker.sock",
+    "HTTP_PROXY": "http://127.0.0.1:3128",
+    "HTTPS_PROXY": "http://127.0.0.1:3128",
 }
 
 
@@ -125,6 +130,42 @@ def execute(client):
     )
 
 
+def relay_egress(client):
+    with client, socket.socket(socket.AF_VSOCK, socket.SOCK_STREAM) as upstream:
+        upstream.settimeout(15)
+        upstream.connect((socket.VMADDR_CID_HOST, EGRESS_PORT))
+        client.settimeout(15)
+        with selectors.DefaultSelector() as selector:
+            selector.register(client, selectors.EVENT_READ, upstream)
+            selector.register(upstream, selectors.EVENT_READ, client)
+            while True:
+                for event, _ in selector.select():
+                    chunk = event.fileobj.recv(65536)
+                    if not chunk:
+                        return
+                    event.data.sendall(chunk)
+
+
+def egress():
+    with socket.create_server(("127.0.0.1", PROXY_PORT)) as server:
+        slots = threading.BoundedSemaphore(32)
+        while True:
+            client, _ = server.accept()
+            if not slots.acquire(blocking=False):
+                client.close()
+                continue
+
+            def forward(connection):
+                try:
+                    relay_egress(connection)
+                except OSError:
+                    pass
+                finally:
+                    slots.release()
+
+            threading.Thread(target=forward, args=(client,), daemon=True).start()
+
+
 def listen(port, handler):
     with socket.socket(socket.AF_VSOCK, socket.SOCK_STREAM) as server:
         server.bind((socket.VMADDR_CID_ANY, port))
@@ -144,4 +185,5 @@ if __name__ == "__main__":
     os.umask(0o077)
     Path("/session").mkdir(exist_ok=True)
     threading.Thread(target=listen, args=(EXEC_PORT, execute), daemon=True).start()
+    threading.Thread(target=egress, daemon=True).start()
     listen(WORKSPACE_PORT, workspace)

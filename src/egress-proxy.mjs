@@ -104,13 +104,14 @@ export function clientHelloHost(bytes) {
   if (!host) throw Error('SNI required');
   return host;
 }
-export function createProxy({ mcpPolicyDirectory, resolveHost = lookup,
+export function createProxy({ mcpPolicyDirectory, hosts = allowedHosts,
+  resolveHost = lookup,
   connect = options => net.connect(options) } = {}) {
   const server = http.createServer((req,res) => { res.writeHead(403); res.end(); });
   server.on('connect', async (req, client, head) => {
     client.on('error', () => {});
     const host = req.url?.split(':')[0]?.toLowerCase();
-    if (req.url?.toLowerCase() !== host + ':443' || !(allowedHosts.includes(host) ||
+    if (req.url?.toLowerCase() !== host + ':443' || !(hosts.includes(host) ||
         await policyPermits(mcpPolicyDirectory, host) ||
         await policyPermits(mcpPolicyDirectory, host, true))) {
       client.end('HTTP/1.1 403 Forbidden\r\n\r\n'); return;
