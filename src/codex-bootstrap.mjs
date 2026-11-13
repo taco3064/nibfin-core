@@ -168,16 +168,12 @@ socket.pipe(process.stdout);
   const filesystem = 'permissions.nibfin.filesystem=';
   return args.filter(arg => arg !== '--ignore-user-config').map(arg => {
     if (!arg.startsWith(filesystem)) return arg;
-    return arg.replace(/}$/, ', "/run/nibfin-docker" = "write", ' +
-      '"/opt/nibfin/project" = "read" }');
+    return arg.replace(/}$/, ', "/opt/nibfin/project" = "read" }');
   }).flatMap(arg => arg === 'exec' ? [
-    '-c',
-    'permissions.nibfin.network.unix_sockets={ ' +
-      '"/run/nibfin-docker/docker.sock" = "allow" }',
     '-c', 'shell_environment_policy.set.HTTP_PROXY="http://127.0.0.1:3128"',
     '-c', 'shell_environment_policy.set.HTTPS_PROXY="http://127.0.0.1:3128"',
     '-c', 'shell_environment_policy.set.DOCKER_HOST=' +
-      '"unix:///run/nibfin-docker/docker.sock"',
+      '"tcp://127.0.0.1:2375"',
     arg,
   ] : [arg]);
 }
