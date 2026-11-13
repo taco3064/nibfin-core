@@ -26,6 +26,18 @@ export default defineConfig({
     react(),
     starlight({
       title: 'Nibfin documentation',
+      logo: {
+        src: './src/assets/nibfin-logo.png',
+        alt: 'Nibfin documentation',
+        replacesTitle: true,
+      },
+      favicon: '/favicon.png',
+      head: [
+        {
+          tag: 'link',
+          attrs: { rel: 'apple-touch-icon', href: `${base}apple-touch-icon.png` },
+        },
+      ],
       locales: { root: { label: 'English', lang: 'en' } },
       sidebar,
       customCss: ['./src/styles/theme.css'],
