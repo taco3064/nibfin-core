@@ -125,6 +125,22 @@ export function stageHandlers({
             isDigest(execution.terminationHash),
           'AGENT_TERMINATION_UNPROVEN',
         );
+        if (stage === 'deliver') {
+          try {
+            await workspace.discardWriterGit(execution.terminationHash);
+          } catch (error) {
+            const finding = error.code === 'UNSAFE_WORKSPACE_PATH'
+              ? 'Writer Git metadata is not an ordinary scratch directory.'
+              : 'Core could not remove Writer Git scratch after Writer termination.';
+            console.error(`Nibfin ${stage}: ${finding}`);
+            return {
+              outcome: 'blocked',
+              findings: [finding],
+              references: [context.issue.url],
+              artifacts: { shapeHash: context.shape.hash },
+            };
+          }
+        }
         if (execution.status === 'interrupted') {
           const findings = {
             PROCESS_TIMEOUT: 'Agent exceeded its execution time limit and was stopped.',
@@ -175,20 +191,6 @@ export function stageHandlers({
           if (prior) artifacts.requirementsHash = prior;
         }
         if (passed && stage === 'deliver') {
-          try {
-            await workspace.discardWriterGit(execution.terminationHash);
-          } catch (error) {
-            const finding = error.code === 'UNSAFE_WORKSPACE_PATH'
-              ? 'Writer Git metadata is not an ordinary scratch directory.'
-              : 'Core could not remove Writer Git scratch before Candidate capture.';
-            console.error(`Nibfin ${stage}: ${finding}`);
-            return {
-              outcome: 'blocked',
-              findings: [finding],
-              references: result.evidenceReferences,
-              artifacts,
-            };
-          }
           if (execution.rebaseStatus === 'changes_required') {
             await workspace.continueRebase(
               context.shape.body,
