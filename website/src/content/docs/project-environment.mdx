@@ -3,20 +3,21 @@ title: Project environment
 description: Declare the tools, HTTPS destinations, and role Skills for a Job.
 ---
 
-import { Card, CardGrid } from '@astrojs/starlight/components';
+import Card from '../../components/ui/Card.astro';
+import CardGrid from '../../components/ui/CardGrid.astro';
 
 An adopted public repository can include an optional `.nibfin.json` at its
 root. Core reads the file from the Issue's target repository in the current
 development worktree, including when a shared Runner executes the Job.
 
-<CardGrid>
-  <Card title="Tools" icon="setting">
+<CardGrid columns={3}>
+  <Card title="Tools" href="#tools">
     Request an exact Node.js, Python, or Go version for isolated work.
   </Card>
-  <Card title="Network access" icon="external">
+  <Card title="Network access" href="#https-destinations">
     Request additional HTTPS destinations for this repository's Job.
   </Card>
-  <Card title="Role Skills" icon="document">
+  <Card title="Role Skills" href="#role-skills">
     Extend or replace the instructions for a supported automated role.
   </Card>
 </CardGrid>

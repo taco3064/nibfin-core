@@ -48,6 +48,9 @@ for (const theme of ['light', 'dark']) {
       await page.keyboard.press('Enter');
       const actions = page.locator('.hero .actions a');
       await expect(actions).toHaveCount(2);
+      await expect(actions.first()).toHaveClass(/\bbg-primary\b/);
+      await expect(actions.last()).toHaveClass(/\bborder-border\b/);
+      await expect(page.locator('.nf-delivery-steps > li')).toHaveCount(3);
       const boxes = [];
       for (const action of await actions.all()) {
         await tabTo(page, action);

@@ -10,58 +10,58 @@ hero:
   actions:
     - text: Getting Started
       link: getting-started/
-      icon: right-arrow
     - text: Installation guidance
       link: installation/
       variant: secondary
 ---
+
+import Card from '../../components/ui/Card.astro';
+import CardGrid from '../../components/ui/CardGrid.astro';
 
 Nibfin helps people deliver changes through GitHub Issues,
 with independent checks before changes reach the default branch.
 
 ## Explore the documentation
 
-<div class="nf-doc-grid not-content">
-  <a href="getting-started/">
-    <strong>Getting Started</strong>
-    <span>Choose an onboarding path for your Public Repository.</span>
-  </a>
-  <a href="lifecycle/">
-    <strong>Protected lifecycle</strong>
-    <span>Follow Issue labels, independent review, and verified closure.</span>
-  </a>
-  <a href="architecture/">
-    <strong>Architecture and authority</strong>
-    <span>See what GitHub, Core, Action, and the CLI each own.</span>
-  </a>
-  <a href="runners/">
-    <strong>Runners</strong>
-    <span>Understand registration, member routing, and host readiness.</span>
-  </a>
-  <a href="project-environment/">
-    <strong>Project environment</strong>
-    <span>Declare tools, HTTPS destinations, and role Skills for each Job.</span>
-  </a>
-  <a href="security/">
-    <strong>Security and recovery</strong>
-    <span>Understand credential boundaries and when work can safely resume.</span>
-  </a>
-</div>
+<CardGrid columns={3}>
+  <Card title="Getting Started" href="getting-started/">
+    Choose an onboarding path for your Public Repository.
+  </Card>
+  <Card title="Protected lifecycle" href="lifecycle/">
+    Follow Issue labels, independent review, and verified closure.
+  </Card>
+  <Card title="Architecture and authority" href="architecture/">
+    See what GitHub, Core, Action, and the CLI each own.
+  </Card>
+  <Card title="Runners" href="runners/">
+    Understand registration, member routing, and host readiness.
+  </Card>
+  <Card title="Project environment" href="project-environment/">
+    Declare tools, HTTPS destinations, and role Skills for each Job.
+  </Card>
+  <Card title="Security and recovery" href="security/">
+    Understand credential boundaries and when work can safely resume.
+  </Card>
+</CardGrid>
 
 ## From Issue to verified closure
 
-<ol class="nf-delivery-steps not-content">
+<ol class="nf-delivery-steps not-content" role="list">
   <li>
     <strong>Shape the work</strong>
     <span>An independent validator checks the contract for an authorized Issue.</span>
   </li>
   <li>
     <strong>Deliver and verify</strong>
-    <span>A Writer implements the change. An independent Acceptor checks the Candidate.</span>
+    <span>
+      A Writer implements the change. An independent Acceptor checks the Candidate.
+    </span>
   </li>
   <li>
     <strong>Review and merge</strong>
-    <span>Applicable CI and final review cover the PR head before protected integration.</span>
+    <span>
+      Applicable CI and final review cover the PR head before protected integration.
+    </span>
   </li>
 </ol>
 

@@ -2,8 +2,8 @@
   "observed": "2026-11-13",
   "network": "Public repositories and GitHub release lists were reachable. No formal release was listed for the three components. Fresh installation was not exercised.",
   "pages": {
-    "index.md": {
-      "sha256": "3b786200a6c73db375ef9ff36b9fad659dd24b8912b2dd44fa11e0ec762edac7",
+    "index.mdx": {
+      "sha256": "71e4f592a08d3101f917d879aef419b0d611db2454b077c31f5119aa65c53838",
       "basis": "Reviewed landing claims against Issue #14, Proposal 14–14.4 and maintained onboarding/lifecycle guides. No release or support evidence inferred.",
       "requirements": {
         "issue": "https://github.com/taco3064/nibfin-core/issues/14",
@@ -93,7 +93,7 @@
   "claims": [
     {
       "id": "availability",
-      "page": "index.md",
+      "page": "index.mdx",
       "repository": "taco3064/nibfin-core",
       "status": "Unverified",
       "commit": null,

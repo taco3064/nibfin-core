@@ -54,7 +54,7 @@ test('real projection rejects contradicted labels and unlisted examples', async 
     await assert.rejects(checkDocs(directory), /Help projection changed/);
     await writeFile(checklistPath, audit);
     await checkDocs(directory);
-    const landing = join(directory, 'src/content/docs/index.md');
+    const landing = join(directory, 'src/content/docs/index.mdx');
     const home = await readFile(landing, 'utf8');
     for (const [text, message] of [
       [home.replace('Unverified: formal', 'Released: formal'),
@@ -64,7 +64,7 @@ test('real projection rejects contradicted labels and unlisted examples', async 
     ]) {
       await writeFile(landing, text);
       const data = JSON.parse(audit);
-      data.pages['index.md'].sha256 = digest(text);
+      data.pages['index.mdx'].sha256 = digest(text);
       await writeFile(checklistPath, JSON.stringify(data));
       await assert.rejects(checkDocs(directory), message);
     }
