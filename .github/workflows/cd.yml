@@ -14,8 +14,6 @@ on:
     workflows: [Core CI]
     types: [completed]
     branches: [main]
-  push:
-    tags: ['v*']
   workflow_dispatch:
     inputs:
       deploy_docs:
@@ -38,7 +36,7 @@ on:
 permissions: {}
 
 concurrency:
-  group: core-cd-${{ github.ref_type == 'tag' && github.ref_name || 'main' }}
+  group: core-cd-main
   cancel-in-progress: false
 
 jobs:
@@ -51,9 +49,7 @@ jobs:
         github.event.workflow_run.conclusion == 'success' &&
         github.event.workflow_run.head_repository.id == github.event.repository.id &&
         github.event.workflow_run.head_sha == github.sha) ||
-       (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
-       (github.event_name == 'push' && github.ref_type == 'tag' && github.ref_protected &&
-        github.event.created && !github.event.deleted && !github.event.forced))
+       (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'))
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
@@ -87,13 +83,11 @@ jobs:
           fi
           printf 'commit=%s\n' "$source" >> "$GITHUB_OUTPUT"
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
-        if: github.event_name != 'push'
         with:
           node-version-file: .node-version
           package-manager-cache: false
       - name: Select CD jobs
         id: plan
-        if: github.event_name != 'push'
         env:
           GH_TOKEN: ${{ github.token }}
           CD_SOURCE: ${{ steps.source.outputs.commit }}
@@ -245,25 +239,3 @@ jobs:
     steps:
       - uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
         id: deployment
-
-  release-draft:
-    if: github.event_name == 'push' && github.ref_type == 'tag'
-    needs: verified-main
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-        with:
-          ref: ${{ needs.verified-main.outputs.commit }}
-          persist-credentials: false
-      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
-        with:
-          node-version-file: .node-version
-          package-manager-cache: false
-      - name: Prepare the version draft
-        env:
-          GH_TOKEN: ${{ github.token }}
-          SOURCE_COMMIT: ${{ needs.verified-main.outputs.commit }}
-        run: node scripts/release-ci.mjs

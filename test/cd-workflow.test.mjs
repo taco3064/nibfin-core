@@ -11,8 +11,7 @@ const source = readFileSync(new URL('../.github/workflows/cd.yml', import.meta.u
 function checkWorkflow(text) {
   const workflow = parse(text);
   assert.deepEqual(Object.keys(workflow.on).sort(),
-    ['push', 'workflow_dispatch', 'workflow_run']);
-  assert.deepEqual(workflow.on.push.tags, ['v*']);
+    ['workflow_dispatch', 'workflow_run']);
   assert.deepEqual(workflow.on.workflow_run, {
     workflows: ['Core CI'], types: ['completed'], branches: ['main'],
   });
@@ -25,8 +24,7 @@ function checkWorkflow(text) {
     "github.event.workflow_run.conclusion == 'success'",
     'github.event.workflow_run.head_repository.id == github.event.repository.id',
     "github.ref == 'refs/heads/main'",
-    'github.ref_protected',
-    'github.event.created && !github.event.deleted && !github.event.forced',
+    "github.event_name == 'workflow_dispatch'",
   ]) assert.ok(jobs['verified-main'].if.includes(rule), rule);
 
   const build = jobs['build-docs'];
@@ -57,9 +55,8 @@ function checkWorkflow(text) {
     assert.equal(job.permissions?.pages === 'write', name === 'deploy-docs');
     assert.equal(job.permissions?.['id-token'] === 'write', name === 'deploy-docs');
   }
-  assert.equal(jobs['release-draft'].needs, 'verified-main');
-  assert.equal(jobs['release-draft'].if,
-    "github.event_name == 'push' && github.ref_type == 'tag'");
+  assert.doesNotMatch(jobs['verified-main'].if, /ref_type|event_name == 'push'/);
+  assert.equal(jobs['release-draft'], undefined);
   const rollout = jobs['consumer-drafts'];
   assert.match(rollout.if, /github.event_name == 'workflow_run'/);
   assert.deepEqual(rollout.needs, ['verified-main', 'rollout']);
