@@ -5,12 +5,13 @@ import { GitHubReader } from './github-read.mjs';
 import { digest, requireThat } from './identity.mjs';
 import { hostMainReader } from './github-host-read.mjs';
 import { readIssueQuery } from './github-issue-query.mjs';
+import { readSharedCaller } from './shared-caller-query.mjs';
 
 // Installation and caller pins come from trusted host adoption. Never read
 // these from the stage request, an Issue, a Candidate or a dynamic module path.
 // Source and caller verification are fixed here, not replaceable callbacks.
 export async function installedStageExecutor({ installation, caller, config, execution,
-  agent, workspace, sandbox, inspectIsolation, token, fetcher = fetch,
+  agent, workspace, workflowNodeId, sandbox, inspectIsolation, token, fetcher = fetch,
   clock = Date.now }) {
   const installed = structuredClone(installation), pinned = structuredClone(config);
   const identity = structuredClone(execution), oidc = structuredClone(caller);
@@ -42,6 +43,8 @@ export async function installedStageExecutor({ installation, caller, config, exe
   const executor = nativeStageExecutor({
     reader, config: pinned,
     execution: identity, inspectIsolation, inspectSource, inspectCaller,
+    observeSharedCaller: pinned.hostGitHubReads && workflowNodeId
+      ? expected => readSharedCaller(expected, workflowNodeId, token) : undefined,
     hostMain: pinned.hostGitHubReads ? hostMainReader(token) : undefined,
     agent, workspace, sandbox, token, fetcher, clock });
   return Object.freeze({

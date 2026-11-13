@@ -21,12 +21,16 @@ export async function gitMain(repository, run = command) {
 
 // One read-only GraphQL operation supplies repository metadata and main.
 export async function ghQuery(repository, token, query, variables = {}, run = command) {
+  return (await ghData(repository, token, query, variables, run)).repository;
+}
+
+export async function ghData(repository, token, query, variables = {}, run = command) {
   repoPath(repository);
   const [owner, name] = repository.split('/');
   const { stdout } = await run('/usr/bin/gh', [
     'api', 'graphql', '-f', `query=${query}`, '-f', `owner=${owner}`,
     '-f', `name=${name}`, ...Object.entries(variables).flatMap(([key, value]) =>
-      ['-F', `${key}=${value}`]),
+      [typeof value === 'string' ? '-f' : '-F', `${key}=${value}`]),
   ], {
     env: { ...env, GH_TOKEN: token, GH_PROMPT_DISABLED: '1',
       HOME: '/nonexistent', GH_CONFIG_DIR: '/nonexistent' },
@@ -35,7 +39,7 @@ export async function ghQuery(repository, token, query, variables = {}, run = co
   const result = JSON.parse(stdout.toString());
   requireThat(!result.errors?.length && result.data?.repository,
     'GITHUB_GRAPHQL_OBSERVATION_UNAVAILABLE');
-  return result.data.repository;
+  return result.data;
 }
 
 export function repositoryMetadata(repo) {

@@ -148,8 +148,8 @@ function issueIdentity(issue, expected) {
   );
 }
 
-// Read history twice around current Issue reads. Pagination failure, churn or
-// inconsistent current label membership can never manufacture a clear result.
+// Mutation handling confirms the full REST observation twice. Stages use the
+// Issue admission snapshot and repeat the observation at the journal boundary.
 export async function observePause(reader, expected, decisions = [], options = {}) {
   try {
     const repository = options.repository ?? await reader.repository(expected.repository);
@@ -159,25 +159,27 @@ export async function observePause(reader, expected, decisions = [], options = {
         repository.private === false,
       'PAUSE_REPOSITORY_CHANGED',
     );
-    const before = options.issue ?? await reader.issue(expected);
-    issueIdentity(before, expected);
+    const current = options.issue ?? await reader.issue(expected);
+    issueIdentity(current, expected);
     const path = `${issuePath(expected)}/events`;
     const events = await reader.list(path);
-    const after = await reader.issue(expected);
-    issueIdentity(after, expected);
-    const confirmation = await reader.list(path);
-    requireThat(
-      digest(before) === digest(after) && digest(events) === digest(confirmation),
-      'PAUSE_OBSERVATION_CHANGED',
-    );
-    const state = interpretPause({ issue: after, events, decisions });
+    if (!options.grouped) {
+      const after = await reader.issue(expected);
+      issueIdentity(after, expected);
+      const confirmation = await reader.list(path);
+      requireThat(
+        digest(current) === digest(after) && digest(events) === digest(confirmation),
+        'PAUSE_OBSERVATION_CHANGED',
+      );
+    }
+    const state = interpretPause({ issue: current, events, decisions });
     return {
       ...state,
       issue: expected,
-      current: after,
+      current,
       repository,
       events,
-      observationHash: digest({ issue: expected, current: after, repository, events }),
+      observationHash: digest({ issue: expected, current, repository, events }),
     };
   } catch (error) {
     if (options.propagateTransient && error.transientGitHubRead === true) throw error;
