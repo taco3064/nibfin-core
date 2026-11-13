@@ -12,13 +12,15 @@ try {
   const original = await readFile(content, 'utf8');
   await writeFile(content, original.replace('console.log(message);',
     'console.log(message, "content change control");'));
-  const buildEnv = { ...process.env, WEBSITE_BASE: '/nibfin-core/' };
+  const buildEnv = {
+    ...process.env, WEBSITE_BASE: '/nibfin-core/', NIBFIN_THEME_FIXTURE: '1',
+  };
   assert.equal(runNpm(['run', 'website:build'],
     { cwd: directory, env: buildEnv }).status, 0);
   const text = await inspectIslandOutput(join(directory, 'website/dist'));
   assert(text.includes('content change control'), 'Content mutation was not rendered');
   if (process.env.CI === 'true' || process.argv.includes('--browser')) {
-    const env = { ...process.env, WEBSITE_BASE: '/nibfin-core/',
+    const env = { ...buildEnv,
       NIBFIN_THEME_OUTPUT: join(directory, 'browser-output') };
     const args = ['exec', '--', 'playwright', 'test', '--config',
       'website/playwright.config.mjs', '--grep',

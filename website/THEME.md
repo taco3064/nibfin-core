@@ -77,7 +77,8 @@ import '../styles/theme.css';
 
 `src/components/ThemeConsumer.astro` demonstrates background, foreground, muted,
 border, accent and focus utilities inside the production Starlight reading sample
-at `<base>theme/`. The fixture includes long prose, headings, code and statuses.
+at `<base>theme/` in test builds. The fixture is excluded from public builds.
+It includes long prose, headings, code and statuses.
 It is a theme demonstration, not installation guidance or a product release.
 
 ## Verification

@@ -10,7 +10,7 @@ let cleanupSafe = true;
 try {
   for (const base of ['/nibfin-core/', '/alternate-docs/']) {
     const env = { ...process.env, WEBSITE_BASE: base,
-      NIBFIN_THEME_OUTPUT: directory };
+      NIBFIN_THEME_OUTPUT: directory, NIBFIN_THEME_FIXTURE: '1' };
     assert.equal(runNpm(['run', 'website:build'], { env }).status, 0);
     await inspectIslandOutput();
     assert.equal(runNpm(['exec', '--', 'playwright', 'test',

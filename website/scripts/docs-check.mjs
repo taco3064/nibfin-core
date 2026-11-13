@@ -45,7 +45,9 @@ export async function checkDocs(directory = 'website') {
       .map((match) => match[1].trim());
     const listed = checklist.claims.filter((claim) => claim.page === page
       && claim.command).map((claim) => claim.command);
-    assert.deepEqual(commands, listed, `Unlisted actionable command: ${page}`);
+    const candidate = page === 'cli.md' ? checklist.candidateCli.commands : [];
+    assert.deepEqual(commands, [...candidate, ...listed],
+      `Unlisted actionable command: ${page}`);
     for (const [, inline] of text.matchAll(/`([^`\n]+)`/g)) {
       assert(!/^(?:gh |npm |curl |wget |node |\.\/)/.test(inline),
         `Unlisted inline command: ${page}`);

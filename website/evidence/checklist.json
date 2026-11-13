@@ -3,7 +3,7 @@
   "network": "Public repositories and GitHub release lists were reachable. No formal release was listed for the three components. Fresh installation was not exercised.",
   "pages": {
     "index.md": {
-      "sha256": "9e0006df4343c086adc897e2acaf8d327b426bb8a65723c36f2d4fb4ed1396a6",
+      "sha256": "ceae6ef67b7b9d183738883dbf591b1fa50cf81378d211bc20a871cb1efef1af",
       "basis": "Reviewed landing claims against Issue #14, Proposal 14–14.4 and maintained onboarding/lifecycle guides. No release or support evidence inferred.",
       "requirements": {
         "issue": "https://github.com/taco3064/nibfin-core/issues/14",
@@ -56,7 +56,7 @@
       }
     },
     "cli.md": {
-      "sha256": "58f7bbf78d3bf7114f2d4aef059c76195280c2439b19c07e7856a247c9143a6e",
+      "sha256": "f992ca2c4b8868c414b5f35234b2c3c22af315376f96cba024c36abd6382e32d",
       "basis": "Reviewed public-safe projection of current Issue #15 and product requirements. Not evidence of release or support.",
       "requirements": {
         "issue": "https://github.com/taco3064/nibfin-core/issues/15",
@@ -256,5 +256,17 @@
       "status": "Unverified",
       "basis": "No formal release listed by GitHub; no installation certified."
     }
-  ]
+  ],
+  "candidateCli": {
+    "source": "https://github.com/taco3064/gh-nibfin/blob/main/README.md",
+    "commands": [
+      "gh nibfin help",
+      "gh nibfin preflight --repo OWNER/REPO",
+      "gh nibfin init --repo OWNER/REPO",
+      "gh nibfin init --repo OWNER/REPO --apply",
+      "gh nibfin runner list --repo OWNER/REPO",
+      "gh nibfin dashboard --repo OWNER/REPO",
+      "gh nibfin upgrade --repo OWNER/REPO"
+    ]
+  }
 }
