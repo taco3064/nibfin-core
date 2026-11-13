@@ -168,11 +168,11 @@ socket.pipe(process.stdout);
   const filesystem = 'permissions.nibfin.filesystem=';
   return args.filter(arg => arg !== '--ignore-user-config').map(arg => {
     if (!arg.startsWith(filesystem)) return arg;
-    return arg.replace(/}$/, ', "/run/docker.sock" = "write" }');
+    return arg.replace(/}$/, ', "/run/nibfin-docker" = "write" }');
   }).flatMap(arg => arg === 'exec' ? [
     '-c',
-    'permissions.nibfin.network.unix_sockets={ "/run/docker.sock" = "allow" }',
-    '-c', 'shell_environment_policy.set.DOCKER_HOST="unix:///run/docker.sock"',
+    'permissions.nibfin.network.unix_sockets={ "/run/nibfin-docker/docker.sock" = "allow" }',
+    '-c', 'shell_environment_policy.set.DOCKER_HOST="unix:///run/nibfin-docker/docker.sock"',
     arg,
   ] : [arg]);
 }
