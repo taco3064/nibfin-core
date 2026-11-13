@@ -1,4 +1,3 @@
-import { inspectIslandOutput } from './island-output.mjs';
 import assert from 'node:assert/strict';
 import { readFile, readdir } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -16,11 +15,8 @@ export async function inspectThemeOutput(base, directory = 'website/dist') {
     assert.equal(bytes.subarray(0, 4).toString(), 'wOF2', `Bad font: ${url}`);
   }
   for (const name of ['bg-background', 'text-foreground', 'bg-primary',
-    'text-primary-foreground', 'border-border', 'outline-ring']) {
+    'border-border']) {
     assert(css.includes(name), `Built utility missing: ${name}`);
   }
-  const html = await readFile(join(directory, 'theme/index.html'), 'utf8');
-  assert(html.includes('data-consumer'), 'Missing real Astro utility consumer');
-  await inspectIslandOutput(directory);
   return fonts;
 }

@@ -28,15 +28,15 @@ for (const theme of ['light', 'dark']) {
         expect(await page.evaluate(() => document.documentElement.scrollWidth
           <= document.documentElement.clientWidth + 1)).toBe(true);
       }
-      const code = page.locator('main pre code');
-      await expect(code).toHaveText('node bin/nibfin-core.mjs help');
+      const code = page.locator('main pre code').first();
+      await expect(code).toHaveText('gh nibfin help');
       await expect(page.locator('main')).toContainText('candidate-only');
-      const button = page.locator('main .copy button');
+      const button = page.locator('main .copy button').first();
       await button.focus();
       await expect(button).toBeFocused();
       await button.press('Enter');
       await expect.poll(() => page.evaluate(() => window.copied))
-        .toEqual(['node bin/nibfin-core.mjs help']);
+        .toEqual(['gh nibfin help']);
     });
   }
 }

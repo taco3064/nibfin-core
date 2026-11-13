@@ -16,6 +16,7 @@ export async function inspectIslandOutput(directory = 'website/dist') {
   assert(css.includes('disabled\\:cursor-not-allowed'),
     'Missing utility discovered only in the React primitive');
   const html = await readFile(join(directory, 'theme/index.html'), 'utf8');
+  assert(html.includes('data-consumer'), 'Missing real Astro utility consumer');
   const islands = [...html.matchAll(/<astro-island\b[^>]*>[\s\S]*?<\/astro-island>/g)]
     .map((match) => match[0]);
   assert.equal(islands.length, 1, 'Only the bounded interaction is an island');
