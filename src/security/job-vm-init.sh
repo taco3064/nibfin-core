@@ -9,6 +9,12 @@ mkdir -p /dev/pts /run/nibfin-docker /tmp /sys/fs/cgroup
 mount -t devpts devpts /dev/pts
 mount -t cgroup2 none /sys/fs/cgroup
 
+if test -b /dev/vdb; then
+    mkdir -p /opt/nibfin
+    rm -rf /opt/nibfin/project
+    tar -xf /dev/vdb -C /opt/nibfin
+fi
+
 # The daemon runs entirely in the VM. No Docker socket or host directory is
 # attached to the guest. This entry point supports offline Docker workloads.
 dockerd -H unix:///run/nibfin-docker/docker.sock \
