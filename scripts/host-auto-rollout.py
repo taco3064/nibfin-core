@@ -21,6 +21,7 @@ ACTION = "taco3064/nibfin-act"
 CONFIG = Path("/etc/nibfin")
 INSTALL = Path("/opt/nibfin")
 CLI = INSTALL / "core/bin/nibfin-core.mjs"
+SERVICE_SCRIPT = Path("/usr/local/libexec/nibfin/host-auto-rollout.py")
 HOSTS = {
     CORE: "host.json",
     ACTION: "host.nibfin-act.json",
@@ -463,8 +464,11 @@ def clean_superseded_staged_packages(current):
     pending = ("rollout-plan.json", "rollout.lock", "rollout")
     if any((CONFIG / name).exists() for name in pending):
         return
+    staged = list(INSTALL.glob("core-staged-*"))
+    if not staged:
+        return
     mounts = run("findmnt", "--list", "--noheadings", "--output", "TARGET")
-    for path in INSTALL.glob("core-staged-*"):
+    for path in staged:
         match = re.fullmatch(r"core-staged-([a-f0-9]{40})", path.name)
         if not match or path.is_symlink() or not path.is_dir() or path.stat().st_uid != 0:
             continue
@@ -488,6 +492,29 @@ def clean_superseded_staged_packages(current):
             print(f"Removed superseded staged Core package {revision}", flush=True)
 
 
+def refresh_rollout_service(host):
+    source = INSTALL / "core/scripts/host-auto-rollout.py"
+    if not source.is_file() or Path(__file__).resolve() != SERVICE_SCRIPT:
+        return
+    data = source.read_bytes()
+    if SERVICE_SCRIPT.read_bytes() == data:
+        return
+    with tempfile.TemporaryDirectory(prefix="nibfin-rollout-service-") as work:
+        pin = Path(work) / "pin.json"
+        pin.write_text(json.dumps(host["installation"]["pin"]))
+        run("node", CLI, "verify", INSTALL / "core", pin)
+    with tempfile.NamedTemporaryFile(dir=SERVICE_SCRIPT.parent, delete=False) as script:
+        temp = Path(script.name)
+        try:
+            script.write(data)
+            script.flush()
+            os.fchmod(script.fileno(), 0o755)
+            os.fsync(script.fileno())
+            temp.replace(SERVICE_SCRIPT)
+        finally:
+            temp.unlink(missing_ok=True)
+
+
 def finish(services):
     for name in HOSTS.values():
         path = CONFIG / name
@@ -500,8 +527,9 @@ def finish(services):
         (staged_configs / name).unlink(missing_ok=True)
     if staged_configs.exists():
         staged_configs.rmdir()
-    (CONFIG / "rollout-plan.json").unlink()
     current = json.loads((CONFIG / HOSTS[CORE]).read_text())
+    refresh_rollout_service(current)
+    (CONFIG / "rollout-plan.json").unlink()
     clean_superseded_staged_packages(current["installation"]["pin"]["commit"])
 
 

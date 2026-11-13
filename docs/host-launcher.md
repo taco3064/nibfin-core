@@ -117,6 +117,7 @@ For hosts using automated Core rollouts, the verified package includes
 `scripts/nibfin-rollout.timer`. During host setup or maintenance, the administrator
 installs the script at `/usr/local/libexec/nibfin/host-auto-rollout.py`, installs
 the units under `/etc/systemd/system`, reloads systemd and enables the timer.
+Once installed, the service refreshes its script from verified Core updates.
 The service removes superseded staged packages after the Runner resumes or on an
 idle pass. Installed rollback packages, host settings and gateways remain available.
 
