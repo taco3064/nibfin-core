@@ -1,31 +1,62 @@
-/* Static landing composition; paint comes from shared semantic tokens. */
-.nf-delivery-grid {
-  display: grid;
-  gap: 0 2rem;
-  padding: 1.5rem;
+:root[data-has-hero] .hero {
+  gap: 0;
+  padding: clamp(1.5rem, 5vw, 4rem);
   border: 1px solid var(--nf-border);
-  border-radius: 0.75rem;
-  background: var(--nf-surface);
-  color: var(--nf-text);
+  border-radius: 1.25rem;
+  background-color: var(--nf-surface);
+  background-image: radial-gradient(
+    ellipse at 100% 0%, var(--nf-raised), transparent 65%
+  );
+  grid-template-columns: minmax(0, 1fr);
 }
-.nf-delivery-grid h3 { color: var(--nf-link); }
+
+.hero .stack { text-align: start; }
+.hero .copy { align-items: flex-start; }
+.hero .copy h1 { max-inline-size: 16ch; }
 .hero .tagline { color: var(--nf-secondary); }
-.hero .actions { flex-wrap: wrap; }
+.hero .actions { justify-content: flex-start; gap: .75rem; }
 .hero .sl-link-button { max-width: 100%; }
-@media (min-width: 50rem) {
-  .nf-delivery-grid {
-    grid-template-columns: minmax(10rem, 1fr) minmax(0, 2fr);
-    align-items: baseline;
-  }
-  .nf-delivery-grid > .sl-heading-wrapper { grid-column: 1; }
-  .nf-delivery-grid > :is(p, ul) { grid-column: 2; }
-  .hero:not(:has(img, .hero-html)) { grid-template-columns: 1fr; }
-}
-/* Splash pages have no sidebar menu; keep Starlight preferences reachable. */
-:root:not([data-has-sidebar]) header .right-group { display: flex; }
-/* Filled actions retain contrasting text when the shared link hover applies. */
+
 .hero .sl-link-button.primary:hover {
   color: var(--nf-on-accent);
   background: var(--nf-hover);
   border-color: var(--nf-hover);
+}
+
+:root:not([data-has-sidebar]) header .right-group { display: flex; }
+
+.nf-doc-grid {
+  @apply grid gap-3 sm:grid-cols-2 lg:grid-cols-3;
+}
+
+.nf-doc-grid > a {
+  @apply flex flex-col gap-2 rounded-xl border border-solid border-border bg-card p-5;
+  color: var(--nf-link);
+  text-decoration: none;
+}
+
+.nf-doc-grid > a:hover,
+.nf-doc-grid > a:focus-visible {
+  background: var(--nf-raised);
+}
+
+.nf-doc-grid strong {
+  font-family: var(--nf-font-heading);
+  font-size: var(--sl-text-lg);
+}
+
+.nf-doc-grid span { color: var(--nf-secondary); }
+
+.nf-delivery-grid {
+  @apply grid items-baseline gap-x-6 rounded-xl bg-card p-5;
+  border-inline-start: .25rem solid var(--nf-accent);
+}
+
+.nf-delivery-grid h3 { color: var(--nf-link); }
+
+@media (min-width: 50rem) {
+  .nf-delivery-grid { grid-template-columns: minmax(11rem, 1fr) minmax(0, 2fr); }
+  .nf-delivery-grid > .sl-heading-wrapper { grid-column: 1; }
+  .nf-delivery-grid > p { grid-column: 2; }
+  .nf-delivery-grid > p:first-of-type { margin-top: 0; }
 }

@@ -10,10 +10,12 @@ export async function checkArticleLinks(base, directory = 'website/dist') {
   const paths = (await readdir(directory, { recursive: true }))
     .filter((path) => path.endsWith('.html'));
   const html = new Map();
-  for (const path of paths) html.set(path, await readFile(join(directory, path), 'utf8'));
+  for (const path of paths) {
+    html.set(path.replaceAll('\\', '/'), await readFile(join(directory, path), 'utf8'));
+  }
   let checked = 0;
   for (const [path, text] of html) {
-    const route = path.replace(/index\.html$/, '').replaceAll('\\', '/');
+    const route = path.replace(/index\.html$/, '');
     const current = new URL(base + route, 'https://docs.invalid');
     for (const [, raw] of text.matchAll(/\shref="([^"]*)"/g)) {
       const target = new URL(decode(raw), current);

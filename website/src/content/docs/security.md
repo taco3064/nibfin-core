@@ -5,11 +5,13 @@ description: Public input, credential separation and safe single-Writer recovery
 
 ## Public input and protected execution
 
+:::caution[Keep privileged execution isolated]
 Public Issue text, forks and workflow input are untrusted. They can describe
 work but cannot authorize privileged execution. A self-hosted Runner is not a
 sandbox. Agents and Hooks require verified isolation and must remain separated
 from host credentials and protected operations. Arbitrary Issue or fork code
 must never run with those credentials.
+:::
 
 Core must check current authorization, Runner identity and applicable isolation
 before execution, and fail closed when required facts cannot be established.
@@ -24,6 +26,12 @@ exercise has been performed. Publication must preserve the same separation for
 untrusted fork input; the website cannot grant access to protected operations.
 
 ## Recovery and single-Writer operation
+
+| Observation | Safe action |
+| --- | --- |
+| A Run was cancelled, but the host process may still be active | Confirm termination. |
+| The Writer stopped, but an external write is uncertain | Reconcile the effect. |
+| Termination and effects are verified | Recheck current permission before retrying. |
 
 Only one Writer may operate on the work at a time. GitHub concurrency controls
 Jobs, but a cancelled GitHub Run alone does not prove host processes stopped.

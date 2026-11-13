@@ -3,6 +3,8 @@ title: Architecture and authority
 description: Repository responsibilities and the sources of delivery truth.
 ---
 
+import { Card, CardGrid } from '@astrojs/starlight/components';
+
 Nibfin supports protected delivery for public GitHub repositories. The
 [product Proposal](https://app.notion.com/p/40006b644a2080dab1a8c2e562f95373)
 defines product semantics; these pages project those requirements and verified
@@ -10,17 +12,20 @@ implementation for public readers.
 
 ## Three repositories
 
-- [Core](https://github.com/taco3064/nibfin-core) owns delivery rules, authorization,
-  stages, Skills, Candidate evidence and protected operations.
-- [Action](https://github.com/taco3064/nibfin-act) is a thin invocation and result
-  entry that calls approved Core. It does not duplicate the engine.
-- [CLI](https://github.com/taco3064/gh-nibfin) owns installation, repository Runner
-  management and upgrades, integrating through Core's existing interfaces rather
-  than maintaining another delivery engine.
-
-The planned local Dashboard is a projection and control client through existing
-Core authority and GitHub permissions. It is not a separate control authority or
-an available product. See [limitations](../limitations/) for evidence boundaries.
+<CardGrid>
+  <Card title="Core" icon="setting">
+    [nibfin-core](https://github.com/taco3064/nibfin-core) owns authorization,
+    delivery stages, Skills, Candidate evidence, and protected operations.
+  </Card>
+  <Card title="Action" icon="rocket">
+    [nibfin-act](https://github.com/taco3064/nibfin-act) invokes approved Core
+    from GitHub Actions and returns bounded stage results.
+  </Card>
+  <Card title="CLI" icon="laptop">
+    [gh-nibfin](https://github.com/taco3064/gh-nibfin) handles onboarding, Runner
+    management, upgrade proposals, and the optional local Dashboard.
+  </Card>
+</CardGrid>
 
 ## Sources of truth
 
@@ -44,11 +49,11 @@ the first eligible member and derive a stable User ID label, for example
 `nibfin-user-1001`. GitHub routes and queues work among that member's Runners.
 Runner availability does not change member selection.
 
-- First member ineligible, next member eligible: select the next member.
-- First eligible member's Runners Busy or Offline: keep that member selected;
-  GitHub queues the Job, subject to platform limits. Do not fall back to another
-  Assignee.
-- Authorization unreadable or uncertain: stop; do not guess a selection.
+| GitHub observation | Core and GitHub behavior |
+| --- | --- |
+| First assignee ineligible, next eligible | Select the next eligible assignee. |
+| Selected member's Runners busy or offline | Keep the member; GitHub queues the Job. |
+| Eligibility cannot be established | Stop and report the uncertainty. |
 
 These examples describe the selection rule reflected in Core's maintained
 selection source and tests. They do not claim live multi-Runner testing.
@@ -62,14 +67,10 @@ or assigning another Writer.
 
 ## Website boundary
 
-The English public documentation lives in Core's `website/`. GitHub Actions to
-GitHub Pages is the selected build and hosting route. Source placement and a
-successful local build establish neither deployment nor a live URL.
+This English site lives in Core's `website/` and is served by GitHub Pages.
 
 The website provides reading and search. It has no login, SaaS backend, separate
 policy or state store, or control over Issues, Runners, CI or Merge. Protected
 publication must use reviewed content and applicable protected PR/CI and official
 Pages authorization. Untrusted fork input must not gain publication credentials
-or privileged execution. DOC07 owns publication implementation and authenticated
-publication read-back; DOC08 owns live-site verification. This documentation
-change proves neither.
+or privileged execution.

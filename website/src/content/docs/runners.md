@@ -15,9 +15,8 @@ Issues, documentation, logs or Agent workspaces.
 ## Registration paths
 
 <!-- claim:manual -->
-Unverified: the current GitHub UI/download instructions have not been read back
-for this guide. Use the official links below for current platform-specific
-commands; no static command or download version is certified here.
+Unverified platform-specific onboarding. Follow GitHub's current instructions
+for your repository and platform.
 <!-- /claim -->
 
 **Manual official registration:** open the target repository's Settings, then
@@ -30,15 +29,16 @@ See GitHub's
 No static download version or credential-bearing command is reproduced here.
 
 <!-- claim:registration -->
-Unverified source interface: current product requirements describe implemented
-optional Admin-authorized initial registration after the installation PR merges.
-The CLI source/help needed to reproduce its exact interface is unavailable here;
-this capability is not described as unimplemented or as a verified released step.
+Unverified release and fresh installation. The candidate CLI supports optional
+Admin-authorized registration after the installation PR merges.
+See the [candidate onboarding guide](https://github.com/taco3064/gh-nibfin#build-and-use-the-candidate).
 <!-- /claim -->
 
-**Later team-member quick registration is Planned.** It is distinct from the
-initial Admin-only path and requires separately authorized short-lived handoff
-and member binding. Do not give a team member an administrator's credentials.
+The candidate also includes [team-member quick registration](https://github.com/taco3064/gh-nibfin/blob/main/docs/quick-registration.md).
+A repository administrator authorizes the short-lived handoff and verifies
+the registration. The member uses their own login. Administrative credentials
+stay with the administrator. Formal release and installed operation remain
+Unverified.
 
 ## After registration
 
@@ -52,13 +52,21 @@ Unverified: organization policy and OS/Agent combinations need separate testing.
 No private directory layout, WSL installation or universal platform support is
 prescribed by this guide.
 
+## Shared Runners
+
+An adopted shared Runner can execute a Job for a different target repository.
+GitHub routes the Job, while Core checks the actual Job and member identity.
+Each Job uses its target repository's
+[project environment](../project-environment/) and isolation boundaries.
+
 ## Unregister and remove
 
 Use the target repository's Settings, Actions, Runners to select the correct Runner
 and follow GitHub's current removal instructions with an authorized administrator.
 See [removing self-hosted runners](https://docs.github.com/en/actions/hosting-your-own-runners/managing-self-hosted-runners/removing-self-hosted-runners).
-CLI removal syntax is Unverified/unavailable here. Do not invent a command or
-publish GitHub's generated removal token.
+Candidate CLI management is documented in the
+[Runner command guide](https://github.com/taco3064/gh-nibfin#manual-repository-runner-management).
+Keep generated removal tokens private.
 
 Before retiring a host, check active Jobs, processes, services and dependencies.
 Stop authorized work safely and confirm termination and external effects before

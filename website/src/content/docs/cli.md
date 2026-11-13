@@ -5,11 +5,17 @@ description: Read-only source inspection and CLI availability.
 
 ## Onboarding CLI
 
-The [CLI component](https://github.com/taco3064/gh-nibfin) owns repository onboarding
-and Runner/environment operations. Its public help and source are Unverified in
-this environment. Exact initialization, registration, removal and upgrade syntax
-is unavailable here; no flags or install command are inferred from repository
-names, requirements or Core help.
+The [CLI component](https://github.com/taco3064/gh-nibfin) handles repository
+onboarding, environment inspection, Runner management and upgrades. The public
+candidate source documents these interfaces. Formal release and fresh-user
+installation remain Unverified.
+
+| Task | Candidate source guide |
+| --- | --- |
+| Preview or propose an installation PR | [Candidate onboarding](https://github.com/taco3064/gh-nibfin#build-and-use-the-candidate) |
+| Inspect host prerequisites | [Read-only preflight](https://github.com/taco3064/gh-nibfin#read-only-environment-inspection) |
+| Register or retire a Runner | [Runner management](../runners/) |
+| Preview or propose an upgrade | [Upgrade workflow](https://github.com/taco3064/gh-nibfin/blob/main/docs/upgrade.md) |
 
 ## Candidate source inspection
 
@@ -32,16 +38,21 @@ administrative entries. Their presence does not establish a published artifact,
 compatibility or an installed host. Do not run administrative operations as a
 substitute for an approved onboarding path.
 
-## Availability and next steps
+## Local Dashboard
 
 <!-- claim:dashboard -->
-Planned: Dashboard is optional future work here, not an available installation
-step or a prerequisite for delivery. Team-member quick registration is also
-Planned; it must not be confused with initial Admin-only registration.
+Unverified formal release and installed operation. Candidate CLI source
+implements a local Dashboard with a GitHub Issue dependency graph and
+permission-checked Pause and Resume requests.
 <!-- /claim -->
+
+The Dashboard is optional. It uses the current GitHub CLI identity and
+displays the request result and the observed GitHub label. Core's effective
+decision remains Unknown in the Dashboard. See
+[pause and resume](../lifecycle/#pause-and-resume) and the
+[Dashboard source guide](https://github.com/taco3064/gh-nibfin/blob/main/docs/dashboard.md).
 
 Read [installation](../installation/) before selecting component sources and
 [Runners](../runners/) before managing registration. The
 [source checklist](https://github.com/taco3064/nibfin-core/tree/main/website/evidence)
-links inspected source and records unavailable observations. A synthetic validator
-fixture establishes no real publication or support.
+links inspected source and records verification limits.

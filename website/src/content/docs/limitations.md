@@ -39,11 +39,10 @@ implement a rule without proving its deployed operation.
 
 ## Availability and platform boundaries
 
-The Dashboard and future member quick enrollment are **Planned**. Existing
-administrator-authorized initial repository Runner registration is a separate
-capability: it requires repository Admin authority and does not establish trusted
-Core host adoption. It must not be advertised as completed member quick
-enrollment. Installation and CLI tutorials are maintained separately.
+The [local Dashboard](../cli/#local-dashboard) and optional member quick
+registration are implemented in candidate CLI source. Formal release and
+installed operation remain **Unverified**. Initial repository Runner registration
+is a separate administrator-authorized path. See [Runner registration](../runners/).
 
 Core's delivery contract is host OS neutral, but that does not establish every
 OS, Agent or isolation backend as supported. Untested OS/Agent combinations and
@@ -57,10 +56,8 @@ fallback, and migration of uncommitted work or sessions across failed hosts are
 same model with repository-level Runners; a separate organization Runner
 management product is outside scope.
 
-## Documentation is not deployment
+## Website verification
 
-The [website boundary](../architecture/#website-boundary) distinguishes the
-selected hosting route from actual publication. Local build, navigation, search
-and browser results cover only the tested site output. Protected publication
-and authenticated read-back belong to DOC07; live-site verification belongs to
-DOC08. Neither an API acknowledgement nor a screenshot proves a released site.
+Browser checks verify the tested site output. GitHub Pages deployment read-back
+establishes which site is live. Product onboarding and protected execution
+require their own evidence. See the [website boundary](../architecture/#website-boundary).
