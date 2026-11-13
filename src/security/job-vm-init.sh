@@ -14,4 +14,12 @@ mount -t cgroup2 none /sys/fs/cgroup
 dockerd -H unix:///run/docker.sock \
     --iptables=false --ip6tables=false --userland-proxy=false \
     --bridge=none --ip-forward=false --storage-driver=vfs &
-exec /usr/bin/python3 /opt/nibfin/job-vm-executor.py
+daemon=$!
+for attempt in $(seq 1 30); do
+    if docker -H unix:///run/docker.sock info >/dev/null 2>&1; then
+        exec /usr/bin/python3 /opt/nibfin/job-vm-executor.py
+    fi
+    kill -0 "$daemon" || exit 1
+    sleep 1
+done
+exit 1
