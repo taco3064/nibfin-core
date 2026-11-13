@@ -50,6 +50,7 @@ export class CodexRoleAgent {
       const plan = codexPlan(stage, { model: config.model,
         threadId: session.threadId, skill, context,
         hasProposal: Boolean(config.proposal),
+        additionalDomains: config.project?.allowedDomains,
         globalInstructions: config.globalInstructions });
       const io = join(root, `execution-${context.execution.id}`);
       await mkdir(io, { mode: 0o700 });
