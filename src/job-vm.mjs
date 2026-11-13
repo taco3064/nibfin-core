@@ -113,12 +113,10 @@ export async function preflightJobVm(config) {
   await Promise.all([parentGuard, executable, kernel, rootDisk].map(checkAsset));
   await privateHostDirectory(stateRoot);
   await access(executable, constants.X_OK);
-  for (const device of ['/dev/kvm', '/dev/vhost-vsock']) {
-    await access(device, constants.R_OK | constants.W_OK).catch(cause => {
-      const code = 'JOB_VM_DEVICE_UNAVAILABLE';
-      throw Object.assign(new Error(code, { cause }), { code });
-    });
-  }
+  await access('/dev/kvm', constants.R_OK | constants.W_OK).catch(cause => {
+    const code = 'JOB_VM_DEVICE_UNAVAILABLE';
+    throw Object.assign(new Error(code, { cause }), { code });
+  });
 }
 
 // Boot a prepared image with a private writable disk. The caller owns the Job

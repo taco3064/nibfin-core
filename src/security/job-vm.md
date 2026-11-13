@@ -16,7 +16,7 @@ and Docker Engine with its runtime and Buildx. Install `job-vm-init.sh` as
 executable `/sbin/init` and `job-vm-executor.py` as
 `/opt/nibfin/job-vm-executor.py`. The kernel must support KVM guests, virtio
 block and vsock, cgroup v2, and Docker namespaces. The controller identity
-needs access to `/dev/kvm` and `/dev/vhost-vsock`.
+needs access to `/dev/kvm`. Firecracker provides its own vsock transport.
 
 The guest has no external network interface. Its local proxy forwards allowed
 HTTPS package and project domains through Core's existing egress checks.
