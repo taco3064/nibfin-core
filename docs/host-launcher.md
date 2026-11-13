@@ -121,6 +121,13 @@ Once installed, the service refreshes its script from verified Core updates.
 The service removes superseded staged packages after the Runner resumes or on an
 idle pass. Installed rollback packages, host settings and gateways remain available.
 
+Core CD also prepares the E2E Issue caller from the same verified Core package.
+The host waits for the E2E `verify` check and for the shared Runners to become
+idle. During promotion it updates the E2E caller on `main` and registers E2E
+with the Core shared Runner pool. No separate E2E Runner registration is needed.
+To check routing after promotion, follow an E2E Issue event to the Core shared
+Runner wake, then check the linked stage run for the expected Issue and role.
+
 Core prepares the Issue workspace from freshly read main, keeping Git metadata
 outside the Agent mount. Later stages reuse that workspace and receipts; they
 never reset an existing workspace. Approval/source changes still invalidate
