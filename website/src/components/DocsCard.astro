@@ -1,0 +1,22 @@
+---
+import { Card, CardDescription, CardHeader, CardTitle } from './ui/card';
+
+interface Props {
+  title: string;
+  href?: string;
+  rel?: 'prev' | 'next';
+  class?: string;
+}
+
+const { title, href, rel, class: className } = Astro.props;
+const Element = href ? 'a' : 'div';
+---
+
+<Element {href} {rel} class:list={['nf-card-link not-content block', className]}>
+  <Card className="h-full rounded-lg border-solid border-border-subtle shadow-none">
+    <CardHeader className="p-5">
+      <CardTitle className="leading-snug">{title}</CardTitle>
+      <CardDescription className="leading-relaxed"><slot /></CardDescription>
+    </CardHeader>
+  </Card>
+</Element>

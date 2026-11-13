@@ -1,6 +1,7 @@
 @import './tokens.css';
 @import './landing.css';
 @import './reading.css';
+@import './controls.css';
 @font-face {
   font-family: 'DM Sans Variable';
   font-style: normal;
@@ -44,7 +45,7 @@
   --sl-color-accent-high: var(--nf-link);
   --sl-color-accent-low: var(--nf-raised);
   --sl-color-hairline: var(--nf-border);
-  --sl-color-hairline-light: var(--nf-border);
+  --sl-color-hairline-light: var(--nf-border-subtle);
   --sl-color-hairline-shade: var(--nf-border);
   --sl-color-blue: var(--nf-info);
   --sl-color-blue-high: var(--nf-info);
@@ -80,7 +81,8 @@
   --destructive: var(--nf-danger);
   --destructive-foreground: var(--nf-danger-bg);
   --border: var(--nf-border);
-  --input: var(--nf-border);
+  --border-subtle: var(--nf-border-subtle);
+  --input: var(--nf-border-subtle);
   --ring: var(--nf-focus);
 }
 h1, h2, h3, h4, h5, h6 {
@@ -93,6 +95,8 @@ h1, h2, h3, h4, h5, h6 {
   outline-offset: 3px;
 }
 a:hover { color: var(--nf-hover); }
+.hero a { text-decoration: none; }
+.hero a:focus-visible { outline: 3px solid var(--ring); }
 a[aria-current='page']:hover { color: var(--nf-on-accent); }
 .sl-markdown-content :not(pre) > code { color: var(--nf-code); }
 /* Keep syntax distinctions through weight while using a verified readable color. */

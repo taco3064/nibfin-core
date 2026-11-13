@@ -129,7 +129,7 @@ async function assertIslandMapping(page, hover = false) {
     probe.style.backgroundColor = hover ? 'var(--nf-hover)' : 'var(--nf-accent)';
     probe.style.color = 'var(--nf-on-accent)';
     probe.style.outlineColor = 'var(--nf-focus)';
-    probe.style.borderColor = 'var(--nf-border)';
+    probe.style.borderColor = 'var(--nf-border-subtle)';
     document.body.append(probe);
     const expected = getComputedStyle(probe);
     const result = ['backgroundColor', 'color', 'outlineColor', 'borderTopColor']

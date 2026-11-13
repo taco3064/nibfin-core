@@ -2,7 +2,7 @@ import { fileURLToPath } from 'node:url';
 
 const names = [
   'background', 'foreground', 'card', 'popover', 'primary', 'secondary',
-  'muted', 'accent', 'destructive', 'border', 'input', 'ring',
+  'muted', 'accent', 'destructive', 'border', 'border-subtle', 'input', 'ring',
 ];
 const paired = new Set([
   'card', 'popover', 'primary', 'secondary', 'muted', 'accent', 'destructive',

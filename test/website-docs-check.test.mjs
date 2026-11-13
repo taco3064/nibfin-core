@@ -18,12 +18,12 @@ test('real projection rejects contradicted labels and unlisted examples', async 
     await writeFile(join(directory, 'src/content/docs/neighbor.md'),
       '---\ntitle: Neighbor\n---\nSeparate maintained guide.\n');
     await checkDocs(directory);
-    const owned = join(directory, 'src/content/docs/runners.md');
+    const owned = join(directory, 'src/content/docs/runners.mdx');
     const runner = await readFile(owned, 'utf8');
     await rm(owned);
     await assert.rejects(checkDocs(directory), /ENOENT/);
     await writeFile(owned, runner);
-    const path = join(directory, 'src/content/docs/cli.md');
+    const path = join(directory, 'src/content/docs/cli.mdx');
     const original = await readFile(path, 'utf8');
     const checklistPath = join(directory, 'evidence/checklist.json');
     const audit = await readFile(checklistPath, 'utf8');
@@ -31,7 +31,7 @@ test('real projection rejects contradicted labels and unlisted examples', async 
     const change = async (text) => {
       await writeFile(path, text);
       const data = JSON.parse(audit);
-      data.pages['cli.md'].sha256 = digest(text);
+      data.pages['cli.mdx'].sha256 = digest(text);
       await writeFile(checklistPath, JSON.stringify(data));
     };
     await change(original.replace('Unverified release status', 'Released: candidate'));

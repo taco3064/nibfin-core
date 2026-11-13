@@ -1,0 +1,23 @@
+---
+import { Icon } from '@astrojs/starlight/components';
+import { Alert, AlertDescription, AlertTitle } from './ui/alert';
+
+interface Props {
+  title: string;
+  variant?: 'note' | 'caution';
+}
+
+const { title, variant = 'note' } = Astro.props;
+---
+
+<Alert
+  role="note"
+  aria-label={title}
+  className={`nf-alert nf-alert-${variant} border-solid border-border-subtle`}
+>
+  <AlertTitle className="flex items-center gap-2 text-base">
+    <Icon name={variant === 'caution' ? 'warning' : 'information'} size="1.15rem" />
+    {title}
+  </AlertTitle>
+  <AlertDescription className="text-base"><slot /></AlertDescription>
+</Alert>

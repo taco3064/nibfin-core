@@ -3,7 +3,9 @@ title: Project environment
 description: Declare the tools, HTTPS destinations, and role Skills for a Job.
 ---
 
-import Card from '../../components/ui/Card.astro';
+import Alert from "../../components/DocsAlert.astro";
+
+import Card from '../../components/DocsCard.astro';
 import CardGrid from '../../components/ui/CardGrid.astro';
 
 An adopted public repository can include an optional `.nibfin.json` at its
@@ -63,11 +65,13 @@ file. `extend` appends the file to the default Skill, while `override` uses only
 the selected file. An unreadable or unsafe path stops the affected role.
 Changes to role instructions remain subject to Core's execution and merge rules.
 
-:::note[Verification boundary]
+<Alert title="Verification boundary">
+
 Project configuration, per-Job HTTPS policy, Skill customization, tool image
 preparation, and Job environment selection are present in Core source. Formal
 release and support on a specific installed Runner require their own evidence.
-:::
+
+</Alert>
 
 See [Runner readiness](../runners/#after-registration) and the
 [configuration reference][project-config].

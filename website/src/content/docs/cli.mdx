@@ -3,6 +3,8 @@ title: CLI usage
 description: Commands for repository setup, Runner management, and the local Dashboard.
 ---
 
+import Alert from "../../components/DocsAlert.astro";
+
 `gh` is GitHub CLI. The Nibfin extension adds the `nibfin` command group.
 The examples below use the public **candidate CLI**. Formal release and
 fresh-user installation remain Unverified. Follow the
@@ -80,11 +82,15 @@ Use `inspect` and `cancel` for recovery.
 
 ## Local Dashboard
 
-<!-- claim:dashboard -->
+<Alert title="Dashboard availability">
+
+{/* claim:dashboard */}
 Unverified formal release and installed operation. Candidate CLI source
 implements a local Dashboard with a GitHub Issue dependency graph and
 permission-checked Pause and Resume requests.
-<!-- /claim -->
+{/* /claim */}
+
+</Alert>
 
 ```sh
 gh nibfin dashboard --repo OWNER/REPO
@@ -93,7 +99,8 @@ gh nibfin dashboard --repo OWNER/REPO
 The Dashboard uses your current GitHub CLI identity and opens in a browser.
 It shows the request result and the observed GitHub label. Core's effective
 decision is displayed as Unknown. Press Ctrl+C in the terminal to stop it.
-See [pause and resume](../lifecycle/#pause-and-resume) and the [Dashboard guide][dashboard].
+See [pause and resume](../lifecycle/#pause-and-resume)
+and the [Dashboard guide][dashboard].
 
 ## Preview an upgrade
 
@@ -107,7 +114,7 @@ See the [upgrade guide][upgrade] for options and recovery.
 
 ## Candidate source inspection
 
-<!-- claim:core-help -->
+{/* claim:core-help */}
 Unverified release status; candidate-only example. In the inspected Core source
 checkout, this read-only command prints help without onboarding mutations:
 
@@ -119,7 +126,7 @@ Source: Core commit `6840bdb38ca3f063b2d2b6c39684c6fdaff05873`,
 `bin/nibfin-core.mjs`, the `help` branch. This is Core administrative help,
 not the onboarding CLI and not a released installation instruction.
 [Inspect this source][core-help].
-<!-- /claim -->
+{/* /claim */}
 
 [candidate]: https://github.com/taco3064/gh-nibfin#build-and-use-the-candidate
 [preflight]: https://github.com/taco3064/gh-nibfin#read-only-environment-inspection
@@ -128,4 +135,4 @@ not the onboarding CLI and not a released installation instruction.
 [dashboard]: https://github.com/taco3064/gh-nibfin/blob/main/docs/dashboard.md
 [upgrade]: https://github.com/taco3064/gh-nibfin/blob/main/docs/upgrade.md
 [core-help]:
-  https://github.com/taco3064/nibfin-core/blob/6840bdb38ca3f063b2d2b6c39684c6fdaff05873/bin/nibfin-core.mjs
+  https://github.com/taco3064/nibfin-core/commit/6840bdb38ca3f063b2d2b6c39684c6fdaff05873

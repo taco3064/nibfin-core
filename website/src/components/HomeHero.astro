@@ -1,6 +1,6 @@
 ---
 import DefaultHero from '@astrojs/starlight/components/Hero.astro';
-import { ButtonLink } from './ui/button';
+import { Button } from './ui/button';
 
 const { entry } = Astro.locals.starlightRoute;
 const hero = entry.data.hero;
@@ -8,6 +8,14 @@ const hero = entry.data.hero;
 
 {entry.data.template === 'splash' && hero ? (
   <div class="hero">
+    <img
+      class="nf-hero-logo"
+      src={`${import.meta.env.BASE_URL}apple-touch-icon.png`}
+      alt="Nibfin"
+      width="180"
+      height="180"
+      fetchpriority="high"
+    />
     <div class="stack flex flex-col gap-6">
       <div class="copy flex flex-col gap-4">
         <h1 id="_top" data-page-title>{hero.title ?? entry.data.title}</h1>
@@ -15,12 +23,14 @@ const hero = entry.data.hero;
       </div>
       <div class="actions flex flex-wrap">
         {hero.actions.map(({ link, text, variant }) => (
-          <ButtonLink
-            href={link}
+          <Button
+            asChild
+            size="lg"
+            className="h-auto min-h-11 whitespace-normal border-solid px-4"
             variant={variant === 'secondary' ? 'outline' : 'default'}
           >
-            {text}
-          </ButtonLink>
+            <a href={link}>{text}</a>
+          </Button>
         ))}
       </div>
     </div>

@@ -39,7 +39,10 @@ export default defineConfig({
       ],
       locales: { root: { label: 'English', lang: 'en' } },
       sidebar,
-      components: { Hero: './src/components/HomeHero.astro' },
+      components: {
+        Hero: './src/components/HomeHero.astro',
+        Pagination: './src/components/DocsPagination.astro',
+      },
       customCss: ['./src/styles/theme.css'],
     }),
     {

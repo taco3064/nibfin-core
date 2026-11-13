@@ -3,21 +3,30 @@ title: Runner registration and removal
 description: Separate official registration from trusted host adoption.
 ---
 
+import Alert from '../../components/DocsAlert.astro';
+
+export const runnerDocs = 'https://docs.github.com/en/actions/hosting-your-own-runners/'
+  + 'managing-self-hosted-runners/';
+
 ## Rights and prerequisites
 
 Both personal-owned and Organization-owned Public Repositories use the
 repository-level path. Installation write permission does not imply Runner
 administration permission. Ask an authorized administrator to check current
 repository and organization policy before adding or removing a Runner.
+<Alert title="Keep Runner credentials private" variant="caution">
+
 Do not paste registration tokens, removal tokens or member credentials into
 Issues, documentation, logs or Agent workspaces.
 
+</Alert>
+
 ## Registration paths
 
-<!-- claim:manual -->
+{/* claim:manual */}
 Unverified platform-specific onboarding. Follow GitHub's current instructions
 for your repository and platform.
-<!-- /claim -->
+{/* /claim */}
 
 **Manual official registration:** open the target repository's Settings, then
 Actions and Runners. An authorized administrator uses GitHub's current New
@@ -25,16 +34,16 @@ self-hosted runner instructions for the selected platform. Obtain downloads and
 short-lived registration instructions directly from GitHub; review the target
 repository and member routing. Keep generated credential-bearing commands private.
 See GitHub's
-[adding self-hosted runners guide](https://docs.github.com/en/actions/hosting-your-own-runners/managing-self-hosted-runners/adding-self-hosted-runners).
+<a href={runnerDocs + 'adding-self-hosted-runners'}>adding self-hosted runners guide</a>.
 No static download version or credential-bearing command is reproduced here.
 
-<!-- claim:registration -->
+{/* claim:registration */}
 Unverified release and fresh installation. The candidate CLI supports optional
 Admin-authorized registration after the installation PR merges.
-See the [candidate onboarding guide](https://github.com/taco3064/gh-nibfin#build-and-use-the-candidate).
-<!-- /claim -->
+See the [candidate onboarding guide][onboarding].
+{/* /claim */}
 
-The candidate also includes [team-member quick registration](https://github.com/taco3064/gh-nibfin/blob/main/docs/quick-registration.md).
+The candidate also includes [team-member quick registration][quick].
 A repository administrator authorizes the short-lived handoff and verifies
 the registration. The member uses their own login. Administrative credentials
 stay with the administrator. Formal release and installed operation remain
@@ -63,9 +72,11 @@ Each Job uses its target repository's
 
 Use the target repository's Settings, Actions, Runners to select the correct Runner
 and follow GitHub's current removal instructions with an authorized administrator.
-See [removing self-hosted runners](https://docs.github.com/en/actions/hosting-your-own-runners/managing-self-hosted-runners/removing-self-hosted-runners).
+See <a href={runnerDocs + 'removing-self-hosted-runners'}>
+  removing self-hosted runners
+</a>.
 Candidate CLI management is documented in the
-[Runner command guide](https://github.com/taco3064/gh-nibfin#manual-repository-runner-management).
+[Runner command guide][runner-commands].
 Keep generated removal tokens private.
 
 Before retiring a host, check active Jobs, processes, services and dependencies.
@@ -75,3 +86,8 @@ host processes stopped. Preserve user data, current logins and necessary recover
 evidence. Runner service management is outside this guide.
 
 Return to [Getting Started](../getting-started/) or [CLI usage](../cli/).
+
+[onboarding]: https://github.com/taco3064/gh-nibfin#build-and-use-the-candidate
+[quick]: https://github.com/taco3064/gh-nibfin/blob/main/docs/quick-registration.md
+[runner-commands]:
+  https://github.com/taco3064/gh-nibfin#manual-repository-runner-management

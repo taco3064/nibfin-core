@@ -1,0 +1,34 @@
+.nf-alert-note {
+  color: var(--nf-info);
+  background-color: var(--nf-info-bg);
+}
+
+.nf-alert-caution {
+  color: var(--nf-warning);
+  background-color: var(--nf-warning-bg);
+}
+
+.nf-card-link { text-decoration: none; }
+.nf-card-link:is(:hover, :focus-visible)[href] > div {
+  background-color: var(--muted);
+}
+
+/* Apply the shared outline styling to controls rendered by the docs integrations. */
+:root button[data-open-modal],
+:root .expressive-code .copy button {
+  border: 1px solid var(--border-subtle);
+  border-radius: .375rem;
+  background: var(--card);
+  color: var(--foreground);
+}
+
+:root button[data-open-modal]:hover,
+:root .expressive-code .copy button:hover {
+  background: var(--muted);
+  color: var(--foreground);
+}
+
+:root .expressive-code .copy button::before {
+  border: 0;
+  background: transparent;
+}

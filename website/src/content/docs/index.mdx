@@ -15,7 +15,9 @@ hero:
       variant: secondary
 ---
 
-import Card from '../../components/ui/Card.astro';
+import Alert from "../../components/DocsAlert.astro";
+
+import Card from '../../components/DocsCard.astro';
 import CardGrid from '../../components/ui/CardGrid.astro';
 
 Nibfin helps people deliver changes through GitHub Issues,
@@ -69,10 +71,14 @@ with independent checks before changes reach the default branch.
 
 ## Availability vocabulary
 
+<Alert title="Release status">
+
 {/* claim:availability */}
 Unverified: formal release and fresh-install support for Core, Action, and CLI.
 The public repositories are available for candidate source review.
 {/* /claim */}
+
+</Alert>
 
 Check [component status](installation/#component-status), read the
 [CLI guide](cli/), or see [what each verification milestone proves](limitations/).

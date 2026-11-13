@@ -1,13 +1,32 @@
 :root[data-has-hero] .hero {
-  gap: 0;
   padding: clamp(1.5rem, 5vw, 4rem);
-  border: 1px solid var(--nf-border);
-  border-radius: 1.25rem;
+  border: 1px solid var(--border-subtle);
+  border-radius: .5rem;
   background-color: var(--nf-surface);
   background-image: radial-gradient(
     ellipse at 100% 0%, var(--nf-raised), transparent 65%
   );
   grid-template-columns: minmax(0, 1fr);
+  gap: 1.5rem;
+  align-items: center;
+}
+
+.nf-hero-logo {
+  display: block;
+  inline-size: clamp(6rem, 23vw, 13rem);
+  aspect-ratio: 1;
+  object-fit: contain;
+  block-size: auto;
+}
+
+@media (min-width: 50rem) {
+  :root[data-has-hero] .hero {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: clamp(2rem, 6vw, 5rem);
+  }
+
+  .nf-hero-logo { grid-column: 2; grid-row: 1; }
+  .hero .stack { grid-column: 1; grid-row: 1; }
 }
 
 .hero .stack { text-align: start; }
@@ -33,7 +52,7 @@
 
 .nf-delivery-steps > li {
   @apply grid gap-x-6 gap-y-1 py-4;
-  border-block-start: 1px solid var(--nf-border);
+  border-block-start: 1px solid var(--border-subtle);
 }
 
 .nf-delivery-steps strong {

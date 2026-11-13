@@ -11,11 +11,11 @@ try {
   for (const path of ['scripts', 'test']) {
     await cp(path, join(directory, path), { recursive: true });
   }
-  const article = join(directory, 'website/src/content/docs/cli.md');
+  const article = join(directory, 'website/src/content/docs/cli.mdx');
   const original = await readFile(article, 'utf8');
   await writeFile(article, original + '\n```sh\nfabricated command\n```\n');
   const docs = runNpm(['run', 'verify', '--',
-    'website/src/content/docs/cli.md'], { timeout: 240000, cwd: directory });
+    'website/src/content/docs/cli.mdx'], { timeout: 240000, cwd: directory });
   assert.notEqual(docs.status, 0, 'Root verify ignored documentation failure');
   assert.match(docs.stdout + docs.stderr, /Article audit changed/);
   await writeFile(article, original);

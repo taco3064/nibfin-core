@@ -3,22 +3,28 @@ title: Limitations and verification status
 description: What source evidence proves and what still needs release or host evidence.
 ---
 
+import Alert from "../../components/DocsAlert.astro";
+
+import Card from '../../components/DocsCard.astro';
+import CardGrid from '../../components/ui/CardGrid.astro';
+
 ## Three distinct delivery milestones
 
-**Manual Bootstrap** creates and verifies pinned, publicly obtainable candidate
-Core, Action and CLI sources and installs them under authorization. It is not
-itself normal self-delivery.
-
-**External product E2E** exercises the protected product lifecycle in an external
-public repository using those fixed installed candidates. An authorized switch
-and read-back of the real entries, permissions and installed sources are required
-before normal self-development. A public release or Marketplace listing is not
-a prerequisite for that switch.
-
-**Real self-delivery** requires each of Core, Action and CLI to deliver its own
-actual work through the protected lifecycle. One repository's successful work
-does not establish all three. Source code, passing local tests and pinned
-references alone prove none of these live milestones.
+<CardGrid columns={3}>
+  <Card title="Manual Bootstrap">
+    Creates and verifies publicly obtainable Core, Action, and CLI candidates
+    and installs them under authorization.
+  </Card>
+  <Card title="External product E2E">
+    Exercises protected delivery in an external public repository. An authorized
+    switch and read-back of the entries, permissions, and installed sources are
+    required before normal self-development. The switch can precede public release.
+  </Card>
+  <Card title="Real self-delivery">
+    Requires Core, Action, and CLI each to deliver actual work through the
+    protected lifecycle. Each repository needs its own evidence.
+  </Card>
+</CardGrid>
 
 ## Reading status claims
 
@@ -32,10 +38,14 @@ references alone prove none of these live milestones.
 - **Planned** means future product work; **Unverified** means the required direct
   evidence is unavailable. **Unsupported** means outside the supported boundary.
 
+<Alert title="Verification status">
+
 This documentation does not establish a public release, clean installation,
 complete external E2E or full three-repository self-delivery. Those claims remain
 Unverified here without current authoritative evidence. Current source can
 implement a rule without proving its deployed operation.
+
+</Alert>
 
 ## Availability and platform boundaries
 

@@ -3,15 +3,19 @@ title: Security and recovery
 description: Public input, credential separation and safe single-Writer recovery.
 ---
 
+import Alert from "../../components/DocsAlert.astro";
+
 ## Public input and protected execution
 
-:::caution[Keep privileged execution isolated]
+<Alert title="Keep privileged execution isolated" variant="caution">
+
 Public Issue text, forks and workflow input are untrusted. They can describe
 work but cannot authorize privileged execution. A self-hosted Runner is not a
 sandbox. Agents and Hooks require verified isolation and must remain separated
 from host credentials and protected operations. Arbitrary Issue or fork code
 must never run with those credentials.
-:::
+
+</Alert>
 
 Core must check current authorization, Runner identity and applicable isolation
 before execution, and fail closed when required facts cannot be established.

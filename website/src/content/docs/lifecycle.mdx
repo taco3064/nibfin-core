@@ -3,6 +3,8 @@ title: Protected delivery lifecycle
 description: Independent validation, delivery evidence and verified completion.
 ---
 
+import Alert from "../../components/DocsAlert.astro";
+
 import { Steps } from '@astrojs/starlight/components';
 import LifecycleDiagram from '../../components/LifecycleDiagram.astro';
 
@@ -58,8 +60,12 @@ work boundary needs fresh approval. Manual Bootstrap uses its own tracking.
 
 ## Pause and resume
 
+<Alert title="Pause applies at stage boundaries">
+
 An effective `pause` blocks admission to later stages. An active stage may finish
 normally. Pause leaves the lifecycle labels in place.
+
+</Alert>
 
 Repository owners or effective organization repository admins can pause or
 resume eligible Issues. A collaborator needs GitHub label-editing permission
