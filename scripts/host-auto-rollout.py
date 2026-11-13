@@ -442,6 +442,8 @@ def configure_e2e(host, base, pins, source, issue_blob):
         "schemaVersion", "kind", "uid", "memberId", "installation",
         "stateRoot", "tokenFile", "authFile",
     )}
+    if "notionProposal" in host:
+        config["notionProposal"] = host["notionProposal"]
     config.update(runnerId=runner["runnerId"], issues={})
     config["repository"] = {
         "approval": {"kind": "repository-admission-v1", "repository": E2E,

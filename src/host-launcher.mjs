@@ -193,8 +193,9 @@ export async function launchStage(issueNumber, stage, env = process.env, runnerU
   );
   // An adopted Proposal-only Issue uses a controller read in place of MCP.
   // Complete this read before taking the fence, since it has no write effect.
-  const proposal = adopted.notionProposal === undefined ? undefined :
-    await readNotionProposal(adopted.notionProposal);
+  const proposalSource = adopted.notionProposal ?? (targetHost ?? host).notionProposal;
+  const proposal = proposalSource === undefined ? undefined :
+    await readNotionProposal(proposalSource);
   const globalInstructions = await readGlobalInstructions(host);
   const issue = approval.record.issue;
   const root = issueStatePath(host.stateRoot, issue);
