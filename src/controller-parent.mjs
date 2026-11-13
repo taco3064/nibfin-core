@@ -3,6 +3,7 @@ import { requireThat } from './identity.mjs';
 import {
   controllerRelayArguments,
   controllerRelayProgram,
+  controllerRunnerUids,
 } from './controller-contract.mjs';
 
 const denial = 'CONTROLLER_PARENT_UNPROVEN';
@@ -68,9 +69,11 @@ export async function controllerParentGuard(
   const self = await snapshot(pid, read);
   requireThat(self.uids.every((id) => id === host.uid) && self.tracer === 0, denial);
   const parent = await snapshot(self.ppid, read);
-  if (!parent.uids.includes(host.runnerUid)) return null;
+  const runnerUids = controllerRunnerUids(host);
+  if (!parent.uids.some(uid => runnerUids.includes(uid))) return null;
   requireThat(
-    same(parent.uids, [host.runnerUid, 0, 0, 0]) && parent.tracer === 0 &&
+    runnerUids.includes(parent.uids[0]) &&
+      same(parent.uids.slice(1), [0, 0, 0]) && parent.tracer === 0 &&
       self.gids.every((gid) => gid === self.gids[0]) &&
       parent.gids.every((gid) => gid === self.gids[0]) &&
       same(parent.groups, self.groups),

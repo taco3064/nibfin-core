@@ -86,11 +86,13 @@ async function readWakePeers(host) {
 
 // Fixed installed entry only. The hosted resolver supplies a locator, never
 // token, storage, adapter, executable or authority configuration.
-export async function launchIssueWake(issueNumber, env = process.env, eventBytes) {
+export async function launchIssueWake(
+  issueNumber, env = process.env, eventBytes, runnerUid,
+) {
   const relayed = await relayHostCommand('dispatch-event', [issueNumber], env);
   if (relayed !== null) return relayed;
   const targetRepositoryId = env[targetContextKey];
-  const context = await loadHostAdoption(issueNumber, targetRepositoryId);
+  const context = await loadHostAdoption(issueNumber, targetRepositoryId, runnerUid);
   const { host, adopted, reader, token } = context;
   const targetHost = context.targetHost ?? host;
   const shared = targetRepositoryId !== undefined;

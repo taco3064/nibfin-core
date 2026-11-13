@@ -144,7 +144,7 @@ function nativeExecution(runner, stage, role, iteration = 0) {
 
 // Fixed CLI path: no config flag, environment override, adapter module, shell
 // command, credential or execution identity can be provided by a request.
-export async function launchStage(issueNumber, stage, env = process.env) {
+export async function launchStage(issueNumber, stage, env = process.env, runnerUid) {
   requireThat(
     /^[1-9][0-9]*$/.test(issueNumber) &&
       isId(Number(issueNumber)) &&
@@ -157,7 +157,8 @@ export async function launchStage(issueNumber, stage, env = process.env) {
   let initial;
   try {
     initial = await retryGitHubObservation(async () => {
-      const context = await loadHostAdoption(issueNumber, env[targetContextKey]);
+      const target = env[targetContextKey];
+      const context = await loadHostAdoption(issueNumber, target, runnerUid);
       const { reader, adopted } = context;
       const job = await resolveHostJob(reader, adopted, env);
       const approval = await readProtectedApproval(reader, adopted.approval);

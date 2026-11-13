@@ -1,4 +1,4 @@
-import { observePause, requireUnpaused } from './pause.mjs';
+import { observePause, pauseEvent, requireUnpaused } from './pause.mjs';
 import { GitHubReader, repoPath } from './github-read.mjs';
 import {
   readProtectedApproval,
@@ -117,6 +117,12 @@ export async function observeWake(
   };
 }
 
+function pauseBinding(pause) {
+  if (!pause) return null;
+  const { status, effective, visible, repair, events } = pause;
+  return { status, effective, visible, repair, events: events.filter(pauseEvent) };
+}
+
 // The native 2026-03-10 dispatch endpoint returns the actual run ID. A 204 or
 // lost response is unknown, never permission to dispatch again. The returned
 // receipt means a matching run was observed, not that its stage was admitted.
@@ -166,12 +172,15 @@ export class WakeDispatcher {
                 current.issue.repository === issue.repository &&
                 current.issue.number === issue.number &&
                 current.actorId === initial.actorId &&
-                digest(current.pause ?? null) === digest(initial.pause ?? null) &&
                 current.workflow.repository === workflow.repository &&
                 current.workflow.repositoryId === workflow.repositoryId &&
                 current.workflow.id === workflow.id &&
                 current.workflow.path === workflow.path,
               'WAKE_TARGET_CHANGED',
+            );
+            requireThat(
+              digest(pauseBinding(current.pause)) === digest(pauseBinding(initial.pause)),
+              'WAKE_PAUSE_CHANGED',
             );
             workflow = current.workflow;
           } catch (error) {
