@@ -20,6 +20,7 @@ function executeProbe(unavailable) {
     if (file === 'node') return `v${tools.node}\n`;
     if (file === 'python3' && args[0] === '--version')
       return `Python ${tools.python}\n`;
+    if (file === 'gofmt') return options.input;
     if (file === 'go') return `go${tools.go}\n`;
     return '';
   };
