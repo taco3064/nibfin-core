@@ -2,7 +2,7 @@ import { constants } from 'node:fs';
 import { open, lstat, realpath, unlink } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { requireThat, digest } from './identity.mjs';
-import { validMcpEgress } from './egress-proxy.mjs';
+import { validMcpEgress, validProjectEgress, projectDomains } from './egress-proxy.mjs';
 
 export const mcpPolicyEnvironment = 'NIBFIN_MCP_POLICY_DIRECTORY';
 export const mcpPolicyMount = '/mcp-policy';
@@ -19,11 +19,21 @@ export async function verifyMcpPolicyDirectory(path) {
 }
 
 export async function acquireMcpEgress(directory, executionId, hosts) {
+  return acquirePolicy(directory, executionId, hosts, 'current.json', validMcpEgress);
+}
+
+export async function acquireProjectEgress(directory, executionId, hosts) {
+  return acquirePolicy(directory, executionId, projectDomains(hosts),
+    'project.json', validProjectEgress);
+}
+
+async function acquirePolicy(directory, executionId, hosts, name, validate) {
   await verifyMcpPolicyDirectory(directory);
   const policy = { schemaVersion: 1, executionId, hosts,
     expiresAt: Date.now() + 31 * 60 * 1000 };
-  requireThat(validMcpEgress(policy), 'INVALID_MCP_EGRESS_POLICY');
-  const path = join(directory, 'current.json'), text = JSON.stringify(policy);
+  requireThat(validate(policy), 'INVALID_MCP_EGRESS_POLICY');
+  const path = join(directory, name), text = JSON.stringify(policy);
+  requireThat(Buffer.byteLength(text) <= 65536, 'EGRESS_POLICY_TOO_LARGE');
   const file = await open(path, constants.O_WRONLY | constants.O_CREAT |
     constants.O_EXCL | constants.O_NOFOLLOW, 0o444);
   try { await file.writeFile(text); await file.sync(); }

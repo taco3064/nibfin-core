@@ -31,8 +31,8 @@ The JSON root is an object with only these optional properties (no version key):
   IP literals, single-label names, trailing dots and local/private suffixes
   (`localhost`, `local`, `internal`, `lan`, `home`, `arpa`, `localdomain`) are rejected.
   These declarations request additional HTTPS destinations; they never replace
-  required Core destinations or the independent MCP/login channel. ENV-03 must
-  enforce actual DNS/address safety, including public names resolving privately.
+  required Core destinations or the independent MCP/login channel. ENV-03
+  enforces DNS/address safety, including public names resolving privately.
 - `skills` accepts only `shape`, `deliver`, and `accept`. Each entry requires
   exactly `mode` (`extend` or `override`) and `path` (a nonempty relative file
   path). Absolute/drive/UNC paths, backslashes, colons, control characters,
@@ -77,3 +77,22 @@ configuration errors name the relevant configuration field. Diagnostics do not
 include file contents or host paths. Role identities, permissions, isolation,
 credential handling, required results, GitHub controls, and protected delivery
 gates remain Core-owned, independently of the project instruction text.
+
+ENV-03 normalizes additional hosts to lowercase and removes duplicates. Each role
+uses the Job snapshot for both general Agent network requirements and the existing
+HTTPS proxy. Exact hosts require port 443, matching TLS SNI and exclusively public
+IPv4 DNS answers. HTTP, wildcard/suffix matching and private addresses stay denied.
+
+Project policy uses `project.json` in the existing protected Runner-slot
+`agent.mcpPolicyDirectory` mount; the independent MCP lease remains in
+`current.json`. The Agent never receives that directory as a mount. Hosts with
+additional project domains require this adopted policy channel; missing adoption
+fails before launch. Policy publication is exclusive even for an empty list, so a
+stale owner cannot be overwritten during slot reuse. The existing 64 KiB protected
+policy-file bound applies, and oversized publication fails before launch.
+
+Project leases are retired after confirmed container absence on completion,
+execution/setup failure or cancellation. Unknown termination or tampered cleanup
+retains Pending behavior and blocks slot reuse. Project retirement leaves MCP
+permissions intact until their independent cleanup completes. No host-wide union,
+new proxy, gateway, network or offline Hook permission is introduced.
