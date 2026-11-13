@@ -314,6 +314,9 @@ export async function launchStage(issueNumber, stage, env = process.env) {
           ...result,
           stage: 'continue',
           terminalStage: result.stage,
+          ...(result.retrySettled && runner.target ? {
+            retryRun: runner.runId, retryAttempt: runner.attempt,
+          } : {}),
         }
       : result;
   } catch (error) {

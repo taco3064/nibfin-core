@@ -1,6 +1,20 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { settleHostStage } from '../src/host-stage-settlement.mjs';
+import { githubReadWaiting } from '../src/observation-failure.mjs';
+
+test('transient GitHub reads become retryable only after release', async () => {
+  const pending = { status: 'pending', code: githubReadWaiting, retryAfterMs: 0 };
+  let released = false;
+  const settled = await settleHostStage(async () => pending,
+    async () => { released = true; }, () => {});
+  assert.equal(released, true);
+  assert.equal(settled.retrySettled, true);
+  const unresolved = await settleHostStage(async () => pending,
+    async () => { throw new Error('unresolved'); }, () => {});
+  assert.equal(unresolved.retrySettled, undefined);
+  assert.equal(unresolved.code, 'HOST_EXECUTION_UNRESOLVED');
+});
 
 test('a read timeout releases the fence after local proof', async () => {
   const reports = [];

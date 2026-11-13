@@ -1,19 +1,24 @@
 import { pendingCIObservation } from './github-ci.mjs';
-import { observationFailureCode } from './observation-failure.mjs';
+import {
+  githubReadWaiting, githubReadWait, observationFailureCode,
+} from './observation-failure.mjs';
 
 export async function settleHostStage(run, release, report) {
   let result;
   try {
     result = await run();
   } catch (error) {
-    const code = observationFailureCode(error);
+    const waiting = githubReadWait(error);
+    const code = waiting?.code ?? observationFailureCode(error);
     report('execution', code);
-    result = { schemaVersion: 1, status: 'denied', code };
+    result = { schemaVersion: 1, ...(waiting ?? { status: 'denied', code }) };
   }
-  if (result.status === 'pending' && !pendingCIObservation(result.code)) return result;
+  if (result.status === 'pending' && result.code !== githubReadWaiting &&
+    !pendingCIObservation(result.code)) return result;
   try {
     await release();
-    return result;
+    return result.status === 'pending' && result.code === githubReadWaiting
+      ? { ...result, retrySettled: true } : result;
   } catch (error) {
     const localReasons = [
       'EXTERNAL_EFFECT_UNKNOWN', 'WRITER_NOT_PROVEN_TERMINATED',
