@@ -1,3 +1,4 @@
+import { jobToolEnvironment } from './codex-environment.mjs';
 import { readProjectConfig } from './project-config.mjs';
 import { requireThat } from './identity.mjs';
 
@@ -8,5 +9,6 @@ export async function projectJob({ workspace, runner, issue }, compose) {
     issue.repository === target.repository, 'HOST_WORKSPACE_SUBJECT_CHANGED');
   const project = await readProjectConfig(workspace.work);
   const projectRoot = workspace.work;
-  return options => compose({ ...options, project, projectRoot });
+  const toolEnvironment = jobToolEnvironment(project.tools);
+  return options => compose({ ...options, project, projectRoot, toolEnvironment });
 }

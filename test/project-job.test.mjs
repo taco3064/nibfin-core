@@ -60,14 +60,15 @@ test('Job setup selects target once; subsequent Jobs remain independent', async 
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
-test('environment hands declarations to consumers without changing policy', () => {
+test('environment hands declarations to consumers without changing policy', async () => {
   const captured = [];
   class Consumer {
     constructor(config, options) { captured.push({ config, options }); }
   }
   const hooks = { docker: '/usr/bin/docker', socket: '/socket', image: 'fixed' };
-  codexEnvironment({ kind: 'linux-rootless-docker-v1', agent: hooks, hooks },
-    '/core', undefined, first, { AgentSandbox: Consumer, HookSandbox: Consumer });
+  await codexEnvironment({ kind: 'linux-rootless-docker-v1', agent: hooks, hooks },
+    '/core', undefined, first, { AgentSandbox: Consumer, HookSandbox: Consumer,
+      toolEnvironment: async () => null });
   assert.deepEqual(captured[0].config.projectTools, first.tools);
   assert.deepEqual(captured[0].config.additionalDomains, first.allowedDomains);
   assert.equal(captured[0].config.image, 'fixed');

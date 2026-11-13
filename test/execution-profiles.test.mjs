@@ -35,13 +35,13 @@ test('a known backend cannot authorize a different or unknown Runner OS', () => 
   }
 });
 
-test('unimplemented Desktop profiles and caller-selected adapters deny', () => {
+test('unimplemented Desktop profiles and caller-selected adapters deny', async () => {
   const context = stageFixture();
   const now = Date.parse('2026-11-03T12:00:00Z');
   for (const name of ['docker-desktop', '/tmp/adapter.mjs', 'constructor']) {
     context.isolation.profile = name;
     assert.equal(decideStage('shape', context, now).code, 'UNVERIFIED_EXECUTION_BACKEND');
-    assert.throws(
+    await assert.rejects(
       () => codexEnvironment({ kind: name }, '/installed'),
       /UNVERIFIED_EXECUTION_BACKEND/,
     );
@@ -76,9 +76,9 @@ test('both Linux backends retain the same writer and execution gates', () => {
   }
 });
 
-test('Agent and Hooks cannot use different privileged Docker endpoints', () => {
+test('Agent and Hooks cannot use different privileged Docker endpoints', async () => {
   if (process.platform !== 'linux') return;
-  assert.throws(
+  await assert.rejects(
     () =>
       codexEnvironment(
         {

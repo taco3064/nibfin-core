@@ -22,6 +22,7 @@ export async function codexStageExecutor({
   workflowNodeId,
   project,
   projectRoot,
+  toolEnvironment,
   agentStateRoot,
   authFile,
   mcpSource,
@@ -58,11 +59,12 @@ export async function codexStageExecutor({
       profile.issue.repository === target.repository,
     'HOST_WORKSPACE_SUBJECT_CHANGED',
   );
-  const { agent: agentSandbox, hooks: hookSandbox } = codexEnvironment(
+  const { agent: agentSandbox, hooks: hookSandbox } = await codexEnvironment(
     profile,
     coreRoot,
     adopted.runner,
     project,
+    { toolEnvironment },
   );
   const inheritedAgent = withUserMcp(agentSandbox, mcpSource,
     source => mcpJob ? mcpJob.read() : loadUserMcp(source, {
