@@ -341,6 +341,9 @@ def idle(hosts, include_queued=True):
             if match["busy"]:
                 return False
         workflows = [(repo, path) for path in consumer_workflows(repo, "main")]
+        if repo == CORE:
+            # E2E shares the Core registrations and has its own Issue event queue.
+            workflows.extend((E2E, path) for path in consumer_workflows(E2E, "main"))
         if shared:
             workflows.append((runner_repo, SHARED))
         for workflow_repo, workflow in workflows:
