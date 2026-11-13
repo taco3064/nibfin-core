@@ -180,6 +180,14 @@ export function nativeObserver({
         mergePreview: pr.merge_commit_sha,
         ...(pr.merged ? { mergeCommit: pr.merge_commit_sha } : {}),
       };
+      if (stage === 'deliver' && receipts.deliver?.outcome === 'blocked' &&
+        pr.state === 'open' && pr.head.sha === saved.head &&
+        commit.tree.sha === published.tree &&
+        saved.shapeHash === context.shape?.hash) {
+        // Resume the published changes only if the stopped Writer left them intact.
+        context.candidate = published;
+        context.rebaseTarget = main.head;
+      }
       if (stage === 'deliver' && pinned.ciFailure) {
         const failure = pinned.ciFailure;
         requireThat(

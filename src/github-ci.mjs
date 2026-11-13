@@ -323,7 +323,7 @@ export async function readPullRequestCI(reader, expected, now = Date.now(), obse
           await currentPullRequest(reader, prPath, branchPath, pr, branch),
           'CI_CHANGED_DURING_READ',
         );
-        const logs = await reader.jobLogs(expected.repository, job.id).catch(() => '');
+        const logs = await reader.jobLogs(expected.repository, job.id).catch(() => null);
         throw failedCheckError(expected, run, job, logs);
       }
       unsuccessfulRun ||= run.conclusion !== 'success';
