@@ -89,9 +89,10 @@ protection, Runner, membership, checks and approved-write access; the workflow's
 read-only `GITHUB_TOKEN` does not substitute for it. No credential is passed to
 the workflow input, Agent context or child shell environment.
 
-## Workflow call
+## Legacy workflow call
 
-`.github/workflows/stage.yml` is the executable reusable entry. A protected
+At previously adopted Core revisions, `.github/workflows/stage.yml` is the
+executable reusable entry. A protected
 default-branch `workflow_dispatch` caller invokes it with an exact Core commit
 pin and `issue_number`, `stage`, `member_id`. Pass `contents: read` and
 `id-token: write`; the caller cannot elevate the host's approved operations.
