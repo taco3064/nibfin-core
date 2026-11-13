@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { retryDelay } from '../scripts/retry-shared-runner.mjs';
 import { boundedHostFile } from '../src/host-adoption.mjs';
+import * as hostContainers from '../src/host-containers.mjs';
 
 const scenario = process.argv[2];
 const observations = { adoption: 0, job: 0, approval: 0 };
@@ -78,12 +79,15 @@ moduleMock('../src/github-host-read.mjs', { hostMainReader: () => async name => 
 let work, runs = 0, prepared = 0, retired = 0, stopped = 0;
 let unsafeContainers = false, unsafeJournal = false, unsafeMcp = false;
 let failContainerSettlement = false;
-moduleMock('../src/host-containers.mjs', { idleContainers: async () => {
-  if (unsafeContainers) throw Object.assign(new Error(), {
-    code: 'WRITER_NOT_PROVEN_TERMINATED',
-  });
-  return [];
-} });
+moduleMock('../src/host-containers.mjs', {
+  ...hostContainers,
+  idleContainers: async () => {
+    if (unsafeContainers) throw Object.assign(new Error(), {
+      code: 'WRITER_NOT_PROVEN_TERMINATED',
+    });
+    return [];
+  },
+});
 moduleMock('../src/operation-journal.mjs', { OperationJournal: class {
   async assertIdle() {
     if (failContainerSettlement) unsafeContainers = true;

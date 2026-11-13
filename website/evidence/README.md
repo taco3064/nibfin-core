@@ -14,16 +14,13 @@ Core entry bytes and read-only help with the projection, checks adjacent candida
 warnings/identity, and rejects unlisted commands and changed article audits.
 No onboarding mutations, credentials or remote writes are involved.
 
-The immutable Core identity is the bound current-main source snapshot.
-The help projection was refreshed against Core commit
-`6840bdb38ca3f063b2d2b6c39684c6fdaff05873`, including its recovery and host
-promotion entries. These administrative entries are compared, not onboarding steps. Public
-GitHub read-back was blocked by the execution allowlist on 2026-11-11. Thus no
-formal release, installed candidate, CLI interface or Action/Core compatibility
-is certified. Null source/help/tag/asset observations mean unavailable, not absent.
-The Core help example is candidate-only. Product-boundary prose derives from
-current Issue #15 and product requirements; it is not source implementation proof.
-Official GitHub manual-management links are guidance, not a tested onboarding E2E.
+The Core help projection still compares the inspected source and current read-only
+output. The example is candidate-only. The 2026-11-13 GitHub read-back reached the
+three public repositories and their release lists. No formal release was listed.
+The current CLI README and Issues establish candidate interfaces, including the
+local Dashboard and Runner registration. Fresh installation, protected host
+execution, and formal release support were not exercised. The official GitHub
+manual-management links provide current platform guidance.
 
 `source-fixture.json` is wholly synthetic. Its identity, source, help, version,
 release and asset exercise comparison failure modes. It cannot certify a real
