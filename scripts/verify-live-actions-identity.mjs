@@ -1,5 +1,6 @@
 // GitHub-issued token, native job read-back and actual signature verification.
 import assert from 'node:assert/strict';
+import { setTimeout } from 'node:timers/promises';
 import {
   requestActionsIdentity, verifyActionsIdentity,
 } from '../src/actions-identity.mjs';
@@ -24,21 +25,29 @@ const token = await requestActionsIdentity({
 const claims = JSON.parse(Buffer.from(token.split('.')[1], 'base64url').toString());
 const api = 'https://api.github.com/repos/' + env.GITHUB_REPOSITORY;
 const jobsUrl = `${api}/actions/runs/${runId}/attempts/${attempt}/jobs?per_page=100`;
-const response = await fetch(jobsUrl, {
-  redirect: 'error', signal: AbortSignal.timeout(15000),
-  headers: {
-    Authorization: `Bearer ${env.GITHUB_TOKEN}`,
-    Accept: 'application/vnd.github+json',
-    'X-GitHub-Api-Version': '2022-11-28',
-  },
-});
-assert.ok(response.ok, 'Native jobs unavailable');
-const jobs = await response.json();
-assert.ok(jobs.total_count <= 100, 'Unexpected job pagination');
-const matches = jobs.jobs.filter(job =>
-  job.name === jobName && job.status === 'in_progress');
-assert.equal(matches.length, 1);
-const job = matches[0], checkPrefix = api + '/check-runs/';
+async function readCurrentJob() {
+  for (let attempt = 0; attempt < 8; attempt++) {
+    const response = await fetch(jobsUrl, {
+      redirect: 'error', signal: AbortSignal.timeout(5000),
+      headers: {
+        Authorization: `Bearer ${env.GITHUB_TOKEN}`,
+        Accept: 'application/vnd.github+json',
+        'X-GitHub-Api-Version': '2022-11-28',
+      },
+    });
+    assert.ok(response.ok, 'Native jobs unavailable');
+    const jobs = await response.json();
+    assert.ok(jobs.total_count <= 100, 'Unexpected job pagination');
+    const matches = jobs.jobs.filter(job =>
+      job.name === jobName && job.status === 'in_progress');
+    assert.ok(matches.length <= 1, 'Ambiguous native probe job');
+    if (matches.length === 1) return matches[0];
+    await setTimeout(2000);
+  }
+  assert.fail('Native probe job never became visible as in progress');
+}
+const job = await readCurrentJob();
+const checkPrefix = api + '/check-runs/';
 assert.ok(job.check_run_url.startsWith(checkPrefix));
 const [owner, repositoryName] = env.GITHUB_REPOSITORY.split('/');
 const repositoryId = Number(env.GITHUB_REPOSITORY_ID);
