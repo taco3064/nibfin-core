@@ -27,7 +27,7 @@ ENV = {
     "HOME": "/tmp/tool-home",
     "PATH": "/opt/nibfin/project/bin:/usr/local/bin:/usr/bin:/bin",
     "LANG": "C.UTF-8",
-    "DOCKER_HOST": "unix:///run/nibfin-docker/docker.sock",
+    "DOCKER_HOST": "tcp://127.0.0.1:2375",
     "HTTP_PROXY": "http://127.0.0.1:3128",
     "HTTPS_PROXY": "http://127.0.0.1:3128",
 }
@@ -130,10 +130,10 @@ def execute(client):
     )
 
 
-def relay_egress(client):
-    with client, socket.socket(socket.AF_VSOCK, socket.SOCK_STREAM) as upstream:
+def relay(client, family, address):
+    with client, socket.socket(family, socket.SOCK_STREAM) as upstream:
         upstream.settimeout(15)
-        upstream.connect((socket.VMADDR_CID_HOST, EGRESS_PORT))
+        upstream.connect(address)
         client.settimeout(15)
         with selectors.DefaultSelector() as selector:
             selector.register(client, selectors.EVENT_READ, upstream)
@@ -146,8 +146,8 @@ def relay_egress(client):
                     event.data.sendall(chunk)
 
 
-def egress():
-    with socket.create_server(("127.0.0.1", PROXY_PORT)) as server:
+def loopback(port, family, address):
+    with socket.create_server(("127.0.0.1", port)) as server:
         slots = threading.BoundedSemaphore(32)
         while True:
             client, _ = server.accept()
@@ -157,7 +157,7 @@ def egress():
 
             def forward(connection):
                 try:
-                    relay_egress(connection)
+                    relay(connection, family, address)
                 except OSError:
                     pass
                 finally:
@@ -185,5 +185,11 @@ if __name__ == "__main__":
     os.umask(0o077)
     Path("/session").mkdir(exist_ok=True)
     threading.Thread(target=listen, args=(EXEC_PORT, execute), daemon=True).start()
-    threading.Thread(target=egress, daemon=True).start()
+    for port, family, address in (
+        (PROXY_PORT, socket.AF_VSOCK, (socket.VMADDR_CID_HOST, EGRESS_PORT)),
+        (2375, socket.AF_UNIX, "/run/nibfin-docker/docker.sock"),
+    ):
+        threading.Thread(
+            target=loopback, args=(port, family, address), daemon=True
+        ).start()
     listen(WORKSPACE_PORT, workspace)
