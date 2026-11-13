@@ -12,8 +12,8 @@ const { title, href, rel, class: className } = Astro.props;
 const Element = href ? 'a' : 'div';
 ---
 
-<Element {href} {rel} class:list={['nf-card-link not-content block', className]}>
-  <Card className="h-full rounded-lg border-solid border-border-subtle shadow-none">
+<Element {href} {rel} class:list={['nf-card-link not-content block min-w-0', className]}>
+  <Card className="h-full min-w-0 break-words rounded-lg border-solid border-border-subtle shadow-none">
     <CardHeader className="p-5">
       <CardTitle className="leading-snug">{title}</CardTitle>
       <CardDescription className="leading-relaxed"><slot /></CardDescription>

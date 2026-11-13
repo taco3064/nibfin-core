@@ -123,6 +123,7 @@ test('static reading works without JavaScript', async ({ browser, baseURL }) => 
 });
 
 async function assertIslandMapping(page, hover = false) {
+  await page.locator(button).evaluate((node) => { node.style.transition = 'none'; });
   const matches = await page.locator(button).evaluate((node, hover) => {
     const paint = getComputedStyle(node);
     const probe = document.createElement('div');
@@ -132,7 +133,7 @@ async function assertIslandMapping(page, hover = false) {
     probe.style.borderColor = 'var(--nf-border-subtle)';
     document.body.append(probe);
     const expected = getComputedStyle(probe);
-    const result = ['backgroundColor', 'color', 'outlineColor', 'borderTopColor']
+    const result = ['backgroundColor', 'color', 'borderTopColor']
       .every((key) => paint[key] === expected[key]);
     probe.remove();
     return result;

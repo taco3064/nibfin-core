@@ -160,7 +160,7 @@ test('consumer mappings and rendered negative control', async ({ page }) => {
         'secondary-foreground': 'text', muted: 'raised', 'muted-foreground': 'secondary',
         accent: 'accent', 'accent-foreground': 'on-accent', destructive: 'danger',
         'destructive-foreground': 'danger-bg', border: 'border',
-        input: 'border', ring: 'focus',
+        input: 'border-subtle', 'border-subtle': 'border-subtle', ring: 'focus',
       };
       return [
         matches('body', 'backgroundColor', '--nf-background'),
