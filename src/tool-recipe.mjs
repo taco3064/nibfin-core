@@ -57,13 +57,13 @@ export async function preparationRecipe(tools) {
 export function versionProbe(tools, versions) {
   return `
 const {execFileSync} = require('node:child_process');
-const check = (file, args, expected, path) => {
+const check = (file, args, expected, path, input) => {
   const tool = file.split('/').at(-1).toUpperCase().replace(/[^A-Z0-9]/g, '_');
   let result;
   try {
     result = execFileSync(file, args, {
         env: {PATH: path, HOME: '/tmp', GOTOOLCHAIN: 'local'},
-      timeout: 15000, maxBuffer: 65536, encoding: 'utf8',
+      timeout: 15000, maxBuffer: 65536, encoding: 'utf8', input,
     }).trim();
   } catch {
     throw Error('NIBFIN_TOOL_PROBE_' + tool + '_COMMAND_FAILED');
@@ -89,7 +89,7 @@ if (tools.python) {
 }
 if (tools.go) {
   check('go', ['env', 'GOVERSION'], 'go' + tools.go, project);
-  check('gofmt', ['-l', '/dev/null'], undefined, project);
+  check('gofmt', [], 'package probe', project, 'package probe\\n');
 }
 process.stdout.write('NIBFIN_TOOLS_VERIFIED\\n');
 `;
