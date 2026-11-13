@@ -37,7 +37,7 @@ close or release. A shared instruction file is not a shared execution identity.
 Repository instructions and Agent output cannot grant a new role or permission.
 
 Verify required non-tree artifacts as well as code. Missing, changed or stale
-artifacts/hooks, unsupported mandatory side effects, unexecuted required checks
+artifacts/hooks, unsupported mandatory side effects, unexecuted pre-PR checks
 and evidence for another Candidate are blockers. Distinguish synthetic tests from
 actual provider/host evidence; test counts alone do not establish contract coverage.
 
@@ -53,5 +53,8 @@ blocking findings. Acceptance is neither permission to mutate GitHub nor proof
 that future PR head/CI, final Shape fidelity review, merge or closure succeeded.
 Any material Candidate change requires fresh independent Acceptance.
 No historical Agent transcript or permanent evidence archive is required.
-Perform missing necessary verification against current content or report it as
-blocked. Never infer that an unobserved past approval occurred.
+Perform missing verification assigned to pre-PR Accept against current content,
+or report it as blocked. For checks assigned to PR CI, inspect that the Candidate
+includes the applicable test and that the workflow can run it. Leave execution
+to PR CI and record its result as Unverified until the PR has run. Never infer
+that an unobserved past approval occurred.

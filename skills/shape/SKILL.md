@@ -195,6 +195,13 @@ Identify probable modules and cross-repository interface touchpoints, reusable c
 
 Each criterion must specify **observable pass/fail behavior** and **how to verify it**, including proportionate positive and negative controls where relevant. **Do not transform an external E2E/release milestone, unproved reuse assumption or invented documentation artifact into an implementation acceptance gate merely to preserve a historical Scope split.** Trace every Goal clause and controlling authority obligation to at least one criterion. Include cross-repository interface and integration proof when the bounded Issue owns it; do not rely on an unlisted Issue doing hidden work. A passing test count is not requirement coverage.
 
+For each criterion, assign the check to the stage that can run it. Writer and
+independent Accept use checks available before PR publication. For checks that
+require PR CI, inspect the existing workflow's event, path selection, job
+conditions, and runner capabilities. Name the PR check that will run. If the
+check needs new CI wiring, name the work that owns it and account for its
+delivery before relying on the check. Keep manual diagnostics advisory.
+
 ### Security / Trust / Compatibility boundaries
 
 Where applicable, describe relevant identities, credential separation, provenance, external input, protected mutations, concurrency/recovery, isolation, permission and compatibility constraints from current authority. Do not invent permission or trust exceptions from implementation convenience.
@@ -225,6 +232,10 @@ Independently verify:
 - The proposed Shape preserves **all current authorized outcomes and exclusions**, correct normative repository ownership, current dependency boundaries and binding product/security constraints; it does not resurrect historical conditions superseded by a lawful Issue correction. Check whether any changed original boundary actually needs protected Scope reapproval.
 - The work passes the **development-eligibility/feasibility gate**: a necessary maintained Candidate, no pure verification/release masquerade, and no unproved existing interface forced as a prerequisite. Every Goal clause and relevant product obligation maps to observable criteria with proportionate verification targets and negative cases.
 - The machine-readable Candidate Obligation Inventory exists exactly as required and matches observed hook setup, required artifacts and narrative acceptance targets.
+- For each PR-only criterion, independently verify the workflow can select the
+  relevant PR changes and run the named check, or that the plan assigns the
+  missing CI wiring before the result is needed. Ask for a contract correction
+  if the only path is a manual diagnostic.
 - No unresolved product decision, scope split/move, upstream assumption, unsafe writing permission or ignored required evidence has been papered over.
 - The proposed Issue Body and published evidence references are cleared for the target's actual visibility; access to private research was not misinterpreted as permission to disclose it.
 
@@ -249,6 +260,11 @@ The trusted delivery system decides whether/how to invalidate evidence, restore 
 Run after the project's required independent Acceptance and **current exact-head CI/authoritative checks** have succeeded, when the trusted execution lifecycle selects final fidelity review.
 
 Read current product authority, **current authorized Issue and historical Scope provenance where relevant**, final published Shape and decisions, full diff/changed paths, immutable Candidate and required artifact/hook evidence, Acceptance binding, actual PR head/base, trusted CI source/attempt and required integration evidence.
+
+Use the current PR's CI results as the source of truth for CI. Do not run,
+dispatch, or rerun CI in Review. A skipped applicable PR check indicates a CI
+routing gap. Report the check and its trigger or selection condition so the
+wiring can be corrected. A manual diagnostic outside PR CI carries no merge gate.
 
 Evaluate **decision fidelity**, not a duplicate low-level Acceptance:
 
