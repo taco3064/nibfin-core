@@ -168,7 +168,8 @@ socket.pipe(process.stdout);
   const filesystem = 'permissions.nibfin.filesystem=';
   return args.filter(arg => arg !== '--ignore-user-config').map(arg => {
     if (!arg.startsWith(filesystem)) return arg;
-    return arg.replace(/}$/, ', "/run/nibfin-docker" = "write" }');
+    return arg.replace(/}$/, ', "/run/nibfin-docker" = "write", ' +
+      '"/opt/nibfin/project" = "read" }');
   }).flatMap(arg => arg === 'exec' ? [
     '-c',
     'permissions.nibfin.network.unix_sockets={ ' +
