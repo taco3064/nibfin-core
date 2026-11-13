@@ -19,7 +19,10 @@ async function transfer(connect, payload, signal) {
 
 export async function runJobVmWriter(config, input, execute) {
   const abort = new AbortController();
-  const cancel = () => abort.abort(new Error('JOB_VM_CANCELLED'));
+  const cancel = () => {
+    const code = 'JOB_VM_CANCELLED';
+    abort.abort(Object.assign(new Error(code), { code }));
+  };
   const deadline = AbortSignal.timeout(deliveryRoleTimeout);
   const signal = AbortSignal.any([abort.signal, deadline]);
   // Keep guest-controlled console output off the Action output stream.

@@ -16,6 +16,7 @@ async function copyDisk(source, destination, signal) {
     ['--reflink=auto', '--sparse=always', '--', source, destination],
     { env: { PATH: '/usr/bin:/bin' }, signal });
   await chmod(destination, 0o600);
+  signal.throwIfAborted();
 }
 
 async function checkAsset(path) {
