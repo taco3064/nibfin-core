@@ -1,7 +1,7 @@
 import { stages, samePublishedRequirements } from './stages.mjs';
 import { stageSuccess } from './stage-runtime.mjs';
 import { digest, isDigest, requireThat } from './identity.mjs';
-import { equivalentCandidate } from './candidate-evidence.mjs';
+import { enforcementPaths, equivalentCandidate } from './candidate-evidence.mjs';
 import { integrationRepairRequired, pendingCIObservation } from './github-ci.mjs';
 import { codexIdle } from './codex-bootstrap.mjs';
 import { requiredCheckFailed } from './ci-recovery.mjs';
@@ -40,7 +40,7 @@ async function sameShape(store, left, right) {
   return samePublishedRequirements(first, second);
 }
 
-async function currentReceipts(store, previous) {
+async function currentReceipts(store, previous, repairDelivery) {
   const shape = previous.shape?.artifacts?.shapeHash;
   const candidate = previous.deliver?.artifacts?.candidateHash;
   const snapshot = candidate ? await store.get(candidate) : null;
@@ -48,6 +48,9 @@ async function currentReceipts(store, previous) {
   const current = {};
   for (const stage of Object.keys(stages)) {
     const entry = previous[stage];
+    if (stage === 'deliver' && repairDelivery &&
+      (entry?.outcome === 'changes_required' ||
+        (snapshot?.paths && enforcementPaths(snapshot.paths).length))) break;
     const artifacts = entry?.artifacts;
     if ((artifacts?.shapeHash && !await sameShape(store, artifacts.shapeHash, shape)) ||
       (artifacts?.candidateHash && artifacts.candidateHash !== candidate &&
@@ -88,7 +91,8 @@ export async function continueStages({
     { wait, clock, timeout: ciTimeout });
   const changed = await retryGitHubObservation(() => refreshRequirements(previous),
     { wait, clock, timeout: ciTimeout });
-  const initial = changed ? {} : await currentReceipts(store, previous);
+  const initial = changed ? {} :
+    await currentReceipts(store, previous, correctionRepairs > 0);
   const repairCandidate = async (rejected, ciFailure) => {
     await inspectCurrent();
     const repaired = await execute('deliver', ciFailure);
@@ -136,6 +140,13 @@ export async function continueStages({
     let ciPolls = 0;
     for (;;) {
       result = await execute(stage);
+      if (stage === 'deliver' && correctionRepairs > 0 &&
+        result.code === 'STAGE_REQUIRES_CORRECTION' &&
+        (await reportedReceipt(store, stage, result))?.outcome === 'changes_required') {
+        correctionRepairs--;
+        await inspectCurrent();
+        continue;
+      }
       if (stage === 'accept' && !retriedIdle && result.status === 'denied' &&
         result.code === codexIdle.code) {
         const receipt = await reportedReceipt(store, stage, result);

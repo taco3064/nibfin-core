@@ -5,6 +5,7 @@ import { issuePath } from './github-read.mjs';
 import { canonicalCandidateBlock, candidateContract,
   safeCandidatePath } from './candidate-contract.mjs';
 import { requireExecutionIsolation } from './execution-profiles.mjs';
+import { enforcementPaths } from './candidate-evidence.mjs';
 
 // Adapted from Kairo's pure stage/evidence gates. Only a trusted live observer
 // may supply context and receipts. This module authenticates no JSON caller.
@@ -184,12 +185,7 @@ function candidateEvidence(context) {
     'INVALID_CANDIDATE',
   );
   requireThat(
-    candidate.paths.every(
-      (path) =>
-        !path.startsWith('.nibfin/') &&
-        !path.startsWith('.github/workflows/') &&
-        !['.github/CODEOWNERS', 'CODEOWNERS', 'docs/CODEOWNERS'].includes(path),
-    ),
+    enforcementPaths(candidate.paths).length === 0,
     'ENFORCEMENT_CHANGE_REQUIRES_SEPARATE_APPROVAL',
   );
   const obligations = candidateContract(context.shape.body);

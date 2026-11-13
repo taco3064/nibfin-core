@@ -86,7 +86,9 @@ export async function codexStageExecutor({
   const agent = {
     async run(stage, context) {
       await workspace.clearIgnoredDependencies(context.shape?.body);
-      return roleAgent.run(stage, context);
+      const comparisonBase = stage === 'deliver'
+        ? context.rebase?.latestMain ?? await workspace.comparisonBase() : undefined;
+      return roleAgent.run(stage, context, comparisonBase);
     },
   };
   const inspectIsolation = async (stage, context) => {

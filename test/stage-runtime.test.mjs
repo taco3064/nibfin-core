@@ -95,6 +95,20 @@ test('Deliver receives independent Accept findings for its Candidate', async () 
   assert.equal((await handler.perform(context)).status, 'completed');
 });
 
+test('Deliver reports protected paths before storing a candidate', async () => {
+  const context = stageFixture();
+  const path = '.github/workflows/nibfin-issue.yml';
+  const candidate = { ...context.candidate, paths: [path] };
+  const handler = stageHandlers({
+    workspace: { capture: async () => candidate },
+    store: { put: async () => assert.fail('Protected changes must not be stored') },
+  }).deliver;
+  const result = await handler.readBack(context, { retainedCandidate: candidate });
+  assert.equal(result.outcome, 'changes_required');
+  assert.ok(result.findings[0].includes(path));
+  assert.deepEqual(result.artifacts, { shapeHash: context.shape.hash });
+});
+
 test('a published Shape is loaded verbatim without starting Author', async t => {
   const f = await fixture(t);
   const body = f.context.shape.body;
