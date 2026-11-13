@@ -210,7 +210,7 @@ export class CodexSandbox {
     };
   }
   async execute({ plan, executionId, work, main, input, output, session, auth,
-    mcp = null }) {
+    mcp = null, jobVmSocket }) {
     const c = this.#config;
     requireThat(
       plan?.policyHash ===
@@ -264,6 +264,7 @@ export class CodexSandbox {
         plan,
         codexVersion: c.codexVersion,
         proxyHost: preflight.proxyHost,
+        jobVm: Boolean(jobVmSocket),
       }),
       { flag: 'wx', mode: 0o400 },
     );
@@ -272,7 +273,7 @@ export class CodexSandbox {
       mode: 0o400,
     });
     for (const [path, writable] of [
-      [work, plan.writable],
+      [work, plan.writable && !jobVmSocket],
       [main, false],
       [input, false],
       [output, true],
@@ -287,7 +288,7 @@ export class CodexSandbox {
     await chmod(authCopy, 0o444);
     const mounts = [
       { source: main, destination: '/main', rw: false },
-      { source: work, destination: '/work', rw: plan.writable },
+      { source: work, destination: '/work', rw: plan.writable && !jobVmSocket },
       { source: input, destination: '/input', rw: false },
       { source: output, destination: '/io', rw: true },
       { source: session, destination: '/agent-home', rw: true },
@@ -298,6 +299,12 @@ export class CodexSandbox {
         rw: false,
       },
     ];
+    if (jobVmSocket) {
+      requireThat(plan.writable && (await this.#host.lstat(jobVmSocket)).isSocket() &&
+        (await this.#host.realpath(jobVmSocket)) === jobVmSocket,
+        'INVALID_JOB_VM_SOCKET');
+      mounts.push({ source: jobVmSocket, destination: '/job-vm.sock', rw: false });
+    }
     if (mcp) {
       const path = join(authRoot, 'mcp.toml');
       await writeFile(path, privateMcpToml(mcp), { flag: 'wx', mode: 0o444 });

@@ -1,31 +1,21 @@
-import { spawn } from 'node:child_process';
-import { constants } from 'node:fs';
-import { lstat, mkdtemp, open, rm, writeFile } from 'node:fs/promises';
+import { execFile, spawn } from 'node:child_process';
+import { createConnection } from 'node:net';
+import { promisify } from 'node:util';
+import { chmod, lstat, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { randomInt } from 'node:crypto';
+import { setTimeout as delay } from 'node:timers/promises';
 import { privateHostDirectory } from './host-fence.mjs';
 import { rootOwnedPath } from './host-paths.mjs';
 import { requireThat } from './identity.mjs';
 
 async function copyDisk(source, destination, signal) {
-  const input = await open(source, constants.O_RDONLY | constants.O_NOFOLLOW);
-  try {
-    const output = await open(destination, 'wx', 0o600);
-    try {
-      for await (const chunk of input.createReadStream({ autoClose: false })) {
-        signal.throwIfAborted();
-        let written = 0;
-        while (written < chunk.length) {
-          const result = await output.write(chunk, written, chunk.length - written);
-          requireThat(result.bytesWritten > 0, 'JOB_VM_DISK_WRITE_FAILED');
-          written += result.bytesWritten;
-        }
-      }
-    } finally {
-      await output.close();
-    }
-  } finally {
-    await input.close();
-  }
+  // The immutable backing file stays outside the VM. Reflinks avoid copying
+  // unchanged blocks on supported filesystems, and sparse copies work on ext4.
+  await promisify(execFile)('/usr/bin/cp',
+    ['--reflink=auto', '--sparse=always', '--', source, destination],
+    { env: { PATH: '/usr/bin:/bin' }, signal });
+  await chmod(destination, 0o600);
 }
 
 async function checkAsset(path) {
@@ -34,45 +24,107 @@ async function checkAsset(path) {
   requireThat(stat.isFile(), 'JOB_VM_ASSET_NOT_FILE');
 }
 
-function runGuest(executable, config, directory, log, signal) {
-  signal.throwIfAborted();
-  const child = spawn(executable, ['--no-api', '--config-file', config], {
+const parentGuard = '/usr/bin/setpriv';
+
+function startGuest(executable, config, directory, log) {
+  const child = spawn(parentGuard, [
+    '--pdeathsig', 'SIGKILL', '--no-new-privs', '--',
+    executable, '--no-api', '--config-file', config,
+  ], {
     cwd: directory,
     env: { PATH: '/usr/bin:/bin', LANG: 'C.UTF-8' },
     stdio: ['ignore', log.fd, log.fd],
   });
-  const abort = () => child.kill('SIGKILL');
-  signal.addEventListener('abort', abort, { once: true });
-  if (signal.aborted) abort();
-  return new Promise((resolve, reject) => {
+  let exited = false;
+  const done = new Promise(resolve => {
     let error;
     child.on('error', value => { error = value; });
-    child.once('close', (code, termination) => {
-      signal.removeEventListener('abort', abort);
-      if (error) reject(error);
-      else if (signal.aborted) reject(signal.reason);
-      else if (code === 0) resolve();
-      else reject(Object.assign(new Error('JOB_VM_EXIT_FAILED'), {
-        code: 'JOB_VM_EXIT_FAILED', exitCode: code, termination,
-      }));
+    child.once('close', (exitCode, termination) => {
+      exited = true;
+      resolve({ error, exitCode, termination });
     });
   });
+  return {
+    done,
+    get exited() { return exited; },
+    stop() { if (!exited) child.kill('SIGKILL'); },
+  };
+}
+
+async function connectGuest(path, port, guest, signal) {
+  for (;;) {
+    signal.throwIfAborted();
+    if (guest.exited) {
+      const { error, exitCode, termination } = await guest.done;
+      const code = 'JOB_VM_EXITED_BEFORE_HANDOFF';
+      throw Object.assign(new Error(code, { cause: error }), {
+        code, exitCode, termination,
+      });
+    }
+    const socket = createConnection({ path });
+    const abort = () => socket.destroy(signal.reason);
+    signal.addEventListener('abort', abort, { once: true });
+    try {
+      const reply = await new Promise((resolve, reject) => {
+        socket.once('error', reject);
+        socket.once('close', () => reject(new Error('JOB_VM_CHANNEL_CLOSED')));
+        socket.setTimeout(5000, () => {
+          socket.destroy(new Error('JOB_VM_HANDSHAKE_TIMEOUT'));
+        });
+        socket.once('connect', () => socket.write('CONNECT ' + port + '\n'));
+        let pending = Buffer.alloc(0);
+        const handshake = bytes => {
+          pending = Buffer.concat([pending, bytes]);
+          const end = pending.indexOf(10);
+          if (end < 0 && pending.length <= 32) return;
+          socket.pause();
+          socket.removeListener('data', handshake);
+          if (end < 0 || end > 32 ||
+            !/^OK [0-9]+$/.test(pending.subarray(0, end).toString('ascii'))) {
+            reject(new Error('JOB_VM_CHANNEL_REJECTED'));
+            return;
+          }
+          if (end + 1 < pending.length) socket.unshift(pending.subarray(end + 1));
+          socket.setTimeout(0);
+          resolve(socket);
+        };
+        socket.on('data', handshake);
+      });
+      signal.throwIfAborted();
+      return reply;
+    } catch (error) {
+      socket.destroy();
+      if (!['ENOENT', 'ECONNREFUSED'].includes(error.code) &&
+        error.message !== 'JOB_VM_CHANNEL_CLOSED') throw error;
+      await delay(100, undefined, { signal });
+    } finally {
+      signal.removeEventListener('abort', abort);
+    }
+  }
 }
 
 // Boot a prepared image with a private writable disk. The caller owns the Job
-// lifetime. No host directory, socket, or network interface is exposed here.
+// lifetime. The guest can receive connections through its private vsock endpoint.
 export async function runJobVm({ executable, kernel, rootDisk, stateRoot, memoryMiB },
-  { signal, log }) {
+  { signal, log, useGuest }) {
   requireThat(process.platform === 'linux' && Number.isSafeInteger(memoryMiB) &&
-    memoryMiB >= 128 && signal, 'INVALID_JOB_VM_CONFIGURATION');
+    memoryMiB >= 128 && memoryMiB <= 8192 && signal, 'INVALID_JOB_VM_CONFIGURATION');
   signal.throwIfAborted();
-  await Promise.all([executable, kernel, rootDisk].map(checkAsset));
+  await Promise.all([parentGuard, executable, kernel, rootDisk].map(checkAsset));
   signal.throwIfAborted();
   await privateHostDirectory(stateRoot);
   const directory = await mkdtemp(join(stateRoot, 'job-vm-'));
+  let guest;
+  const connections = new Set();
+  const abort = () => {
+    for (const socket of connections) socket.destroy();
+    guest?.stop();
+  };
+  signal.addEventListener('abort', abort, { once: true });
   try {
     const disk = join(directory, 'root.ext4');
     const config = join(directory, 'vm.json');
+    const channel = join(directory, 'guest.sock');
     await copyDisk(rootDisk, disk, signal);
     await writeFile(config, JSON.stringify({
       'boot-source': {
@@ -83,9 +135,38 @@ export async function runJobVm({ executable, kernel, rootDisk, stateRoot, memory
         drive_id: 'root', path_on_host: disk, is_root_device: true, is_read_only: false,
       }],
       'machine-config': { vcpu_count: 1, mem_size_mib: memoryMiB },
+      ...(useGuest ? { vsock: {
+        guest_cid: randomInt(3, 0x7fffffff), uds_path: 'guest.sock',
+      } } : {}),
     }), { flag: 'wx', mode: 0o600 });
-    await runGuest(executable, config, directory, log, signal);
+    signal.throwIfAborted();
+    guest = startGuest(executable, config, directory, log);
+    if (signal.aborted) abort();
+    if (useGuest) {
+      const startup = AbortSignal.timeout(60_000);
+      let connected = false;
+      return await useGuest(async (port, requestSignal = signal) => {
+        requireThat(Number.isInteger(port) && port > 1023 && port <= 65535,
+          'INVALID_JOB_VM_PORT');
+        const lifetime = AbortSignal.any(
+          connected ? [signal, requestSignal] : [signal, requestSignal, startup]);
+        const socket = await connectGuest(channel, port, guest, lifetime);
+        connected = true;
+        connections.add(socket);
+        socket.once('close', () => connections.delete(socket));
+        return socket;
+      }, directory);
+    }
+    const { error, exitCode, termination } = await guest.done;
+    signal.throwIfAborted();
+    if (error) throw error;
+    if (exitCode !== 0) throw Object.assign(new Error('JOB_VM_EXIT_FAILED'), {
+      code: 'JOB_VM_EXIT_FAILED', exitCode, termination,
+    });
   } finally {
+    signal.removeEventListener('abort', abort);
+    abort();
+    await guest?.done;
     await rm(directory, { recursive: true, force: true });
   }
 }

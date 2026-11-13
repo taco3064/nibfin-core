@@ -150,9 +150,27 @@ export function runCodex(args, {
   });
 }
 
+async function jobVmArguments(args) {
+  const relay = `
+const net = require('node:net');
+const socket = net.createConnection('/job-vm.sock');
+socket.once('error', error => {
+  process.stderr.write(error.code + '\\n');
+  process.exit(1);
+});
+process.stdin.pipe(socket);
+socket.pipe(process.stdout);
+`;
+  await writeFile('/agent-home/environments.toml', [
+    'default = "job"', 'include_local = false', '[[environments]]', 'id = "job"',
+    'program = "/usr/local/bin/node"', 'args = ' + JSON.stringify(['-e', relay]),
+  ].join('\n'), { flag: 'wx', mode: 0o600 });
+  return args.filter(arg => arg !== '--ignore-user-config');
+}
+
 export async function bootstrap() {
   const invocation = JSON.parse(await readFile('/input/invocation.json', 'utf8'));
-  const { plan, codexVersion, proxyHost } = invocation;
+  const { plan, codexVersion, proxyHost, jobVm } = invocation;
   const version = await runCodex(['--version']);
   if (version.stdout.trim() !== codexVersion) throw new Error('CODEX_VERSION_MISMATCH');
   // A newly mounted requirements file must not be ignored by an older CLI.
@@ -194,7 +212,8 @@ export async function bootstrap() {
   });
   if (!/logged in using chatgpt/i.test(login.stdout + login.stderr))
     throw new Error('SUBSCRIPTION_LOGIN_UNAVAILABLE');
-  const result = await runCodex(plan.args, { input: plan.prompt });
+  const result = await runCodex(
+    jobVm ? await jobVmArguments(plan.args) : plan.args, { input: plan.prompt });
   // Core scans these private streams before any result enters an evidence receipt.
   await writeFile('/io/stream.json', JSON.stringify(result), { mode: 0o600 });
 }
