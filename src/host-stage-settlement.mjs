@@ -16,7 +16,7 @@ export async function settleHostStage(run, release, report) {
   if (result.status === 'pending' && result.code !== githubReadWaiting &&
     !pendingCIObservation(result.code)) return result;
   try {
-    await release();
+    await release(result);
     return result.status === 'pending' && result.code === githubReadWaiting
       ? { ...result, retrySettled: true } : result;
   } catch (error) {

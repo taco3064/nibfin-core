@@ -133,6 +133,20 @@ test('adopted PR recovery restores the candidate and preserves dirty work', asyn
   assert.equal(rebased.contentChanged, false);
 });
 
+test('closed delivery removes only the recorded working files', async t => {
+  const { workspace, root } = await fixture(t);
+  await writeFile(join(workspace.work, 'source.txt'), 'Delivered\n');
+  await writeFile(join(workspace.work, 'proof.txt'), 'Passed\n');
+  const candidate = await workspace.capture(shape);
+  await writeFile(join(workspace.work, 'local.txt'), 'Keep this\n');
+  assert.equal(await workspace.cleanDeliveredWork(candidate, shape), false);
+  await rm(join(workspace.work, 'local.txt'));
+  assert.equal(await workspace.cleanDeliveredWork(candidate, shape), true);
+  await assert.rejects(readFile(join(workspace.work, 'source.txt')), { code: 'ENOENT' });
+  assert.equal(await readFile(join(root, 'artifacts', sha256('Passed\n')), 'utf8'),
+    'Passed\n');
+});
+
 test('adopted delivery reuses an unpublished trusted Candidate', async t => {
   const f = await fixture(t);
   await writeFile(join(f.workspace.work, 'source.txt'), 'Changed\n');

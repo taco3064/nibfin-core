@@ -107,6 +107,19 @@ placing this file on a branch is not a supported live deployment claim.
 
 ## State, cancellation and recovery
 
+After the merged delivery has closed the Issue, Core checks the local files against
+the recorded Candidate while it still holds the Issue fence. Matching working
+files can be removed while Git objects, artifacts and receipts stay available.
+Local edits, unrelated ignored files and unresolved executions keep the workspace.
+
+For hosts using automated Core rollouts, the verified package includes
+`scripts/host-auto-rollout.py`, `scripts/nibfin-rollout.service` and
+`scripts/nibfin-rollout.timer`. During host setup or maintenance, the administrator
+installs the script at `/usr/local/libexec/nibfin/host-auto-rollout.py`, installs
+the units under `/etc/systemd/system`, reloads systemd and enables the timer.
+The service removes superseded staged packages after the Runner resumes or on an
+idle pass. Installed rollback packages, host settings and gateways remain available.
+
 Core prepares the Issue workspace from freshly read main, keeping Git metadata
 outside the Agent mount. Later stages reuse that workspace and receipts; they
 never reset an existing workspace. Approval/source changes still invalidate

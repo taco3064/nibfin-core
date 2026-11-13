@@ -12,6 +12,7 @@ import { codexStageExecutor } from './codex-stage.mjs';
 import { CandidateWorkspace } from './workspace.mjs';
 import { stages, issueRequirementsChanged } from './stages.mjs';
 import { issueProgress } from './issue-progress.mjs';
+import { cleanClosedWorkspace } from './closed-workspace.mjs';
 import { continueStages } from './stage-continuation.mjs';
 import { setTimeout } from 'node:timers/promises';
 import { digest, isId, requireThat } from './identity.mjs';
@@ -210,6 +211,7 @@ export async function launchStage(issueNumber, stage, env = process.env) {
     throw error;
   }
   let mcpJob, release;
+  let progress;
   try {
     const inspectWriter = async (_stage, observed) => {
       await inspectHostAdoption(context);
@@ -233,17 +235,23 @@ export async function launchStage(issueNumber, stage, env = process.env) {
     }
     const openPr = (context.targetHost ?? host).openPrHandoffs?.[issueNumber];
     const journal = new OperationJournal(join(root, 'receipts'), approval.record.issue);
-    release = async () => {
+    release = async (result) => {
       // Release only after local termination and external writes are settled.
       await journal.assertIdle();
       await idleContainers(adopted.isolation, issue);
       await mcpJob?.retire(true);
+      if (progress && ((result.stage === 'close' && result.status === 'completed') ||
+          result.code === 'DELIVERY_ALREADY_RECORDED')) {
+        await cleanClosedWorkspace({ progress, approval, reader }).catch(() => {
+          console.error('Nibfin retained the closed Issue work directory');
+        });
+      }
       await fence.release();
     };
     await retryGitHubObservation(inspectWriter);
     if (openPr) await journal.assertIdle();
-    const { workspaceRoot, binding, store, marker: workspaceBinding } =
-      await issueProgress(root, approval);
+    progress = await issueProgress(root, approval);
+    const { workspaceRoot, binding, store, marker: workspaceBinding } = progress;
     const existing = await lstat(workspaceRoot).catch(error => {
       if (error.code !== 'ENOENT') throw error;
       return null;
