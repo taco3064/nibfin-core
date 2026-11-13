@@ -192,8 +192,8 @@ jobs:
           context="$(mktemp -d)"
           trap 'rm -rf "$context"' EXIT
           export NIBFIN_CODEX_TEST_SECCOMP="$PWD/src/security/seccomp.json"
-          printf '%s\n' 'FROM node:24.22.1-bookworm-slim' 'RUN npm install --global @openai/codex@0.138.0' 'RUN mkdir -p /session /etc/codex' > "$context/Dockerfile"
-          docker --host "$socket" build --iidfile "$context/image-id" "$context"
+          docker --host "$socket" build --iidfile "$context/image-id" \
+            -f src/security/agent.Dockerfile .
           export NIBFIN_CODEX_TEST_IMAGE="$(cat "$context/image-id")"
           node scripts/verify-live-codex.mjs
           node scripts/verify-live-adapter.mjs

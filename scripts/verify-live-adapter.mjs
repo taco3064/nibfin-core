@@ -51,6 +51,8 @@ try {
   ).stdout
     .toString()
     .trim();
+  const label = '{{index .Config.Labels "io.nibfin.codex-version"}}';
+  const version = await docker(['image', 'inspect', '--format', label, image]);
   const adapter = new CodexSandbox(
     {
       docker: '/usr/bin/docker',
@@ -58,7 +60,7 @@ try {
       socket,
       gatewayId,
       network,
-      codexVersion: 'codex-cli 0.138.0',
+      codexVersion: version.stdout.toString().trim(),
       coreRoot: resolve('.'),
       proxyScript,
     },
@@ -79,7 +81,8 @@ try {
   });
   const result = await adapter.execute(request);
   // Denied because no subscription exists; never invent an Agent completion.
-  assert.equal(result.status, 'denied', JSON.stringify(result));
+  assert.equal(result.status, 'interrupted', JSON.stringify(result));
+  assert.equal(result.code, 'SUBSCRIPTION_LOGIN_UNAVAILABLE');
   const proof = JSON.parse(await readFile(join(request.output, 'probe.json'), 'utf8'));
   assert.equal(proof.stdout, 'NIBFIN_PROBE_PASSED\n');
   assert.equal(proof.policyHash, request.plan.policyHash);
