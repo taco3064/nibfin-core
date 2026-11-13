@@ -28,7 +28,9 @@ Those operations belong to the trusted publisher after independent evidence.
 Implement the complete bounded behavior and appropriate positive/negative tests.
 Inspect the whole diff for unintended changes. Run the approved checks that the
 isolated environment supports. Report exact commands, observed outcomes and
-unrun evidence honestly. A mock is not a live-provider or real-host success.
+unrun evidence honestly. Record checks assigned to PR CI as Unverified and
+continue through Candidate capture when the required local checks pass. A mock
+is not a live-provider or real-host success.
 
 Honor the published machine-readable Candidate inventory without rewriting it.
 Produce each required artifact at its approved path. Required artifacts remain
