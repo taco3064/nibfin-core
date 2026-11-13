@@ -40,7 +40,7 @@ async function fixture(t, fault, rootful = false, mcp = false, project = false) 
   const config = {
     docker: '/usr/bin/docker',
     socket: rootful ? rootfulSocket : '/run/user/1000/docker.sock',
-    image: `sha256:${'a'.repeat(64)}`,
+    image: `sha256:${(fault === 'selected-image' ? 'b' : 'a').repeat(64)}`,
     gatewayId: 'c'.repeat(64),
     network: 'nibfin-private',
     codexVersion: 'codex-cli 0.138.0',
@@ -101,7 +101,8 @@ async function fixture(t, fault, rootful = false, mcp = false, project = false) 
         CpuCfsQuota: true,
       };
     else if (cmd[0] === 'image')
-      value = [{ Id: config.image, Config: { Env: ['PATH=/usr/bin'] } }];
+      value = [{ Id: cmd[2], Config: { Env: [cmd[2] === config.image
+        ? 'PATH=/usr/bin' : 'PATH=/usr/local/bin:/usr/bin'] } }];
     else if (cmd[0] === 'network')
       value = [
         {
@@ -118,11 +119,12 @@ async function fixture(t, fault, rootful = false, mcp = false, project = false) 
           Id: config.gatewayId,
           State: { Running: true },
           Config: {
-            Image: config.image,
+            Image: fault === 'selected-image' ? gatewayImage : config.image,
             Entrypoint: [fault === 'gateway-entrypoint'
               ? '/usr/local/bin/node' : 'node'],
             Cmd: ['/proxy.mjs'],
-            Env: ['PATH=/usr/bin', ...((mcp || project) ?
+            Env: [fault === 'selected-image' ? 'PATH=/usr/local/bin:/usr/bin'
+              : 'PATH=/usr/bin', ...((mcp || project) ?
               ['NIBFIN_MCP_POLICY_DIRECTORY=/mcp-policy'] : [])]
               .sort()
               .concat(fault === 'gateway-env-extra' ? ['FOREIGN=1'] : [])
@@ -292,7 +294,9 @@ async function fixture(t, fault, rootful = false, mcp = false, project = false) 
         namespace: { uidStart: 231072, gidStart: 231072, size: 65536 },
       })
     : undefined;
-  return { sandbox: new CodexSandbox(config, { host, run, backend }),
+  const gatewayImage = `sha256:${'a'.repeat(64)}`;
+  return { sandbox: new CodexSandbox(config, { host, run, backend,
+    ...(fault === 'selected-image' ? { gatewayImage } : {}) }),
     request, calls, config };
 }
 
@@ -496,4 +500,13 @@ test('project gateway keeps source, environment, mount and isolation checks', as
       fault === 'source-changed' ? /EGRESS_SOURCE_CHANGED/ : /AGENT_EGRESS_NOT_ISOLATED/);
     assert.equal(f.calls.some(c => c[0] === 'create'), false);
   }
+});
+
+test('prepared Agent image retains the fixed gateway image and environment', async t => {
+  const f = await fixture(t, 'selected-image');
+  const proof = await f.sandbox.preflight();
+  assert.equal(proof.imageId, f.config.image);
+  assert.notEqual(f.config.image, `sha256:${'a'.repeat(64)}`);
+  assert.ok(f.calls.some(args => args[0] === 'image' &&
+    args[2] === `sha256:${'a'.repeat(64)}`));
 });

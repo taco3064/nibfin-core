@@ -36,9 +36,9 @@ test('actual role planning and environment keep target snapshot across role exec
       constructor(config) { environmentDomains = config.additionalDomains; }
     }
     class HooksEnvironment {}
-    const compose = ({ project }) => {
+    const compose = async ({ project }) => {
       const hooks = { docker: '/usr/bin/docker', socket: '/socket' };
-      codexEnvironment({ kind: 'linux-rootless-docker-v1', agent: hooks, hooks },
+      await codexEnvironment({ kind: 'linux-rootless-docker-v1', agent: hooks, hooks },
         coreRoot, undefined, project,
         { AgentSandbox: AgentEnvironment, HookSandbox: HooksEnvironment });
       const selected = projectDomains(environmentDomains);
@@ -82,20 +82,20 @@ test('actual role planning and environment keep target snapshot across role exec
     }));
     await writeFile(join(work, 'custom.md'), 'first project Skill');
     const job = await setup();
-    await job({}).run('shape', stageFixture('shape'));
+    await (await job({})).run('shape', stageFixture('shape'));
     await writeFile(join(work, '.nibfin.json'), JSON.stringify({
       allowedDomains: ['next.example.com'],
     }));
     await writeFile(join(work, 'custom.md'), 'updated project Skill');
-    await job({}).run('accept', stageFixture('accept'));
+    await (await job({})).run('accept', stageFixture('accept'));
     const next = await setup();
-    await next({}).run('deliver', stageFixture('deliver'));
+    await (await next({})).run('deliver', stageFixture('deliver'));
     // Each native Job has a fresh private state root. These fixture contexts
     // reuse execution identities, so use another root for the defaults check.
     await rm(stateRoot, { recursive: true });
     await mkdir(stateRoot, { mode: 0o700 });
     await writeFile(join(work, '.nibfin.json'), '{"allowedDomains":[]}');
-    await (await setup())({}).run('deliver', stageFixture('deliver'));
+    await (await (await setup())({})).run('deliver', stageFixture('deliver'));
     assert.deepEqual(observed,
       [['api.example.com'], ['api.example.com'], ['next.example.com'], []]);
   });

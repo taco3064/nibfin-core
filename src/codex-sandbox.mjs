@@ -63,6 +63,7 @@ export class CodexSandbox {
   #backend;
   #containerLabel;
   #gatewayLabel;
+  #gatewayImage;
   constructor(
     config,
     {
@@ -70,6 +71,7 @@ export class CodexSandbox {
       backend,
       containerLabel,
       gatewayLabel,
+      gatewayImage = config?.image,
       host = { platform: process.platform, uid: process.getuid?.(), lstat, realpath },
     } = {},
   ) {
@@ -92,6 +94,9 @@ export class CodexSandbox {
     this.#host = host;
     this.#containerLabel = containerLabel;
     this.#gatewayLabel = gatewayLabel;
+    requireThat(/^(?:[A-Za-z0-9._:/-]+@)?sha256:[a-f0-9]{64}$/.test(gatewayImage),
+      'INVALID_GATEWAY_IMAGE');
+    this.#gatewayImage = gatewayImage;
   }
   #docker(args, options = {}) {
     return this.#run(
@@ -144,7 +149,13 @@ export class CodexSandbox {
       Source: c.mcpPolicyDirectory, Destination: mcpPolicyMount,
     }] : [];
     if (c.mcpPolicyDirectory) await verifyMcpPolicyDirectory(c.mcpPolicyDirectory);
-    const gatewayEnvironment = [...(images[0].Config?.Env ?? []),
+    const gatewayImages = this.#gatewayImage === c.image ? images :
+      await this.#inspect(['image', 'inspect', this.#gatewayImage]);
+    requireThat(gatewayImages.length === 1 &&
+      (gatewayImages[0].Id === this.#gatewayImage ||
+        gatewayImages[0].RepoDigests?.includes(this.#gatewayImage)),
+    'AGENT_IMAGE_UNAVAILABLE');
+    const gatewayEnvironment = [...(gatewayImages[0].Config?.Env ?? []),
       ...(c.mcpPolicyDirectory ?
         [`${mcpPolicyEnvironment}=${mcpPolicyMount}`] : [])];
     requireThat(
@@ -161,7 +172,7 @@ export class CodexSandbox {
         gateway.Id === c.gatewayId &&
         matchesContainerLabel(gateway, this.#gatewayLabel) &&
         gateway.State?.Running === true &&
-        gateway.Config?.Image === c.image &&
+        gateway.Config?.Image === this.#gatewayImage &&
         gateway.HostConfig?.Privileged === false &&
         gateway.HostConfig.ReadonlyRootfs === true &&
         !gateway.HostConfig.PidMode &&
