@@ -11,7 +11,7 @@ run-name: >-
 
 on:
   workflow_run:
-    workflows: [CI]
+    workflows: [Core CI]
     types: [completed]
     branches: [main]
   push:
@@ -103,11 +103,22 @@ jobs:
   package:
     if: needs.verified-main.outputs.core == 'true'
     needs: verified-main
-    uses: ./.github/workflows/package.yml
-    with:
-      source_commit: ${{ needs.verified-main.outputs.commit }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
     permissions:
       contents: read
+    outputs:
+      archive_sha256: ${{ steps.package.outputs.archive_sha256 }}
+      manifest_hash: ${{ steps.package.outputs.manifest_hash }}
+      artifact_id: ${{ steps.package.outputs.artifact_id }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/package-core
+        id: package
+        with:
+          source_commit: ${{ needs.verified-main.outputs.commit }}
 
   rollout:
     needs: [verified-main, package]

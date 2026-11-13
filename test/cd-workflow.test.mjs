@@ -14,7 +14,7 @@ function checkWorkflow(text) {
     ['push', 'workflow_dispatch', 'workflow_run']);
   assert.deepEqual(workflow.on.push.tags, ['v*']);
   assert.deepEqual(workflow.on.workflow_run, {
-    workflows: ['CI'], types: ['completed'], branches: ['main'],
+    workflows: ['Core CI'], types: ['completed'], branches: ['main'],
   });
   assert.deepEqual(workflow.permissions, {});
   assert.equal(workflow.concurrency['cancel-in-progress'], false);
