@@ -101,6 +101,7 @@ export class CodexRoleAgent {
         session.threadId);
       // Both MCP and model credential scans precede Job-copy retirement.
       await execution.retireMcp?.();
+      await execution.applyWorkspace?.();
       return { executionId: context.execution.id,
         terminationHash: execution.terminationHash,
         stdout: execution.stdout, lastMessage, expectedThread: session.threadId,

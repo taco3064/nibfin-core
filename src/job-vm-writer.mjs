@@ -50,8 +50,10 @@ export async function runJobVmWriter(config, input, execute) {
         } finally { await close(); }
       },
     });
-    if (files) await installJobVmWorkspace(input.work, files);
-    return result;
+    return files ? {
+      ...result,
+      applyWorkspace: () => installJobVmWorkspace(input.work, files),
+    } : result;
   } finally {
     process.off('SIGTERM', cancel);
     process.off('SIGINT', cancel);

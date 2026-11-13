@@ -9,6 +9,7 @@ import { digest, requireThat } from './identity.mjs';
 import { withUserMcp } from './mcp-agent.mjs';
 import { loadUserMcp } from './mcp-source.mjs';
 import { runJobVmWriter } from './job-vm-writer.mjs';
+import { preflightJobVm } from './job-vm.mjs';
 
 // Fixed composition for the provisional Codex adapter. The privileged launcher
 // supplies adopted paths and native writer proof. No request can import a host
@@ -69,7 +70,10 @@ export async function codexStageExecutor({
     { toolEnvironment },
   );
   const writer = jobVm && actor.role === 'writer' ? {
-    preflight: (...args) => agentSandbox.preflight(...args),
+    async preflight(...args) {
+      await preflightJobVm(jobVm);
+      return agentSandbox.preflight(...args);
+    },
     execute: input => runJobVmWriter(jobVm, input,
       options => agentSandbox.execute(options)),
   } : agentSandbox;
