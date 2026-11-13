@@ -165,16 +165,16 @@ socket.pipe(process.stdout);
     'default = "job"', 'include_local = false', '[[environments]]', 'id = "job"',
     'program = "/usr/local/bin/node"', 'args = ' + JSON.stringify(['-e', relay]),
   ].join('\n'), { flag: 'wx', mode: 0o600 });
-  const guestSocket = [
-    '-c', 'permissions.nibfin.filesystem."/run/docker.sock"="write"',
-    '-c', 'permissions.nibfin.network.unix_sockets."/run/docker.sock"="allow"',
+  const filesystem = 'permissions.nibfin.filesystem=';
+  return args.filter(arg => arg !== '--ignore-user-config').map(arg => {
+    if (!arg.startsWith(filesystem)) return arg;
+    return arg.replace(/}$/, ', "/run/docker.sock" = "write" }');
+  }).flatMap(arg => arg === 'exec' ? [
+    '-c',
+    'permissions.nibfin.network.unix_sockets={ "/run/docker.sock" = "allow" }',
     '-c', 'shell_environment_policy.set.DOCKER_HOST="unix:///run/docker.sock"',
-  ];
-  const position = args.indexOf('exec');
-  return [
-    ...args.slice(0, position), ...guestSocket,
-    ...args.slice(position).filter(arg => arg !== '--ignore-user-config'),
-  ];
+    arg,
+  ] : [arg]);
 }
 
 export async function bootstrap() {
