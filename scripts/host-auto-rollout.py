@@ -530,6 +530,8 @@ def rollout(hosts, selected):
     result = json.loads(run("node", CLI, "promote-host"))
     require(result["status"] == "installed", "Host promotion failed")
     print(f"CD {run_id} installed Core {core} with Action {action}", flush=True)
+    print(f"CD {run_id} promoted repositories: {', '.join(result['repositories'])}",
+          flush=True)
     finish(services)
 
 
