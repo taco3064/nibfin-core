@@ -170,7 +170,7 @@ test(
       reads = 0,
       attempts = 0;
     f.options.clock = () => time;
-    f.options.ciTimeout = 10000;
+    f.options.ciTimeout = 45000;
     f.options.inspect = async () => {
       reads++;
     };

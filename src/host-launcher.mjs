@@ -1,6 +1,6 @@
 import { ProjectConfigError } from './project-config.mjs';
 import { projectJob } from './project-job.mjs';
-import { mkdir } from 'node:fs/promises';
+import { lstat, mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { repoPath } from './github-read.mjs';
 import { readRunnerBinding } from './runner-binding.mjs';
@@ -20,7 +20,7 @@ import { idleContainers } from './host-containers.mjs';
 import { OperationJournal } from './operation-journal.mjs';
 import { settleHostStage } from './host-stage-settlement.mjs';
 import {
-  observationFailureCode, retryGitHubObservation,
+  githubReadWait, observationFailureCode, retryGitHubObservation,
 } from './observation-failure.mjs';
 import { readNotionProposal } from './notion-proposal.mjs';
 import { prepareHostJobMcp } from './mcp-job-host.mjs';
@@ -209,14 +209,6 @@ export async function launchStage(issueNumber, stage, env = process.env) {
         }),
       };
     };
-    await inspectWriter();
-    if (!proposal) mcpJob = await prepareHostJobMcp({ host, runner, reader, approval }, {
-      authorize: async () => {
-        const fresh = await readProtectedApproval(reader, adopted.approval);
-        requireThat(fresh.approvalHash === approval.approvalHash,
-          'HOST_APPROVAL_MISMATCH');
-      },
-    });
     for (const name of ['receipts', 'agent']) {
       await mkdir(join(root, name), { mode: 0o700 }).catch((error) => {
         if (error.code !== 'EEXIST') throw error;
@@ -232,9 +224,17 @@ export async function launchStage(issueNumber, stage, env = process.env) {
       await mcpJob?.retire(true);
       await fence.release();
     };
+    await retryGitHubObservation(inspectWriter);
     if (openPr) await journal.assertIdle();
     const { workspaceRoot, binding, store, marker: workspaceBinding } =
       await issueProgress(root, approval);
+    const existing = await lstat(workspaceRoot).catch(error => {
+      if (error.code !== 'ENOENT') throw error;
+      return null;
+    });
+    const main = existing ? null : await retryGitHubObservation(() =>
+      readCurrentMain(reader, approval.record.issue,
+        hostMainReader(token), approval.repository));
     let fresh = false;
     try {
       await mkdir(workspaceRoot, { mode: 0o700 });
@@ -244,9 +244,7 @@ export async function launchStage(issueNumber, stage, env = process.env) {
     }
     await privateHostDirectory(workspaceRoot);
     if (fresh) {
-      const main = await retryGitHubObservation(() =>
-        readCurrentMain(reader, approval.record.issue,
-          hostMainReader(token), approval.repository));
+      requireThat(main, 'WORKSPACE_ADOPTION_UNRESOLVED');
       await new CandidateWorkspace(workspaceRoot, approval.record.issue).prepare(
         main.head,
       );
@@ -264,6 +262,14 @@ export async function launchStage(issueNumber, stage, env = process.env) {
     const composeStage = await projectJob({
       workspace: new CandidateWorkspace(workspaceRoot, issue), runner, issue,
     }, codexStageExecutor);
+    if (!proposal) mcpJob = await prepareHostJobMcp({ host, runner, reader, approval }, {
+      authorize: async () => {
+        const fresh = await retryGitHubObservation(() =>
+          readProtectedApproval(reader, adopted.approval));
+        requireThat(fresh.approvalHash === approval.approvalHash,
+          'HOST_APPROVAL_MISMATCH');
+      },
+    });
     const invocations = new Map();
     const execute = async (current, ciFailure) => {
       const iteration = invocations.get(current) ?? 0;
@@ -330,6 +336,15 @@ export async function launchStage(issueNumber, stage, env = process.env) {
         }
       : result;
   } catch (error) {
+    const waiting = githubReadWait(error);
+    if (waiting && release && !mcpJob) {
+      const result = await settleHostStage(async () => ({
+        schemaVersion: 1, stage, ...waiting,
+      }), release, (phase, code) => console.error(`Nibfin host stage ${phase}: ${code}`));
+      return { ...result, ...(result.retrySettled && runner.target ? {
+        retryRun: runner.runId, retryAttempt: runner.attempt,
+      } : {}) };
+    }
     if (error instanceof ProjectConfigError) {
       // No role has started. Still prove prior writes and containers settled
       // before retiring prepared MCP resources and allowing a corrected retry.

@@ -19,7 +19,8 @@ test('retry marker binds the settled result to this run and attempt', () => {
   assert.equal(retryDelay(marker, 2, 1), 60000);
   assert.equal(retryDelay(marker, 2, 2), null);
   assert.equal(retryDelay(marker + '\n' + marker, 2, 1), null);
-  assert.equal(retryDelay(marker.replace('60000', '900001'), 2, 1), null);
+  assert.equal(retryDelay(marker.replace('60000', '3600000'), 2, 1), 3600000);
+  assert.equal(retryDelay(marker.replace('60000', '3660001'), 2, 1), null);
 });
 
 test('a settled failure retries once and skips an already resumed attempt', async () => {

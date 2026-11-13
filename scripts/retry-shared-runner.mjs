@@ -11,7 +11,7 @@ import { sharedWorkflowPath } from '../src/shared-runner.mjs';
 
 const repository = 'taco3064/nibfin-core';
 const maxAttempt = 3;
-const maxDelay = 15 * 60 * 1000;
+const maxDelay = 61 * 60 * 1000;
 
 export function retryDelay(log, id, attempt) {
   const matches = [...log.matchAll(/(?:^|Z )(\{"schemaVersion":1,[^\r\n]+\})\r?$/gm)];
@@ -27,7 +27,7 @@ export function retryDelay(log, id, attempt) {
     ? Math.max(30000, wait) : null;
 }
 
-export async function retrySharedRunner(reader, event, { logs, rerun, wait }) {
+export async function retrySharedRunner(reader, event, { logs, rerun, wait, actorRead }) {
   const run = event.workflow_run;
   const repo = event.repository;
   if (repo?.full_name !== repository || !isId(repo.id) || !isId(run?.id) ||
@@ -55,26 +55,29 @@ export async function retrySharedRunner(reader, event, { logs, rerun, wait }) {
   if (failed.length !== 1) return false;
   const delay = retryDelay(await logs(failed[0].id), run.id, run.run_attempt);
   if (delay === null) return false;
-  const actor = await retryGitHubObservation(() => reader.get('/user'),
+  await wait(delay);
+  if (!await stillFailed()) return false;
+  const actor = await retryGitHubObservation(actorRead ?? (() => reader.get('/user')),
     { timeout: 60000 });
   requireThat(isId(actor.id) && actor.id === run.actor?.id,
     'RETRY_DISPATCH_ACTOR_MISMATCH');
-  await wait(delay);
-  if (!await stillFailed()) return false;
   await rerun(run.id);
   return true;
 }
 
 async function main() {
   const token = process.env.GH_TOKEN;
+  const readToken = process.env.GH_READ_TOKEN ?? token;
   const event = JSON.parse(await readFile(process.env.GITHUB_EVENT_PATH, 'utf8'));
-  const gh = args => command('/usr/bin/gh', args, {
-    cwd: '/', env: { PATH: '/usr/bin:/bin', GH_TOKEN: token, GH_PROMPT_DISABLED: '1' },
+  const gh = (args, credential = token) => command('/usr/bin/gh', args, {
+    cwd: '/', env: { PATH: '/usr/bin:/bin', GH_TOKEN: credential,
+      GH_PROMPT_DISABLED: '1' },
     timeout: 60000,
   });
-  const retried = await retrySharedRunner(new GitHubReader(token), event, {
+  const retried = await retrySharedRunner(new GitHubReader(readToken), event, {
+    actorRead: () => new GitHubReader(token).get('/user'),
     logs: async id => (await gh(['run', 'view', '-R', repository,
-      '--job', String(id), '--log'])).stdout.toString(),
+      '--job', String(id), '--log'], readToken)).stdout.toString(),
     rerun: id => gh(['run', 'rerun', '-R', repository, String(id), '--failed']),
     wait: setTimeout,
   });

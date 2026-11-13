@@ -21,7 +21,7 @@ jobs:
       github.event.workflow_run.head_repository.id == github.event.repository.id &&
       github.event.workflow_run.run_attempt < 3
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 70
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -32,5 +32,6 @@ jobs:
           package-manager-cache: false
       - name: Resume only a settled transient read failure
         env:
+          GH_READ_TOKEN: ${{ github.token }}
           GH_TOKEN: ${{ secrets.NIBFIN_WAKE_TOKEN }}
         run: node scripts/retry-shared-runner.mjs

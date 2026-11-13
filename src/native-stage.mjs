@@ -85,8 +85,10 @@ export function nativeStageExecutor({
       const binding = evidenceBinding(initial),
         bindingHash = digest(binding);
       const store = new EvidenceStore(pinned.stateRoot, binding);
+      let first = initial;
       const observe = async (currentStage) => {
-        const context = await observeNative(currentStage);
+        const context = first ?? await observeNative(currentStage);
+        first = undefined;
         requireThat(
           digest(evidenceBinding(context)) === bindingHash,
           'STAGE_AUTHORITY_CHANGED',

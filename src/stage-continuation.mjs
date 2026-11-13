@@ -84,11 +84,13 @@ export async function continueStages({
   correctionRepairs = 2,
 }) {
   const previous = await store.load();
+  const inspectCurrent = () => retryGitHubObservation(inspect,
+    { wait, clock, timeout: ciTimeout });
   const changed = await retryGitHubObservation(() => refreshRequirements(previous),
     { wait, clock, timeout: ciTimeout });
   const initial = changed ? {} : await currentReceipts(store, previous);
   const repairCandidate = async (rejected, ciFailure) => {
-    await inspect();
+    await inspectCurrent();
     const repaired = await execute('deliver', ciFailure);
     if (repaired.status !== 'completed') return repaired;
     const delivery = await store.get(repaired.receiptHash);
@@ -127,10 +129,11 @@ export async function continueStages({
   for (const stage of Object.keys(stages)) {
     if (initial[stage] || stage === 'review-pr' && await canReuseReview(store))
       continue;
-    await inspect();
+    await inspectCurrent();
     const deadline = clock() + ciTimeout;
     let retriedIdle = false;
     let readRetries = 0;
+    let ciPolls = 0;
     for (;;) {
       result = await execute(stage);
       if (stage === 'accept' && !retriedIdle && result.status === 'denied' &&
@@ -138,7 +141,7 @@ export async function continueStages({
         const receipt = await reportedReceipt(store, stage, result);
         if (receipt && await stoppedAgentCanRestart(store, stage, receipt)) {
           retriedIdle = true;
-          await inspect();
+          await inspectCurrent();
           continue;
         }
       }
@@ -148,14 +151,14 @@ export async function continueStages({
         !(pendingCIObservation(result.code) || readWaiting)) break;
       const delay = readWaiting
         ? githubReadDelay(result.retryAfterMs, readRetries++)
-        : 5000;
+        : Math.min(60000, 15000 * 2 ** ciPolls++);
       if (clock() + delay > deadline) return result;
-      await inspect();
       await wait(delay);
+      if (!readWaiting) await inspectCurrent();
     }
     if (['review-pr', 'merge'].includes(stage) && repairIntegration &&
       integrationRepairRequired(result.code)) {
-      await inspect();
+      await inspectCurrent();
       const repaired = await execute('deliver');
       if (repaired.status !== 'completed') return repaired;
       return continueStages({
@@ -188,7 +191,7 @@ export async function continueStages({
         digest(current[stage]) === result.receiptHash,
       'CONTINUATION_RECEIPT_CHANGED',
     );
-    await inspect();
+    await inspectCurrent();
   }
   return result;
 }
