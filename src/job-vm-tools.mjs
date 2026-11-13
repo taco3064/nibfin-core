@@ -16,6 +16,8 @@ export async function archiveJobVmTools(endpoint, image, directory, label) {
   try {
     await docker(['create', '--name', name, '--pull=never', '--network', 'none',
       ...containerLabelArgs(label), '--entrypoint', '/bin/false', image]);
+    // Keep the Docker export separate from the runtime disk. The project tool
+    // directory may include relative symlinks to its own bin and library files.
     await docker(['cp', name + ':' + toolDirectory, directory], { timeout: 120000 });
     await command('/usr/bin/tar', ['-cf', archive, '-C', directory, 'project'],
       { env, timeout: 120000 });
