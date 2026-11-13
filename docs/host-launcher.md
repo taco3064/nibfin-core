@@ -191,3 +191,11 @@ read-only snapshot at `/input/proposal.md`. Later Jobs read the current page,
 including any edits. The token stays with the controller.
 This Issue uses the direct Proposal read in place of the host MCP profile.
 Missing access and incomplete responses fail before taking the execution fence.
+
+## Project declarations
+
+After establishing the target development workspace, the launcher selects optional
+[project configuration](project-configuration.md) once for this Job. Subsequent
+stage compositions reuse that selection, while custom Skill content remains a
+later consumer responsibility. Invalid configuration reports
+`PROJECT_CONFIG_INVALID` with a sanitized file/field diagnostic.

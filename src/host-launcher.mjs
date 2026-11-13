@@ -1,3 +1,5 @@
+import { ProjectConfigError } from './project-config.mjs';
+import { projectJob } from './project-job.mjs';
 import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { repoPath } from './github-read.mjs';
@@ -193,7 +195,7 @@ export async function launchStage(issueNumber, stage, env = process.env) {
       return { schemaVersion: 1, stage, status: 'pending', code: error.code };
     throw error;
   }
-  let mcpJob;
+  let mcpJob, release;
   try {
     const inspectWriter = async () => {
       await inspectHostAdoption(context);
@@ -223,6 +225,13 @@ export async function launchStage(issueNumber, stage, env = process.env) {
     }
     const openPr = (context.targetHost ?? host).openPrHandoffs?.[issueNumber];
     const journal = new OperationJournal(join(root, 'receipts'), approval.record.issue);
+    release = async () => {
+      // Release only after local termination and external writes are settled.
+      await journal.assertIdle();
+      await idleContainers(adopted.isolation, issue);
+      await mcpJob?.retire(true);
+      await fence.release();
+    };
     if (openPr) await journal.assertIdle();
     const { workspaceRoot, binding, store, marker: workspaceBinding } =
       await issueProgress(root, approval);
@@ -252,6 +261,9 @@ export async function launchStage(issueNumber, stage, env = process.env) {
         'WORKSPACE_ADOPTION_UNRESOLVED',
       );
     }
+    const composeStage = await projectJob({
+      workspace: new CandidateWorkspace(workspaceRoot, issue), runner, issue,
+    }, codexStageExecutor);
     const invocations = new Map();
     const execute = async (current, ciFailure) => {
       const iteration = invocations.get(current) ?? 0;
@@ -261,7 +273,7 @@ export async function launchStage(issueNumber, stage, env = process.env) {
         approval.record.roles[execution.role] === runner.memberId,
         'HOST_APPROVAL_MISMATCH',
       );
-      const executor = await codexStageExecutor({
+      const executor = await composeStage({
         installation: host.installation,
         caller,
         config: {
@@ -305,13 +317,8 @@ export async function launchStage(issueNumber, stage, env = process.env) {
             wait: setTimeout,
           })
         : execute(stage);
-    const result = await settleHostStage(run, async () => {
-      // Release only after local termination and external writes are settled.
-      await journal.assertIdle();
-      await idleContainers(adopted.isolation, issue);
-      await mcpJob?.retire(true);
-      await fence.release();
-    }, (phase, code) => console.error(`Nibfin host stage ${phase}: ${code}`));
+    const result = await settleHostStage(run, release,
+      (phase, code) => console.error(`Nibfin host stage ${phase}: ${code}`));
     return stage === 'continue'
       ? {
           ...result,
@@ -323,6 +330,15 @@ export async function launchStage(issueNumber, stage, env = process.env) {
         }
       : result;
   } catch (error) {
+    if (error instanceof ProjectConfigError) {
+      // No role has started. Still prove prior writes and containers settled
+      // before retiring prepared MCP resources and allowing a corrected retry.
+      return await settleHostStage(async () => ({
+        schemaVersion: 1, stage, status: 'denied', code: error.code,
+        configurationError: error.message,
+      }), release,
+      (phase, code) => console.error(`Nibfin host stage ${phase}: ${code}`));
+    }
     // Do not turn partial preparation or an unknown container/write into a retry.
     return {
       schemaVersion: 1,
