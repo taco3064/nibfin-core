@@ -54,7 +54,16 @@ for (const theme of ['light', 'dark']) {
       await expect(steps).toHaveCount(3);
       await expect(steps.first()).toHaveCSS('border-left-width', '0px');
       await expect(steps.first()).toHaveCSS('border-top-width', '1px');
-      await expect(page.getByRole('img', { name: 'Nibfin' })).toBeVisible();
+      const logo = page.getByRole('img', { name: 'Nibfin', exact: true });
+      await expect(logo).toBeVisible();
+      const logoBox = await logo.boundingBox();
+      expect(logoBox.width).toBeCloseTo(logoBox.height, 0);
+      if (width === 360) {
+        const stackBox = await page.locator('.hero .stack').boundingBox();
+        expect(logoBox.width).toBeCloseTo(stackBox.width, 0);
+      } else {
+        expect(logoBox.width).toBeLessThan(width / 3);
+      }
       const boxes = [];
       for (const action of await actions.all()) {
         await tabTo(page, action);

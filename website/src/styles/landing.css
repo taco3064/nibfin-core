@@ -14,7 +14,7 @@
 
 .nf-hero-logo {
   display: block;
-  inline-size: clamp(6rem, 23vw, 13rem);
+  inline-size: 100%;
   aspect-ratio: 1;
   object-fit: contain;
   block-size: auto;
@@ -26,7 +26,11 @@
     gap: clamp(2rem, 6vw, 5rem);
   }
 
-  .nf-hero-logo { grid-column: 2; grid-row: 1; }
+  .nf-hero-logo {
+    inline-size: clamp(6rem, 23vw, 13rem);
+    grid-column: 2;
+    grid-row: 1;
+  }
   .hero .stack { grid-column: 1; grid-row: 1; }
 }
 
