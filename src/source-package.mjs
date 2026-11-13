@@ -1,3 +1,4 @@
+import { releaseVersion } from './release-version.mjs';
 import { gzipSync } from 'node:zlib';
 import { constants } from 'node:fs';
 import { lstat, open, readdir, realpath } from 'node:fs/promises';
@@ -63,8 +64,9 @@ function tar(files) {
 export async function packageSource(
   root,
   commit,
-  { git = '/usr/bin/git', run = command } = {},
+  { git = '/usr/bin/git', run = command, version } = {},
 ) {
+  if (version !== undefined) releaseVersion(version);
   requireThat(isSha(commit), 'INVALID_PACKAGE_COMMIT');
   const readGit = async (args) =>
     (
@@ -120,6 +122,16 @@ export async function packageSource(
     ].every((path) => files.some((file) => file.path === path)),
     'INCOMPLETE_SOURCE_PACKAGE',
   );
+  let presentation = {};
+  if (version !== undefined) {
+    const pkg = JSON.parse(files.find((file) => file.path === 'package.json').bytes);
+    requireThat(
+      pkg.name === 'nibfin-core' && typeof pkg.version === 'string' &&
+        pkg.engines?.node === process.versions.node,
+      'INCOMPATIBLE_RELEASE_SOURCE',
+    );
+    presentation = { releaseVersion: version, developmentVersion: pkg.version };
+  }
   const entries = files.map((file) => ({
     path: file.path,
     mode: file.mode,
@@ -130,6 +142,7 @@ export async function packageSource(
     schemaVersion: 1,
     repository: 'taco3064/nibfin-core',
     commit,
+    ...presentation,
     files: entries,
     policyHash: digest(entries.filter((file) => file.path.startsWith('src/'))),
     skillsHash: digest(entries.filter((file) => file.path.startsWith('skills/'))),
@@ -186,6 +199,8 @@ export async function verifyInstalledSource(directory, expected) {
       manifest.schemaVersion === 1 &&
       manifest.repository === expected.repository &&
       manifest.commit === expected.commit &&
+      (expected.releaseVersion === undefined ||
+        manifest.releaseVersion === expected.releaseVersion) &&
       Array.isArray(manifest.files) &&
       manifest.files.length <= 1000,
     'SOURCE_MANIFEST_MISMATCH',
