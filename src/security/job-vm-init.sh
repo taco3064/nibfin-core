@@ -19,6 +19,7 @@ fi
 
 # The daemon runs entirely in the VM. No Docker socket or host directory is
 # attached to the guest. This entry point supports offline Docker workloads.
+HTTP_PROXY=http://127.0.0.1:3128 HTTPS_PROXY=http://127.0.0.1:3128 \
 dockerd -H unix:///run/nibfin-docker/docker.sock \
     --iptables=false --ip6tables=false --userland-proxy=false \
     --bridge=none --ip-forward=false --storage-driver=vfs &

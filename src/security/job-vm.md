@@ -10,7 +10,7 @@ paths. Set `jobVm.executable`, `jobVm.kernel`, `jobVm.rootDisk` and
 `jobVm.memoryMiB` in the controller configuration when installing a validated
 guest. Keep the VM disabled while preparing the installation.
 
-The base disk needs a Linux userspace, Python 3, the maintained Agent tools,
+The base disk needs a Linux userspace, Python 3, iproute2, the Agent tools,
 and Docker Engine with its runtime and Buildx. Install `job-vm-init.sh` as
 executable `/sbin/init` and `job-vm-executor.py` as
 `/opt/nibfin/job-vm-executor.py`. The kernel must support KVM guests, virtio
