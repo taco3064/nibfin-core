@@ -6,7 +6,7 @@ const { entry } = Astro.locals.starlightRoute;
 const hero = entry.data.hero;
 ---
 
-{entry.id === 'index' && hero ? (
+{entry.data.template === 'splash' && hero ? (
   <div class="hero">
     <div class="stack flex flex-col gap-6">
       <div class="copy flex flex-col gap-4">
