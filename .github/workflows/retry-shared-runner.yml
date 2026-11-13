@@ -1,4 +1,4 @@
-name: Retry transient Nibfin reads
+name: Nibfin · Retry Transient Reads
 on:
   workflow_run:
     workflows: [Nibfin shared Runner]
