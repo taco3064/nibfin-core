@@ -3,6 +3,9 @@ import assert from 'node:assert/strict';
 import { readProtectedApproval } from '../src/github-approval.mjs';
 import { repositoryIssuePin } from '../src/repository-admission.mjs';
 import { evidenceBinding } from '../src/stages.mjs';
+import { readIssueQuery } from '../src/github-issue-query.mjs';
+import { readRunnerBinding } from '../src/runner-binding.mjs';
+import { runnerProviderFixture } from './runner-binding-fixture.mjs';
 import { approvalProviderFixture } from './github-approval-fixture.mjs';
 import { now } from './approval-fixture.mjs';
 
@@ -41,3 +44,65 @@ test('native Scope and assignment admit new Issues under one repository policy',
     await assert.rejects(readProtectedApproval(f.reader, pin, now),
       /WAKE_TARGET_NOT_READY/);
   });
+
+test('grouped repository admission uses one query and falls back on incomplete data',
+  async () => {
+    const f = approvalProviderFixture();
+    const member = f.pr.merged_by;
+    const issue = f.record.issue;
+    const policy = {
+      kind: 'repository-admission-v1', repository: issue.repository,
+      repositoryId: issue.repositoryId, memberId: member.id, source: f.pin.source,
+    };
+    const pin = repositoryIssuePin(policy, issue);
+    const connection = nodes => ({ nodes, pageInfo: { hasNextPage: false } });
+    const repo = {
+      databaseId: issue.repositoryId, nameWithOwner: issue.repository,
+      isPrivate: false, isArchived: false, isDisabled: false,
+      defaultBranchRef: { name: 'main' },
+      issue: { id: issue.id, number: issue.number, body: 'Scope', state: 'OPEN',
+        assignees: connection([{ databaseId: member.id, login: member.login }]),
+        labels: connection([{ name: 'scope' }]), blockedBy: connection([]) },
+    };
+    let queries = 0;
+    let reads = 0;
+    const grouped = () => readIssueQuery(issue, 'fixture', async () => {
+      queries++;
+      return repo;
+    });
+    const live = (await grouped()).issue;
+    queries = 0;
+    const reader = {
+      repository: async () => { reads++; return f.repo; },
+      issue: async () => { reads++; return live; },
+      blockedBy: async () => { reads++; return []; },
+    };
+    const rest = await readProtectedApproval(reader, pin, now);
+    assert.equal(reads, 3);
+    reader.admissionIssue = () => grouped().catch(() => undefined);
+    reads = 0;
+    const graph = await readProtectedApproval(reader, pin, now);
+    assert.deepEqual(graph.record, rest.record);
+    assert.equal(reads, 0);
+    assert.equal(queries, 1);
+    repo.issue.blockedBy.pageInfo.hasNextPage = true;
+    assert.deepEqual((await readProtectedApproval(reader, pin, now)).record, rest.record);
+    assert.equal(reads, 3);
+  });
+
+test('shared Runner verifies the same current workflow revision only once', async () => {
+  const f = runnerProviderFixture();
+  const { sourceCommit, workflowPath } = f.expected;
+  Object.assign(f.expected, {
+    target: { repositoryId: 10 }, sourceAnchor: sourceCommit, nativePolicy: true,
+  });
+  f.job.labels.push('nibfin-shared');
+  f.runner.labels.push({ name: 'nibfin-shared' });
+  f.data['/branches/main'] = { commit: { sha: sourceCommit } };
+  const get = f.reader.get;
+  const reads = [];
+  f.reader.get = path => { reads.push(path); return get(path); };
+  await readRunnerBinding(f.reader, f.expected);
+  assert.equal(reads.filter(path => path.includes('/contents/' + workflowPath)).length,
+    1);
+});

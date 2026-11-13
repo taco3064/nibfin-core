@@ -94,7 +94,8 @@ export async function readRunnerBinding(reader, expected) {
     const latest = branch.commit?.sha;
     if (recipe)
       await readCallerSource(reader, expected.repository, pin, latest, recipe);
-    else await readCallerContinuity(reader, expected.repository, pin, latest);
+    else if (!expected.target || latest !== run.head_sha)
+      await readCallerContinuity(reader, expected.repository, pin, latest);
   }
   requireThat(
     run?.id === expected.runId &&

@@ -4,6 +4,7 @@ import { verifyInstalledSource } from './source-package.mjs';
 import { GitHubReader } from './github-read.mjs';
 import { digest, requireThat } from './identity.mjs';
 import { hostMainReader } from './github-host-read.mjs';
+import { readIssueQuery } from './github-issue-query.mjs';
 
 // Installation and caller pins come from trusted host adoption. Never read
 // these from the stage request, an Issue, a Candidate or a dynamic module path.
@@ -34,8 +35,12 @@ export async function installedStageExecutor({ installation, caller, config, exe
   const inspectCaller = actionsCaller({
     ...oidc, executionId: identity.id, fetcher, clock,
   });
+  const reader = new GitHubReader(token, fetcher);
+  if (pinned.hostGitHubReads) {
+    reader.admissionIssue = issue => readIssueQuery(issue, token).catch(() => undefined);
+  }
   const executor = nativeStageExecutor({
-    reader: new GitHubReader(token, fetcher), config: pinned,
+    reader, config: pinned,
     execution: identity, inspectIsolation, inspectSource, inspectCaller,
     hostMain: pinned.hostGitHubReads ? hostMainReader(token) : undefined,
     agent, workspace, sandbox, token, fetcher, clock });

@@ -159,7 +159,7 @@ export async function observePause(reader, expected, decisions = [], options = {
         repository.private === false,
       'PAUSE_REPOSITORY_CHANGED',
     );
-    const before = await reader.issue(expected);
+    const before = options.issue ?? await reader.issue(expected);
     issueIdentity(before, expected);
     const path = `${issuePath(expected)}/events`;
     const events = await reader.list(path);
