@@ -175,7 +175,9 @@ export async function launchStage(issueNumber, stage, env = process.env, runnerU
       } : {}) };
   }
   const { context, job: { runner, binding }, approval } = initial;
-  const { host, hostBytes, adopted, token, reader } = context;
+  const { host, hostBytes, adopted, token, reader, targetHost } = context;
+  // The target repository's host profile controls whether a shared job uses MCP.
+  const mcpSource = (targetHost ?? host).mcp;
   let execution = hostExecution(runner, stage === 'continue' ? 'shape' : stage);
   const caller = {
     pin: adopted.caller,
@@ -287,7 +289,9 @@ export async function launchStage(issueNumber, stage, env = process.env, runnerU
     const composeStage = await projectJob({
       workspace: new CandidateWorkspace(workspaceRoot, issue), runner, issue,
     }, codexStageExecutor);
-    if (!proposal) mcpJob = await prepareHostJobMcp({ host, runner, reader, approval }, {
+    if (!proposal) mcpJob = await prepareHostJobMcp({
+      host: { ...host, mcp: mcpSource }, runner, reader, approval,
+    }, {
       authorize: async () => {
         const fresh = await retryGitHubObservation(() =>
           readProtectedApproval(reader, adopted.approval));
@@ -324,7 +328,7 @@ export async function launchStage(issueNumber, stage, env = process.env, runnerU
         workflowNodeId: binding.workflowNodeId,
         agentStateRoot: join(root, 'agent'),
         authFile: host.authFile,
-        mcpSource: proposal ? undefined : host.mcp,
+        mcpSource: proposal ? undefined : mcpSource,
         proposal,
         globalInstructions,
         mcpJob,
