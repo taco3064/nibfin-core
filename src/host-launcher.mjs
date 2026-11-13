@@ -312,6 +312,7 @@ export async function launchStage(issueNumber, stage, env = process.env) {
         },
         execution,
         workspaceRoot,
+        workflowNodeId: binding.workflowNodeId,
         agentStateRoot: join(root, 'agent'),
         authFile: host.authFile,
         mcpSource: proposal ? undefined : host.mcp,

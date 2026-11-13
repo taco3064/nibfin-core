@@ -8,7 +8,7 @@ import { wakeRecipe } from './caller-recipes.mjs';
 // installed pinned workflow outside the candidate. No event payload, environment
 // variable, runner label or JSON object is sufficient to authenticate that caller.
 // Host isolation and a cross-run single-writer proof remain separate gates.
-export async function readRunnerBinding(reader, expected) {
+export async function readRunnerBinding(reader, expected, observeSharedCaller) {
   requireThat(
     expected &&
       [
@@ -47,7 +47,10 @@ export async function readRunnerBinding(reader, expected) {
     );
     reusablePins.push(wake);
   }
-  const repository = await reader.repository(expected.repository);
+  const shared = expected.nativePolicy && expected.target &&
+    expected.sourceAnchor !== undefined && expected.actionCommit === undefined &&
+    reusablePins.length === 0 && await observeSharedCaller?.(expected);
+  const repository = shared?.repository ?? await reader.repository(expected.repository);
   requireThat(
     repository?.id === expected.repositoryId &&
       repository.full_name === expected.repository &&
@@ -62,7 +65,7 @@ export async function readRunnerBinding(reader, expected) {
   const jobPath = `${root}/actions/jobs/${expected.jobId}`;
   const runnerPath = `${root}/actions/runners/${expected.runnerId}`;
   const run = await reader.get(runPath);
-  if (expected.sourceAnchor !== undefined) {
+  if (expected.sourceAnchor !== undefined && !shared) {
     const pin = {
       commit: expected.sourceAnchor,
       path: expected.workflowPath,
@@ -150,7 +153,7 @@ export async function readRunnerBinding(reader, expected) {
     await readMemberPermission(reader, expected.repository, run.triggering_actor);
   }
   const workflowPath = `${root}/actions/workflows/${expected.workflowId}`;
-  const workflow = await reader.get(workflowPath);
+  const workflow = shared?.workflow ?? await reader.get(workflowPath);
   requireThat(
     workflow?.id === expected.workflowId &&
       workflow.path === expected.workflowPath &&
@@ -210,9 +213,38 @@ export async function readRunnerBinding(reader, expected) {
   requireThat(expected.member?.id === expected.memberId, 'MEMBER_BINDING_MISMATCH');
   if (!expected.nativePolicy)
     await readMemberPermission(reader, expected.repository, expected.member);
+  if (!shared) {
+    await confirmRunner(reader, expected, repository, label, memberLabel, runnerOS, {
+      run, job, runner, workflow,
+    });
+  }
+  return {
+    repositoryId: expected.repositoryId,
+    ...(expected.target ? { target: expected.target } : {}),
+    runId: run.id,
+    attempt: run.run_attempt,
+    jobId: job.id,
+    checkRunId: Number(checkId),
+    actorId: run.actor.id,
+    runnerId: runner.id,
+    os: runnerOS,
+    memberId: expected.memberId,
+    sourceCommit: expected.sourceCommit,
+    workflowBlob: expected.workflowBlob,
+    ...(workflow.node_id ? { workflowNodeId: workflow.node_id } : {}),
+    observationHash: digest({ run: run.id, attempt: run.run_attempt, job: job.id,
+      runner: runner.id, workflow: workflow.id }),
+  };
+}
+
+async function confirmRunner(reader, expected, repository, label, memberLabel, runnerOS,
+  { run, job, runner, workflow }) {
+  const root = repoPath(expected.repository);
   const [latestRun, latestJob, latestRunner, latestWorkflow] = await Promise.all([
-    reader.get(runPath), reader.get(jobPath), reader.get(runnerPath),
-    reader.get(workflowPath),
+    reader.get(`${root}/actions/runs/${run.id}`),
+    reader.get(`${root}/actions/jobs/${job.id}`),
+    reader.get(`${root}/actions/runners/${runner.id}`),
+    reader.get(`${root}/actions/workflows/${workflow.id}`),
   ]);
   requireThat(
     latestRun.id === run.id && latestRun.run_attempt === run.run_attempt &&
@@ -236,20 +268,4 @@ export async function readRunnerBinding(reader, expected) {
         repository.default_branch,
     'RUNNER_BINDING_CHANGED_DURING_READ',
   );
-  return {
-    repositoryId: expected.repositoryId,
-    ...(expected.target ? { target: expected.target } : {}),
-    runId: run.id,
-    attempt: run.run_attempt,
-    jobId: job.id,
-    checkRunId: Number(checkId),
-    actorId: run.actor.id,
-    runnerId: runner.id,
-    os: runnerOS,
-    memberId: expected.memberId,
-    sourceCommit: expected.sourceCommit,
-    workflowBlob: expected.workflowBlob,
-    observationHash: digest({ run: run.id, attempt: run.run_attempt, job: job.id,
-      runner: runner.id, workflow: workflow.id }),
-  };
 }

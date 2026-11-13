@@ -108,7 +108,7 @@ test('shared Runner verifies the same current workflow revision only once', asyn
     1);
 });
 
-test('grouped prerequisites need only one REST read-back and preserve edge checks',
+test('grouped prerequisites reuse the complete observation and check identities',
   async () => {
     const f = approvalProviderFixture();
     const issue = f.record.issue;
@@ -134,8 +134,16 @@ test('grouped prerequisites need only one REST read-back and preserve edge check
       identity: other, state: dependency.state, labels: dependency.labels,
     }];
     assert.equal((await readDependencies(reader, issue, [other], observed)).ready, true);
-    assert.equal(reads, 1);
+    assert.equal(reads, 0);
     edges = [];
-    await assert.rejects(readDependencies(reader, issue, [other], observed),
-      /Blocked by changed/);
+    await assert.rejects(readDependencies(reader, issue, [], {
+      ...observed, dependencies: [],
+      issue: { ...target, state: 'closed' },
+    }), /not open/);
+    await assert.rejects(readDependencies(reader, issue, [{
+      ...other, id: 'I_different',
+    }], observed), /Grouped dependency identity changed/);
+    await assert.rejects(readDependencies(reader, issue, [other], {
+      repository: f.repo, issue: target,
+    }), /differs from approved prerequisites/);
   });

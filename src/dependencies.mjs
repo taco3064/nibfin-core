@@ -56,6 +56,8 @@ export async function readDependencies(reader, issue, expected, observed) {
   }
   const current = await readIssue(reader, issue, observed);
   if (current.state !== 'open') throw new Error('Target Issue is not open');
+  if (observed?.dependencies && observed.dependencies.length !== expected.length)
+    throw new Error('Grouped dependency count changed during observation');
   if (!observed?.dependencies) {
     const before = await reader.blockedBy(issue);
     if (!edgesMatch(before, expected))
@@ -72,10 +74,13 @@ export async function readDependencies(reader, issue, expected, observed) {
     prerequisites.push({ ...item, state: remote.state,
       completed: isDeliveredIssue(remote) });
   }
-  // A graph change during cross-repository reads must not yield eligibility.
-  const after = await reader.blockedBy(issue);
-  if (!edgesMatch(after, expected))
-    throw new Error('Native Blocked by changed during observation');
+  // A grouped read supplies edges and prerequisite state in the same response.
+  // The separate REST reads still need to guard against changes in between.
+  if (!observed?.dependencies) {
+    const after = await reader.blockedBy(issue);
+    if (!edgesMatch(after, expected))
+      throw new Error('Native Blocked by changed during observation');
+  }
   return { issue: current, prerequisites,
     ready: prerequisites.every(item => item.completed) };
 }

@@ -23,6 +23,7 @@ export function nativeObserver({
   inspectIsolation,
   inspectSource,
   inspectCaller,
+  observeSharedCaller,
   hostMain,
   localCommit,
   clock = Date.now,
@@ -45,7 +46,8 @@ export function nativeObserver({
       ? await new OperationJournal(pinned.pauseJournalRoot, record.issue).pauseEvidence()
       : { decisions: [], pending: false };
     const pause = await observePause(reader, record.issue, pauseEvidence.decisions, {
-      repository: approval.repository, issue: approval.issue, propagateTransient: true,
+      repository: approval.repository, issue: approval.issue,
+      grouped: approval.dependencies !== undefined, propagateTransient: true,
     });
     if (pauseEvidence.pending) pause.status = 'pending';
     const observed = await readDependencies(reader, record.issue, record.prerequisites, {
@@ -225,7 +227,7 @@ export function nativeObserver({
     }
     // A pending CI observation needs no Runner or isolation check. Any stage
     // which can proceed still revalidates both before the journal admits it.
-    const runner = await readRunnerBinding(reader, pinned.runner);
+    const runner = await readRunnerBinding(reader, pinned.runner, observeSharedCaller);
     const caller = await inspectCaller(runner);
     requireThat(
       caller?.repositoryId === runner.repositoryId &&
