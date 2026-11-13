@@ -211,7 +211,14 @@ export async function bootstrap() {
     socket.once('error', fail);
     socket.setTimeout(5000, fail);
   });
-  const probe = await runCodex(sandboxProbeArguments(plan, proxyHost, process.pid), {
+  // In VM mode /work is writable in the guest. The model container only needs
+  // the read-only host copy, including while running its local denial probe.
+  const probePlan = jobVm ? { ...plan, settings: plan.settings.map(setting =>
+    setting.startsWith('permissions.nibfin.filesystem=') ?
+      setting.replace('"/work" = "write"', '"/work" = "read"') : setting),
+  } : plan;
+  const probe = await runCodex(
+    sandboxProbeArguments(probePlan, proxyHost, process.pid), {
     environment: { ...process.env, HOME: '/tmp/tool-home' },
   }).catch(error => {
     throw new Error('SANDBOX_PROBE_FAILED', { cause: error });
