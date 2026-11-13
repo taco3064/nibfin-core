@@ -1,9 +1,9 @@
-.nf-alert-note {
+.nf-alert.nf-alert-note {
   color: var(--nf-info);
   background-color: var(--nf-info-bg);
 }
 
-.nf-alert-caution {
+.nf-alert.nf-alert-caution {
   color: var(--nf-warning);
   background-color: var(--nf-warning-bg);
 }

@@ -6,6 +6,7 @@
   background-image: radial-gradient(
     ellipse at 100% 0%, var(--nf-raised), transparent 65%
   );
+  display: grid;
   grid-template-columns: minmax(0, 1fr);
   gap: 1.5rem;
   align-items: center;

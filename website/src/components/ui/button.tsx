@@ -58,3 +58,20 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
 Button.displayName = "Button"
 
 export { Button, buttonVariants }
+
+export function ButtonLink({ href, label, variant }: {
+  href: string
+  label: string
+  variant: "default" | "outline"
+}) {
+  return (
+    <Button
+      asChild
+      size="lg"
+      className="h-auto min-h-11 whitespace-normal border-solid px-4"
+      variant={variant}
+    >
+      <a href={href}>{label}</a>
+    </Button>
+  )
+}
