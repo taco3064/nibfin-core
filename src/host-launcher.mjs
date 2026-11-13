@@ -151,9 +151,11 @@ export async function launchStage(issueNumber, stage, env = process.env) {
   );
   const relayed = await relayHostCommand('stage', [issueNumber, stage], env);
   if (relayed !== null) return relayed;
-  const context = await loadHostAdoption(issueNumber, env[targetContextKey]);
+  const context = await retryGitHubObservation(() =>
+    loadHostAdoption(issueNumber, env[targetContextKey]));
   const { host, hostBytes, adopted, token, reader } = context;
-  const { runner, binding } = await resolveHostJob(reader, adopted, env);
+  const { runner, binding } = await retryGitHubObservation(() =>
+    resolveHostJob(reader, adopted, env));
   let execution = hostExecution(runner, stage === 'continue' ? 'shape' : stage);
   const caller = {
     pin: adopted.caller,
@@ -161,7 +163,8 @@ export async function launchStage(issueNumber, stage, env = process.env) {
     requestToken: env.ACTIONS_ID_TOKEN_REQUEST_TOKEN,
   };
   await actionsCaller({ ...caller, executionId: execution.id })(binding);
-  const approval = await readProtectedApproval(reader, adopted.approval, Date.now());
+  const approval = await retryGitHubObservation(() =>
+    readProtectedApproval(reader, adopted.approval, Date.now()));
   requireThat(
     approval.record.issue.number === Number(issueNumber) &&
       approval.record.issue.id === adopted.isolation.issue.id &&
