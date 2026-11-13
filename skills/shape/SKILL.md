@@ -191,19 +191,21 @@ State only binding decisions already authorized by the current product authority
 
 Identify probable modules and cross-repository interface touchpoints, reusable code, compatibility work, tests and integration/release paths. Delivery may select a better engineering route **without changing** the goal, authorized decisions, trust boundaries, Scope or observable Acceptance Criteria.
 
-### Acceptance Criteria and evidence
+### Acceptance Criteria
 
-Each criterion must specify **observable pass/fail behavior** and **how to verify it**, including proportionate positive and negative controls where relevant. **Do not transform an external E2E/release milestone, unproved reuse assumption or invented documentation artifact into an implementation acceptance gate merely to preserve a historical Scope split.** Trace every Goal clause and controlling authority obligation to at least one criterion. Include cross-repository interface and integration proof when the bounded Issue owns it; do not rely on an unlisted Issue doing hidden work. A passing test count is not requirement coverage.
+State the observable behavior the implementation must deliver. Cover the
+authorized outcomes and relevant failure behavior. Keep test procedures,
+diagnostic runs and evidence collection out of the published Issue body.
 
-Write criteria as outcomes of the maintained implementation in this Issue.
-Limit checks to the behavior the change owns and the regressions it can cause.
-A requirement to preserve an existing boundary calls for checking the affected
-behavior. It does not authorize a standalone audit or recertification of that
-boundary. Leave repository-wide checks under the repository's normal CI policy.
+Shape resolves factual questions about the existing system by inspecting the
+current code, tests and workflows, and running targeted read-only probes when
+needed and permitted. Use the findings to inform the contract. A factual
+question for Shape must not become an implementation acceptance criterion.
 
-Use the existing PR CI for checks that require its environment. Check that the
-relevant PR changes select the applicable test. If wiring is missing, identify
-the smallest change needed to run that test. Keep manual diagnostics advisory.
+If additional maintained tests or CI wiring are needed beyond the authorized
+implementation, report the gap to Scope for a separate test-writing plan. Shape
+does not add that work to the Issue, open a new Issue, or introduce a dependency.
+Use the repository's existing PR CI and acceptance process for routine checks.
 
 ### Security / Trust / Compatibility boundaries
 
@@ -235,10 +237,10 @@ Independently verify:
 - The proposed Shape preserves **all current authorized outcomes and exclusions**, correct normative repository ownership, current dependency boundaries and binding product/security constraints; it does not resurrect historical conditions superseded by a lawful Issue correction. Check whether any changed original boundary actually needs protected Scope reapproval.
 - The work passes the **development-eligibility/feasibility gate**: a necessary maintained Candidate, no pure verification/release masquerade, and no unproved existing interface forced as a prerequisite. Every Goal clause and relevant product obligation maps to observable criteria with proportionate verification targets and negative cases.
 - The machine-readable Candidate Obligation Inventory exists exactly as required and matches observed hook setup, required artifacts and narrative acceptance targets.
-- Reject criteria that expand an implementation Issue into standalone verification
-  or make unrelated checks a condition of delivery. For applicable PR CI tests,
-  confirm the workflow selects the affected test for the proposed changes. A
-  manual diagnostic is not a required PR check.
+- Confirm the Issue body describes implementation outcomes. Return a correction
+  for any diagnostic run, evidence collection, or new test-writing work added
+  beyond the authorized Scope. Check that Shape resolved material factual
+  questions or identified the specific unresolved decision.
 - No unresolved product decision, scope split/move, upstream assumption, unsafe writing permission or ignored required evidence has been papered over.
 - The proposed Issue Body and published evidence references are cleared for the target's actual visibility; access to private research was not misinterpreted as permission to disclose it.
 
