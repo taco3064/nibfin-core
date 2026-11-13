@@ -28,7 +28,6 @@ export default defineConfig({
       title: 'Nibfin documentation',
       logo: {
         src: './src/assets/nibfin-logo.png',
-        alt: 'Nibfin documentation',
         replacesTitle: true,
       },
       favicon: '/favicon.png',
