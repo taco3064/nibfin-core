@@ -52,11 +52,13 @@ prepare() {
       old_action=$(jq -er '.action.commit' .nibfin/producer-pins.json)
       [[ "$old_core" =~ ^[a-f0-9]{40}$ && "$old_action" =~ ^[a-f0-9]{40}$ ]]
       grep -Fq "$old_core" .github/workflows/nibfin-issue.yml
-      grep -Fq "$old_core" .github/workflows/nibfin-wake.yml
-      grep -Fq "$old_action" .github/workflows/nibfin-wake.yml
       sed -i "s/$old_core/$core/g" .github/workflows/nibfin-issue.yml
-      sed -i "s/$old_core/$core/g; s/$old_action/$action/g" \
-        .github/workflows/nibfin-wake.yml
+      if [[ "$repo" != nibfin-core || -e .github/workflows/nibfin-wake.yml ]]; then
+        grep -Fq "$old_core" .github/workflows/nibfin-wake.yml
+        grep -Fq "$old_action" .github/workflows/nibfin-wake.yml
+        sed -i "s/$old_core/$core/g; s/$old_action/$action/g" \
+          .github/workflows/nibfin-wake.yml
+      fi
       cp "$work/producer-pins.json" .nibfin/producer-pins.json
       if [[ "$repo" == gh-nibfin ]]; then
         cp "$work/producer-pins.json" internal/cli/producers.json
