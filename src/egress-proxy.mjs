@@ -13,29 +13,54 @@ export const toolDownloadHosts = Object.freeze([
 export const allowedHosts = [
   'chatgpt.com', 'auth.openai.com', ...toolDownloadHosts,
 ];
-export function validMcpEgress(policy, now = Date.now()) {
+// Shared by declarations and the standalone installed gateway.
+export function exactProjectHost(value) {
+  if (typeof value !== 'string' || value.trim() !== value ||
+      value.length > 253 || /[^a-z0-9.-]/i.test(value) || net.isIP(value))
+    return false;
+  const parts = value.split('.');
+  const label = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/i;
+  return parts.length >= 2 && parts.every(part => label.test(part)) &&
+    /^[a-z]{2,63}$/i.test(parts.at(-1)) &&
+    !['localhost', 'local', 'internal', 'lan', 'home', 'arpa', 'localdomain']
+      .includes(parts.at(-1).toLowerCase());
+}
+export function projectDomains(hosts = []) {
+  if (!Array.isArray(hosts) || !hosts.every(exactProjectHost))
+    throw Error('INVALID_PROJECT_DOMAINS');
+  return Object.freeze([...new Set(hosts.map(host => host.toLowerCase()))]);
+}
+export function validProjectEgress(policy, now = Date.now()) {
+  return validEgress(policy, now) &&
+    policy.hosts.every(host => exactProjectHost(host) && host === host.toLowerCase());
+}
+function validEgress(policy, now) {
   return policy?.schemaVersion === 1 &&
     Object.keys(policy).sort().join(',') ===
       'executionId,expiresAt,hosts,schemaVersion' &&
     /^[a-f0-9-]{36}$/.test(policy.executionId) &&
     Number.isSafeInteger(policy.expiresAt) && policy.expiresAt > now &&
     policy.expiresAt <= now + 32 * 60 * 1000 &&
-    Array.isArray(policy.hosts) && policy.hosts.length <= 100 &&
+    Array.isArray(policy.hosts) &&
     new Set(policy.hosts).size === policy.hosts.length &&
     policy.hosts.every(host => typeof host === 'string' &&
       /^[a-z0-9][a-z0-9.-]{0,252}$/.test(host) && !host.includes('..'));
 }
-async function mcpPermits(directory, host) {
-  if (directory !== '/mcp-policy') return false;
+export function validMcpEgress(policy, now = Date.now()) {
+  return validEgress(policy, now) && policy.hosts.length <= 100;
+}
+export async function policyPermits(directory, host, project = false) {
+  if (!directory) return false;
   let file;
   try {
-    file = await open(directory + '/current.json',
+    file = await open(directory + (project ? '/project.json' : '/current.json'),
       constants.O_RDONLY | constants.O_NOFOLLOW);
     const stat = await file.stat();
     if (!stat.isFile() || stat.nlink !== 1 || stat.size > 65536 ||
         (stat.mode & 0o777) !== 0o444) return false;
     const policy = JSON.parse(await file.readFile('utf8'));
-    return validMcpEgress(policy) && policy.hosts.includes(host);
+    const valid = project ? validProjectEgress : validMcpEgress;
+    return valid(policy) && policy.hosts.includes(host);
   } catch { return false; }
   finally { await file?.close(); }
 }
@@ -79,13 +104,15 @@ export function clientHelloHost(bytes) {
   if (!host) throw Error('SNI required');
   return host;
 }
-export function createProxy({ mcpPolicyDirectory } = {}) {
+export function createProxy({ mcpPolicyDirectory, resolveHost = lookup,
+  connect = options => net.connect(options) } = {}) {
   const server = http.createServer((req,res) => { res.writeHead(403); res.end(); });
   server.on('connect', async (req, client, head) => {
     client.on('error', () => {});
-    const host = req.url?.split(':')[0];
-    if (req.url !== host + ':443' || !(allowedHosts.includes(host) ||
-        await mcpPermits(mcpPolicyDirectory, host))) {
+    const host = req.url?.split(':')[0]?.toLowerCase();
+    if (req.url?.toLowerCase() !== host + ':443' || !(allowedHosts.includes(host) ||
+        await policyPermits(mcpPolicyDirectory, host) ||
+        await policyPermits(mcpPolicyDirectory, host, true))) {
       client.end('HTTP/1.1 403 Forbidden\r\n\r\n'); return;
     }
     let buffer = head, connecting = false;
@@ -98,12 +125,12 @@ export function createProxy({ mcpPolicyDirectory } = {}) {
         if (buffer.length > 65536) throw Error('Oversized hello');
         const sni = clientHelloHost(buffer);
         if (sni === null) return;
-        if (sni !== host) throw Error('SNI mismatch');
+        if (sni.toLowerCase() !== host) throw Error('SNI mismatch');
         connecting = true; client.pause(); client.removeListener('data',hello);
-        const addresses = await lookup(host,{family:4,all:true});
+        const addresses = await resolveHost(host,{family:4,all:true});
         if (!addresses.length || addresses.some(a => !publicIPv4(a.address)))
           throw Error('Non-public upstream');
-        const upstream = net.connect({host:addresses[0].address,port:443});
+        const upstream = connect({host:addresses[0].address,port:443});
         upstream.on('error', () => client.destroy());
         client.on('close', () => upstream.destroy());
         upstream.on('close', () => client.destroy());

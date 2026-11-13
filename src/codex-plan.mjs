@@ -1,7 +1,7 @@
 import { digest, requireThat } from './identity.mjs';
 import { resultSchema } from './agent-result.mjs';
 import { skillIdentity } from './skills.mjs';
-import { toolDownloadHosts } from './egress-proxy.mjs';
+import { toolDownloadHosts, projectDomains } from './egress-proxy.mjs';
 import { candidateRuntimeContract } from './candidate-contract.mjs';
 
 const isolatedVerification = [
@@ -36,7 +36,7 @@ const isolatedVerification = [
 // discovery. Configuration alone is not proof that a host enforces this policy.
 export function codexPlan(stage, {
   model, threadId = null, skill, context, mcpPolicyHash = null, hasProposal = false,
-  globalInstructions,
+  globalInstructions, additionalDomains,
 }) {
   const identity = skillIdentity(stage);
   requireThat(
@@ -48,6 +48,7 @@ export function codexPlan(stage, {
   requireThat(threadId === null, 'CROSS_EXECUTION_RESUME_FORBIDDEN');
   requireThat(mcpPolicyHash === null || /^[a-f0-9]{64}$/.test(mcpPolicyHash),
     'INVALID_USER_MCP_POLICY');
+  const selectedDomains = projectDomains(additionalDomains);
   const writable = stage === 'deliver';
   const config = {
     model, approval_policy: 'never', default_permissions: 'nibfin',
@@ -101,7 +102,8 @@ export function codexPlan(stage, {
     'allow_upstream_proxy = true',
     // The adopted gateway is on the private Docker network.
     'allow_local_binding = true',
-    'allowed_domains = ' + JSON.stringify(toolDownloadHosts),
+    'allowed_domains = ' +
+      JSON.stringify([...new Set([...toolDownloadHosts, ...selectedDomains])]),
     '',
   ].join('\n');
   const args = [
@@ -147,6 +149,7 @@ export function codexPlan(stage, {
       globalInstructions + '\nEND USER GLOBAL WORKING INSTRUCTIONS\n\n' : '') +
     `${skill.content}\n\nBOUND CONTEXT:\n${JSON.stringify(context)}`;
   return {
+    additionalDomains: selectedDomains,
     args, config, settings, requirements, schema: resultSchema, prompt,
     expectedThread: threadId, writable, mcpPolicyHash,
     policyHash: digest({ config, requirements }),

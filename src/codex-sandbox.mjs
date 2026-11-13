@@ -32,9 +32,10 @@ import { privateMcpToml } from './mcp-profile.mjs';
 import { sameContainerEnvironment } from './container-environment.mjs';
 import { containerLabelArgs, matchesContainerLabel } from './host-containers.mjs';
 import {
-  acquireMcpEgress, verifyMcpPolicyDirectory,
+  acquireMcpEgress, acquireProjectEgress, verifyMcpPolicyDirectory,
   mcpPolicyEnvironment, mcpPolicyMount,
 } from './mcp-egress.mjs';
+import { projectDomains } from './egress-proxy.mjs';
 
 async function privateJSON(path, limit) {
   const file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
@@ -86,6 +87,7 @@ export class CodexSandbox {
       'INVALID_CODEX_SANDBOX',
     );
     this.#config = structuredClone(config);
+    this.#config.additionalDomains = projectDomains(config.additionalDomains);
     this.#run = run;
     this.#host = host;
     this.#containerLabel = containerLabel;
@@ -207,6 +209,10 @@ export class CodexSandbox {
     );
     requireThat((plan.mcpPolicyHash ?? null) === (mcp?.policyHash ?? null),
       'USER_MCP_PROFILE_CHANGED');
+    requireThat(digest(projectDomains(plan.additionalDomains)) ===
+      digest(c.additionalDomains), 'PROJECT_EGRESS_PLAN_CHANGED');
+    requireThat(!c.additionalDomains.length || c.mcpPolicyDirectory,
+      'PROJECT_EGRESS_NOT_ADOPTED');
     const paths = [work, main, input, output, session, auth];
     for (const path of paths) {
       requireThat(
@@ -345,9 +351,12 @@ export class CodexSandbox {
     ];
     let id,
       observed,
-      mcpLease,
+      mcpLease, projectLease,
       outcome = { status: 'denied', executionId, code: 'AGENT_ENTRY_DENIED' };
     try {
+      if (c.mcpPolicyDirectory)
+        projectLease = await acquireProjectEgress(c.mcpPolicyDirectory, executionId,
+          c.additionalDomains);
       if (mcp?.metadata.hosts.length) {
         requireThat(c.mcpPolicyDirectory, 'USER_MCP_EGRESS_NOT_ADOPTED');
         mcpLease = await acquireMcpEgress(c.mcpPolicyDirectory, executionId,
@@ -459,6 +468,8 @@ export class CodexSandbox {
           'AGENT_STILL_RUNNING',
         );
         const discard = !mcp || outcome.status === 'interrupted';
+        cleanupStep = 'project lease release';
+        await projectLease?.release();
         cleanupStep = 'MCP lease release';
         if (discard) await mcpLease?.release();
         // Mapped UID files must be host-readable/removable before any proof.

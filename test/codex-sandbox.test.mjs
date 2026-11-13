@@ -8,6 +8,7 @@ import {
   symlink,
   readFile,
   readdir,
+  chmod,
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { resolve, join } from 'node:path';
@@ -16,7 +17,7 @@ import { digest } from '../src/identity.mjs';
 import { dockerBackend, rootfulSocket } from '../src/docker-backend.mjs';
 import { inheritUserMcp } from '../src/mcp-profile.mjs';
 
-async function fixture(t, fault, rootful = false, mcp = false) {
+async function fixture(t, fault, rootful = false, mcp = false, project = false) {
   const seccomp = JSON.parse(await readFile('src/security/seccomp.json', 'utf8'));
   const root = await mkdtemp(join(tmpdir(), 'nibfin-agent-isolation-'));
   t.after(() => rm(root, { recursive: true, force: true }));
@@ -46,9 +47,15 @@ async function fixture(t, fault, rootful = false, mcp = false) {
     coreRoot: resolve('.'),
     proxyScript: resolve('src/egress-proxy.mjs'),
   };
-  if (mcp) {
+  if (mcp || project) {
     config.mcpPolicyDirectory = join(root, 'mcp-policy');
     await mkdir(config.mcpPolicyDirectory, { mode: 0o755 });
+  }
+  if (project) {
+    config.additionalDomains = ['API.Example.com'];
+    request.plan.additionalDomains = ['api.example.com'];
+  }
+  if (mcp) {
     request.mcp = inheritUserMcp({ notion: {
       url: 'https://mcp.notion.com/mcp',
       http_headers: { Authorization: 'Bearer private-mcp-token' },
@@ -114,7 +121,7 @@ async function fixture(t, fault, rootful = false, mcp = false) {
             Image: config.image,
             Entrypoint: ['node'],
             Cmd: ['/proxy.mjs'],
-            Env: ['PATH=/usr/bin', ...(mcp ?
+            Env: ['PATH=/usr/bin', ...((mcp || project) ?
               ['NIBFIN_MCP_POLICY_DIRECTORY=/mcp-policy'] : [])]
               .sort()
               .concat(fault === 'gateway-env-extra' ? ['FOREIGN=1'] : [])
@@ -128,8 +135,10 @@ async function fixture(t, fault, rootful = false, mcp = false) {
             SecurityOpt: ['no-new-privileges'],
           },
           Mounts: [
-            ...(mcp ? [{ Type: 'bind', Source: config.mcpPolicyDirectory,
-              Destination: '/mcp-policy', RW: false }] : []),
+            ...(fault === 'gateway-mount-extra' ? [{ Type: 'bind',
+              Source: '/unexpected', Destination: '/unexpected', RW: false }] : []),
+            ...((mcp || project) ? [{ Type: 'bind', Source: config.mcpPolicyDirectory,
+              Destination: '/mcp-policy', RW: fault === 'gateway-mount-writable' }] : []),
             {
               Type: 'bind',
               Source: config.proxyScript,
@@ -150,6 +159,15 @@ async function fixture(t, fault, rootful = false, mcp = false) {
         const policy = JSON.parse(await readFile(
           join(config.mcpPolicyDirectory, 'current.json'), 'utf8'));
         assert.deepEqual(policy.hosts, ['mcp.notion.com']);
+      }
+      if (project) {
+        const policy = JSON.parse(await readFile(
+          join(config.mcpPolicyDirectory, 'project.json'), 'utf8'));
+        assert.deepEqual(policy.hosts, ['api.example.com']);
+        assert.ok(!JSON.stringify(cmd).includes('dst=/mcp-policy'));
+        if (fault === 'project-tamper') {
+          await chmod(join(config.mcpPolicyDirectory, 'project.json'), 0o644);
+        }
       }
       exists = true;
       container = {
@@ -262,6 +280,11 @@ async function fixture(t, fault, rootful = false, mcp = false) {
       stderr: Buffer.alloc(0),
     };
   };
+  if (fault === 'source-changed') {
+    config.proxyScript = join(root, 'changed-proxy.mjs');
+    await writeFile(config.proxyScript, '// changed');
+  }
+  if (fault === 'project-unadopted') delete config.mcpPolicyDirectory;
   const backend = rootful
     ? dockerBackend({
         kind: 'linux-rootful-docker-v1',
@@ -404,5 +427,64 @@ test('MCP private mount and egress lease retire only after proven termination', 
   assert.ok(mounts.some(v => v.includes('dst=/auth/mcp.toml,readonly')));
   const uncertain = await fixture(t, 'cleanup', false, true);
   assert.equal((await uncertain.sandbox.execute(uncertain.request)).status, 'pending');
-  assert.deepEqual(await readdir(uncertain.config.mcpPolicyDirectory), ['current.json']);
+  assert.deepEqual(await readdir(uncertain.config.mcpPolicyDirectory),
+    ['current.json', 'project.json']);
+});
+
+test('project leases retire after proven cleanup for each outcome', async t => {
+  for (const fault of [undefined, 'lost-create', 'environment', 'timeout',
+    'missing-login', 'probe']) {
+    const f = await fixture(t, fault, false, false, true);
+    const result = await f.sandbox.execute(f.request);
+    const expected = fault === undefined ? 'completed' :
+      ['timeout', 'missing-login'].includes(fault) ? 'interrupted' : 'denied';
+    assert.equal(result.status, expected, fault);
+    assert.deepEqual(await readdir(f.config.mcpPolicyDirectory), [], fault);
+  }
+  for (const fault of ['cleanup', 'project-tamper']) {
+    const f = await fixture(t, fault, false, false, true);
+    assert.equal((await f.sandbox.execute(f.request)).status, 'pending');
+    assert.deepEqual(await readdir(f.config.mcpPolicyDirectory), ['project.json']);
+    const creates = f.calls.filter(c => c[0] === 'create').length;
+    await assert.rejects(f.sandbox.execute(f.request));
+    assert.equal(f.calls.filter(c => c[0] === 'create').length, creates);
+  }
+});
+
+test('project policy binds the plan and stays outside Agent mounts', async t => {
+  const f = await fixture(t, undefined, false, false, true);
+  f.request.plan.additionalDomains = ['other.example.com'];
+  await assert.rejects(f.sandbox.execute(f.request), /PROJECT_EGRESS_PLAN_CHANGED/);
+  assert.equal(f.calls.some(c => c[0] === 'create'), false);
+  const combined = await fixture(t, undefined, false, true, true);
+  const result = await combined.sandbox.execute(combined.request);
+  assert.equal(result.status, 'completed');
+  assert.deepEqual(await readdir(combined.config.mcpPolicyDirectory), ['current.json']);
+  await result.retireMcp();
+  assert.deepEqual(await readdir(combined.config.mcpPolicyDirectory), []);
+});
+
+test('required project policy rejects missing adoption and stale ownership', async t => {
+  const absent = await fixture(t, 'project-unadopted', false, false, true);
+  await assert.rejects(absent.sandbox.execute(absent.request),
+    /PROJECT_EGRESS_NOT_ADOPTED/);
+  for (const requested of [false, true]) {
+    const f = await fixture(t, undefined, false, true, requested);
+    await writeFile(join(f.config.mcpPolicyDirectory, 'project.json'), '{}',
+      { mode: 0o444 });
+    assert.equal((await f.sandbox.execute(f.request)).status, 'denied');
+    assert.equal(f.calls.some(c => c[0] === 'create'), false);
+    assert.equal(await readFile(join(f.config.mcpPolicyDirectory, 'project.json'),
+      'utf8'), '{}');
+  }
+});
+
+test('project gateway keeps source, environment, mount and isolation checks', async t => {
+  for (const fault of ['source-changed', 'gateway-env-extra', 'gateway-env-duplicate',
+    'gateway-mount-extra', 'gateway-mount-writable', 'public-network']) {
+    const f = await fixture(t, fault, false, false, true);
+    await assert.rejects(f.sandbox.preflight(),
+      fault === 'source-changed' ? /EGRESS_SOURCE_CHANGED/ : /AGENT_EGRESS_NOT_ISOLATED/);
+    assert.equal(f.calls.some(c => c[0] === 'create'), false);
+  }
 });

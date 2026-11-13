@@ -1,16 +1,11 @@
 import { lstat, readFile, realpath } from 'node:fs/promises';
 import { join, resolve, win32 } from 'node:path';
-import { isIP } from 'node:net';
+import { exactProjectHost } from './egress-proxy.mjs';
 
 const names = ['tools', 'allowedDomains', 'skills'];
 const tools = ['node', 'python', 'go'];
 const roles = ['shape', 'deliver', 'accept'];
 const exactVersion = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
-const label = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/i;
-const localSuffixes = new Set([
-  'localhost', 'local', 'internal', 'lan', 'home', 'arpa', 'localdomain',
-]);
-
 export class ProjectConfigError extends Error {
   constructor(field, reason) {
     super(`.nibfin.json: ${field}: ${reason}`);
@@ -30,13 +25,7 @@ function keys(value, allowed, field) {
     invalid(field, 'unsupported property');
 }
 function domain(value, field) {
-  if (typeof value !== 'string' || value.trim() !== value ||
-      value.length > 253 || isIP(value))
-    invalid(field, 'expected a complete public destination domain');
-  const parts = value.split('.');
-  if (parts.length < 2 || parts.some(part => !label.test(part)) ||
-      !/^[a-z]{2,63}$/i.test(parts.at(-1)) ||
-      localSuffixes.has(parts.at(-1).toLowerCase()))
+  if (!exactProjectHost(value))
     invalid(field, 'expected a complete public destination domain');
   return value;
 }
