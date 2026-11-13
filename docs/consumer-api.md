@@ -80,8 +80,9 @@ The public package includes the composition API and bounded stage transport.
 The CLI offers `contract`, `pack`, `install`, `verify` and
 `stage <adopted-issue-number> <stage>`. The stage entry reads fixed administrative
 host configuration, discovers the actual job, verifies native signed identity,
-prepares the workspace and constructs the existing Codex executor. Its workflow
-entry is `.github/workflows/stage.yml`; the separate package workflow only builds.
+prepares the workspace and constructs the existing Codex executor. The current
+Core workflow entry is `.github/workflows/shared-runner.yml`. Core CI and Core CD
+use the shared packaging action.
 See the [host adoption and execution contract](host-launcher.md) for inputs,
 permissions, durable cancellation fences and the single-host support boundary.
 Automatic enrollment, live authenticated execution and public release remain

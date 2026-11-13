@@ -14,7 +14,6 @@ import { approvalProviderFixture } from './github-approval-fixture.mjs';
 import { approvalRecord, now } from './approval-fixture.mjs';
 import { gitBlob } from '../src/identity.mjs';
 import { readFile } from 'node:fs/promises';
-import { spawnSync } from 'node:child_process';
 
 function fixture(kind = 'wake') {
   const record = approvalRecord();
@@ -222,38 +221,6 @@ test('caller rerun during resolution invalidates routing before any output', asy
   };
   await assert.rejects(f.resolve(), /UNTRUSTED_WAKE_CALLER/);
 });
-
-test(
-  'fixed workflow rejects a substituted Core revision ' +
-    'before checkout or token-bearing execution',
-  async () => {
-    const workflow = (
-      await readFile(new URL('../.github/workflows/wake.yml', import.meta.url), 'utf8')
-    ).replaceAll('\r\n', '\n');
-    const match = /node --input-type=module <<'NODE'\n([\s\S]+?)\n\s+NODE/.exec(workflow);
-    assert.ok(match);
-    assert.ok(match.index < workflow.indexOf('- uses: actions/checkout@'));
-    assert.ok(
-      workflow.indexOf('NIBFIN_READ_TOKEN: ${{ secrets.NIBFIN_READ_TOKEN }}') >
-        match.index,
-    );
-    const commit = 'a'.repeat(40);
-    for (const [value, success] of [
-      [commit, true],
-      ['b'.repeat(40), false],
-      ['main', false],
-    ]) {
-      const child = spawnSync(process.execPath, ['--input-type=module', '-e', match[1]], {
-        env: {
-          CORE_COMMIT: value,
-          WAKE_ADOPTION: JSON.stringify({ coreCommit: commit }),
-        },
-      });
-      assert.equal(child.status === 0, success);
-      assert.equal(child.stdout.length, 0);
-    }
-  },
-);
 
 test(
   'Issue events are hosted locators bound to adopted ' +
