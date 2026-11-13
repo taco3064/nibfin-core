@@ -10,7 +10,10 @@ const query = `query($owner: String!, $name: String!, $number: Int!) {
       assignees(first: 100) { nodes { databaseId login } pageInfo { hasNextPage } }
       labels(first: 100) { nodes { name } pageInfo { hasNextPage } }
       blockedBy(first: 100) {
-        nodes { id number repository { databaseId nameWithOwner isPrivate } }
+        nodes {
+          id number state repository { databaseId nameWithOwner isPrivate }
+          labels(first: 100) { nodes { name } pageInfo { hasNextPage } }
+        }
         pageInfo { hasNextPage }
       }
     }
@@ -28,14 +31,19 @@ export async function readIssueQuery(issue, token, request = ghQuery) {
   const item = repo.issue;
   requireThat(item && typeof item.body === 'string' &&
     ['OPEN', 'CLOSED'].includes(item.state), 'INVALID_ISSUE_QUERY');
-  const prerequisites = complete(item.blockedBy).map(edge => {
+  const dependencies = complete(item.blockedBy).map(edge => {
     requireThat(isId(edge.repository?.databaseId) &&
       edge.repository.isPrivate === false &&
-      isId(edge.number) && typeof edge.id === 'string', 'INVALID_NATIVE_PREREQUISITE');
+      isId(edge.number) && typeof edge.id === 'string' &&
+      ['OPEN', 'CLOSED'].includes(edge.state), 'INVALID_NATIVE_PREREQUISITE');
     const repository = edge.repository.nameWithOwner;
     issuePath({ repository, number: edge.number });
-    return { id: edge.id, number: edge.number, repository,
-      repositoryId: edge.repository.databaseId };
+    return {
+      identity: { id: edge.id, number: edge.number, repository,
+        repositoryId: edge.repository.databaseId },
+      state: edge.state.toLowerCase(),
+      labels: complete(edge.labels),
+    };
   });
   return {
     repository: repositoryMetadata(repo),
@@ -45,6 +53,7 @@ export async function readIssueQuery(issue, token, request = ghQuery) {
       assignees: complete(item.assignees).map(user => ({
         id: user.databaseId, login: user.login, type: 'User',
       })) },
-    prerequisites,
+    prerequisites: dependencies.map(edge => edge.identity),
+    dependencies,
   };
 }

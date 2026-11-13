@@ -5,6 +5,7 @@ import { repositoryIssuePin } from '../src/repository-admission.mjs';
 import { evidenceBinding } from '../src/stages.mjs';
 import { readIssueQuery } from '../src/github-issue-query.mjs';
 import { readRunnerBinding } from '../src/runner-binding.mjs';
+import { readDependencies } from '../src/dependencies.mjs';
 import { runnerProviderFixture } from './runner-binding-fixture.mjs';
 import { approvalProviderFixture } from './github-approval-fixture.mjs';
 import { now } from './approval-fixture.mjs';
@@ -106,3 +107,35 @@ test('shared Runner verifies the same current workflow revision only once', asyn
   assert.equal(reads.filter(path => path.includes('/contents/' + workflowPath)).length,
     1);
 });
+
+test('grouped prerequisites need only one REST read-back and preserve edge checks',
+  async () => {
+    const f = approvalProviderFixture();
+    const issue = f.record.issue;
+    const other = { ...issue, id: 'I_prerequisite', number: issue.number + 1 };
+    const url = number =>
+      `https://api.github.com/repos/${issue.repository}/issues/${number}`;
+    const target = { node_id: issue.id, number: issue.number,
+      state: 'open', url: url(issue.number) };
+    const dependency = { node_id: other.id, number: other.number,
+      state: 'closed', url: url(other.number),
+      labels: ['scope', 'shaped', 'delivered'].map(name => ({ name })) };
+    let reads = 0;
+    let edges = [dependency];
+    const reader = {
+      issue: async () => { reads++; return dependency; },
+      blockedBy: async () => { reads++; return edges; },
+    };
+    const observed = { repository: f.repo, issue: target };
+    assert.equal((await readDependencies(reader, issue, [other], observed)).ready, true);
+    assert.equal(reads, 3);
+    reads = 0;
+    observed.dependencies = [{
+      identity: other, state: dependency.state, labels: dependency.labels,
+    }];
+    assert.equal((await readDependencies(reader, issue, [other], observed)).ready, true);
+    assert.equal(reads, 1);
+    edges = [];
+    await assert.rejects(readDependencies(reader, issue, [other], observed),
+      /Blocked by changed/);
+  });

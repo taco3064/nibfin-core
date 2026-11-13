@@ -50,6 +50,7 @@ export function nativeObserver({
     if (pauseEvidence.pending) pause.status = 'pending';
     const observed = await readDependencies(reader, record.issue, record.prerequisites, {
       repository: approval.repository, issue: pause.current,
+      dependencies: approval.dependencies,
     });
     requireThat(!nativePolicy || observed.issue.body === record.scope.body,
       'ISSUE_REQUIREMENTS_CHANGED_DURING_READ');

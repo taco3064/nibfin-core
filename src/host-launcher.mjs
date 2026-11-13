@@ -211,15 +211,17 @@ export async function launchStage(issueNumber, stage, env = process.env) {
   }
   let mcpJob, release;
   try {
-    const inspectWriter = async () => {
+    const inspectWriter = async (_stage, observed) => {
       await inspectHostAdoption(context);
+      const registration = observed?.runner?.runnerId === runner.runnerId
+        ? observed.runner.observationHash : await readSelectedHost(reader, runner);
       return {
         executionId: execution.id,
         writerStatus: 'exclusive',
         observationHash: digest({
           fence: await fence.inspect(),
           containers: await idleContainers(adopted.isolation, issue),
-          registration: await readSelectedHost(reader, runner),
+          registration,
         }),
       };
     };
