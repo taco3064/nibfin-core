@@ -50,21 +50,20 @@ with independent checks before changes reach the default branch.
 
 ## From Issue to verified closure
 
-<div class="nf-delivery-grid">
-
-### Shape the work
-
-An independent validator checks the contract for an authorized Issue.
-
-### Deliver and verify
-
-A Writer implements the change. An independent Acceptor checks the Candidate.
-
-### Review and merge
-
-Applicable CI and final review cover the PR head before protected integration.
-
-</div>
+<ol class="nf-delivery-steps not-content">
+  <li>
+    <strong>Shape the work</strong>
+    <span>An independent validator checks the contract for an authorized Issue.</span>
+  </li>
+  <li>
+    <strong>Deliver and verify</strong>
+    <span>A Writer implements the change. An independent Acceptor checks the Candidate.</span>
+  </li>
+  <li>
+    <strong>Review and merge</strong>
+    <span>Applicable CI and final review cover the PR head before protected integration.</span>
+  </li>
+</ol>
 
 [Walk through the delivery stages](lifecycle/#from-scope-to-closure).
 

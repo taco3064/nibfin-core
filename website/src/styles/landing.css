@@ -47,16 +47,24 @@
 
 .nf-doc-grid span { color: var(--nf-secondary); }
 
-.nf-delivery-grid {
-  @apply grid items-baseline gap-x-6 rounded-xl bg-card p-5;
-  border-inline-start: .25rem solid var(--nf-accent);
+.nf-delivery-steps {
+  @apply m-0 list-none p-0;
 }
 
-.nf-delivery-grid h3 { color: var(--nf-link); }
+.nf-delivery-steps > li {
+  @apply grid gap-x-6 gap-y-1 border-t border-solid border-border py-4;
+}
+
+.nf-delivery-steps strong {
+  color: var(--nf-text);
+  font-family: var(--nf-font-heading);
+  font-size: var(--sl-text-lg);
+}
+
+.nf-delivery-steps span { color: var(--nf-secondary); }
 
 @media (min-width: 50rem) {
-  .nf-delivery-grid { grid-template-columns: minmax(11rem, 1fr) minmax(0, 2fr); }
-  .nf-delivery-grid > .sl-heading-wrapper { grid-column: 1; }
-  .nf-delivery-grid > p { grid-column: 2; }
-  .nf-delivery-grid > p:first-of-type { margin-top: 0; }
+  .nf-delivery-steps > li {
+    grid-template-columns: minmax(11rem, 1fr) minmax(0, 2fr);
+  }
 }
