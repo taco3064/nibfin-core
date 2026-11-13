@@ -15,11 +15,13 @@ review requirements. Preserve independent technical validation even for a single
 human owner. Do not execute untrusted public Issue or fork code on a host with
 member logins or administrative credentials.
 
+:::note[Host compatibility]
 <!-- claim:platform -->
 Unverified: no universal OS, Agent or isolation-backend compatibility is established
 by this guide. Each host and Agent configuration needs actual isolation and
-credential-boundary verification; running a container alone is insufficient.
+credential-boundary verification. Running a container alone is insufficient.
 <!-- /claim -->
+:::
 
 ## Personal repository
 
@@ -51,5 +53,8 @@ A registered Runner is not a trusted adopted host or proof of completed delivery
 An authorized Issue proceeds through Shape, Deliver, independent Accept, applicable
 CI, final review and protected merge. Labels alone do not grant execution rights.
 A successful local build does not demonstrate this product flow.
+
+After host adoption, [project configuration](../project-environment/) can
+declare the tools, network access, and Skills that your Jobs need.
 
 Continue with [installation](../installation/) and [CLI usage](../cli/).

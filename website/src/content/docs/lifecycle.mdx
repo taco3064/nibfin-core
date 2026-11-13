@@ -3,11 +3,16 @@ title: Protected delivery lifecycle
 description: Independent validation, delivery evidence and verified completion.
 ---
 
+import { Steps } from '@astrojs/starlight/components';
+import LifecycleDiagram from '../../components/LifecycleDiagram.astro';
+
 The [architecture](../architecture/) identifies who owns requirements and state.
 Each lifecycle step still requires current authorization and satisfied native
 GitHub dependencies. A wake-up cannot waive those checks.
 
 ## From Scope to Closure
+
+<Steps>
 
 1. **Scope:** author the work boundary in the current authorized Issue, with
    native dependencies and Assignees.
@@ -28,21 +33,45 @@ GitHub dependencies. A wake-up cannot waive those checks.
    or deployment outcomes. A request acknowledgement or screenshot is not release
    evidence.
 
+</Steps>
+
 Independent technical roles do not inherently require a second GitHub account or
 an extra human reviewer. Actual GitHub protection rules determine required human
-approval; technical independence does not bypass those rules.
+approval. Single-owner repositories use independent technical validation and the
+native merge rules actually configured for the repository. Checks that require a
+PR head are evaluated after publication.
 
 ## Workflow labels
 
-- `scope`: the Issue has an adopted work boundary; it can be evaluated for Shape.
-- `shaped`: Shape has been independently validated, published and read back;
-  delivery can be evaluated against current authorization and evidence.
-- `delivered`: records verified completion, consistent with actual Merge and
-  Closure and applicable release or deployment evidence.
+<LifecycleDiagram />
 
-These labels describe workflow state. None grants execution permission, proves a
-stage ran, or independently proves completion. Manually adding a label cannot
-replace missing evidence.
+| GitHub state | What happens next |
+| --- | --- |
+| Open, no `scope` | Wait for an authorized work boundary. |
+| Open with `scope` | Shape can proceed once authorization and dependencies allow it. |
+| Open with `scope` and `shaped` | Core can assess admission to Deliver. |
+| Closed with all three labels | Verify Merge, Closure and applicable release evidence. |
+
+Work waits while dependencies or Runner availability block it. Fix failures within
+the current phase and repeat affected checks. Return to manual Scope only when the
+work boundary needs fresh approval. Manual Bootstrap uses its own tracking.
+
+## Pause and resume
+
+An effective `pause` blocks admission to later stages. An active stage may finish
+normally. Pause leaves the lifecycle labels in place.
+
+Repository owners or effective organization repository admins can pause or
+resume eligible Issues. A collaborator needs GitHub label-editing permission
+and must be a current assignee. Core checks the event and its authority. The
+visible GitHub label and Core's confirmed decision are separate observations.
+Core's event path requires an adopted repository, an Issue with `scope`,
+and a trusted assignee and wake route.
+
+An authorized removal clears the pause restriction. Core rechecks admission
+before resuming. If the event, prior Writer, or external effects cannot be
+verified, work stays Pending. See
+[safe recovery](../security/#recovery-and-single-writer-operation).
 
 ## Wake-ups and admission
 

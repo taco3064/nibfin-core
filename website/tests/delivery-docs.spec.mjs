@@ -1,7 +1,8 @@
 import { test, expect } from '@playwright/test';
 import { assertFocus, assertRenderedContrast } from './rendered.mjs';
 
-const routes = ['architecture', 'lifecycle', 'security', 'limitations'];
+const routes = ['architecture', 'lifecycle', 'security', 'limitations',
+  'project-environment'];
 for (const theme of ['light', 'dark']) {
   for (const width of [1280, 360]) {
     test(`delivery documents ${theme} ${width}px`, async ({ page }) => {
@@ -10,6 +11,11 @@ for (const theme of ['light', 'dark']) {
       for (const route of routes) {
         await page.goto(`${route}/`);
         await expect(page.locator('h1')).toBeVisible();
+        if (route === 'lifecycle') {
+          await expect(page.locator('[data-lifecycle-diagram] svg')).toBeVisible();
+          await expect(page.getByRole('heading', { name: 'Pause and resume' }))
+            .toBeVisible();
+        }
         await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
         expect(await page.evaluate(() => document.documentElement.scrollWidth
           <= document.documentElement.clientWidth + 1)).toBe(true);

@@ -18,7 +18,8 @@ export async function inspectOutput(base, directory = 'website/dist') {
     await readFile(join(directory, path.endsWith('/') || !path
       ? `${path}index.html` : path));
   }
-  const emitted = await readdir(directory, { recursive: true });
+  const emitted = (await readdir(directory, { recursive: true }))
+    .map((path) => path.replaceAll('\\', '/'));
   assert(!emitted.includes('does-not-exist-doc01/index.html'),
     'Missing route unexpectedly generated');
   const css = urls.find((url) => /\.css(?:\?|$)/.test(url));

@@ -11,6 +11,7 @@ const destinations = [
   ['limitations/', 'Limitations and verification status'],
   ['cli/', 'CLI usage'],
   ['runners/', 'Runner registration and removal'],
+  ['project-environment/', 'Project environment'],
 ];
 
 async function noOverflow(page) {

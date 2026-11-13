@@ -1,0 +1,11 @@
+flowchart TD
+    open["Open · no scope"]
+    scope["scope"]
+    shaped["scope + shaped"]
+    delivered["delivered · Closed"]
+
+    open -->|Scope approved| scope
+    scope -->|Shape verified| shaped
+    shaped -->|Delivery verified| delivered
+
+    class delivered delivered

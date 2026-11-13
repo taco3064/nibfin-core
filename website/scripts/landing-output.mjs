@@ -13,7 +13,8 @@ export async function inspectLandingOutput(base, source = 'website/dist') {
     assert(original.includes(text), `Missing landing content: ${text}`);
   }
   for (const route of ['getting-started/', 'installation/', 'architecture/',
-    'lifecycle/', 'security/', 'limitations/', 'cli/', 'runners/', 'theme/']) {
+    'lifecycle/', 'security/', 'limitations/', 'cli/', 'runners/', 'theme/',
+    'project-environment/']) {
     assert(original.includes(`href="${route}"`)
       || original.includes(`href="${base}${route}"`), `Missing discovery: ${route}`);
   }

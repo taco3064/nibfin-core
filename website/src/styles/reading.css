@@ -1,0 +1,25 @@
+:root[data-has-sidebar] {
+  --sl-content-width: 49rem;
+  --sl-sidebar-width: 16.5rem;
+}
+
+:root[data-has-sidebar] .sl-markdown-content {
+  font-size: clamp(1rem, .95rem + .2vw, 1.0625rem);
+  line-height: 1.72;
+}
+
+.sl-markdown-content :is(p, li) { max-inline-size: 68ch; }
+.sl-markdown-content :not(.not-content) > h2 { letter-spacing: -.018em; }
+
+.sl-markdown-content > .sl-heading-wrapper:not(:first-child) {
+  margin-block-start: clamp(2rem, 4vw, 3rem);
+}
+
+.sl-markdown-content :is(p, li) a { text-underline-offset: .18em; }
+
+.sl-markdown-content table { font-size: .94em; }
+.sl-markdown-content th { background-color: var(--nf-surface); }
+
+.sl-markdown-content .sl-steps {
+  --sl-color-hairline-light: var(--nf-border);
+}

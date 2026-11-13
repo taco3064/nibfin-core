@@ -4,7 +4,9 @@ description: Nibfin brings independently validated delivery to GitHub Issues.
 template: splash
 hero:
   title: Trusted delivery, from Issue to merge
-  tagline: Turn a bounded GitHub Issue into a checked, independently accepted change.
+  tagline: >
+    Nibfin takes a bounded GitHub Issue through independent validation,
+    implementation, and protected merge.
   actions:
     - text: Getting Started
       link: getting-started/
@@ -14,82 +16,66 @@ hero:
       variant: secondary
 ---
 
-Nibfin helps people deliver changes through GitHub Issues, independent shaping
-and acceptance, and protected review and merge. Core owns delivery rules, Action
-is the thin workflow entry, and CLI owns onboarding and Runner operations.
+Nibfin helps people deliver changes through GitHub Issues,
+with independent checks before changes reach the default branch.
 
-## A clear boundary. Evidence at every step.
+## Explore the documentation
+
+<div class="nf-doc-grid not-content">
+  <a href="getting-started/">
+    <strong>Getting Started</strong>
+    <span>Choose an onboarding path for your Public Repository.</span>
+  </a>
+  <a href="lifecycle/">
+    <strong>Protected lifecycle</strong>
+    <span>Follow Issue labels, independent review, and verified closure.</span>
+  </a>
+  <a href="architecture/">
+    <strong>Architecture and authority</strong>
+    <span>See what GitHub, Core, Action, and the CLI each own.</span>
+  </a>
+  <a href="runners/">
+    <strong>Runners</strong>
+    <span>Understand registration, member routing, and host readiness.</span>
+  </a>
+  <a href="project-environment/">
+    <strong>Project environment</strong>
+    <span>Declare tools, HTTPS destinations, and role Skills for each Job.</span>
+  </a>
+  <a href="security/">
+    <strong>Security and recovery</strong>
+    <span>Understand credential boundaries and when work can safely resume.</span>
+  </a>
+</div>
+
+## From Issue to verified closure
 
 <div class="nf-delivery-grid">
 
 ### Shape the work
 
-Start with an authorized Issue and explicit dependencies. A published,
-independently validated Shape defines the implementation contract.
+An independent validator checks the contract for an authorized Issue.
 
 ### Deliver and verify
 
-A Writer implements the bounded change and runs applicable checks. Independent
-Accept evaluates the captured Candidate and its evidence.
+A Writer implements the change. An independent Acceptor checks the Candidate.
 
 ### Review and merge
 
-Required CI and final review apply to the actual PR head. Protected merge and
-verified Closure complete the path; a label or a green local build is not delivery.
+Applicable CI and final review cover the PR head before protected integration.
 
 </div>
 
-Read the [protected lifecycle](lifecycle/#from-scope-to-closure) for the full path.
-
-## Built for Public Repositories
-
-Choose a Public Repository owned by a personal account or an Organization.
-Installation permissions, repository Runner administration and member execution
-rights are separate. Review the prerequisites before choosing a candidate or host.
-
-[Getting Started](getting-started/) explains both onboarding paths and their limits.
-
-## Explore the documentation
-
-<div class="nf-delivery-grid">
-
-### Start with the foundations
-
-- [Architecture and authority](architecture/): Core, Action and CLI responsibilities.
-- [Security and recovery](security/): isolation, permissions and safe retry.
-- [Limitations and status](limitations/): source evidence and live observations.
-
-### Prepare your environment
-
-- [Installation](installation/#component-status): component availability and evidence.
-- [CLI usage](cli/): maintained command guidance.
-- [Runners](runners/): repository-level onboarding and readiness.
-
-### Read with confidence
-
-- [Protected lifecycle](lifecycle/): from Scope to verified Closure.
-- [Getting Started](getting-started/): prerequisites for your repository.
-- [Theme reading sample](theme/): shared reading components in Light and Dark.
-
-</div>
+[Walk through the delivery stages](lifecycle/#from-scope-to-closure).
 
 ## Availability vocabulary
 
-**Released/Installed** distinguishes a verified formal release from an installed
-candidate for an exact version and configuration. Neither implies the other.
-**Planned** means authorized future work. **Unverified** means observations are
-insufficient. **Unsupported** requires evidence of an unsupported interface or
-configuration. Missing network evidence means Unverified, never Unsupported.
-CI success, lifecycle labels and production support are separate observations.
-
 <!-- claim:availability -->
-Unverified: formal Core, Action and CLI releases, assets and fresh-user installation
-have not been independently read back for this guide. Installation commands are
-unavailable here. This is not a claim that releases do not exist.
+Unverified: formal release and fresh-install support for Core, Action, and CLI.
+The public repositories are available for candidate source review.
 <!-- /claim -->
 
-The checked-in [source checklist](https://github.com/taco3064/nibfin-core/tree/main/website/evidence)
-records observation limits. These pages are a public projection, not another
-product policy store. Local website checks do not establish live Pages publication
-or product onboarding E2E.
+Check [component status](installation/#component-status), read the
+[CLI guide](cli/), or see [what each verification milestone proves](limitations/).
 
+[Theme reading sample](theme/)

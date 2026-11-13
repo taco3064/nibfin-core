@@ -1,0 +1,64 @@
+---
+import source from '../diagrams/issue-labels.mmd?raw';
+---
+
+<figure class="nf-diagram my-6 rounded-xl border border-solid border-border bg-card p-4">
+  <div
+    data-lifecycle-diagram
+    data-source={source}
+    class="grid justify-items-center"
+    aria-hidden="true"
+  ></div>
+  <figcaption class="text-sm text-muted-foreground">
+    Successful label transitions, adapted from Proposal §5.1.
+    The table and notes below explain waiting and recovery.
+  </figcaption>
+</figure>
+
+<script>
+  const diagram = document.querySelector<HTMLElement>('[data-lifecycle-diagram]');
+  const source = diagram?.dataset.source;
+  if (diagram && source) {
+    try {
+      const { default: mermaid } = await import('mermaid');
+      mermaid.initialize({
+        startOnLoad: false,
+        securityLevel: 'strict',
+        theme: 'base',
+        flowchart: { nodeSpacing: 20, rankSpacing: 38 },
+        htmlLabels: false,
+      });
+      const { svg } = await mermaid.render('issue-label-transitions', source);
+      diagram.innerHTML = svg;
+    } catch (error) {
+      diagram.hidden = true;
+      console.error('Unable to render the Issue label diagram.', error);
+    }
+  }
+</script>
+
+<style is:global>
+  .nf-diagram svg {
+    display: block;
+    width: auto;
+    height: auto;
+    max-width: 100% !important;
+    font-family: var(--nf-font-body) !important;
+  }
+
+  .nf-diagram .node rect {
+    fill: var(--nf-background) !important;
+    stroke: var(--nf-border) !important;
+  }
+
+  .nf-diagram .node.delivered rect {
+    fill: var(--nf-success-bg) !important;
+    stroke: var(--nf-success) !important;
+  }
+
+  .nf-diagram svg :is(text, tspan) { fill: var(--nf-text) !important; }
+  .nf-diagram .nodeLabel { color: var(--nf-text) !important; }
+  .nf-diagram .edgeLabel rect { fill: var(--nf-surface) !important; }
+  .nf-diagram :is(.flowchart-link, .marker) { stroke: var(--nf-link) !important; }
+  .nf-diagram .marker { fill: var(--nf-link) !important; }
+</style>

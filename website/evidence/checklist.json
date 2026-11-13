@@ -1,9 +1,9 @@
 {
-  "observed": "2026-11-11",
-  "network": "api.github.com read-back blocked by execution allowlist on 2026-11-11. No release absence inferred.",
+  "observed": "2026-11-13",
+  "network": "Public repositories and GitHub release lists were reachable. No formal release was listed for the three components. Fresh installation was not exercised.",
   "pages": {
     "index.md": {
-      "sha256": "9c11c2481fe6acb2794e3b2ee8ac51117f5e24909b8103fbb22b418d175a7f61",
+      "sha256": "9e0006df4343c086adc897e2acaf8d327b426bb8a65723c36f2d4fb4ed1396a6",
       "basis": "Reviewed landing claims against Issue #14, Proposal 14–14.4 and maintained onboarding/lifecycle guides. No release or support evidence inferred.",
       "requirements": {
         "issue": "https://github.com/taco3064/nibfin-core/issues/14",
@@ -22,7 +22,7 @@
       }
     },
     "getting-started.md": {
-      "sha256": "a52f1f55e82420f7e225624b2e1460f86947b2e538e83377f9091ca9fd860ab1",
+      "sha256": "bb8588cd627258bb48702d994adc4d27edd34112e2ca6bfda8a1aa02960e8e63",
       "basis": "Reviewed public-safe projection of current Issue #15 and product requirements. Not evidence of release or support.",
       "requirements": {
         "issue": "https://github.com/taco3064/nibfin-core/issues/15",
@@ -39,7 +39,7 @@
       }
     },
     "installation.md": {
-      "sha256": "7a771b227da64489f8b8c661351876c83672ea61f6178aa8a0c64e72ca6cb38c",
+      "sha256": "6689aca38d069670b558c1a6e1b839515c900c825967af8eaea81e866a4e546b",
       "basis": "Reviewed public-safe projection of current Issue #15 and product requirements. Not evidence of release or support.",
       "requirements": {
         "issue": "https://github.com/taco3064/nibfin-core/issues/15",
@@ -56,7 +56,7 @@
       }
     },
     "cli.md": {
-      "sha256": "9795e424efa06e43ea755e59c81673e47337c7873823d1d6fdd890ee077d7d2a",
+      "sha256": "58f7bbf78d3bf7114f2d4aef059c76195280c2439b19c07e7856a247c9143a6e",
       "basis": "Reviewed public-safe projection of current Issue #15 and product requirements. Not evidence of release or support.",
       "requirements": {
         "issue": "https://github.com/taco3064/nibfin-core/issues/15",
@@ -73,7 +73,7 @@
       }
     },
     "runners.md": {
-      "sha256": "f96ae0bf18c8844ead04fe0fafe8b20f037f32b4c63e217a4518210e65f727a9",
+      "sha256": "0e9ef46e53fa92eb6a8050e6fbe2811d064359ac57430be78676953c20bd1c85",
       "basis": "Reviewed public-safe projection of current Issue #15 and product requirements. Not evidence of release or support.",
       "requirements": {
         "issue": "https://github.com/taco3064/nibfin-core/issues/15",
@@ -99,7 +99,7 @@
       "commit": null,
       "location": null,
       "command": null,
-      "basis": "Product requirements, not independently verified component implementation. Public source/help/release read-back unavailable."
+      "basis": "Public GitHub release list read-back; no fresh installation was exercised."
     },
     {
       "id": "platform",
@@ -129,7 +129,7 @@
       "commit": null,
       "location": null,
       "command": null,
-      "basis": "Product requirements, not independently verified component implementation. Public source/help/release read-back unavailable."
+      "basis": "Public Core repository and release list read-back."
     },
     {
       "id": "action",
@@ -139,7 +139,7 @@
       "commit": null,
       "location": null,
       "command": null,
-      "basis": "Product requirements, not independently verified component implementation. Public source/help/release read-back unavailable."
+      "basis": "Public Action repository and release list read-back."
     },
     {
       "id": "cli",
@@ -149,7 +149,7 @@
       "commit": null,
       "location": null,
       "command": null,
-      "basis": "Product requirements, not independently verified component implementation. Public source/help/release read-back unavailable."
+      "basis": "Public CLI source README and GitHub release list read-back."
     },
     {
       "id": "core-help",
@@ -165,11 +165,11 @@
       "id": "dashboard",
       "page": "cli.md",
       "repository": "taco3064/gh-nibfin",
-      "status": "Planned",
+      "status": "Unverified",
       "commit": null,
       "location": null,
       "command": null,
-      "basis": "Product requirements, not independently verified component implementation. Public source/help/release read-back unavailable."
+      "basis": "CLI Issues #78–80 and current public CLI README confirm source implementation."
     },
     {
       "id": "registration",
@@ -179,7 +179,7 @@
       "commit": null,
       "location": null,
       "command": null,
-      "basis": "Product requirements, not independently verified component implementation. Public source/help/release read-back unavailable."
+      "basis": "Public CLI README and Proposal §1.4 confirm candidate initial Admin registration."
     },
     {
       "id": "manual",
@@ -189,7 +189,7 @@
       "commit": null,
       "location": null,
       "command": null,
-      "basis": "Official GitHub manual management path required by Issue #15; current UI and platform commands not independently retrieved.",
+      "basis": "Official GitHub manual Runner management guidance; platform onboarding was not exercised.",
       "references": [
         "https://docs.github.com/en/actions/hosting-your-own-runners/managing-self-hosted-runners/adding-self-hosted-runners",
         "https://docs.github.com/en/actions/hosting-your-own-runners/managing-self-hosted-runners/removing-self-hosted-runners"
@@ -234,7 +234,7 @@
       "tag": null,
       "assets": null,
       "status": "Unverified",
-      "basis": "Public source/release read-back unavailable; no installation certified."
+      "basis": "No formal release listed by GitHub; no installation certified."
     },
     {
       "repository": "taco3064/nibfin-act",
@@ -244,7 +244,7 @@
       "tag": null,
       "assets": null,
       "status": "Unverified",
-      "basis": "Public source/release read-back unavailable; no installation certified."
+      "basis": "No formal release listed by GitHub; no installation certified."
     },
     {
       "repository": "taco3064/gh-nibfin",
@@ -254,7 +254,7 @@
       "tag": null,
       "assets": null,
       "status": "Unverified",
-      "basis": "Public source/release read-back unavailable; no installation certified."
+      "basis": "No formal release listed by GitHub; no installation certified."
     }
   ]
 }

@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url';
 import { defineConfig } from '@playwright/test';
 
 const base = process.env.WEBSITE_BASE;
@@ -11,10 +12,11 @@ export default defineConfig({
   retries: 0,
   timeout: 60000,
   use: { browserName: 'chromium', headless: true,
+    channel: process.env.NIBFIN_BROWSER_CHANNEL,
     baseURL: `http://127.0.0.1:4330${base}`, reducedMotion: 'reduce' },
   webServer: {
     command: 'npm run website:preview -- --host 127.0.0.1 --port 4330',
-    cwd: new URL('../', import.meta.url).pathname,
+    cwd: fileURLToPath(new URL('../', import.meta.url)),
     url: `http://127.0.0.1:4330${base}`, reuseExistingServer: false,
   },
 });

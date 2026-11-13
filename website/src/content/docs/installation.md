@@ -5,35 +5,38 @@ description: Component sources and honest installation availability.
 
 ## Component status
 
+### Core
+
 <!-- claim:core -->
-Unverified: Core formal release tags, downloadable assets and fresh installation
-are unavailable for verification here. No released Core installation command is
-provided. Current source inspection proves only the local help interface.
+Unverified formal release and fresh installation. The
+[Core source guide](https://github.com/taco3064/nibfin-core#development)
+describes development and source packaging.
 <!-- /claim -->
 
-[Core source](https://github.com/taco3064/nibfin-core) owns authorization, delivery
-stages, candidate evidence and protected publication boundaries. A trusted host
-must adopt approved immutable source and configuration; copying files or
-registering a Runner does not establish adoption.
+A trusted host must adopt approved Core source and configuration. Verify adoption
+separately after registering a Runner.
+
+### Action
 
 <!-- claim:action -->
-Unverified: Action public source, release/Marketplace availability and compatible
-Core pairing could not be independently retrieved here. A workflow installation
-example is unavailable until its exact source and Core pairing are verified.
+Unverified formal release or Marketplace availability. The
+[Action source guide](https://github.com/taco3064/nibfin-act) describes how
+the Action invokes an approved Core installation.
 <!-- /claim -->
 
-[Action source](https://github.com/taco3064/nibfin-act) is the thin entry to approved
-Core. Review the proposed workflow's pinned source, permissions and protected
-entry before adoption. Never point a privileged Runner at arbitrary fork code.
+Review the proposed workflow's source, permissions, and protected entry before
+adoption. See [security and recovery](../security/) for fork input boundaries.
+
+### CLI
 
 <!-- claim:cli -->
-Unverified: CLI public source, help, release tags and assets could not be retrieved
-here. Extension installation, onboarding flags, upgrade and Runner commands are
-unavailable as executable instructions in this guide.
+Unverified formal release and fresh-user installation. The
+[CLI candidate guide](https://github.com/taco3064/gh-nibfin#build-and-use-the-candidate)
+describes installation from reviewed source.
 <!-- /claim -->
 
-[CLI source](https://github.com/taco3064/gh-nibfin) owns onboarding and environment
-operations. Do not substitute Core administrative commands for CLI onboarding.
+Use the [CLI guide](../cli/) to find the candidate interfaces for onboarding,
+Runner management, and environment inspection.
 
 ## Configuration review
 
@@ -49,10 +52,10 @@ authority. See [registration paths](../runners/#registration-paths).
 An installed candidate in one reviewed configuration is not a formal release or
 certification of fresh-user installation.
 
-## What remains unavailable
+## Verify your installation
 
-No publication or support conclusion follows from blocked GitHub source access.
-Obtain current public help and release metadata/assets before using a command
-elsewhere. Do not execute onboarding mutations merely to discover help.
+Review the current source and release metadata before selecting a component.
+After the installation PR merges, verify the installed source and trusted
+Runner host adoption before attempting protected execution.
 The [CLI guide](../cli/) contains the read-only source-backed example available
-in this snapshot. [Getting Started](../getting-started/) separates owner paths.
+for maintainers. [Getting Started](../getting-started/) separates owner paths.
