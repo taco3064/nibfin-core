@@ -4,7 +4,7 @@ import { setTimeout } from 'node:timers/promises';
 import { command } from '../src/process.mjs';
 import { GitHubReader, repoPath } from '../src/github-read.mjs';
 import { isId, requireThat } from '../src/identity.mjs';
-import { retryGitHubObservation } from '../src/observation-failure.mjs';
+import { githubReadWaiting, retryGitHubObservation } from '../src/observation-failure.mjs';
 import { sharedWorkflowPath } from '../src/shared-runner.mjs';
 
 const repository = 'taco3064/nibfin-core';
@@ -12,11 +12,14 @@ const maxAttempt = 3;
 const maxDelay = 15 * 60 * 1000;
 
 export function retryDelay(log, id, attempt) {
-  const marker = /(?:^|\t|Z )NIBFIN_SAFE_GITHUB_RETRY (\d+) (\d+) (\d+)\r?$/gm;
-  const matches = [...log.matchAll(marker)];
+  const matches = [...log.matchAll(/(?:^|Z )(\{"schemaVersion":1,[^\r\n]+\})\r?$/gm)];
   if (matches.length !== 1) return null;
-  const [, run, execution, wait] = matches[0].map(Number);
-  return run === id && execution === attempt && wait <= maxDelay
+  const result = JSON.parse(matches[0][1]);
+  const wait = result.retryAfterMs;
+  return result.status === 'pending' && result.code === githubReadWaiting &&
+    result.stage === 'continue' && result.retrySettled === true &&
+    result.retryRun === id && result.retryAttempt === attempt &&
+    Number.isSafeInteger(wait) && wait >= 0 && wait <= maxDelay
     ? Math.max(30000, wait) : null;
 }
 
