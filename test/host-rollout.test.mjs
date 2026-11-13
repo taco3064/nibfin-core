@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { validateE2eRollout, validateRolloutHost } from '../src/host-rollout.mjs';
+import {
+  registerE2ePeer, validateE2eRollout, validateRolloutHost,
+} from '../src/host-rollout.mjs';
 
 const pin = { repository: 'taco3064/nibfin-core', commit: 'a'.repeat(40) };
 const source = { repository: pin.repository, commit: pin.commit };
@@ -56,4 +58,20 @@ test('E2E adoption binds the shared host and verified Issue caller', () => {
     { code: 'ROLLOUT_E2E_BINDING_MISMATCH' });
   assert.throws(() => validateE2eRollout({ ...next, tokenFile: '/other' },
     primary, source), { code: 'ROLLOUT_E2E_BINDING_MISMATCH' });
+});
+
+test('E2E enrollment covers the CLI host used by the second shared Runner', () => {
+  const e2ePath = '/etc/nibfin/host.nibfin-e2e.json';
+  const corePeer = '/etc/nibfin/host.core-peer.json';
+  const cliHost = {
+    wakePeerFiles: [corePeer],
+    sharedRunner: { runner: { runnerId: 24 }, repositories: [1442713731] },
+  };
+  const repositoryId = 1445256917;
+  registerE2ePeer(cliHost, e2ePath, repositoryId);
+  registerE2ePeer(cliHost, e2ePath, repositoryId);
+  assert.deepEqual(cliHost, {
+    wakePeerFiles: [corePeer, e2ePath],
+    sharedRunner: { runner: { runnerId: 24 }, repositories: [1442713731, repositoryId] },
+  });
 });

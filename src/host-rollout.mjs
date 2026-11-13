@@ -78,6 +78,14 @@ export function validateE2eRollout(next, primary, source) {
   return approval.repositoryId;
 }
 
+export function registerE2ePeer(host, path, repositoryId) {
+  host.wakePeerFiles = [...new Set([...(host.wakePeerFiles ?? []), path])];
+  if (host.sharedRunner) {
+    const { repositories } = host.sharedRunner;
+    host.sharedRunner.repositories = [...new Set([...repositories, repositoryId])];
+  }
+}
+
 async function readOptionalHost(path) {
   try { return await readTrusted(path); }
   catch (error) {
@@ -136,12 +144,10 @@ async function promoteLockedHost() {
   const targets = [...hosts];
   if (e2e) {
     const id = validateE2eRollout(e2e.value, primary.next.value, source);
-    const { sharedRunner } = primary.next.value;
-    sharedRunner.repositories = [...new Set([...sharedRunner.repositories, id])];
-    primary.next.value.wakePeerFiles = [
-      ...new Set([...primary.next.value.wakePeerFiles, e2ePath]),
-    ];
-    primary.next.bytes = JSON.stringify(primary.next.value);
+    for (const { next } of hosts) {
+      registerE2ePeer(next.value, e2ePath, id);
+      next.bytes = JSON.stringify(next.value);
+    }
     targets.push({ path: e2ePath, current: currentE2e, next: e2e });
   }
   const oldPin = primary.current.value.installation.pin;
