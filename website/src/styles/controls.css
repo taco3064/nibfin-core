@@ -8,7 +8,7 @@
   background-color: var(--nf-warning-bg);
 }
 
-.nf-card-link { text-decoration: none; }
+.nf-card-link { text-decoration: none; overflow-wrap: anywhere; }
 .nf-card-link:is(:hover, :focus-visible)[href] > div {
   background-color: var(--muted);
 }
