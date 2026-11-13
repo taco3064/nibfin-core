@@ -1,0 +1,32 @@
+---
+import { Icon } from '@astrojs/starlight/components';
+import Card from './DocsCard.astro';
+
+const { dir, pagination: { prev, next } } = Astro.locals.starlightRoute;
+const isRtl = dir === 'rtl';
+---
+
+{(prev || next) && (
+  <nav
+    aria-label="Adjacent pages"
+    class="grid gap-3 sm:grid-cols-2 print:hidden"
+    dir={dir}
+  >
+    {prev && (
+      <Card href={prev.href} rel="prev" title={prev.label}>
+        <span class="flex items-center gap-2">
+          <Icon name={isRtl ? 'right-arrow' : 'left-arrow'} size="1rem" />
+          {Astro.locals.t('page.previousLink')}
+        </span>
+      </Card>
+    )}
+    {next && (
+      <Card href={next.href} rel="next" title={next.label} class="sm:col-start-2">
+        <span class="flex items-center gap-2">
+          {Astro.locals.t('page.nextLink')}
+          <Icon name={isRtl ? 'left-arrow' : 'right-arrow'} size="1rem" />
+        </span>
+      </Card>
+    )}
+  </nav>
+)}

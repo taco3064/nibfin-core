@@ -3,6 +3,8 @@ title: Getting Started
 description: Choose an onboarding path and understand prerequisites.
 ---
 
+import Alert from "../../components/DocsAlert.astro";
+
 ## Prerequisites
 
 Choose a Public Repository owned by a personal account or an Organization.
@@ -15,13 +17,15 @@ review requirements. Preserve independent technical validation even for a single
 human owner. Do not execute untrusted public Issue or fork code on a host with
 member logins or administrative credentials.
 
-:::note[Host compatibility]
-<!-- claim:platform -->
+<Alert title="Host compatibility">
+
+{/* claim:platform */}
 Unverified: no universal OS, Agent or isolation-backend compatibility is established
 by this guide. Each host and Agent configuration needs actual isolation and
 credential-boundary verification. Running a container alone is insufficient.
-<!-- /claim -->
-:::
+{/* /claim */}
+
+</Alert>
 
 ## Personal repository
 
@@ -41,11 +45,11 @@ Ask an authorized administrator to check workflow permissions, branch rules and
 repository Runner policy. Installation write rights and Runner management rights
 remain separate.
 
-<!-- claim:organization -->
+{/* claim:organization */}
 Unverified: organization installation and policy combinations have not been tested
 for this guide. Organization-level Runner management and Runner Groups are outside
 this onboarding path; use repository-level Runners only.
-<!-- /claim -->
+{/* /claim */}
 
 ## First delivery expectations
 

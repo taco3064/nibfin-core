@@ -3,37 +3,51 @@ title: Installation and configuration
 description: Component sources and honest installation availability.
 ---
 
+import Alert from "../../components/DocsAlert.astro";
+
 ## Component status
 
 ### Core
 
-<!-- claim:core -->
+<Alert title="Availability">
+
+{/* claim:core */}
 Unverified formal release and fresh installation. The
 [Core source guide](https://github.com/taco3064/nibfin-core#development)
 describes development and source packaging.
-<!-- /claim -->
+{/* /claim */}
+
+</Alert>
 
 A trusted host must adopt approved Core source and configuration. Verify adoption
 separately after registering a Runner.
 
 ### Action
 
-<!-- claim:action -->
+<Alert title="Availability">
+
+{/* claim:action */}
 Unverified formal release or Marketplace availability. The
 [Action source guide](https://github.com/taco3064/nibfin-act) describes how
 the Action invokes an approved Core installation.
-<!-- /claim -->
+{/* /claim */}
+
+</Alert>
 
 Review the proposed workflow's source, permissions, and protected entry before
 adoption. See [security and recovery](../security/) for fork input boundaries.
 
 ### CLI
 
-<!-- claim:cli -->
+<Alert title="Availability">
+
+{/* claim:cli */}
 Unverified formal release and fresh-user installation. The
 [CLI candidate guide](https://github.com/taco3064/gh-nibfin#build-and-use-the-candidate)
 describes installation from reviewed source.
-<!-- /claim -->
+{/* /claim */}
+
+</Alert>
 
 Use the [CLI guide](../cli/) to find the candidate interfaces for onboarding,
 Runner management, and environment inspection.

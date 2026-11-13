@@ -6,6 +6,7 @@
   --nf-text: #eeeefa;
   --nf-secondary: #c0c4dc;
   --nf-border: #7d849f;
+  --nf-border-subtle: #343950;
   --nf-link: #cbb8ff;
   --nf-accent: #b49aff;
   --nf-on-accent: #17102c;
@@ -29,6 +30,7 @@
   --nf-text: #19172b;
   --nf-secondary: #4e4963;
   --nf-border: #746b8d;
+  --nf-border-subtle: #d4cee2;
   --nf-link: #58349d;
   --nf-accent: #6848b9;
   --nf-on-accent: #ffffff;
