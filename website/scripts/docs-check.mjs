@@ -9,7 +9,7 @@ export async function checkDocs(directory = 'website') {
   const load = (path) => readFile(join(directory, path), 'utf8');
   const checklist = JSON.parse(await load('evidence/checklist.json'));
   // This audit owns onboarding; neighboring guides have their own checks.
-  const pages = ['index.md', 'getting-started.md', 'installation.md',
+  const pages = ['index.mdx', 'getting-started.md', 'installation.md',
     'cli.md', 'runners.md'];
   assert.deepEqual(Object.keys(checklist.pages).sort(), [...pages].sort(),
     'Onboarding audit inventory changed');
@@ -19,7 +19,9 @@ export async function checkDocs(directory = 'website') {
     const projection = checklist.pages[page];
     assert(projection, `Unlisted page: ${page}`);
     assert.equal(digest(text), projection.sha256, `Article audit changed: ${page}`);
-    const blocks = [...text.matchAll(
+    const claimsText = text.replace(/^\{\/\* ((?:claim:[\w-]+|\/claim)) \*\/\}$/gm,
+      '<!-- $1 -->');
+    const blocks = [...claimsText.matchAll(
       /<!-- claim:([\w-]+) -->\n([\s\S]*?)<!-- \/claim -->/g,
     )];
     for (const [, id, block] of blocks) {

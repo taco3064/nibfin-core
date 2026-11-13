@@ -1,0 +1,28 @@
+---
+import DefaultHero from '@astrojs/starlight/components/Hero.astro';
+import { ButtonLink } from './ui/button';
+
+const { entry } = Astro.locals.starlightRoute;
+const hero = entry.data.hero;
+---
+
+{entry.data.template === 'splash' && hero ? (
+  <div class="hero">
+    <div class="stack flex flex-col gap-6">
+      <div class="copy flex flex-col gap-4">
+        <h1 id="_top" data-page-title>{hero.title ?? entry.data.title}</h1>
+        {hero.tagline && <p class="tagline">{hero.tagline}</p>}
+      </div>
+      <div class="actions flex flex-wrap">
+        {hero.actions.map(({ link, text, variant }) => (
+          <ButtonLink
+            href={link}
+            variant={variant === 'secondary' ? 'outline' : 'default'}
+          >
+            {text}
+          </ButtonLink>
+        ))}
+      </div>
+    </div>
+  </div>
+) : <DefaultHero />}

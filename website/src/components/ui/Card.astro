@@ -1,0 +1,18 @@
+---
+import { cn } from '../../lib/utils';
+
+interface Props {
+  title: string;
+  href?: string;
+}
+
+const { title, href } = Astro.props;
+const Element = href ? 'a' : 'div';
+const surface = 'block h-full rounded-lg border border-solid border-border bg-card p-5';
+const interaction = href && 'no-underline hover:bg-muted focus-visible:bg-muted';
+---
+
+<Element {href} class={cn(surface, interaction, 'not-content text-card-foreground')}>
+  <div class="font-semibold text-foreground">{title}</div>
+  <div class="mt-2 text-sm leading-relaxed text-muted-foreground"><slot /></div>
+</Element>

@@ -12,51 +12,40 @@
 
 .hero .stack { text-align: start; }
 .hero .copy { align-items: flex-start; }
-.hero .copy h1 { max-inline-size: 16ch; }
-.hero .tagline { color: var(--nf-secondary); }
-.hero .actions { justify-content: flex-start; gap: .75rem; }
-.hero .sl-link-button { max-width: 100%; }
-
-.hero .sl-link-button.primary:hover {
-  color: var(--nf-on-accent);
-  background: var(--nf-hover);
-  border-color: var(--nf-hover);
+.hero .copy h1 {
+  max-inline-size: 16ch;
+  font-size: clamp(var(--sl-text-3xl), calc(.25rem + 5vw), var(--sl-text-6xl));
+  line-height: var(--sl-line-height-headings);
+  font-weight: 600;
 }
+.hero .tagline {
+  max-inline-size: 50ch;
+  color: var(--nf-secondary);
+  font-size: clamp(var(--sl-text-base), calc(.0625rem + 2vw), var(--sl-text-xl));
+}
+.hero .actions { gap: .75rem; }
 
 :root:not([data-has-sidebar]) header .right-group { display: flex; }
 
-.nf-doc-grid {
-  @apply grid gap-3 sm:grid-cols-2 lg:grid-cols-3;
+.nf-delivery-steps {
+  @apply m-0 list-none p-0;
 }
 
-.nf-doc-grid > a {
-  @apply flex flex-col gap-2 rounded-xl border border-solid border-border bg-card p-5;
-  color: var(--nf-link);
-  text-decoration: none;
+.nf-delivery-steps > li {
+  @apply grid gap-x-6 gap-y-1 py-4;
+  border-block-start: 1px solid var(--nf-border);
 }
 
-.nf-doc-grid > a:hover,
-.nf-doc-grid > a:focus-visible {
-  background: var(--nf-raised);
-}
-
-.nf-doc-grid strong {
+.nf-delivery-steps strong {
+  color: var(--nf-text);
   font-family: var(--nf-font-heading);
   font-size: var(--sl-text-lg);
 }
 
-.nf-doc-grid span { color: var(--nf-secondary); }
-
-.nf-delivery-grid {
-  @apply grid items-baseline gap-x-6 rounded-xl bg-card p-5;
-  border-inline-start: .25rem solid var(--nf-accent);
-}
-
-.nf-delivery-grid h3 { color: var(--nf-link); }
+.nf-delivery-steps span { color: var(--nf-secondary); }
 
 @media (min-width: 50rem) {
-  .nf-delivery-grid { grid-template-columns: minmax(11rem, 1fr) minmax(0, 2fr); }
-  .nf-delivery-grid > .sl-heading-wrapper { grid-column: 1; }
-  .nf-delivery-grid > p { grid-column: 2; }
-  .nf-delivery-grid > p:first-of-type { margin-top: 0; }
+  .nf-delivery-steps > li {
+    grid-template-columns: minmax(11rem, 1fr) minmax(0, 2fr);
+  }
 }

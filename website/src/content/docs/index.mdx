@@ -1,0 +1,78 @@
+---
+title: Trusted delivery, from Issue to merge
+description: Nibfin brings independently validated delivery to GitHub Issues.
+template: splash
+hero:
+  title: Trusted delivery, from Issue to merge
+  tagline: >
+    Nibfin takes a bounded GitHub Issue through independent validation,
+    implementation, and protected merge.
+  actions:
+    - text: Getting Started
+      link: getting-started/
+    - text: Installation guidance
+      link: installation/
+      variant: secondary
+---
+
+import Card from '../../components/ui/Card.astro';
+import CardGrid from '../../components/ui/CardGrid.astro';
+
+Nibfin helps people deliver changes through GitHub Issues,
+with independent checks before changes reach the default branch.
+
+## Explore the documentation
+
+<CardGrid columns={3}>
+  <Card title="Getting Started" href="getting-started/">
+    Choose an onboarding path for your Public Repository.
+  </Card>
+  <Card title="Protected lifecycle" href="lifecycle/">
+    Follow Issue labels, independent review, and verified closure.
+  </Card>
+  <Card title="Architecture and authority" href="architecture/">
+    See what GitHub, Core, Action, and the CLI each own.
+  </Card>
+  <Card title="Runners" href="runners/">
+    Understand registration, member routing, and host readiness.
+  </Card>
+  <Card title="Project environment" href="project-environment/">
+    Declare tools, HTTPS destinations, and role Skills for each Job.
+  </Card>
+  <Card title="Security and recovery" href="security/">
+    Understand credential boundaries and when work can safely resume.
+  </Card>
+</CardGrid>
+
+## From Issue to verified closure
+
+<ol class="nf-delivery-steps not-content" role="list">
+  <li>
+    <strong>Shape the work</strong>
+    <span>An independent validator checks the contract for an authorized Issue.</span>
+  </li>
+  <li>
+    <strong>Deliver and verify</strong>
+    <span>
+      A Writer implements the change. An independent Acceptor checks the Candidate.
+    </span>
+  </li>
+  <li>
+    <strong>Review and merge</strong>
+    <span>
+      Applicable CI and final review cover the PR head before protected integration.
+    </span>
+  </li>
+</ol>
+
+[Walk through the delivery stages](lifecycle/#from-scope-to-closure).
+
+## Availability vocabulary
+
+{/* claim:availability */}
+Unverified: formal release and fresh-install support for Core, Action, and CLI.
+The public repositories are available for candidate source review.
+{/* /claim */}
+
+Check [component status](installation/#component-status), read the
+[CLI guide](cli/), or see [what each verification milestone proves](limitations/).
