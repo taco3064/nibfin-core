@@ -170,6 +170,7 @@ socket.pipe(process.stdout);
     if (!arg.startsWith(filesystem)) return arg;
     return arg.replace(/}$/, ', "/opt/nibfin/project" = "read" }');
   }).flatMap(arg => arg === 'exec' ? [
+    '-c', 'shell_environment_policy.set.NO_PROXY="127.0.0.1,localhost"',
     '-c', 'shell_environment_policy.set.HTTP_PROXY="http://127.0.0.1:3128"',
     '-c', 'shell_environment_policy.set.HTTPS_PROXY="http://127.0.0.1:3128"',
     '-c', 'shell_environment_policy.set.DOCKER_HOST=' +
