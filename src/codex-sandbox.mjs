@@ -268,7 +268,9 @@ export class CodexSandbox {
       }),
       { flag: 'wx', mode: 0o400 },
     );
-    await writeFile(join(input, 'requirements.toml'), plan.requirements, {
+    const requirements = jobVmSocket ? plan.requirements +
+      'allow_unix_sockets = ["/run/nibfin-docker/docker.sock"]\n' : plan.requirements;
+    await writeFile(join(input, 'requirements.toml'), requirements, {
       flag: 'wx',
       mode: 0o400,
     });
