@@ -19,7 +19,7 @@ jobs:
     if: github.event_name != 'workflow_dispatch'
     name: verify
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -41,10 +41,17 @@ jobs:
       - name: Select changed website tests
         id: affected
         run: node scripts/test-changes.mjs --website
+      - name: Select affected Docker integration checks
+        id: native-docker
+        if: github.event_name == 'pull_request'
+        run: node scripts/test-changes.mjs --native-docker
       - name: Install pinned Chromium for website tests
         if: ${{ steps.affected.outputs.website == 'true' }}
         run: ./node_modules/.bin/playwright install chromium --only-shell
       - run: npm run verify
+      - name: Run affected native Docker checks
+        if: steps.native-docker.outputs.native_docker == 'true'
+        uses: ./.github/actions/native-docker
       - name: Verify browser support in the actual Agent image
         env:
           SOURCE_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
@@ -146,61 +153,4 @@ jobs:
         with:
           node-version-file: .node-version
           package-manager-cache: false
-      # This is a disposable test VM, not a user installation prerequisite.
-      - name: Prepare isolated Docker on the remote test VM
-        shell: bash
-        run: |
-          set -euo pipefail
-          sudo install -m 0755 -d /etc/apt/keyrings
-          sudo curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
-          sudo chmod a+r /etc/apt/keyrings/docker.asc
-          echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu noble stable" | sudo tee /etc/apt/sources.list.d/docker.list
-          sudo apt-get update -qq
-          sudo apt-get install -y uidmap docker-ce docker-ce-cli containerd.io
-          sudo systemctl disable --now docker.service docker.socket
-          sudo useradd -M -s /usr/sbin/nologin nibfin-ci-remap
-          uid_start=$(awk -F: '$1 == "nibfin-ci-remap" && $3 == 65536 {print $2}' /etc/subuid)
-          gid_start=$(awk -F: '$1 == "nibfin-ci-remap" && $3 == 65536 {print $2}' /etc/subgid)
-          namespace=$(jq -cn --argjson uid "$uid_start" --argjson gid "$gid_start" \
-            '{uidStart: $uid, gidStart: $gid, size: 65536}')
-          sudo apparmor_parser -r src/security/codex-security.apparmor
-          sudo systemd-run --unit=nibfin-ci-docker --property=Delegate=yes \
-            --property=Type=notify --property=RuntimeDirectory=nibfin-engine \
-            /usr/bin/dockerd --host=unix:///run/nibfin-engine/docker.sock \
-            --group="$(id -gn)" --userns-remap=nibfin-ci-remap \
-            --exec-opt=native.cgroupdriver=systemd \
-            --feature=containerd-snapshotter=false \
-            --data-root=/var/lib/nibfin-ci-docker
-          echo "NIBFIN_TEST_DAEMON_READY=1" >> "$GITHUB_ENV"
-          echo "NIBFIN_TEST_BACKEND=linux-rootful-docker-v1" >> "$GITHUB_ENV"
-          echo "NIBFIN_TEST_NAMESPACE=$namespace" >> "$GITHUB_ENV"
-          echo "NIBFIN_TEST_DOCKER=unix:///run/nibfin-engine/docker.sock" >> "$GITHUB_ENV"
-          docker --host unix:///run/nibfin-engine/docker.sock info
-      - name: Resolve test image and run real negative controls
-        shell: bash
-        run: |
-          set -euo pipefail
-          socket="$NIBFIN_TEST_DOCKER"
-          docker --host "$socket" pull node:24.22.1-bookworm-slim
-          export NIBFIN_TEST_IMAGE="$(docker --host "$socket" image inspect node:24.22.1-bookworm-slim --format '{{.Id}}')"
-          node scripts/verify-live-hooks.mjs
-      - name: Test actual Codex sandbox without login or inference
-        shell: bash
-        run: |
-          set -euo pipefail
-          socket="$NIBFIN_TEST_DOCKER"
-          context="$(mktemp -d)"
-          trap 'rm -rf "$context"' EXIT
-          export NIBFIN_CODEX_TEST_SECCOMP="$PWD/src/security/seccomp.json"
-          docker --host "$socket" build --iidfile "$context/image-id" \
-            -f src/security/agent.Dockerfile .
-          export NIBFIN_CODEX_TEST_IMAGE="$(cat "$context/image-id")"
-          node scripts/verify-live-codex.mjs
-          node scripts/verify-live-adapter.mjs
-      - name: Stop disposable test daemon
-        if: always() && env.NIBFIN_TEST_DAEMON_READY == '1'
-        shell: bash
-        run: |
-          sudo systemctl stop nibfin-ci-docker.service
-          sudo userdel nibfin-ci-remap
-          sudo apparmor_parser -R src/security/codex-security.apparmor
+      - uses: ./.github/actions/native-docker

@@ -116,6 +116,13 @@ export async function continueStages({
     }
     requireThat(!gap, 'NONCONTIGUOUS_STAGE_RECEIPTS');
     if (initial[stage].outcome !== stageSuccess[stage]) {
+      // An explicit continuation rechecks external CI evidence for a blocked
+      // Review. Content corrections still follow the existing Deliver loop.
+      if (stage === 'review-pr' && initial[stage].outcome === 'blocked') {
+        delete initial[stage];
+        gap = true;
+        continue;
+      }
       if (correctionStages.has(stage) && initial[stage].outcome === 'changes_required' &&
         correctionRepairs > 0) return repairCandidate(initial[stage]);
       if (await stoppedAgentCanRestart(store, stage, initial[stage])) {
