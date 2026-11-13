@@ -12,6 +12,8 @@ Run `node website/scripts/docs-check.mjs` from the repository root for a read-on
 comparison. The native website check runs it before Astro. It compares the actual
 Core entry bytes and read-only help with the projection, checks adjacent candidate
 warnings/identity, and rejects unlisted commands and changed article audits.
+The CLI guide's candidate examples are compared with the reviewed command list
+and link to maintained CLI documentation for the full options.
 No onboarding mutations, credentials or remote writes are involved.
 
 The Core help projection still compares the inspected source and current read-only

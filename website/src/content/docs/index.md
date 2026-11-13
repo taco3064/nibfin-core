@@ -77,5 +77,3 @@ The public repositories are available for candidate source review.
 
 Check [component status](installation/#component-status), read the
 [CLI guide](cli/), or see [what each verification milestone proves](limitations/).
-
-[Theme reading sample](theme/)

@@ -20,6 +20,7 @@ export async function inspectOutput(base, directory = 'website/dist') {
   }
   const emitted = (await readdir(directory, { recursive: true }))
     .map((path) => path.replaceAll('\\', '/'));
+  assert(!emitted.includes('theme/index.html'), 'Theme fixture in public output');
   assert(!emitted.includes('does-not-exist-doc01/index.html'),
     'Missing route unexpectedly generated');
   const css = urls.find((url) => /\.css(?:\?|$)/.test(url));

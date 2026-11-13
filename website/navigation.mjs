@@ -1,3 +1,5 @@
+const themeFixture = process.env.NIBFIN_THEME_FIXTURE === '1';
+
 export const sidebar = [
   { label: 'Documentation', slug: 'index' },
   {
@@ -24,5 +26,5 @@ export const sidebar = [
       { label: 'Project environment', slug: 'project-environment' },
     ],
   },
-  { label: 'Theme reading sample', slug: 'theme' },
+  ...(themeFixture ? [{ label: 'Theme reading sample', slug: 'theme' }] : []),
 ];
