@@ -19,6 +19,8 @@ export async function codexStageExecutor({
   config,
   execution,
   workspaceRoot,
+  project,
+  projectRoot,
   agentStateRoot,
   authFile,
   mcpSource,
@@ -59,6 +61,7 @@ export async function codexStageExecutor({
     profile,
     coreRoot,
     adopted.runner,
+    project,
   );
   const inheritedAgent = withUserMcp(agentSandbox, mcpSource,
     source => mcpJob ? mcpJob.read() : loadUserMcp(source, {
@@ -74,6 +77,8 @@ export async function codexStageExecutor({
       skills,
       coreRoot,
       work: workspace.work,
+      project,
+      projectRoot,
     },
     inheritedAgent,
   );

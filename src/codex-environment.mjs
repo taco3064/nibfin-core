@@ -7,7 +7,9 @@ import { issueContainerLabel, runnerGatewayLabel } from './host-containers.mjs';
 
 // Fixed installed composition, never an adapter module or command from JSON.
 // POSIX storage, host adoption and process controls remain backend restrictions.
-export function codexEnvironment(profile, coreRoot, runner) {
+export function codexEnvironment(profile, coreRoot, runner, project, {
+  AgentSandbox = CodexSandbox, HookSandbox = OfflineSandbox,
+} = {}) {
   const selected = executionProfile(profile?.kind);
   requireThat(process.platform === selected.hostPlatform, 'UNSUPPORTED_EXECUTION_HOST');
   requireThat(
@@ -22,8 +24,10 @@ export function codexEnvironment(profile, coreRoot, runner) {
   const containerLabel = runner ? issueContainerLabel(profile.issue) : undefined;
   const gatewayLabel = runner ? runnerGatewayLabel(runner.gateway ?? runner) : undefined;
   return Object.freeze({
-    agent: new CodexSandbox({ ...profile.agent, coreRoot },
+    agent: new AgentSandbox({ ...profile.agent, coreRoot,
+      projectTools: project?.tools, additionalDomains: project?.allowedDomains },
       { backend, containerLabel, gatewayLabel }),
-    hooks: new OfflineSandbox(profile.hooks, { backend, containerLabel }),
+    hooks: new HookSandbox(profile.hooks,
+      { backend, containerLabel, projectTools: project?.tools }),
   });
 }
