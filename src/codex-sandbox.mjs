@@ -268,7 +268,10 @@ export class CodexSandbox {
       }),
       { flag: 'wx', mode: 0o400 },
     );
-    await writeFile(join(input, 'requirements.toml'), plan.requirements, {
+    const requirements = jobVmSocket ? plan.requirements.replace(
+      '[network_proxy]\nenabled = true', '[network_proxy]\nenabled = false')
+      : plan.requirements;
+    await writeFile(join(input, 'requirements.toml'), requirements, {
       flag: 'wx',
       mode: 0o400,
     });
