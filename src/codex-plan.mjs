@@ -1,4 +1,5 @@
 import { digest, requireThat } from './identity.mjs';
+import { projectToolPath } from './tool-catalog.mjs';
 import { resultSchema } from './agent-result.mjs';
 import { skillIdentity } from './skills.mjs';
 import { toolDownloadHosts, projectDomains } from './egress-proxy.mjs';
@@ -61,7 +62,7 @@ export function codexPlan(stage, {
     'shell_environment_policy.experimental_use_profile': false,
     'shell_environment_policy.ignore_default_excludes': false,
     'shell_environment_policy.set': {
-      PATH: '/usr/local/bin:/usr/bin:/bin', HOME: '/tmp/tool-home', LANG: 'C.UTF-8',
+      PATH: projectToolPath, HOME: '/tmp/tool-home', LANG: 'C.UTF-8',
       GOMAXPROCS: '2', GOFLAGS: '-p=1',
     },
     'permissions.nibfin.filesystem': {
