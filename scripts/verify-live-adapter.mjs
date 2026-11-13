@@ -13,9 +13,10 @@ import { liveDockerProfile } from './live-docker-profile.mjs';
 const image = process.env.NIBFIN_CODEX_TEST_IMAGE;
 assert.match(image ?? '', /^sha256:[a-f0-9]{64}$/);
 const { socket, backend } = liveDockerProfile();
-const docker = (args) =>
+const docker = (args, options = {}) =>
   command('/usr/bin/docker', ['--host', `unix://${socket}`, ...args], {
     env: { PATH: '/usr/bin:/bin', HOME: '/nonexistent', DOCKER_CONFIG: '/nonexistent' },
+    ...options,
   });
 const root = await mkdtemp(join(tmpdir(), 'nibfin-live-adapter-'));
 const network = `nibfin-adapter-${randomUUID()}`,
@@ -64,7 +65,20 @@ try {
       coreRoot: resolve('.'),
       proxyScript,
     },
-    { backend },
+    {
+      backend,
+      async run(executable, args, options) {
+        try {
+          return await command(executable, args, options);
+        } catch (error) {
+          if (args[2] === 'start' && args[3] === '--attach') {
+            const logs = await docker(['logs', args[4]]);
+            process.stderr.write(logs.stderr);
+          }
+          throw error;
+        }
+      },
+    },
   );
   const request = { executionId: randomUUID() };
   for (const key of ['work', 'main', 'input', 'output', 'session']) {
