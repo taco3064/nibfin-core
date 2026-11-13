@@ -113,7 +113,15 @@ def next_rollout(current, target=None):
     return None
 
 
-def replacements(repo, config, pins, base):
+def consumer_workflows(repo, base):
+    if repo == CORE:
+        workflows = api(f"repos/{repo}/contents/.github/workflows?ref={base}")
+        if not any(item["path"] == WAKE for item in workflows):
+            return (ISSUE,)
+    return ISSUE, WAKE
+
+
+def replacements(repo, config, pins, base, workflows):
     core, action = pins["core"]["commit"], pins["action"]["commit"]
     previous = config["repository"]["runner"]
     old_core, old_action = previous["actionCoreCommit"], previous["actionCommit"]
@@ -121,6 +129,8 @@ def replacements(repo, config, pins, base):
                                          (old_action, action)))
     files = {}
     for path, *changes in versions:
+        if path not in workflows:
+            continue
         value, _ = content(repo, path, base)
         for old, new in changes:
             require(old.encode() in value, f"{repo} {path} changed during rollout")
@@ -135,11 +145,14 @@ def replacements(repo, config, pins, base):
 
 def read_consumer(repo, config, pins):
     base = main_sha(repo)
+    workflows = consumer_workflows(repo, base)
     existing = json.loads(content(repo, PIN_PATH, base)[0])
     core, action = pins["core"]["commit"], pins["action"]["commit"]
     expected = {k: pins[k] for k in ("core", "action", "artifact")}
     if existing == expected:
         for path, ids in ((ISSUE, [core]), (WAKE, [core, action])):
+            if path not in workflows:
+                continue
             require(all(sha.encode() in content(repo, path, base)[0] for sha in ids),
                     f"{repo} main has inconsistent rollout pins")
         if repo.endswith("/gh-nibfin"):
@@ -154,7 +167,7 @@ def read_consumer(repo, config, pins):
     pr = prs[0]
     require(not pr["isCrossRepository"] and not pr["isDraft"],
             f"{repo} rollout PR is not eligible")
-    files = replacements(repo, config, pins, base)
+    files = replacements(repo, config, pins, base, workflows)
     require(set(files) == {item["path"] for item in pr["files"]},
             f"{repo} rollout PR contains unexpected changes")
     for path, expected in files.items():
@@ -179,7 +192,7 @@ def idle(hosts, include_queued=True):
         require(runner is not None, f"{repo} adopted Runner is missing")
         if runner["busy"]:
             return False
-        workflows = [(repo, ISSUE), (repo, WAKE)]
+        workflows = [(repo, path) for path in consumer_workflows(repo, "main")]
         if shared:
             workflows.append((runner_repo, SHARED))
         for workflow_repo, workflow in workflows:
@@ -201,7 +214,9 @@ def configure(repo, config, base, pins, source, issue_blob):
     settings = config["repository"]
     config["installation"]["pin"] = pins["core"]
     settings["approval"]["source"] = source
-    for key, path in (("runner", WAKE), ("eventRunner", ISSUE)):
+    runner_keys = {WAKE: "runner", ISSUE: "eventRunner"}
+    for path in consumer_workflows(repo, base):
+        key = runner_keys[path]
         runner = settings[key]
         runner.update(sourceCommit=base, workflowBlob=content(repo, path, base)[1])
     settings["runner"].update(actionCommit=action, actionCoreCommit=core)
