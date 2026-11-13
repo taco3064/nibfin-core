@@ -8,6 +8,7 @@ mountpoint -q /dev || mount -t devtmpfs devtmpfs /dev
 mkdir -p /dev/pts /run/nibfin-docker /tmp /sys/fs/cgroup
 mount -t devpts devpts /dev/pts
 mount -t cgroup2 none /sys/fs/cgroup
+ip link set lo up
 
 if grep -q 'nibfin.project-tools=1' /proc/cmdline; then
     test -b /dev/vdb
