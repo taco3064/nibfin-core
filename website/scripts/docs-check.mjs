@@ -19,7 +19,9 @@ export async function checkDocs(directory = 'website') {
     const projection = checklist.pages[page];
     assert(projection, `Unlisted page: ${page}`);
     assert.equal(digest(text), projection.sha256, `Article audit changed: ${page}`);
-    const blocks = [...text.matchAll(
+    const claimsText = text.replace(/^\{\/\* ((?:claim:[\w-]+|\/claim)) \*\/\}$/gm,
+      '<!-- $1 -->');
+    const blocks = [...claimsText.matchAll(
       /<!-- claim:([\w-]+) -->\n([\s\S]*?)<!-- \/claim -->/g,
     )];
     for (const [, id, block] of blocks) {
