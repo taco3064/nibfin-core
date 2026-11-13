@@ -1,4 +1,4 @@
-<img src="website/src/assets/nibfin-logo.png" alt="Nibfin logo" width="240">
+<img src="website/src/assets/nibfin-logo.png" alt="Nibfin logo" width="600">
 
 # Nibfin Core
 
