@@ -44,7 +44,9 @@ export function nativeObserver({
     const pauseEvidence = pinned.pauseJournalRoot
       ? await new OperationJournal(pinned.pauseJournalRoot, record.issue).pauseEvidence()
       : { decisions: [], pending: false };
-    const pause = await observePause(reader, record.issue, pauseEvidence.decisions);
+    const pause = await observePause(reader, record.issue, pauseEvidence.decisions, {
+      repository: approval.repository, propagateTransient: true,
+    });
     if (pauseEvidence.pending) pause.status = 'pending';
     const observed = await readDependencies(reader, record.issue, record.prerequisites);
     requireThat(observed.ready, 'PREREQUISITES_NOT_READY');
