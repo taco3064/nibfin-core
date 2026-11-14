@@ -41,12 +41,12 @@ async function relay(input, output, executable, { header, body }) {
   const signals = new Map(['SIGINT', 'SIGTERM', 'SIGHUP']
     .map(signal => [signal, () => child.kill(signal)]));
   for (const [signal, forward] of signals) process.on(signal, forward);
+  const exited = new Promise((resolve, reject) => {
+    child.once('error', reject);
+    child.once('exit', (code) => resolve(code ?? 1));
+  });
 
   try {
-    const exited = new Promise((resolve, reject) => {
-      child.once('error', reject);
-      child.once('exit', (code) => resolve(code ?? 1));
-    });
     const transferred = finished(channel);
     const frames = Readable.from((async function* () {
       yield header;
@@ -66,5 +66,6 @@ async function relay(input, output, executable, { header, body }) {
     transfer.destroy();
     channel.destroy();
     if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
+    await exited.catch(() => {});
   }
 }
