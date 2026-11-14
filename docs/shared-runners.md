@@ -25,6 +25,11 @@ access to the execution repository and belongs in the Actions secret store.
 Existing official deployments without a destination retain their current Core
 route. Leave the pool variable unset when using a local registration.
 
+On Linux, installed Core's `inspect-shared-host` command reads the fixed
+administrator-owned host configuration and validates the installed package.
+It returns the execution repository, member and two adopted registration
+identities. The installer must confirm them with GitHub before reusing the pool.
+
 For a manual run, select the shared workflow in the execution repository and enter the target
 repository ID, Issue number and optional stage. Omitting the stage runs
 `continue`. Core checks the live Issue in the target repository and authenticates
