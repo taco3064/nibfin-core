@@ -25,18 +25,25 @@ async function check() {
   'SHARED_RUNNER_REGISTRATION_MISMATCH');
   for (const path of [host.stateRoot, host.tokenFile, host.authFile,
     '/run/nibfin-engine/docker.sock']) {
-    try { await access(path, constants.R_OK); }
-    catch (err) {
-      if (err.code === 'EACCES') continue;
-      throw err;
-    }
-    requireThat(false, 'SHARED_RUNNER_CAN_READ_CONTROLLER_RESOURCE');
+    await requireDenied(path, constants.R_OK);
+    await requireDenied(path, constants.W_OK);
   }
+  await requireDenied(host.stateRoot, constants.X_OK);
+}
+
+async function requireDenied(path, mode) {
+  try { await access(path, mode); }
+  catch (err) {
+    if (err.code === 'EACCES') return;
+    throw err;
+  }
+  requireThat(false, 'SHARED_RUNNER_CAN_ACCESS_CONTROLLER_RESOURCE');
 }
 
 check().catch(error => {
   const safe = ['INVALID_SHARED_RUNNER_SLOT', 'SHARED_RUNNER_ACCOUNT_MISMATCH',
-    'SHARED_RUNNER_REGISTRATION_MISMATCH', 'SHARED_RUNNER_CAN_READ_CONTROLLER_RESOURCE'];
+    'SHARED_RUNNER_REGISTRATION_MISMATCH',
+    'SHARED_RUNNER_CAN_ACCESS_CONTROLLER_RESOURCE'];
   process.stderr.write((safe.includes(error.code) ? error.code :
     'SHARED_RUNNER_START_CHECK_FAILED') + '\n');
   process.exitCode = 1;
