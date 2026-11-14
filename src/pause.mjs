@@ -71,18 +71,19 @@ function history(events) {
     const time = Date.parse(event?.created_at);
     requireThat(
       isId(event?.id) &&
-        event.id > previousId &&
         Number.isFinite(time) &&
-        time >= previousTime &&
         typeof event.event === 'string',
       'PAUSE_HISTORY_INCONSISTENT',
     );
-    previousId = event.id;
-    previousTime = time;
     if (['labeled', 'unlabeled'].includes(event.event)) {
       requireThat(typeof event.label?.name === 'string', 'PAUSE_HISTORY_MALFORMED');
-      if (pauseEvent(event)) requireThat(identity(event.actor), 'PAUSE_ACTOR_UNKNOWN');
     }
+    if (!pauseEvent(event)) continue;
+    requireThat(event.id > previousId && time >= previousTime,
+      'PAUSE_HISTORY_INCONSISTENT');
+    requireThat(identity(event.actor), 'PAUSE_ACTOR_UNKNOWN');
+    previousId = event.id;
+    previousTime = time;
   }
 }
 
@@ -188,15 +189,15 @@ export async function observePause(reader, expected, decisions = [], options = {
 }
 
 export function requireUnpaused(pause, expected) {
-  requireThat(
-    pause?.status === 'clear' &&
+  if (pause?.status === 'clear' &&
       pause.effective === false &&
       pause.visible === false &&
       pause.repair === false &&
       digest(pause.issue) === digest(expected) &&
-      isDigest(pause.observationHash),
-    pause?.status === 'paused' ? 'ISSUE_PAUSED' : 'PAUSE_OBSERVATION_UNKNOWN',
-  );
+      isDigest(pause.observationHash)) return;
+  const code = pause?.status === 'paused' ? 'ISSUE_PAUSED' : 'PAUSE_OBSERVATION_UNKNOWN';
+  const reason = /^PAUSE_[A-Z_]{1,64}$/.test(pause?.code ?? '') ? pause.code : undefined;
+  throw Object.assign(new Error(code), { code, pauseReason: reason });
 }
 
 // Permission lookups bind the returned native user ID, including triage access.
