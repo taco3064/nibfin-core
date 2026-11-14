@@ -1,5 +1,5 @@
 import { access, constants, lstat, readFile, readdir, realpath } from 'node:fs/promises';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { join } from 'node:path';
 import { boundedHostFile, hostFile } from '../host-adoption.mjs';
 import { rootOwnedPath } from '../host-paths.mjs';
@@ -17,14 +17,9 @@ async function check() {
     process.getuid() === (slot === '1' ? host.runnerUid : second.uid),
   'SHARED_RUNNER_ACCOUNT_MISMATCH');
   const directory = `/var/lib/nibfin/runners/slot-${slot}`;
-  const registration = await boundedHostFile(join(directory, '.runner'), 65536);
-  const local = JSON.parse(registration.replace(/^\uFEFF/, ''));
   const expected = slot === '1'
     ? { id: primary.runnerId, name: primary.runnerName } : second;
-  requireThat(local.agentId === expected.id && local.agentName === expected.name &&
-    local.gitHubUrl === `https://github.com/${primary.repository}`,
-  'SHARED_RUNNER_REGISTRATION_MISMATCH');
-  await checkWorkerEntry(directory, local);
+  await checkSharedRunnerSlot(directory, expected, primary.repository);
   for (const path of [host.stateRoot, host.tokenFile, host.authFile,
     '/run/nibfin-engine/docker.sock']) {
     await requireDenied(path, constants.R_OK);
@@ -34,10 +29,18 @@ async function check() {
   await checkWslMounts();
 }
 
-async function checkWorkerEntry(directory, local) {
+export async function checkSharedRunnerSlot(
+  directory, expected, repository, { checkAccess = true } = {},
+) {
   const dispatcher = join(directory, 'bin', 'Runner.Worker');
   const packaged = new URL('./shared-worker-dispatcher.sh', import.meta.url);
-  await rootOwnedPath(join(directory, '.runner'));
+  const registration = join(directory, '.runner');
+  await rootOwnedPath(registration);
+  const bytes = await boundedHostFile(registration, 65536);
+  const local = JSON.parse(bytes.replace(/^\uFEFF/, ''));
+  requireThat(local.agentId === expected.id && local.agentName === expected.name &&
+    local.gitHubUrl === `https://github.com/${repository}`,
+  'SHARED_RUNNER_REGISTRATION_MISMATCH');
   await rootOwnedPath(fileURLToPath(packaged));
   await rootOwnedPath('/usr/bin');
   const python = await realpath('/usr/bin/python3');
@@ -54,10 +57,11 @@ async function checkWorkerEntry(directory, local) {
     const path = join(directory, name);
     await rootOwnedPath(path);
     const stat = await lstat(path);
-    requireThat(stat.isFile() && stat.nlink === 1 && stat.gid === process.getgid() &&
+    requireThat(stat.isFile() && stat.nlink === 1 &&
+      (!checkAccess || stat.gid === process.getgid()) &&
       (stat.mode & 0o777) === 0o640,
       'SHARED_RUNNER_CREDENTIAL_PERMISSIONS');
-    await access(path, constants.R_OK);
+    if (checkAccess) await access(path, constants.R_OK);
   }
   for (const name of ['.env', '.path']) {
     const path = join(directory, name);
@@ -113,12 +117,15 @@ async function checkWslMounts() {
   }
 }
 
-check().catch(error => {
-  const safe = ['INVALID_SHARED_RUNNER_SLOT', 'SHARED_RUNNER_ACCOUNT_MISMATCH',
-    'SHARED_RUNNER_REGISTRATION_MISMATCH', 'SHARED_RUNNER_WORKER_ADMISSION_REQUIRED',
-    'SHARED_RUNNER_CREDENTIAL_PERMISSIONS',
-    'SHARED_RUNNER_CAN_ACCESS_CONTROLLER_RESOURCE', 'SHARED_RUNNER_WSL_MOUNT_ACCESSIBLE'];
-  process.stderr.write((safe.includes(error.code) ? error.code :
-    'SHARED_RUNNER_START_CHECK_FAILED') + '\n');
-  process.exitCode = 1;
-});
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  check().catch(error => {
+    const safe = ['INVALID_SHARED_RUNNER_SLOT', 'SHARED_RUNNER_ACCOUNT_MISMATCH',
+      'SHARED_RUNNER_REGISTRATION_MISMATCH', 'SHARED_RUNNER_WORKER_ADMISSION_REQUIRED',
+      'SHARED_RUNNER_CREDENTIAL_PERMISSIONS',
+      'SHARED_RUNNER_CAN_ACCESS_CONTROLLER_RESOURCE',
+      'SHARED_RUNNER_WSL_MOUNT_ACCESSIBLE'];
+    process.stderr.write((safe.includes(error.code) ? error.code :
+      'SHARED_RUNNER_START_CHECK_FAILED') + '\n');
+    process.exitCode = 1;
+  });
+}
