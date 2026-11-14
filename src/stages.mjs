@@ -442,7 +442,8 @@ export function decideStage(stage, context, now = Date.now()) {
       }
     }
     const binding = evidenceBinding(context);
-    const requestHash = digest(stageAdmissionFields(context, { stage, binding, artifacts }));
+    const fields = stageAdmissionFields(context, { stage, binding, artifacts });
+    const requestHash = digest(fields);
     return {
       schemaVersion: 1,
       status: 'allowed',

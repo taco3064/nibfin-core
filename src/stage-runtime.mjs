@@ -127,13 +127,15 @@ export class StageRuntime {
               const observation = await this.#observe(stage);
               if (digest(observation.pause ?? null) !== digest(context.pause ?? null)) {
                 changed = changedFields('pause.', context.pause, observation.pause,
-                  ['status', 'effective', 'visible', 'repair', 'issue', 'observationHash']);
+                  ['status', 'effective', 'visible', 'repair', 'issue',
+                    'observationHash']);
                 if (!changed.length) changed = ['pause'];
                 requireThat(false, 'PAUSE_OBSERVATION_CHANGED');
               }
               fresh = decideStage(stage, observation, this.#clock());
               if (fresh.status !== 'allowed') freshDenial = fresh;
-              if (fresh.status === 'allowed' && fresh.requestHash !== decision.requestHash) {
+              if (fresh.status === 'allowed' &&
+                fresh.requestHash !== decision.requestHash) {
                 changed = admissionChanges(context, observation, decision, fresh);
                 if (stage === 'merge') throw new MergeBeforeWrite();
               }
@@ -218,7 +220,8 @@ export class StageRuntime {
         const code = admissionError.code;
         const admissionCodes = ['PAUSE_OBSERVATION_CHANGED', 'ADMISSION_CHANGED'];
         return { schemaVersion: 1, stage, status: 'denied',
-          code: admissionCodes.includes(code) ? code : observationFailureCode(admissionError),
+          code: admissionCodes.includes(code)
+            ? code : observationFailureCode(admissionError),
           ...(changed?.length ? { changedFields: changed } : {}) };
       }
       if (outcome.status !== 'completed') return { schemaVersion: 1, stage, ...outcome };
