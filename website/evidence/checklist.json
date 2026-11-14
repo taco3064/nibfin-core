@@ -201,7 +201,7 @@
       "repository": "taco3064/nibfin-core",
       "commit": "6840bdb38ca3f063b2d2b6c39684c6fdaff05873",
       "path": "bin/nibfin-core.mjs",
-      "sha256": "15f4558abe8cfaf2a443534811093c7b3f18a492bd2e491f1319259cfd855d0d",
+      "sha256": "9a9c6d55581e818c0a10cb2f6788278c8abd925d12b9ad93be585e9ff372fed5",
       "provenance": "Bound read-only current main snapshot; same bytes compared in writable source. No live public read-back.",
       "release": null,
       "observed": "2026-11-11"
@@ -211,6 +211,7 @@
     "commands": [
       "contract",
       "inspect-shared-host",
+      "adopt-shared-peer <repository> <repository-id> <action-commit>",
       "pack <repository> <commit> <new-output-directory>",
       "verify <installation> <approved-pin.json>",
       "install <archive> <new-directory> <approved-pin.json>",
