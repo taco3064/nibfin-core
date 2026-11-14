@@ -89,7 +89,8 @@ test('requires GitHub run identity and protected, unrevoked Workflow bytes', asy
 test('the Linux dispatcher preserves Worker PID and refuses queued cancellation', {
   skip: process.platform !== 'linux',
 }, () => {
-  const dispatcher = new URL('../src/security/shared-worker-dispatch.py', import.meta.url);
+  const path = '../src/security/shared-worker-dispatch.py';
+  const dispatcher = new URL(path, import.meta.url);
   const probe = new URL('./shared-worker-process.py', import.meta.url);
   const result = spawnSync('/usr/bin/python3', [
     '-I', fileURLToPath(probe), fileURLToPath(dispatcher),
