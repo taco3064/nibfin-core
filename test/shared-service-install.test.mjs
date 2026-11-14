@@ -3,7 +3,17 @@ import assert from 'node:assert/strict';
 import { mkdtemp, readFile, readdir, rm, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { writeSharedServiceTemplate } from '../src/shared-service-install.mjs';
+import {
+  sharedServiceTemplate, writeSharedServiceTemplate,
+} from '../src/shared-service-install.mjs';
+
+test('the WSL service includes the reviewed mount restrictions', () => {
+  const template = '[Service]\nExecStart=/usr/bin/true\n\n[Install]\n';
+  const profile = '[Service]\nInaccessiblePaths=-/run/WSL\n';
+  assert.equal(sharedServiceTemplate(template, ''), template);
+  assert.equal(sharedServiceTemplate(template, profile),
+    '[Service]\nExecStart=/usr/bin/true\nInaccessiblePaths=-/run/WSL\n\n[Install]\n');
+});
 
 test('install shared service template once and refuse changes or links', {
   skip: process.platform !== 'linux',

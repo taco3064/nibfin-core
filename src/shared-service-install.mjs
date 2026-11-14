@@ -1,4 +1,4 @@
-import { link, lstat, open, unlink } from 'node:fs/promises';
+import { link, lstat, open, readFile, unlink } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import { boundedHostFile, coreRoot, hostFile } from './host-adoption.mjs';
@@ -9,6 +9,7 @@ import { sharedHostRegistrations } from './shared-host-inspect.mjs';
 import { verifyInstalledSource } from './source-package.mjs';
 
 const templatePath = 'src/security/nibfin-shared-runner.service.template';
+const wslPath = 'src/security/runner-wsl-host.conf';
 const unitName = 'nibfin-shared-runner@.service';
 const unitDirectory = '/etc/systemd/system';
 
@@ -60,11 +61,27 @@ export async function installSharedServiceTemplate() {
   const hostBytes = await boundedHostFile(hostFile, 256 * 1024);
   const host = JSON.parse(hostBytes);
   sharedHostRegistrations(host);
+  const wsl = /microsoft.*wsl2/i.test(
+    await readFile('/proc/sys/kernel/osrelease', 'utf8'));
+  const profile = join(coreRoot, wslPath);
+  if (wsl) await rootOwnedPath(profile);
   const content = await boundedHostFile(template, 16384);
+  const restrictions = wsl ? await boundedHostFile(profile, 16384) : '';
   await verifyInstalledSource(coreRoot, host.installation.pin);
   requireThat(await boundedHostFile(hostFile, 256 * 1024) === hostBytes &&
-    await boundedHostFile(template, 16384) === content,
+    await boundedHostFile(template, 16384) === content &&
+    (!wsl || await boundedHostFile(profile, 16384) === restrictions),
     'HOST_ADOPTION_CHANGED');
-  const status = await writeSharedServiceTemplate(unitDirectory, content, rootOwnedPath);
+  const unit = sharedServiceTemplate(content, restrictions);
+  const status = await writeSharedServiceTemplate(unitDirectory, unit, rootOwnedPath);
   return { status, unit: unitName, servicesStarted: false };
+}
+
+export function sharedServiceTemplate(template, restrictions) {
+  if (!restrictions) return template;
+  const install = '\n\n[Install]\n';
+  requireThat(template.includes(install) && restrictions.startsWith('[Service]\n'),
+    'INVALID_SHARED_SERVICE_TEMPLATE');
+  return template.replace(install,
+    '\n' + restrictions.slice('[Service]\n'.length).trimEnd() + install);
 }
