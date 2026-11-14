@@ -30,6 +30,15 @@ administrator-owned host configuration and validates the installed package.
 It returns the execution repository, member and two adopted registration
 identities. The installer must confirm them with GitHub before reusing the pool.
 
+For a WSL Runner, `src/security/runner-wsl-host.conf` is the service drop-in
+for blocking the default Windows host mount, GUI mount, interop and GPU
+paths from Runner processes. The normal WSL DNS file under `/mnt/wsl` stays
+available. Check the actual distribution mount layout before using it.
+The Controller reached through the fixed sudo relay inherits these mount
+restrictions. Verify GitHub connectivity, the relay, and the adopted project's
+MCP and execution backend before enabling dispatch. This mount restriction
+alone does not establish admission for arbitrary GitHub Jobs.
+
 For a manual run, select the shared workflow in the execution repository and enter the target
 repository ID, Issue number and optional stage. Omitting the stage runs
 `continue`. Core checks the live Issue in the target repository and authenticates
