@@ -196,14 +196,24 @@ export async function readPullRequestCI(reader, expected, now = Date.now(), obse
       preview.parents[1].sha === expected.head,
     'INVALID_PROVIDER_TEST_MERGE',
   );
-  const headChecks = await reader.list(
-    `${root}/commits/${expected.head}/check-runs?filter=latest`,
-    'check_runs',
-  );
-  const mergeChecks = await reader.list(
-    `${root}/commits/${previewSha}/check-runs?filter=latest`,
-    'check_runs',
-  );
+  const listChecks = async (source, sha) => {
+    const requestIds = [];
+    const checks = await reader.list(
+      `${root}/commits/${sha}/check-runs?filter=latest`, 'check_runs', { requestIds },
+    );
+    observed?.checkObservations?.push({
+      source, sha, requestIds, count: checks.length,
+      checks: checks.slice(0, 40).map(check => ({
+        id: isId(check.id) ? check.id : null,
+        status: /^[a-z_]{1,32}$/.test(check.status) ? check.status : null,
+        conclusion: /^[a-z_]{1,32}$/.test(check.conclusion)
+          ? check.conclusion : null,
+      })),
+    });
+    return checks;
+  };
+  const headChecks = await listChecks('head', expected.head);
+  const mergeChecks = await listChecks('testMerge', previewSha);
   const workflows = nativePolicy
     ? await nativeRequiredWorkflows(reader, branchPath, root, pr, expected.workflows)
     : expected.workflows;

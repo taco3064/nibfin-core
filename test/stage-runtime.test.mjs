@@ -313,6 +313,34 @@ test('Review reports the changed CI field before it starts', async t => {
   assert.equal(f.saved.length, 0);
 });
 
+test('Review reports both commit observations when the check list changes', async t => {
+  const f = await fixture(t);
+  const context = stageFixture('review-pr');
+  const snapshots = ['in_progress', 'completed'].map((status, index) => [{
+    source: 'head', sha: context.pr.head, requestIds: [`AB:${index}`],
+    count: 1, checks: [{ id: 10, status, conclusion: index ? 'success' : null }],
+  }, {
+    source: 'testMerge', sha: context.pr.mergePreview,
+    requestIds: [`CD:${index}`], count: 0, checks: [],
+  }]);
+  let reads = 0;
+  f.adapters.handlers['review-pr'] = f.adapters.handlers.shape;
+  f.adapters.observe = async () => {
+    const value = structuredClone(context);
+    value.checkObservations = snapshots[reads++];
+    value.ci.observedChecks = value.checkObservations[0].checks;
+    return value;
+  };
+  const result = await new StageRuntime(f.adapters).run({
+    schemaVersion: 1, stage: 'review-pr',
+  });
+  assert.equal(result.code, 'ADMISSION_CHANGED');
+  assert.deepEqual(result.checkObservationDiff, {
+    before: snapshots[0], after: snapshots[1],
+  });
+  assert.equal(f.performed(), 0);
+});
+
 test('a rate-limited second admission waits before starting the role', async t => {
   const f = await fixture(t);
   let reads = 0;

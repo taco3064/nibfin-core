@@ -25,7 +25,7 @@ export class GitHubReader {
     this.#token = token;
     this.#fetch = fetcher;
   }
-  async get(path, { retryNotFound = false } = {}) {
+  async get(path, { retryNotFound = false, requestIds } = {}) {
     if (typeof path !== 'string' || !(path.startsWith('/repos/') || path === '/user') ||
         /[\\\r\n#]/.test(path) ||
         path.split('?')[0].split('/').some(part => part === '..' || part === '.')) {
@@ -50,13 +50,18 @@ export class GitHubReader {
         resource: path.split('?')[0],
       });
     }
+    if (requestIds) {
+      const requestId = response.headers?.get('x-github-request-id');
+      requestIds.push(/^[0-9a-f:]{1,80}$/i.test(requestId ?? '') ? requestId : null);
+    }
     return response.json();
   }
-  async list(path, key) {
+  async list(path, key, { requestIds } = {}) {
     const result = [];
     for (let page = 1; page <= 100; page++) {
       const query = `per_page=100&page=${page}`;
-      const response = await this.get(`${path}${path.includes('?') ? '&' : '?'}${query}`);
+      const separator = path.includes('?') ? '&' : '?';
+      const response = await this.get(`${path}${separator}${query}`, { requestIds });
       const values = key === undefined ? response : response?.[key];
       const count = response?.total_count;
       if (key !== undefined &&
