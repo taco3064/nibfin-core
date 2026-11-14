@@ -18,7 +18,11 @@ For new systemd installations, the packaged
 `src/security/nibfin-shared-runner.service.template` defines slot instances `1` and
 `2`. The two dedicated accounts are `nibfin-runner-1` and `nibfin-runner-2`
 and each instance uses its own `/var/lib/nibfin/runners/slot-<number>` directory.
-Install it as `nibfin-shared-runner@.service` as root after preparing those accounts and directories.
+After preparing those accounts and directories, run the verified, installed Core
+as root with `install-shared-service-template`. It reads the pin in the adopted
+host configuration and installs the unit as `nibfin-shared-runner@.service`.
+An identical existing unit is accepted and a conflicting unit is refused.
+This step writes the unit file. Service activation is a separate operation.
 Enable a slot only after verifying the registered Runner, the Controller relay,
 the adopted isolation profile, and the public Workflow admission boundary.
 
