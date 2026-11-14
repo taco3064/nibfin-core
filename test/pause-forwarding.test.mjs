@@ -93,7 +93,7 @@ test('shared wake uses the configured GitHub identity and default branch', async
     calls.push(url);
     if (url === rootUrl) return Response.json(repo);
     if (url === rootUrl + '/branches/stable')
-      return Response.json({ commit: { sha: head } });
+      return Response.json({ protected: true, commit: { sha: head } });
     if (url === registered)
       return Response.json({ id: 5, path: workflowPath, state: 'active' });
     if (url === contents) return Response.json({
@@ -118,7 +118,14 @@ test('shared wake uses the configured GitHub identity and default branch', async
   await assert.rejects(forwardSharedWake(result, env, async url => {
     if (url === rootUrl) return Response.json(repo);
     if (url === rootUrl + '/branches/stable')
-      return Response.json({ commit: { sha: head } });
+      return Response.json({ protected: false, commit: { sha: head } });
+    assert.equal(url, registered);
+    return Response.json({ id: 5, path: workflowPath, state: 'active' });
+  }), { code: 'SHARED_WAKE_BRANCH_UNPROTECTED' });
+  await assert.rejects(forwardSharedWake(result, env, async url => {
+    if (url === rootUrl) return Response.json(repo);
+    if (url === rootUrl + '/branches/stable')
+      return Response.json({ protected: true, commit: { sha: head } });
     if (url === registered)
       return Response.json({ id: 5, path: workflowPath, state: 'active' });
     assert.equal(url, contents);

@@ -32,6 +32,7 @@ async function sharedWakeDestination(env, fetcher) {
   ]);
   requireThat(isId(registered?.id) && registered.path === path &&
     registered.state === 'active', 'SHARED_DISPATCH_WORKFLOW_UNAVAILABLE');
+  requireThat(branch?.protected === true, 'SHARED_WAKE_BRANCH_UNPROTECTED');
   await readPinnedFile(reader, repository, path, branch?.commit?.sha, gitBlob(expected));
   return { repository, ref };
 }
