@@ -27,14 +27,16 @@ async function copyPrivateFile(path, destination, owner, limit, group, mode) {
     try {
       let size = 0;
       const hash = createHash('sha256');
-      await pipeline(input.createReadStream({ autoClose: false }), async function* (from) {
+      const checked = async function* (from) {
         for await (const chunk of from) {
           size += chunk.length;
           requireThat(size <= limit, 'UNTRUSTED_SHARED_SLOT_INPUT');
           hash.update(chunk);
           yield chunk;
         }
-      }, output.createWriteStream({ autoClose: false }));
+      };
+      await pipeline(input.createReadStream({ autoClose: false }), checked,
+        output.createWriteStream({ autoClose: false }));
       requireThat(size === stat.size, 'UNTRUSTED_SHARED_SLOT_INPUT');
       await output.chown(0, group);
       await output.chmod(mode);
@@ -58,17 +60,17 @@ async function slotAccount(slot, uid) {
   return Number(group);
 }
 
-export async function installSharedSlot(source, slot, owner, runner, repository, uid) {
+export async function installSharedSlot(source, slot, owner, runner, repository, uid,
+  { parent = '/var/lib/nibfin/runners', lookupGroup = slotAccount } = {}) {
   requireThat((slot === 1 || slot === 2) && Number.isSafeInteger(owner) && owner > 0 &&
     isAbsolute(source) && resolve(source) === source, 'UNTRUSTED_SHARED_SLOT_INPUT');
-  const parent = '/var/lib/nibfin/runners';
-  await rootOwnedPath('/var/lib/nibfin');
+  await rootOwnedPath(resolve(parent, '..'));
   await mkdir(parent, { mode: 0o755 }).catch(error => {
     if (error.code !== 'EEXIST') throw error;
   });
   await rootOwnedPath(parent);
   const destination = join(parent, `slot-${slot}`);
-  const group = await slotAccount(slot, uid);
+  const group = await lookupGroup(slot, uid);
   const inspect = directory =>
     checkSharedRunnerSlot(directory, runner, repository, { group, checkAccess: false });
   const existing = await lstat(destination).catch(error => {
