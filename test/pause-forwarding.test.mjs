@@ -123,5 +123,5 @@ test('shared wake uses the configured GitHub identity and default branch', async
       return Response.json({ id: 5, path: workflowPath, state: 'active' });
     assert.equal(url, contents);
     return Response.json({ type: 'file', path: workflowPath, sha: 'b'.repeat(40) });
-  }));
+  }), { code: 'PINNED_FILE_UNAVAILABLE' });
 });
