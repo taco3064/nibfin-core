@@ -113,10 +113,13 @@ export class StageRuntime {
         stage,
       };
     }
+    const checkObservations = context.checkObservations;
+    delete context.checkObservations;
     const decision = decideStage(stage, context, this.#clock());
     if (decision.status !== 'allowed') return decision;
     const frozenContextHash = digest(context);
     let result, receiptHash, receipt, admissionError, freshDenial, changed;
+    let checkObservationDiff;
     try {
       const outcome = await this.#journal.run(
         { operation: decision.operation, bindingHash: decision.requestHash },
@@ -137,6 +140,13 @@ export class StageRuntime {
               if (fresh.status === 'allowed' &&
                 fresh.requestHash !== decision.requestHash) {
                 changed = admissionChanges(context, observation, decision, fresh);
+                if (changed.includes('ci.observedChecks') &&
+                  checkObservations && observation.checkObservations) {
+                  checkObservationDiff = {
+                    before: checkObservations,
+                    after: observation.checkObservations,
+                  };
+                }
                 if (stage === 'merge') throw new MergeBeforeWrite();
               }
               requireThat(
@@ -222,7 +232,8 @@ export class StageRuntime {
         return { schemaVersion: 1, stage, status: 'denied',
           code: admissionCodes.includes(code)
             ? code : observationFailureCode(admissionError),
-          ...(changed?.length ? { changedFields: changed } : {}) };
+          ...(changed?.length ? { changedFields: changed } : {}),
+          ...(checkObservationDiff ? { checkObservationDiff } : {}) };
       }
       if (outcome.status !== 'completed') return { schemaVersion: 1, stage, ...outcome };
       const knownInterruption = result?.code === codexIdle.code ||

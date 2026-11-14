@@ -2,6 +2,19 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { GitHubReader, repoPath, issuePath } from '../src/github-read.mjs';
 
+test('check listing collects the response request ID without changing the rows', async () => {
+  const rows = [{ id: 17 }];
+  const requestIds = [];
+  const reader = new GitHubReader('fixture', async () => ({
+    ok: true,
+    headers: new Headers({ 'x-github-request-id': 'ABCD:123:456:789' }),
+    json: async () => ({ total_count: rows.length, check_runs: rows }),
+  }));
+  const path = '/repos/example/core/commits/main/check-runs?filter=latest';
+  assert.deepEqual(await reader.list(path, 'check_runs', { requestIds }), rows);
+  assert.deepEqual(requestIds, ['ABCD:123:456:789']);
+});
+
 test('uses authenticated GET-only native dependency endpoints and paginates', async () => {
   const calls = [];
   const reader = new GitHubReader('fixture-token', async (url, options) => {

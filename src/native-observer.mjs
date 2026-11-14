@@ -228,8 +228,10 @@ export function nativeObserver({
               ?.targetSha,
           }));
         }
+        if (stage === 'review-pr') context.checkObservations = [];
         context.ci = await readPullRequestCI(reader, expected, clock(), {
           repository: approval.repository, pr,
+          checkObservations: context.checkObservations,
         });
       }
     }

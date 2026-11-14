@@ -121,6 +121,27 @@ test('Final Review receives the checked workflow and run attempt', async () => {
   assert.ok(source.runId > 0 && source.jobId > 0);
 });
 
+test('check observations retain response IDs by commit without changing CI evidence',
+  async () => {
+    const f = fixture();
+    const list = f.reader.list;
+    f.reader.list = async (path, key, options) => {
+      options?.requestIds.push(path.includes(f.expected.head) ? 'AA:01' : 'BB:02');
+      return list(path, key);
+    };
+    const checkObservations = [];
+    const evidence = await readPullRequestCI(f.reader, f.expected, now, {
+      checkObservations,
+    });
+    assert.deepEqual(evidence, await readPullRequestCI(f.reader, f.expected, now));
+    assert.deepEqual(checkObservations.map(({ source, sha, requestIds, count }) =>
+      [source, sha, requestIds, count]), [
+      ['head', f.expected.head, ['AA:01'], 1],
+      ['testMerge', f.preview, ['BB:02'], 0],
+    ]);
+    assert.equal(checkObservations[0].checks[0].id, f.check.id);
+  });
+
 function fixture() {
   const head = '1'.repeat(40),
     base = '2'.repeat(40),
