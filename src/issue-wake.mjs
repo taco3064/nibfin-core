@@ -296,7 +296,8 @@ export async function dispatchIssueWake({
             'PAUSE_OBSERVATION_UNKNOWN',
           ].includes(error.code)
         ) {
-          return { status: 'skipped', code: error.code };
+          return { status: 'skipped', code: error.code,
+            ...(error.pauseReason ? { pauseReason: error.pauseReason } : {}) };
         }
         throw error;
       }

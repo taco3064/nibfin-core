@@ -109,6 +109,28 @@ test('visible label absence never proves Resume across the post-event gap', asyn
   );
 });
 
+test('dependency event IDs from E2E #25 and #34 can arrive out of order', async t => {
+  const f = await pauseFixture(t);
+  for (const ids of [[36005413247, 36005413052], [36005457878, 36005457393]]) {
+    const events = ids.map((id, index) => ({
+      id, event: 'blocked_by_added', created_at: `2026-11-13T07:52:1${index}Z`,
+    }));
+    assert.equal(interpretPause({ issue: f.issue, events }).status, 'clear');
+    const pause = {
+      id: 2, event: 'labeled', label: { name: 'pause' }, actor: people.owner,
+      created_at: '2026-11-13T16:00:00Z',
+    };
+    const resume = {
+      ...pause, id: pause.id - 1, event: 'unlabeled',
+    };
+    const result = interpretPause({ issue: f.issue, events: [...events, pause, resume] });
+    assert.equal(result.code, 'PAUSE_HISTORY_INCONSISTENT');
+    assert.throws(() => requireUnpaused(result, pauseIdentity), {
+      code: 'PAUSE_OBSERVATION_UNKNOWN', pauseReason: 'PAUSE_HISTORY_INCONSISTENT',
+    });
+  }
+});
+
 test('ordered history rejects duplicate, contradictory and unbound event receipts',
   async (t) => {
   const f = await pauseFixture(t);
