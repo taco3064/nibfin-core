@@ -7,6 +7,7 @@ import { requireThat } from './identity.mjs';
 import { syncRecoveryDirectory } from './recovery-lock.mjs';
 import { sharedHostRegistrations } from './shared-host-inspect.mjs';
 import { verifyInstalledSource } from './source-package.mjs';
+import { checkSharedRunnerSlot } from './security/shared-runner-start-check.mjs';
 
 const templatePath = 'src/security/nibfin-shared-runner.service.template';
 const wslPath = 'src/security/runner-wsl-host.conf';
@@ -60,7 +61,7 @@ export async function installSharedServiceTemplate() {
   await Promise.all([hostFile, template, unitDirectory].map(rootOwnedPath));
   const hostBytes = await boundedHostFile(hostFile, 256 * 1024);
   const host = JSON.parse(hostBytes);
-  sharedHostRegistrations(host);
+  const { repository, runners } = sharedHostRegistrations(host);
   const wsl = /microsoft.*wsl2/i.test(
     await readFile('/proc/sys/kernel/osrelease', 'utf8'));
   const profile = join(coreRoot, wslPath);
@@ -68,6 +69,10 @@ export async function installSharedServiceTemplate() {
   const content = await boundedHostFile(template, 16384);
   const restrictions = wsl ? await boundedHostFile(profile, 16384) : '';
   await verifyInstalledSource(coreRoot, host.installation.pin);
+  for (const [index, runner] of runners.entries()) {
+    const directory = `/var/lib/nibfin/runners/slot-${index + 1}`;
+    await checkSharedRunnerSlot(directory, runner, repository, { checkAccess: false });
+  }
   requireThat(await boundedHostFile(hostFile, 256 * 1024) === hostBytes &&
     await boundedHostFile(template, 16384) === content &&
     (!wsl || await boundedHostFile(profile, 16384) === restrictions),
