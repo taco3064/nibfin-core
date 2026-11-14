@@ -1,8 +1,10 @@
 import { isId, requireThat } from './identity.mjs';
 import { readCallerContinuity } from './caller-source.mjs';
 import { repoPath } from './github-read.mjs';
+import contract from './shared-runner-contract.json' with { type: 'json' };
 
-export const sharedWorkflowPath = '.github/workflows/shared-runner.yml';
+export const sharedWorkflowPath = contract.workflowPath;
+export const sharedDestinationVariable = contract.destinationVariable;
 
 export function sharedRunner(host, target, runnerUid = host.runnerUid) {
   const config = host.sharedRunner;

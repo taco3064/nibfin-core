@@ -1,10 +1,10 @@
 import { readFile } from 'node:fs/promises';
 import { isId, requireThat } from './identity.mjs';
 import { GitHubReader, repoPath } from './github-read.mjs';
-import { sharedWorkflowPath } from './shared-runner.mjs';
+import { sharedDestinationVariable, sharedWorkflowPath } from './shared-runner.mjs';
 
 async function sharedWakeDestination(env, fetcher) {
-  const configured = env.NIBFIN_SHARED_RUNNER_DESTINATION;
+  const configured = env[sharedDestinationVariable];
   // Keep existing official installations working until they publish a destination.
   if (!configured) return { repository: 'taco3064/nibfin-core', ref: 'main' };
   let destination;
