@@ -174,6 +174,7 @@ socket.pipe(process.stdout);
     '-c', 'shell_environment_policy.set.NO_PROXY="127.0.0.1,localhost"',
     '-c', 'shell_environment_policy.set.HTTP_PROXY="http://127.0.0.1:3128"',
     '-c', 'shell_environment_policy.set.HTTPS_PROXY="http://127.0.0.1:3128"',
+    '-c', 'shell_environment_policy.set.NODE_USE_ENV_PROXY="1"',
     '-c', 'shell_environment_policy.set.DOCKER_HOST=' +
       '"tcp://127.0.0.1:2375"',
     arg,
