@@ -22,7 +22,7 @@ async function main() {
       signal: AbortSignal.timeout(10000),
       headers: {
         'X-GitHub-Api-Version': '2022-11-28',
-        Authorization: `Bearer ${token}`,
+        ...(token && { Authorization: `Bearer ${token}` }),
       },
     });
     requireThat(res.ok, 'SHARED_WORKER_PROVIDER_UNAVAILABLE');
@@ -43,7 +43,7 @@ async function main() {
     /^[A-Za-z0-9_]{20,512}$/.test(credential.value),
   'SHARED_WORKER_READ_CREDENTIAL_UNAVAILABLE');
   await admitSharedWorker(read(credential.value), message, runner, caller.ref,
-    caller.ownerId);
+    caller.ownerId, read());
 }
 
 try {

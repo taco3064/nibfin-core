@@ -45,8 +45,9 @@ still checks OIDC, the assigned Runner and the target repository. Do not enable 
 slot until its Controller relay, isolation and real positive and negative
 Workflow admission have been verified. GitHub's job-started hook runs after
 actions are prepared and is not an alternative to this check.
-These read-only API requests use the approved Workflow's per-Job token. The
-dispatcher never receives the Controller credential or the Wake secret.
+Source reads use the approved Workflow's per-Job token. Workflow and run
+metadata are public reads. The dispatcher never receives the Controller
+credential or the Wake secret.
 
 After the shared workflow and host configuration are live, set the
 `NIBFIN_SHARED_RUNNER_POOL` Actions variable to `true` in each participating

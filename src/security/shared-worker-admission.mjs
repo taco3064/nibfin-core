@@ -30,13 +30,14 @@ export function sharedWorkerContext(message, binding, ref) {
 
 // Checks the Listener's message before launching the official Worker. Core
 // still performs its OIDC, exact Job/Runner and target admission in the caller.
-export async function admitSharedWorker(reader, message, binding, ref, ownerId) {
+export async function admitSharedWorker(reader, message, binding, ref, ownerId,
+  publicReader = reader) {
   const { runId, attempt, commit } = sharedWorkerContext(message, binding, ref);
   const root = repoPath(binding.repository);
   const [repository, run, workflow] = await Promise.all([
     reader.get(root),
-    reader.get(`${root}/actions/runs/${runId}/attempts/${attempt}`),
-    reader.get(`${root}/actions/workflows/${binding.workflowId}`),
+    publicReader.get(`${root}/actions/runs/${runId}/attempts/${attempt}`),
+    publicReader.get(`${root}/actions/workflows/${binding.workflowId}`),
   ]);
   const branch = repository.default_branch;
   requireThat(repository.id === binding.repositoryId &&
