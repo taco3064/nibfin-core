@@ -1,4 +1,5 @@
-import { access, constants, readFile } from 'node:fs/promises';
+import { access, constants, lstat, readFile, readdir, realpath } from 'node:fs/promises';
+import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
 import { boundedHostFile, hostFile } from '../host-adoption.mjs';
 import { rootOwnedPath } from '../host-paths.mjs';
@@ -16,13 +17,14 @@ async function check() {
     process.getuid() === (slot === '1' ? host.runnerUid : second.uid),
   'SHARED_RUNNER_ACCOUNT_MISMATCH');
   const directory = `/var/lib/nibfin/runners/slot-${slot}`;
-  const registration = await boundedHostFile(join(directory, '.runner'), 65536, true);
+  const registration = await boundedHostFile(join(directory, '.runner'), 65536);
   const local = JSON.parse(registration.replace(/^\uFEFF/, ''));
   const expected = slot === '1'
     ? { id: primary.runnerId, name: primary.runnerName } : second;
   requireThat(local.agentId === expected.id && local.agentName === expected.name &&
     local.gitHubUrl === `https://github.com/${primary.repository}`,
   'SHARED_RUNNER_REGISTRATION_MISMATCH');
+  await checkWorkerEntry(directory, local);
   for (const path of [host.stateRoot, host.tokenFile, host.authFile,
     '/run/nibfin-engine/docker.sock']) {
     await requireDenied(path, constants.R_OK);
@@ -30,6 +32,47 @@ async function check() {
   }
   await requireDenied(host.stateRoot, constants.X_OK);
   await checkWslMounts();
+}
+
+async function checkWorkerEntry(directory, local) {
+  const dispatcher = join(directory, 'bin', 'Runner.Worker');
+  const packaged = new URL('./shared-worker-dispatcher.sh', import.meta.url);
+  await rootOwnedPath(join(directory, '.runner'));
+  await rootOwnedPath(fileURLToPath(packaged));
+  const nodePin = new URL('../../.node-version', import.meta.url);
+  const version = (await readFile(nodePin, 'utf8')).trim();
+  requireThat(/^\d+\.\d+\.\d+$/.test(version), 'SHARED_RUNNER_WORKER_ADMISSION_REQUIRED');
+  await rootOwnedPath(`/opt/nibfin/tools/node-v${version}-linux-x64/bin/node`);
+  await verifyProgramTree(join(directory, 'bin'));
+  await verifyProgramTree(join(directory, 'externals'));
+  for (const name of ['.env', '.path']) {
+    const path = join(directory, name);
+    if (await lstat(path).catch(error => {
+      if (error.code !== 'ENOENT') throw error;
+    })) await rootOwnedPath(path);
+  }
+  requireThat(local.disableUpdate === true &&
+    (await lstat(join(directory, 'bin', 'Runner.Worker.official'))).isFile() &&
+    await boundedHostFile(dispatcher, 4096) === await readFile(packaged, 'utf8'),
+  'SHARED_RUNNER_WORKER_ADMISSION_REQUIRED');
+}
+
+async function verifyProgramTree(directory, root = directory) {
+  await rootOwnedPath(directory);
+  for (const name of await readdir(directory)) {
+    const path = join(directory, name);
+    const stat = await lstat(path);
+    if (stat.isSymbolicLink()) {
+      const target = await realpath(path);
+      requireThat(stat.uid === 0 && target.startsWith(`${root}/`),
+        'SHARED_RUNNER_WORKER_ADMISSION_REQUIRED');
+      await rootOwnedPath(target);
+      continue;
+    }
+    requireThat(stat.uid === 0 && (stat.mode & 0o022) === 0 &&
+      (stat.isFile() || stat.isDirectory()), 'SHARED_RUNNER_WORKER_ADMISSION_REQUIRED');
+    if (stat.isDirectory()) await verifyProgramTree(path, root);
+  }
 }
 
 async function requireDenied(path, mode) {
@@ -58,7 +101,7 @@ async function checkWslMounts() {
 
 check().catch(error => {
   const safe = ['INVALID_SHARED_RUNNER_SLOT', 'SHARED_RUNNER_ACCOUNT_MISMATCH',
-    'SHARED_RUNNER_REGISTRATION_MISMATCH',
+    'SHARED_RUNNER_REGISTRATION_MISMATCH', 'SHARED_RUNNER_WORKER_ADMISSION_REQUIRED',
     'SHARED_RUNNER_CAN_ACCESS_CONTROLLER_RESOURCE', 'SHARED_RUNNER_WSL_MOUNT_ACCESSIBLE'];
   process.stderr.write((safe.includes(error.code) ? error.code :
     'SHARED_RUNNER_START_CHECK_FAILED') + '\n');
