@@ -288,7 +288,29 @@ test('pause observation changes between stage admission reads prevent execution'
   };
     const result = await new StageRuntime(f.adapters).run(request);
     assert.equal(result.code, 'PAUSE_OBSERVATION_CHANGED');
+    assert.deepEqual(result.changedFields, ['pause.observationHash']);
   assert.equal(f.performed(), 0);
+});
+
+test('Review reports the changed CI field before it starts', async t => {
+  const f = await fixture(t);
+  const context = stageFixture('review-pr');
+  let reads = 0;
+  f.adapters.handlers['review-pr'] = f.adapters.handlers.shape;
+  f.adapters.observe = async () => {
+    const value = structuredClone(context);
+    if (++reads === 2) value.ci.provenanceHash = 'b'.repeat(64);
+    return value;
+  };
+  const result = await new StageRuntime(f.adapters).run({
+    schemaVersion: 1, stage: 'review-pr',
+  });
+  assert.deepEqual(result, {
+    schemaVersion: 1, stage: 'review-pr', status: 'denied',
+    code: 'ADMISSION_CHANGED', changedFields: ['artifacts.ciHash', 'ci.provenanceHash'],
+  });
+  assert.equal(f.performed(), 0);
+  assert.equal(f.saved.length, 0);
 });
 
 test('a rate-limited second admission waits before starting the role', async t => {

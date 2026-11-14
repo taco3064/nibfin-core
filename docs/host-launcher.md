@@ -15,8 +15,12 @@ Stage names are those returned by `contract`; `continue` drives their existing
 ordered contract under one host fence, with a distinct execution per role.
 Continuation output uses `stage: continue`, with the actual `terminalStage` and
 its persisted receipt hash. JSON output retains interface v1:
-`completed` exits 0, `denied` exits 1, and `pending` exits 2. There is no automatic
-retry. An invalid request is refused before configuration or network access.
+`completed` exits 0, `denied` exits 1, and `pending` exits 2. When re-admission
+observes changed inputs, `changedFields` lists field names such as
+`ci.provenanceHash` or `pause.observationHash` without their values.
+GitHub Actions may queue a continuation while another run for the same Issue is
+active. That wait is normal scheduling. An invalid request is refused before
+configuration or network access.
 
 ## Administrative adoption contract
 

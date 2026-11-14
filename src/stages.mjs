@@ -128,13 +128,29 @@ function shapeEvidence(context, requireValidator) {
 export function requirementsText(body) {
   return typeof body === 'string' ? body.replaceAll('\r\n', '\n').trimEnd() : body;
 }
-export function stageRequestHash({
+function stageRequestFields({
   stage, binding, artifacts, execution, runner, isolation, body, shaped, writeTarget,
 }) {
   const requirements = requirementsText(body);
-  return digest({ stage, binding, artifacts, execution, runner, isolation,
+  return { stage, binding, artifacts, execution, runner, isolation,
     ...(writeTarget ? { writeTarget } : {}),
     requirements: digest(shaped ? canonicalCandidateBlock(requirements) : requirements),
+  };
+}
+
+export function stageRequestHash(request) {
+  return digest(stageRequestFields(request));
+}
+
+export function stageAdmissionFields(context, { stage, binding, artifacts }) {
+  return stageRequestFields({
+    stage, binding, artifacts, execution: context.execution,
+    runner: context.runner.runnerId, isolation: context.isolation.profile,
+    body: context.issue.body,
+    shaped: context.issue.labels.some(label => label.name === 'shaped'),
+    ...(stage === 'commit-pr' && context.adoptedOpenPr ? { writeTarget: {
+      id: context.pr.id, head: context.pr.head, branch: context.pr.headBranch,
+    } } : {}),
   });
 }
 export function samePublishedRequirements(current, prior) {
@@ -426,19 +442,7 @@ export function decideStage(stage, context, now = Date.now()) {
       }
     }
     const binding = evidenceBinding(context);
-    const requestHash = stageRequestHash({
-      stage,
-      binding,
-      artifacts,
-      execution,
-      runner: context.runner.runnerId,
-      isolation: context.isolation.profile,
-      body: issue.body,
-      shaped: labels.has('shaped'),
-      ...(stage === 'commit-pr' && context.adoptedOpenPr ? { writeTarget: {
-        id: context.pr.id, head: context.pr.head, branch: context.pr.headBranch,
-      } } : {}),
-    });
+    const requestHash = digest(stageAdmissionFields(context, { stage, binding, artifacts }));
     return {
       schemaVersion: 1,
       status: 'allowed',

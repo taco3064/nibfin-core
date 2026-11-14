@@ -1,5 +1,5 @@
 import { digest, requireThat } from './identity.mjs';
-import { decideStage, stages } from './stages.mjs';
+import { decideStage, stageAdmissionFields, stages } from './stages.mjs';
 import { MergeBeforeWrite } from './github-write.mjs';
 import { integrationRepairRequired, pendingCIObservation } from './github-ci.mjs';
 import { pendingMcpObservation } from './mcp-pending.mjs';
@@ -23,6 +23,39 @@ export const stageSuccess = Object.freeze({
 const success = stageSuccess;
 const pendingObservation = code =>
   pendingCIObservation(code) || pendingMcpObservation(code);
+
+// Report field names from trusted schemas only. Issue text, credentials and
+// observation values stay out of workflow logs.
+function changedFields(prefix, before, after, keys) {
+  return keys.filter(key =>
+    digest(before?.[key] ?? null) !== digest(after?.[key] ?? null))
+    .map(key => prefix + key);
+}
+
+function admissionChanges(before, after, decision, fresh) {
+  const first = stageAdmissionFields(before, decision);
+  const next = stageAdmissionFields(after, fresh);
+  const fields = changedFields('', first, next, ['requirements', 'runner', 'isolation']);
+  for (const [group, keys] of [
+    ['binding', ['issueId', 'approvalHash', 'scopeHash', 'sourceHash']],
+    ['execution', ['id', 'sessionId', 'role', 'actorId', 'runId', 'attempt', 'jobId']],
+    ['artifacts', ['shapeHash', 'requirementsHash', 'candidateHash', 'prId',
+      'prNumber', 'head', 'base', 'ciHash', 'mergeCommit']],
+    ['writeTarget', ['id', 'head', 'branch']],
+  ]) {
+    if (digest(first[group] ?? null) === digest(next[group] ?? null)) continue;
+    const changes = changedFields(group + '.', first[group], next[group], keys);
+    fields.push(...(changes.length ? changes : [group]));
+  }
+  if (fields.includes('artifacts.ciHash')) {
+    fields.push(...changedFields('ci.', before.ci, after.ci, [
+      'prId', 'head', 'base', 'testedSha', 'testMerge', 'parents', 'checks',
+      'protectionHash', 'provenanceHash', 'sources', 'observedChecks',
+    ]));
+  }
+  fields.push(...changedFields('main.', before.main, after.main, ['head']));
+  return fields;
+}
 
 // Construct only in trusted installed Core. Adapters are code-owned and cannot be
 // overridden by a stage request, event, Issue or worktree. No arbitrary command
@@ -83,7 +116,7 @@ export class StageRuntime {
     const decision = decideStage(stage, context, this.#clock());
     if (decision.status !== 'allowed') return decision;
     const frozenContextHash = digest(context);
-    let result, receiptHash, receipt, admissionError, freshDenial;
+    let result, receiptHash, receipt, admissionError, freshDenial, changed;
     try {
       const outcome = await this.#journal.run(
         { operation: decision.operation, bindingHash: decision.requestHash },
@@ -92,13 +125,18 @@ export class StageRuntime {
             let fresh;
             try {
               const observation = await this.#observe(stage);
-              requireThat(
-                digest(observation.pause ?? null) === digest(context.pause ?? null),
-                'PAUSE_OBSERVATION_CHANGED');
+              if (digest(observation.pause ?? null) !== digest(context.pause ?? null)) {
+                changed = changedFields('pause.', context.pause, observation.pause,
+                  ['status', 'effective', 'visible', 'repair', 'issue', 'observationHash']);
+                if (!changed.length) changed = ['pause'];
+                requireThat(false, 'PAUSE_OBSERVATION_CHANGED');
+              }
               fresh = decideStage(stage, observation, this.#clock());
               if (fresh.status !== 'allowed') freshDenial = fresh;
-              if (stage === 'merge' && fresh.status === 'allowed' &&
-                fresh.requestHash !== decision.requestHash) throw new MergeBeforeWrite();
+              if (fresh.status === 'allowed' && fresh.requestHash !== decision.requestHash) {
+                changed = admissionChanges(context, observation, decision, fresh);
+                if (stage === 'merge') throw new MergeBeforeWrite();
+              }
               requireThat(
                 fresh.status === 'allowed' && fresh.requestHash === decision.requestHash,
                 'ADMISSION_CHANGED',
@@ -178,9 +216,10 @@ export class StageRuntime {
       }
       if (outcome.code === 'ADMISSION_FAILED' && admissionError) {
         const code = admissionError.code;
-        const changed = ['PAUSE_OBSERVATION_CHANGED', 'ADMISSION_CHANGED'];
+        const admissionCodes = ['PAUSE_OBSERVATION_CHANGED', 'ADMISSION_CHANGED'];
         return { schemaVersion: 1, stage, status: 'denied',
-          code: changed.includes(code) ? code : observationFailureCode(admissionError) };
+          code: admissionCodes.includes(code) ? code : observationFailureCode(admissionError),
+          ...(changed?.length ? { changedFields: changed } : {}) };
       }
       if (outcome.status !== 'completed') return { schemaVersion: 1, stage, ...outcome };
       const knownInterruption = result?.code === codexIdle.code ||
