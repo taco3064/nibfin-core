@@ -442,7 +442,15 @@ export function decideStage(stage, context, now = Date.now()) {
       }
     }
     const binding = evidenceBinding(context);
-    const fields = stageAdmissionFields(context, { stage, binding, artifacts });
+    let admissionArtifacts = artifacts;
+    if (stage === 'review-pr' && Object.hasOwn(context.ci, 'observedChecks')) {
+      // Keep the full observation in the receipt, but bind admission to CI proof.
+      const { observedChecks, ...proof } = context.ci;
+      admissionArtifacts = { ...artifacts, ciHash: digest(proof) };
+    }
+    const fields = stageAdmissionFields(context, {
+      stage, binding, artifacts: admissionArtifacts,
+    });
     const requestHash = digest(fields);
     return {
       schemaVersion: 1,

@@ -77,8 +77,12 @@ test('CI uses the same adopted protection and refuses ruleset drift', async () =
 test('native admission permits a PR with no configured branch protection', async () => {
   const f = fixture();
   f.data['/branches/main'].protected = false;
-  delete f.data['/branches/main/protection'];
-  delete f.data['/rules/branches/main'];
+  const get = f.reader.get;
+  f.reader.get = async path => {
+    if (path.endsWith('/protection'))
+      throw Object.assign(new Error('No classic protection'), { status: 404 });
+    return get(path);
+  };
   delete f.data['/pulls/7/reviews'];
   f.check.conclusion = 'failure';
   f.pr.mergeable_state = 'unstable';
@@ -103,6 +107,25 @@ test('native required CI failure still goes to Deliver for correction', async ()
     ...f.expected, nativePolicy: true,
   }, now), /CI_REQUIRED_CHECK_FAILED/);
 });
+
+test('native Review waits for a required check even if mergeability is clean',
+  async () => {
+    const f = fixture();
+    const expected = {
+      ...f.expected, nativePolicy: true, includeSources: true, workflows: [],
+    };
+    f.pr.mergeable_state = 'clean';
+    for (const status of ['queued', 'in_progress']) {
+      f.check.status = status;
+      f.check.conclusion = null;
+      await assert.rejects(readPullRequestCI(f.reader, expected, now), /CI_WAITING/);
+    }
+    f.check.status = 'completed';
+    f.check.conclusion = 'success';
+    const result = await readPullRequestCI(f.reader, expected, now);
+    assert.equal(result.checks[0].id, f.check.id);
+    assert.equal(result.sources[0].attempt, 1);
+  });
 
 test('Final Review receives the checked workflow and run attempt', async () => {
   const f = fixture();
