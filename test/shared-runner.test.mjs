@@ -64,12 +64,13 @@ test('host discovery exposes only the two adopted registration identities', () =
 test('the shared job keeps its native Runner and uses the slot gateway', () => {
   const executionRepository = 'example/execution';
   const host = {
-    memberId: 5,
+    memberId: 5, runnerUid: 91,
     repository: { runner: { repositoryId: 3, runnerId: 22 } },
     sharedRunner: {
       runner: { ...runner, repository: executionRepository },
       caller: { ...caller, repository: executionRepository },
       repositories: [1, 2, 3],
+      additionalRunner: { id: 43, uid: 92, name: 'slot-2', isolation: {} },
     },
   };
   const actual = sharedRunner(host, issue);
@@ -77,6 +78,9 @@ test('the shared job keeps its native Runner and uses the slot gateway', () => {
   assert.equal(actual.runner.runnerId, 42);
   assert.deepEqual(actual.runner.target, issue);
   assert.deepEqual(actual.runner.gateway, { repositoryId: 3, runnerId: 22 });
+  const second = sharedRunner(host, issue, 92);
+  assert.equal(second.runner.runnerId, 43);
+  assert.deepEqual(second.runner.gateway, { repositoryId: 3, runnerId: 43 });
   assert.throws(() => sharedRunner(host, { repositoryId: 4 }), {
     code: 'SHARED_RUNNER_NOT_ADOPTED',
   });
