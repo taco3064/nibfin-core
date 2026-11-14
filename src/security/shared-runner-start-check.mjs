@@ -1,4 +1,4 @@
-import { access, constants } from 'node:fs/promises';
+import { access, constants, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { boundedHostFile, hostFile } from '../host-adoption.mjs';
 import { rootOwnedPath } from '../host-paths.mjs';
@@ -29,6 +29,7 @@ async function check() {
     await requireDenied(path, constants.W_OK);
   }
   await requireDenied(host.stateRoot, constants.X_OK);
+  await checkWslMounts();
 }
 
 async function requireDenied(path, mode) {
@@ -40,10 +41,25 @@ async function requireDenied(path, mode) {
   requireThat(false, 'SHARED_RUNNER_CAN_ACCESS_CONTROLLER_RESOURCE');
 }
 
+async function checkWslMounts() {
+  const kernel = await readFile('/proc/sys/kernel/osrelease', 'utf8');
+  if (!/microsoft.*wsl2/i.test(kernel)) return;
+  for (const path of ['/init', '/mnt/c', '/mnt/wslg', '/run/WSL', '/dev/dxg']) {
+    for (const mode of [constants.R_OK, constants.X_OK, constants.W_OK]) {
+      try { await access(path, mode); }
+      catch (error) {
+        if (error.code === 'EACCES' || error.code === 'ENOENT') continue;
+        throw error;
+      }
+      requireThat(false, 'SHARED_RUNNER_WSL_MOUNT_ACCESSIBLE');
+    }
+  }
+}
+
 check().catch(error => {
   const safe = ['INVALID_SHARED_RUNNER_SLOT', 'SHARED_RUNNER_ACCOUNT_MISMATCH',
     'SHARED_RUNNER_REGISTRATION_MISMATCH',
-    'SHARED_RUNNER_CAN_ACCESS_CONTROLLER_RESOURCE'];
+    'SHARED_RUNNER_CAN_ACCESS_CONTROLLER_RESOURCE', 'SHARED_RUNNER_WSL_MOUNT_ACCESSIBLE'];
   process.stderr.write((safe.includes(error.code) ? error.code :
     'SHARED_RUNNER_START_CHECK_FAILED') + '\n');
   process.exitCode = 1;
