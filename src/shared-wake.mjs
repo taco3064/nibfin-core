@@ -1,5 +1,27 @@
 import { readFile } from 'node:fs/promises';
 import { isId, requireThat } from './identity.mjs';
+import { GitHubReader, repoPath } from './github-read.mjs';
+import { sharedWorkflowPath } from './shared-runner.mjs';
+
+async function sharedWakeDestination(env, fetcher) {
+  const configured = env.NIBFIN_SHARED_RUNNER_DESTINATION;
+  // Keep existing official installations working until they publish a destination.
+  if (!configured) return { repository: 'taco3064/nibfin-core', ref: 'main' };
+  let destination;
+  try { destination = JSON.parse(configured); }
+  catch { requireThat(false, 'INVALID_SHARED_WAKE_DESTINATION'); }
+  requireThat(isId(destination?.repositoryId), 'INVALID_SHARED_WAKE_DESTINATION');
+  const repository = destination.repository;
+  repoPath(repository);
+  const observed = await new GitHubReader(env.NIBFIN_WAKE_TOKEN, fetcher)
+    .repository(repository);
+  requireThat(observed.id === destination.repositoryId &&
+    observed.full_name === repository && observed.private === false &&
+    observed.archived === false && observed.disabled === false &&
+    typeof observed.default_branch === 'string' && observed.default_branch,
+    'SHARED_WAKE_DESTINATION_CHANGED');
+  return { repository, ref: observed.default_branch };
+}
 
 export async function forwardSharedWake(resolved, env, fetcher = fetch) {
   if (resolved.status !== 'resolved') return;
@@ -23,8 +45,10 @@ export async function forwardSharedWake(resolved, env, fetcher = fetch) {
     repository: { id: repository.id, full_name: repository.full_name },
     ...(label ? { label: { name: label.name } } : {}),
   };
-  const endpoint = 'https://api.github.com/repos/taco3064/nibfin-core/' +
-    'actions/workflows/shared-runner.yml/dispatches';
+  const { repository: executionRepo, ref } = await sharedWakeDestination(env, fetcher);
+  const workflow = sharedWorkflowPath.split('/').at(-1);
+  const endpoint = `https://api.github.com${repoPath(executionRepo)}/actions/workflows/` +
+    `${workflow}/dispatches`;
   const response = await fetcher(endpoint, {
     method: 'POST',
     redirect: 'error',
@@ -35,7 +59,7 @@ export async function forwardSharedWake(resolved, env, fetcher = fetch) {
       'Content-Type': 'application/json',
       'X-GitHub-Api-Version': '2026-03-10',
     },
-    body: JSON.stringify({ ref: 'main', inputs: {
+    body: JSON.stringify({ ref, inputs: {
       repository_id: String(repository.id),
       issue_number: resolved.issue_number,
       issue_id: issue.node_id,
@@ -46,7 +70,7 @@ export async function forwardSharedWake(resolved, env, fetcher = fetch) {
   requireThat(response.status === 200, `SHARED_WAKE_HTTP_${response.status}`);
   const result = await response.json();
   requireThat(isId(result.workflow_run_id) &&
-    result.html_url === 'https://github.com/taco3064/nibfin-core/actions/runs/' +
+    result.html_url === `https://github.com/${executionRepo}/actions/runs/` +
       result.workflow_run_id, 'SHARED_WAKE_DISPATCH_UNKNOWN');
   console.log(`Shared wake run ${result.workflow_run_id}`);
 }

@@ -41,6 +41,7 @@ jobs:
           NIBFIN_WAKE_ADOPTION: ${{ vars.NIBFIN_SHARED_RUNNER_POOL != 'true' && secrets.NIBFIN_WAKE_ADOPTION || '' }}
           NIBFIN_WAKE_TOKEN: ${{ secrets.NIBFIN_WAKE_TOKEN }}
           NIBFIN_SHARED_RUNNER_POOL: ${{ vars.NIBFIN_SHARED_RUNNER_POOL }}
+          NIBFIN_SHARED_RUNNER_DESTINATION: ${{ vars.NIBFIN_SHARED_RUNNER_DESTINATION }}
         run: node scripts/issue-ci.mjs
 
   dispatch:
