@@ -10,9 +10,11 @@ const path = '.github/workflows/shared-runner.yml';
 const commit = 'a'.repeat(40);
 const ref = 'refs/heads/main';
 const bytes = Buffer.from('pinned workflow\n');
+const guid = '428ab2ad-025d-5d24-88c4-0ec8a5338679';
 const binding = {
   repository: 'example/project', repositoryId: 10, memberId: 20, workflowId: 30,
   sourceCommit: commit, workflowBlob: gitBlob(bytes), jobName: 'shared-stage',
+  runnerId: 50, runnerName: 'slot-1',
 };
 
 function request(overrides = {}) {
@@ -23,6 +25,7 @@ function request(overrides = {}) {
     workflow_ref: `${binding.repository}/${path}@${ref}`, ...overrides,
   };
   return {
+    jobId: guid,
     jobDisplayName: binding.jobName,
     contextData: {
       github: { t: 2, d: Object.entries(values).map(([k, v]) => ({ k, v })) },
@@ -44,6 +47,16 @@ function provider() {
       head_repository: repository, actor: { id: 20 }, triggering_actor: { id: 20 },
     },
     [`${root}/actions/workflows/30`]: { id: 30, path, state: 'active' },
+    [`${root}/actions/runs/40/attempts/1/jobs?per_page=2`]: {
+      total_count: 1, jobs: [{ id: 60, run_id: 40, run_attempt: 1, head_sha: commit,
+        runner_id: 50, runner_name: 'slot-1', name: 'shared-stage',
+        status: 'in_progress' }],
+    },
+    [`${root}/check-runs/60`]: {
+      id: 60, name: 'shared-stage', head_sha: commit, external_id: guid,
+      app: { slug: 'github-actions' },
+      details_url: 'https://github.com/example/project/actions/runs/40/job/60',
+    },
     [`${root}/branches/main`]: { protected: true, commit: { sha: commit } },
     [`${root}/contents/${path}?ref=${commit}`]: {
       path, type: 'file', size: bytes.length, encoding: 'base64',
@@ -70,6 +83,19 @@ test('rejects a fork job or alternate Workflow before reading the provider', asy
   duplicate.contextData.github.d.push({ k: 'actor_id', v: '20' });
   assert.throws(() => sharedWorkerContext(duplicate, binding, ref),
     { code: 'SHARED_WORKER_WORKFLOW_DENIED' });
+});
+
+test('requires the native slot assignment and Worker job identifier', async () => {
+  const reader = provider();
+  const path = '/repos/example/project/actions/runs/40/attempts/1/jobs?per_page=2';
+  const job = reader.responses[path].jobs[0];
+  job.runner_id = 51;
+  await assert.rejects(admitSharedWorker(reader, request(), binding, ref, 20),
+    { code: 'SHARED_WORKER_JOB_NOT_ASSIGNED' });
+  job.runner_id = 50;
+  await assert.rejects(admitSharedWorker(reader, {
+    ...request(), jobId: '428ab2ad-025d-5d24-88c4-0ec8a5338678',
+  }, binding, ref, 20), { code: 'SHARED_WORKER_JOB_IDENTITY_MISMATCH' });
 });
 
 test('requires GitHub run identity and protected, unrevoked Workflow bytes', async () => {
