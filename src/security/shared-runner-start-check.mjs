@@ -31,7 +31,8 @@ async function check() {
 
 export async function checkSharedRunnerSlot(
   directory, expected, repository,
-  { checkAccess = true, group = checkAccess ? process.getgid() : undefined } = {},
+  { checkAccess = true, group = checkAccess ? process.getgid() : undefined,
+    uid = checkAccess ? process.getuid() : undefined } = {},
 ) {
   const dispatcher = join(directory, 'bin', 'Runner.Worker');
   const packaged = new URL('./shared-worker-dispatcher.sh', import.meta.url);
@@ -43,6 +44,11 @@ export async function checkSharedRunnerSlot(
     local.gitHubUrl === `https://github.com/${repository}` &&
     local.workFolder === '_work',
   'SHARED_RUNNER_REGISTRATION_MISMATCH');
+  const credentialPath = join(directory, '.credentials');
+  await rootOwnedPath(credentialPath);
+  const credential = JSON.parse((await boundedHostFile(credentialPath, 65536))
+    .replace(/^\uFEFF/, ''));
+  checkRegistrationEndpoints(local, credential);
   await rootOwnedPath(fileURLToPath(packaged));
   await rootOwnedPath('/usr/bin');
   const python = await realpath('/usr/bin/python3');
@@ -71,10 +77,38 @@ export async function checkSharedRunnerSlot(
       if (error.code !== 'ENOENT') throw error;
     })) await rootOwnedPath(path);
   }
+  for (const name of ['_work', '_diag']) {
+    const stat = await lstat(join(directory, name));
+    requireThat(stat.isDirectory() && (stat.mode & 0o777) === 0o700 &&
+      (uid === undefined || stat.uid === uid) &&
+      (group === undefined || stat.gid === group),
+    'SHARED_RUNNER_WORK_DIRECTORY_PERMISSIONS');
+  }
   requireThat(local.disableUpdate === true &&
     (await lstat(join(directory, 'bin', 'Runner.Worker.official'))).isFile() &&
     await boundedHostFile(dispatcher, 4096) === await readFile(packaged, 'utf8'),
   'SHARED_RUNNER_WORKER_ADMISSION_REQUIRED');
+}
+
+export function checkRegistrationEndpoints(settings, credential) {
+  const allows = (value, host, path) => {
+    if (typeof value !== 'string') return false;
+    const parsed = URL.parse(value);
+    return parsed && parsed.href === value && parsed.protocol === 'https:' &&
+      !parsed.username && !parsed.password && !parsed.port && !parsed.search &&
+      !parsed.hash && host.test(parsed.hostname) && path.test(parsed.pathname);
+  };
+  const pipeline = /^pipelinesghub[a-z0-9]+\.actions\.githubusercontent\.com$/;
+  const broker = /^broker\.actions\.githubusercontent\.com$/;
+  const oauth = /^tokenghub\.actions\.githubusercontent\.com$/;
+  const tokenPath = /^\/_apis\/oauth2\/token\/[A-Za-z0-9-]+$/;
+  const validOAuth = value => allows(value, oauth, tokenPath);
+  requireThat(allows(settings.serverUrl, pipeline, /^\/[A-Za-z0-9-]+\/?$/) &&
+    allows(settings.serverUrlV2, broker, /^\/$/) && settings.useV2Flow === true &&
+    credential?.scheme === 'OAuth' && validOAuth(credential.data?.authorizationUrl) &&
+    (credential.data.authorizationUrlV2 === undefined ||
+      validOAuth(credential.data.authorizationUrlV2)),
+  'UNTRUSTED_SHARED_RUNNER_PROVIDER_ENDPOINT');
 }
 
 async function verifyProgramTree(directory, root = directory) {
