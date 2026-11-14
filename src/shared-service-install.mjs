@@ -8,6 +8,7 @@ import { syncRecoveryDirectory } from './recovery-lock.mjs';
 import { sharedHostRegistrations } from './shared-host-inspect.mjs';
 import { verifyInstalledSource } from './source-package.mjs';
 import { checkSharedRunnerSlot } from './security/shared-runner-start-check.mjs';
+import { installSharedSlot } from './shared-slot-install.mjs';
 
 const templatePath = 'src/security/nibfin-shared-runner.service.template';
 const wslPath = 'src/security/runner-wsl-host.conf';
@@ -53,7 +54,7 @@ export async function writeSharedServiceTemplate(directory, content, inspect) {
   }
 }
 
-export async function installSharedServiceTemplate() {
+export async function installSharedServiceTemplate(sources = [], owner) {
   requireThat(process.platform === 'linux' && process.getuid() === 0,
     'SHARED_SERVICE_REQUIRES_HOST_ADMINISTRATOR');
   requireThat(coreRoot === '/opt/nibfin/core', 'SHARED_SERVICE_REQUIRES_INSTALLED_CORE');
@@ -69,7 +70,12 @@ export async function installSharedServiceTemplate() {
   const content = await boundedHostFile(template, 16384);
   const restrictions = wsl ? await boundedHostFile(profile, 16384) : '';
   await verifyInstalledSource(coreRoot, host.installation.pin);
+  requireThat(sources.length === 0 || sources.length === 2 && sources[0] !== sources[1],
+    'INVALID_SHARED_SLOT_INPUT');
+  const uids = [host.runnerUid, host.sharedRunner.additionalRunner.uid];
   for (const [index, runner] of runners.entries()) {
+    if (sources.length) await installSharedSlot(sources[index], index + 1,
+      owner, runner, repository, uids[index]);
     const directory = `/var/lib/nibfin/runners/slot-${index + 1}`;
     await checkSharedRunnerSlot(directory, runner, repository, { checkAccess: false });
   }
