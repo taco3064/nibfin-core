@@ -2,7 +2,6 @@ import { constants } from 'node:fs';
 import { chmod, lstat, mkdir, mkdtemp, open, readFile, rename, rm }
   from 'node:fs/promises';
 import { createHash } from 'node:crypto';
-import { pipeline } from 'node:stream/promises';
 import { isAbsolute, join, resolve } from 'node:path';
 import { command } from './process.mjs';
 import { rootOwnedPath } from './host-paths.mjs';
@@ -27,16 +26,19 @@ async function copyPrivateFile(path, destination, owner, limit, group, mode) {
     try {
       let size = 0;
       const hash = createHash('sha256');
-      const checked = async function* (from) {
-        for await (const chunk of from) {
-          size += chunk.length;
-          requireThat(size <= limit, 'UNTRUSTED_SHARED_SLOT_INPUT');
-          hash.update(chunk);
-          yield chunk;
+      const buffer = Buffer.allocUnsafe(256 * 1024);
+      while (true) {
+        const { bytesRead } = await input.read(buffer, 0, buffer.length, null);
+        if (bytesRead === 0) break;
+        size += bytesRead;
+        requireThat(size <= limit, 'UNTRUSTED_SHARED_SLOT_INPUT');
+        hash.update(buffer.subarray(0, bytesRead));
+        for (let offset = 0; offset < bytesRead;) {
+          const { bytesWritten } = await output.write(buffer, offset, bytesRead - offset);
+          requireThat(bytesWritten > 0, 'SHARED_SLOT_COPY_FAILED');
+          offset += bytesWritten;
         }
-      };
-      await pipeline(input.createReadStream({ autoClose: false }), checked,
-        output.createWriteStream({ autoClose: false }));
+      }
       requireThat(size === stat.size, 'UNTRUSTED_SHARED_SLOT_INPUT');
       await output.chown(0, group);
       await output.chmod(mode);
