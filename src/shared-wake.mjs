@@ -2,12 +2,14 @@ import { readFile } from 'node:fs/promises';
 import { gitBlob, isId, requireThat } from './identity.mjs';
 import { GitHubReader, repoPath } from './github-read.mjs';
 import { readPinnedFile } from './github-approval.mjs';
-import { sharedDestinationVariable, sharedWorkflowPath } from './shared-runner.mjs';
+import {
+  originalSharedRepository, sharedDestinationVariable, sharedWorkflowPath,
+} from './shared-runner.mjs';
 
 async function sharedWakeDestination(env, fetcher) {
   const configured = env[sharedDestinationVariable];
   // Keep existing official installations working until they publish a destination.
-  if (!configured) return { repository: 'taco3064/nibfin-core', ref: 'main' };
+  if (!configured) return { repository: originalSharedRepository, ref: 'main' };
   let destination;
   try { destination = JSON.parse(configured); }
   catch { requireThat(false, 'INVALID_SHARED_WAKE_DESTINATION'); }
