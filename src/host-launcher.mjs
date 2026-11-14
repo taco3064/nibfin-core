@@ -334,7 +334,9 @@ export async function launchStage(issueNumber, stage, env = process.env, runnerU
         proposal,
         globalInstructions,
         mcpJob,
-        jobVm: host.jobVm && { ...host.jobVm, stateRoot: root },
+        jobVm: host.jobVm && {
+          ...host.jobVm, stateRoot: root, pressureRoot: host.stateRoot,
+        },
         model: host.model,
         isolation: adopted.isolation,
         inspectWriter,

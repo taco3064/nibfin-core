@@ -1,6 +1,19 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { retryDelay, retrySharedRunner } from '../scripts/retry-shared-runner.mjs';
+import { writerPressureWait } from '../src/job-vm-pressure.mjs';
+
+test('Writer memory pressure retries only a settled Deliver continuation', () => {
+  const result = {
+    schemaVersion: 1, stage: 'continue', terminalStage: 'deliver', status: 'denied',
+    code: writerPressureWait, retrySettled: true, retryRun: 2, retryAttempt: 1,
+  };
+  assert.equal(retryDelay(JSON.stringify(result), 2, 1), 300_000);
+  assert.equal(retryDelay(JSON.stringify({ ...result, retrySettled: false }), 2, 1),
+    null);
+  assert.equal(retryDelay(JSON.stringify({ ...result, terminalStage: 'accept' }), 2, 1),
+    null);
+});
 
 const repository = { id: 1, full_name: 'taco3064/nibfin-core', default_branch: 'main' };
 const run = {

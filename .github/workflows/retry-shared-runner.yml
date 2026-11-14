@@ -30,7 +30,7 @@ jobs:
         with:
           node-version-file: .node-version
           package-manager-cache: false
-      - name: Resume only a settled transient read failure
+      - name: Resume after a settled transient Runner failure
         env:
           GH_READ_TOKEN: ${{ github.token }}
           GH_TOKEN: ${{ secrets.NIBFIN_WAKE_TOKEN }}
