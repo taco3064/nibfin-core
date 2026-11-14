@@ -245,7 +245,8 @@ export class StageRuntime {
       if (outcome.status !== 'completed') return { schemaVersion: 1, stage, ...outcome };
       const knownInterruption = result?.code === codexIdle.code ||
         Object.hasOwn(codexPreflightExits, result?.code) ||
-        jobVmExecutorFailures.includes(result?.code) || result?.code === writerPressureWait;
+        jobVmExecutorFailures.includes(result?.code) ||
+        result?.code === writerPressureWait;
       const code = result?.status === 'interrupted' && knownInterruption
         ? result.code : 'STAGE_REQUIRES_CORRECTION';
       return {

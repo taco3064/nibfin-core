@@ -11,7 +11,7 @@ const sample = (available, stalls = 0, blocks = 2) => writerCapacity(
   `Node 0, zone DMA32 10 2 3 4 5 6 7 ${blocks} 0\n`, 640,
 );
 
-test('WSL capacity keeps healthy concurrency and distinguishes pressure and fragmentation', () => {
+test('WSL capacity distinguishes healthy memory, pressure and fragmentation', () => {
   assert.equal(sample(2600).mode, 'parallel');
   assert.equal(sample(1300).mode, 'serial');
   assert.equal(sample(2600, 0, 0).mode, 'serial');

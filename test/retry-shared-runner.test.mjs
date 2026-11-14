@@ -9,7 +9,8 @@ test('Writer memory pressure retries only a settled Deliver continuation', () =>
     code: writerPressureWait, retrySettled: true, retryRun: 2, retryAttempt: 1,
   };
   assert.equal(retryDelay(JSON.stringify(result), 2, 1), 300_000);
-  assert.equal(retryDelay(JSON.stringify({ ...result, retrySettled: false }), 2, 1), null);
+  assert.equal(retryDelay(JSON.stringify({ ...result, retrySettled: false }), 2, 1),
+    null);
   assert.equal(retryDelay(JSON.stringify({ ...result, terminalStage: 'accept' }), 2, 1),
     null);
 });
