@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { sharedRepository, sharedRunner } from '../src/shared-runner.mjs';
+import { sharedRepository, sharedRunner, sharedSlotIsolation }
+  from '../src/shared-runner.mjs';
 import { readForwardedWake } from '../src/shared-wake.mjs';
 import {
   sharedHostRegistrations, sharedPeerIdentity,
@@ -92,6 +93,25 @@ test('a target repository must be an installed, unambiguous peer', async () => {
   await assert.rejects(sharedRepository(host, 3, async () => peer), {
     code: 'SHARED_REPOSITORY_NOT_ADOPTED',
   });
+});
+
+test('the new shared service uses a separate network and policy for each slot', () => {
+  const isolation = suffix => ({
+    kind: 'linux-rootful-docker-v1',
+    agent: { socket: '/run/docker.sock', network: 'network-' + suffix,
+      gatewayId: 'gateway-' + suffix, mcpPolicyDirectory: '/policy/' + suffix },
+  });
+  const first = isolation(1);
+  const second = isolation(2);
+  const host = { runnerUid: 90, repository: { isolation: first },
+    sharedRunner: { additionalRunner: { uid: 91, isolation: second } } };
+  assert.equal(sharedSlotIsolation(host, 90), first);
+  assert.equal(sharedSlotIsolation(host, 91), second);
+  second.agent.network = first.agent.network;
+  assert.throws(() => sharedSlotIsolation(host, 91),
+    { code: 'SHARED_RUNNER_SLOT_ISOLATION_CONFLICT' });
+  delete host.sharedRunner.additionalRunner.isolation;
+  assert.equal(sharedSlotIsolation(host, 91), first);
 });
 
 test('forwarded wake must identify the same live adopted repository and issue', () => {
