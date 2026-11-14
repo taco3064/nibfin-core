@@ -60,13 +60,15 @@ access to the execution repository and belongs in the Actions secret store.
 Existing official deployments without a destination retain their current Core
 route. Leave the pool variable unset when using a local registration.
 
-After a peer's pinned callers have landed on its protected default branch,
+After a peer's pinned callers have landed on its default branch,
 the local administrator can adopt that peer through the installed Core
 `adopt-shared-peer <repository> <repository-id> <action-commit>` command.
 It verifies the existing Controller identity still has repository admin
 permission and writes the peer binding through the existing host configuration.
 It preserves the pool identities and only returns the adopted repository and
 Runner IDs. Supply the repository's Wake credential before enabling dispatch.
+The execution repository's shared workflow retains the protected-branch
+requirement. A peer's delivery follows its own applicable GitHub merge policy.
 
 On Linux, installed Core's `inspect-shared-host` command reads the fixed
 administrator-owned host configuration and validates the installed package.
