@@ -53,6 +53,14 @@ For projects whose normal delivery requires a **substantive nonempty maintained 
 
 **Failed gate:** Return the existing runtime-supported blocked/decision outcome with the **specific invalid Issue clause, source evidence, work-type mismatch, or missing prerequisite** and the safe next owner (Scope Plan/Audit, separate authority decision or trusted recovery). Shape Author and Validator must **not** create sibling Issues, relabel, remove dependencies, rewrite Scope, publish a fake Shape or self-authorize de-enrollment. A general-purpose project that expressly uses a different lifecycle may adopt its valid completion form, but never claim compatibility with a code-backed self-delivery runtime when there is no meaningful maintained Candidate.
 
+Check planned paths against the installed delivery policy. If the authorized
+Issue requires a protected workflow change, identify the exact path and the
+authorized maintenance route. In a release gate, distinguish implementation
+checks such as rejecting an empty suite from live release readiness. Treat an
+empty registry as a blocker to release. Treat it as an implementation
+prerequisite only if the Issue needs an actual scenario to satisfy its own
+acceptance, and identify the maintained scenario producer in that case.
+
 ## Current authority, repository reality, and trust
 
 Read the **current authoritative product requirements** designated by the project (for example, its live Proposal or Product BR) for each invocation. Keep distinct:

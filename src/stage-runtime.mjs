@@ -148,6 +148,9 @@ export class StageRuntime {
                   };
                 }
                 if (stage === 'merge') throw new MergeBeforeWrite();
+                requireThat(stage !== 'review-pr' || !changed.length ||
+                  !changed.every(field => field === 'artifacts.ciHash' ||
+                    field.startsWith('ci.')), 'CI_CHANGED_DURING_READ');
               }
               requireThat(
                 fresh.status === 'allowed' && fresh.requestHash === decision.requestHash,
@@ -224,7 +227,9 @@ export class StageRuntime {
       if (pendingObservation(admissionError?.code) ||
         integrationRepairRequired(admissionError?.code)) {
         return { schemaVersion: 1, stage, code: admissionError.code,
-          status: pendingObservation(admissionError.code) ? 'pending' : 'denied' };
+          status: pendingObservation(admissionError.code) ? 'pending' : 'denied',
+          ...(changed?.length ? { changedFields: changed } : {}),
+          ...(checkObservationDiff ? { checkObservationDiff } : {}) };
       }
       if (outcome.code === 'ADMISSION_FAILED' && admissionError) {
         const code = admissionError.code;

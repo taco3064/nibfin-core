@@ -4,6 +4,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { StageRuntime } from '../src/stage-runtime.mjs';
+import { decideStage } from '../src/stages.mjs';
 import { stageHandlers } from '../src/stage-handlers.mjs';
 import { OperationJournal } from '../src/operation-journal.mjs';
 import { digest } from '../src/identity.mjs';
@@ -306,14 +307,15 @@ test('Review reports the changed CI field before it starts', async t => {
     schemaVersion: 1, stage: 'review-pr',
   });
   assert.deepEqual(result, {
-    schemaVersion: 1, stage: 'review-pr', status: 'denied',
-    code: 'ADMISSION_CHANGED', changedFields: ['artifacts.ciHash', 'ci.provenanceHash'],
+    schemaVersion: 1, stage: 'review-pr', status: 'pending',
+    code: 'CI_CHANGED_DURING_READ',
+    changedFields: ['artifacts.ciHash', 'ci.provenanceHash'],
   });
   assert.equal(f.performed(), 0);
   assert.equal(f.saved.length, 0);
 });
 
-test('Review reports both commit observations when the check list changes', async t => {
+test('Review retries proof drift and reports both commit observations', async t => {
   const f = await fixture(t);
   const context = stageFixture('review-pr');
   const snapshots = ['in_progress', 'completed'].map((status, index) => [{
@@ -329,16 +331,53 @@ test('Review reports both commit observations when the check list changes', asyn
     const value = structuredClone(context);
     value.checkObservations = snapshots[reads++];
     value.ci.observedChecks = value.checkObservations[0].checks;
+    if (reads === 2) value.ci.provenanceHash = 'b'.repeat(64);
     return value;
   };
   const result = await new StageRuntime(f.adapters).run({
     schemaVersion: 1, stage: 'review-pr',
   });
-  assert.equal(result.code, 'ADMISSION_CHANGED');
+  assert.equal(result.code, 'CI_CHANGED_DURING_READ');
   assert.deepEqual(result.checkObservationDiff, {
     before: snapshots[0], after: snapshots[1],
   });
   assert.equal(f.performed(), 0);
+});
+
+test('Review admission ignores changes to diagnostic checks', async () => {
+  const context = stageFixture('review-pr');
+  context.ci.observedChecks = [{ id: 99, status: 'queued' }];
+  let reads = 0;
+  let performed = false;
+  const runtime = new StageRuntime({
+    clock: () => now,
+    observe: async () => {
+      const value = structuredClone(context);
+      if (++reads === 2) value.ci.observedChecks[0].status = 'in_progress';
+      return value;
+    },
+    journal: {
+      run: async (request, { admit, perform, readBack }) => {
+        assert.equal(await admit(), request.bindingHash);
+        await perform();
+        await readBack();
+        return { status: 'completed' };
+      },
+    },
+    receipts: { append: async value => digest(value) },
+    handlers: {
+      'review-pr': {
+        perform: async () => { performed = true; },
+        readBack: async value => ({
+          outcome: 'approved', findings: [], references: ['test'],
+          artifacts: decideStage('review-pr', value, now).artifacts,
+        }),
+      },
+    },
+  });
+  const result = await runtime.run({ schemaVersion: 1, stage: 'review-pr' });
+  assert.equal(result.status, 'completed');
+  assert.equal(performed, true);
 });
 
 test('a rate-limited second admission waits before starting the role', async t => {

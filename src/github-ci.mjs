@@ -11,6 +11,7 @@ const pendingObservations = Object.freeze([
   'CI_BASE_CHANGED',
   'CI_CHANGED_DURING_READ',
   'CI_WAITING',
+  'CI_RERUN_OR_REVOCATION',
   'CI_REGISTRATION_PENDING',
   'PR_MERGEABILITY_PENDING',
 ]);
@@ -43,13 +44,13 @@ async function workflowBlob(reader, root, path, ref) {
 // Use GitHub's required check and its PR run. The protected base supplies the
 // current Workflow source so a Candidate cannot substitute its own CI recipe.
 async function nativeRequiredWorkflows(reader, branchPath, root, pr, workflows) {
-  if (pr.mergeable_state !== 'blocked' || !workflows.length) return [];
-  // This lookup only enables correction of recognizable CI failures.
-  // GitHub still decides whether the PR can merge.
+  // GitHub's mergeability can lag behind the check state.
   const [classic, rules] = await Promise.all([
-    reader.get(branchPath + '/protection').catch(() => null),
-    reader.list(root + '/rules/branches/' + encodeURIComponent(pr.base.ref))
-      .catch(() => []),
+    reader.get(branchPath + '/protection').catch(error => {
+      if (error.status === 404) return null;
+      throw error;
+    }),
+    reader.list(root + '/rules/branches/' + encodeURIComponent(pr.base.ref)),
   ]);
   const checks = [
     ...(classic?.required_status_checks?.checks ?? []),
@@ -58,9 +59,15 @@ async function nativeRequiredWorkflows(reader, branchPath, root, pr, workflows) 
         context: check.context, app_id: check.integration_id,
       }))),
   ];
-  return workflows.filter(workflow => checks.some(check =>
-    check.context === workflow.context &&
-    (check.app_id == null || check.app_id === -1 || check.app_id === workflow.appId)));
+  const required = new Map();
+  for (const { context, app_id: appId } of checks) {
+    const pinned = workflows.find(workflow => workflow.context === context &&
+      (appId == null || appId === -1 || appId === workflow.appId));
+    // Discover the workflow for native, app-bound GitHub Actions requirements.
+    const workflow = pinned ?? (appId === 15368 ? { context, appId } : null);
+    if (workflow) required.set(`${context}:${workflow.appId}`, workflow);
+  }
+  return [...required.values()];
 }
 
 export async function readPullRequestCI(reader, expected, now = Date.now(), observed) {
@@ -247,6 +254,11 @@ export async function readPullRequestCI(reader, expected, now = Date.now(), obse
       requireThat(runs.length === 1, 'AMBIGUOUS_CHECK_RUN_SOURCE');
       const run = runs[0];
       if (run.event !== 'pull_request') continue;
+      const workflowId = pin.workflowId ?? run.workflow_id;
+      const path = pin.path ?? run.path;
+      requireThat(isId(workflowId) &&
+        /^\.github\/workflows\/[A-Za-z0-9_.-]+\.ya?ml$/.test(path),
+      'CI_WORKFLOW_SOURCE_UNAVAILABLE');
       const failed = ['failure', 'timed_out'].includes(check.conclusion);
       const checkPending =
         ['queued', 'in_progress', 'waiting', 'pending'].includes(check.status) &&
@@ -257,21 +269,20 @@ export async function readPullRequestCI(reader, expected, now = Date.now(), obse
         run.repository?.id === expected.repositoryId &&
         run.head_repository?.id === expected.repositoryId &&
         run.head_sha === expected.head &&
-        run.workflow_id === pin.workflowId &&
-        run.path === pin.path &&
+        run.workflow_id === workflowId &&
+        run.path === path &&
         run.check_suite_id === check.check_suite.id &&
-        ['queued', 'in_progress', 'waiting', 'pending'].includes(run.status) &&
         check.head_sha === (onMerge.length ? previewSha : expected.head) &&
-        run.conclusion === null &&
-        (checkPending || checkFinished)
+        (checkPending || checkFinished && run.conclusion === null &&
+          ['queued', 'in_progress', 'waiting', 'pending'].includes(run.status))
       )
         requireThat(false, 'CI_WAITING');
       requireThat(
         run.repository?.id === expected.repositoryId &&
           run.head_repository?.id === expected.repositoryId &&
           run.head_sha === expected.head &&
-          run.workflow_id === pin.workflowId &&
-          run.path === pin.path &&
+          run.workflow_id === workflowId &&
+          run.path === path &&
           run.check_suite_id === check.check_suite.id &&
           isId(run.id) &&
           isId(run.run_attempt) &&
@@ -317,8 +328,8 @@ export async function readPullRequestCI(reader, expected, now = Date.now(), obse
         'UNTRUSTED_CI_JOB',
       );
       const [baseBlob, headBlob] = await Promise.all([
-        workflowBlob(reader, root, pin.path, expected.base),
-        workflowBlob(reader, root, pin.path, expected.head),
+        workflowBlob(reader, root, path, expected.base),
+        workflowBlob(reader, root, path, expected.head),
       ]);
       requireThat(baseBlob === headBlob, 'CI_WORKFLOW_CHANGED_BY_PR');
       const actualSha = check.head_sha;
@@ -350,7 +361,8 @@ export async function readPullRequestCI(reader, expected, now = Date.now(), obse
         runId: run.id,
         attempt: run.run_attempt,
         jobId: job.id,
-        workflowId: pin.workflowId,
+        workflowId,
+        path,
         blob: baseBlob,
       });
     }
@@ -389,7 +401,6 @@ export async function readPullRequestCI(reader, expected, now = Date.now(), obse
       sources: sources.map((source, index) => ({
         ...source,
         name: workflows[index].context,
-        path: workflows[index].path,
       })),
       ...(nativePolicy ? { observedChecks: [...headChecks, ...mergeChecks].map(check => ({
         id: check.id, name: check.name, status: check.status,
