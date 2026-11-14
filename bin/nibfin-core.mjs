@@ -33,8 +33,8 @@ async function main(args) {
   if (command === 'contract' && values.length === 0) return consumerContract;
   if (command === 'inspect-shared-host' && values.length === 0)
     return inspectSharedHost();
-  if (command === 'install-shared-service-template' && values.length === 0)
-    return installSharedServiceTemplate();
+  if (command === 'install-shared-service-template' && [0, 3].includes(values.length))
+    return installSharedServiceTemplate(values.slice(1), Number(values[0]));
   if (command === 'adopt-shared-peer' && values.length === 3)
     return adoptSharedPeer(values[0], Number(values[1]), values[2]);
   if (command === 'export-mcp' && values.length === 5) {
@@ -49,6 +49,7 @@ async function main(args) {
       commands: [
         'contract',
         'inspect-shared-host',
+        'install-shared-service-template',
         'adopt-shared-peer <repository> <repository-id> <action-commit>',
         'pack <repository> <commit> <new-output-directory>',
         'verify <installation> <approved-pin.json>',

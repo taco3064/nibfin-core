@@ -30,7 +30,8 @@ async function check() {
 }
 
 export async function checkSharedRunnerSlot(
-  directory, expected, repository, { checkAccess = true } = {},
+  directory, expected, repository,
+  { checkAccess = true, group = checkAccess ? process.getgid() : undefined } = {},
 ) {
   const dispatcher = join(directory, 'bin', 'Runner.Worker');
   const packaged = new URL('./shared-worker-dispatcher.sh', import.meta.url);
@@ -58,7 +59,7 @@ export async function checkSharedRunnerSlot(
     await rootOwnedPath(path);
     const stat = await lstat(path);
     requireThat(stat.isFile() && stat.nlink === 1 &&
-      (!checkAccess || stat.gid === process.getgid()) &&
+      (group === undefined || stat.gid === group) &&
       (stat.mode & 0o777) === 0o640,
       'SHARED_RUNNER_CREDENTIAL_PERMISSIONS');
     if (checkAccess) await access(path, constants.R_OK);
