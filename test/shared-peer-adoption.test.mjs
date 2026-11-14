@@ -17,17 +17,9 @@ function fixture() {
     [root, { id: 123, full_name: name, private: false, disabled: false,
       archived: false, default_branch: 'main' }],
     ['/user', { id: memberId, type: 'User', login: 'owner' }],
-    [branch, { protected: true, commit: { sha: head } }],
+    [branch, { name: 'main', protected: false, commit: { sha: head } }],
     [root + '/collaborators/owner/permission', { permission: 'admin',
       user: { id: memberId } }],
-    [branch + '/protection', {
-      enforce_admins: { enabled: true }, allow_force_pushes: { enabled: false },
-      allow_deletions: { enabled: false }, required_pull_request_reviews: {
-        require_code_owner_reviews: false, required_approving_review_count: 0,
-        require_last_push_approval: false,
-      }, required_status_checks: { strict: true, contexts: ['verify'],
-        checks: [{ context: 'verify', app_id: 15368 }] },
-    }],
   ]);
   for (const [file, kind, id] of [
     ['nibfin-issue.yml', 'issue', 11], ['nibfin-wake.yml', 'action-dispatch', 22],
@@ -47,7 +39,7 @@ function fixture() {
   } };
 }
 
-test('peer adoption binds protected caller bytes to the existing Runner', async () => {
+test('peer adoption verifies callers on an unprotected target branch', async () => {
   const reader = fixture();
   const observed = await observePeer(reader, name, 123, memberId, source, actionCommit);
   const host = { memberId, uid: 500, stateRoot: '/state', tokenFile: '/private/token',

@@ -6,7 +6,6 @@ import { rootOwnedPath } from './host-paths.mjs';
 import { inspectSharedHost, sharedHostRegistrations } from './shared-host-inspect.mjs';
 import { GitHubReader, repoPath } from './github-read.mjs';
 import { callerRecipe } from './caller-recipes.mjs';
-import { checkProtection } from './github-protection.mjs';
 import { gitBlob, isId, isSha, digest, requireThat } from './identity.mjs';
 import { syncRecoveryDirectory } from './recovery-lock.mjs';
 import { verifyInstalledSource } from './source-package.mjs';
@@ -27,16 +26,15 @@ export async function observePeer(reader, name, id, memberId, source, actionComm
     /^[A-Za-z0-9-]+$/.test(actor.login ?? ''),
   'PEER_INSTALLATION_IDENTITY_CHANGED');
   const branchPath = `${root}/branches/${encodeURIComponent(repo.default_branch)}`;
-  const [branch, permission, protection] = await Promise.all([
+  const [branch, permission] = await Promise.all([
     reader.get(branchPath),
     reader.get(`${root}/collaborators/${actor.login}/permission`),
-    reader.get(`${branchPath}/protection`),
   ]);
   const head = branch.commit?.sha;
-  requireThat(branch.protected === true && isSha(head), 'PEER_BRANCH_UNPROTECTED');
+  requireThat(branch.name === repo.default_branch && isSha(head),
+    'PEER_DEFAULT_BRANCH_UNAVAILABLE');
   requireThat(permission?.user?.id === memberId && permission.permission === 'admin',
     'PEER_INSTALLATION_ADMIN_REQUIRED');
-  checkProtection(protection);
   const workflow = async (path, recipe) => {
     const [actual, file] = await Promise.all([
       reader.get(`${root}/actions/workflows/${path.split('/').at(-1)}`),
