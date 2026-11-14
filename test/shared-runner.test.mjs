@@ -2,6 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { sharedRepository, sharedRunner } from '../src/shared-runner.mjs';
 import { readForwardedWake } from '../src/shared-wake.mjs';
+import { sharedHostRegistrations } from '../src/shared-host-inspect.mjs';
+import { coreRoot } from '../src/host-adoption.mjs';
 
 const central = 'taco3064/nibfin-core';
 const cli = 'taco3064/gh-nibfin';
@@ -15,6 +17,31 @@ const runner = {
   workflowPath: '.github/workflows/shared-runner.yml',
   jobName: 'shared-stage',
 };
+
+test('host discovery exposes only the two adopted registration identities', () => {
+  const host = {
+    schemaVersion: 1, kind: 'single-host-linux-v1', uid: 90, runnerUid: 91,
+    memberId: 5, installation: { directory: coreRoot },
+    tokenFile: '/private/token',
+    repository: {
+      approval: { repositoryId: 1 },
+      runner,
+      isolation: { kind: 'linux-rootful-docker-v1' },
+    },
+    sharedRunner: {
+      runner: { ...runner, runnerName: 'slot-1' }, caller, repositories: [1],
+      additionalRunner: { uid: 92, id: 43, name: 'slot-2' },
+    },
+  };
+  assert.deepEqual(sharedHostRegistrations(host), {
+    schemaVersion: 1, repository: central, repositoryId: 1, memberId: 5,
+    runners: [{ id: 42, name: 'slot-1' }, { id: 43, name: 'slot-2' }],
+  });
+  host.sharedRunner.additionalRunner.id = 42;
+  assert.throws(() => sharedHostRegistrations(host), {
+    code: 'SHARED_RUNNER_NOT_ADOPTED',
+  });
+});
 
 test('the shared job keeps its native Runner and uses the slot gateway', () => {
   const executionRepository = 'example/execution';
