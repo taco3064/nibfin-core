@@ -18,10 +18,38 @@ Scope turns **specific, approved product outcomes** into an owned, appropriately
 1. **Actual development:** Name the observable product deficiency and the **necessary maintained source outcome** (code, meaningful regression tests, configuration, workflow, packaging, or actual product documentation). Identify the owning repository and likely affected surface. A test-only change qualifies **only when it is itself necessary maintained regression/contract coverage**, not a pretext to record an external verification result. Product documents qualify when the deliverable is real maintained documentation, not a ceremonial evidence report.
 2. **No verification/release masquerade:** Distinguish implementation and its routine tests from standalone E2E/security audit, incident diagnosis, live Runner/OS proof, formal Release/Marketplace publication, asset read-back, deployment approval, self-hosting proof, or support certification. These have named accountable owners **within existing acceptance, CI, release, or provider workflows**, without a new self-delivery Issue or execution-enrollment metadata. An ordinary provider tracking Issue may exist outside that lifecycle where authorized; its presence is not execution eligibility.
 3. **Grounded route and prerequisites:** Inspect existing implementation and official provider capabilities before writing **"reuse existing"**, **"already supported"**, or **"automatically recoverable"**. Name the concrete current interface/provider source and why it suffices. If it does **not** exist, either explicitly scope a **needed new feature with an approved feasible route and measurable code outcome**, or return the precise affected product decision for authorized replanning. Do not make an absent capability both a prerequisite and the proposed deliverable, or insert a research Issue to conceal the gap.
-4. **Supported completion:** Check the **installed** delivery runtime's Candidate and stage rules, not only aspirational product policy. Demonstrate that the proposed meaningful change and associated checks can complete through that runtime. If a valid development task needs a new delivery-engine capability, assign the engine change to a separately authorized implementation boundary; do not make the dependent Issue try to implement the gate needed to start itself. Genuine unresolved safety conditions remain blocked/Pending.
+4. **Supported completion:** Apply the delivery-route check below to the **installed** runtime's Candidate and stage rules. Confirm that the proposed maintained change and its acceptance checks can complete through the selected route. If work needs a new delivery-engine capability, assign that capability to separately authorized implementation work before the dependent Issue needs it.
 5. **No accidental execution grant:** A draft, normal tracking Issue, verification ledger, release checklist, label, or native dependency is not automatically a deliverable or a work grant. Publish only eligible implementation Issues into a code-backed lifecycle, using actual authorized metadata and a current runtime read-back. When correcting existing protected work, follow its separate lifecycle-safe reapproval, invalidation and recovery rules; do not use ordinary Scope Publish to rewrite active execution.
 
 Record the classification for **every proposed work item**, including rejected candidates, with an explicit outcome: `IMPLEMENTATION`, `ACCEPTANCE/VERIFICATION`, `RELEASE/DEPLOYMENT`, `INVESTIGATION/DECISION`, or `ALREADY SATISFIED`. These are **planning categories, not provider labels, runtime result enums or a new state system**. Only `IMPLEMENTATION` may be published into a code-backed self-delivery lifecycle. If any proposed Issue cannot pass the five checks, the affected bound Plan is **not `PLAN_READY`** for that enrollment; do not fix it by fabricating a Candidate. Preserve the real verification/release obligation in the existing accountable stage so it does not disappear.
+
+### Delivery-route check
+
+- **Trace the changed paths and operations.** For each proposed Issue, identify
+  the expected files or path patterns and required operations, including
+  inherited writes and checks. Compare them with the target repository's
+  effective Candidate restrictions, installed stage permissions and provider
+  protections. Cite the current rule and give the responsible actor and route
+  for each required protected change.
+- **Resolve delivery ownership before enrollment.** A task that needs a
+  protected workflow, ownership rule or other enforcement change belongs on an
+  authorized maintenance route when the installed runtime excludes that path.
+  Separate ordinary code or tests only when the remaining Issue is independently
+  useful and can complete on its own. If an essential route cannot be verified,
+  keep the affected work out of self-delivery and record the exact path or
+  operation, missing evidence, and next responsible owner.
+- **Trace completion to a runnable producer.** For a release gate, identify
+  who supplies each mandatory scenario, the entry point that runs it, and when
+  its result is needed. A report over an empty registry supplies no runnable
+  scenario. Testing that an empty suite denies release can complete a gate
+  implementation. Require existing scenarios for implementation only when its
+  own acceptance needs them. Track later live proof at the actual release gate.
+
+Record the resolved route and its evidence in the raw Issue or the public-safe
+handoff. In Publish, refresh this check before the first write. If the approved
+route or planned writes no longer fit the installed policy, return
+`REPLAN_REQUIRED` for the affected manifest. In Audit, identify the specific
+misrouted work and recommend the authorized correction.
 
 ## Modes, authority and boundaries
 
@@ -60,15 +88,6 @@ For every material required interface, artifact, release or evidence obligation,
 
 - **A verification/release milestone is not automatically a native implementation dependency.** An implementation consumer may require a truly available released artifact or mandated proof, but trace that need to the **real version, official release, existing CI/acceptance or provider result** and its lawful owner. Do not add a `Blocked by` edge to an evidence-only tracker purely to preserve the planning graph. When removing an improperly enrolled tracker, **re-evaluate each downstream native edge separately** through the authorized mutation/recovery path; neither blindly delete an edge nor treat the tracker as delivered.
 - Before `PLAN_READY`, inspect every **proposed self-delivery Issue** for meaningful maintained change, grounded existing-interface assumptions and an actually compatible installed runtime. Record `NOT SELF-DELIVERY` for any verification, release, experiment or administrative task rather than trying to shoehorn it into a PR/Candidate.
-
-- Compare planned changed paths against the installed delivery policy before
-  assigning the delivery route. Route changes to protected workflows or other
-  enforcement paths through authorized maintenance. Assign ordinary code and
-  tests to self-delivery only where they have an independently useful outcome.
-  For a release gate, identify the maintained producers of the mandatory live
-  scenarios. A coverage report alone does not supply runnable scenarios. State
-  which scenarios are needed to enable release and which empty-suite or failure
-  behaviors the implementation can verify before live execution.
 
 - A hard edge is justified only by the **specific not-yet-satisfied output or policy-required proof** the downstream work cannot begin or finish without, including source maturity and availability. It is not a roadmap priority or preference to serialize. Examine direct **and transitive** dependencies; do not make an upstream module wait for real E2E proof generated only after its consumers exist.
 - Validate stable identities, missing/external predecessors, cycles, consumer/source maturity, issue-provider native-relationship support, and actual installed execution policy's recognized completion proofs. For an empty project's planned graph, ensure **exactly one minimal bootstrap root** and a direct/transitive dependency path from every other Issue in that project to it; prevent competing initialization work without turning the post-bootstrap project into a global serial chain. For an already initialized project, do not invent a root to satisfy this check. Graph membership in a plan is not runtime eligibility. Evaluate every suspected transitive/redundant edge **individually** for independent contractual/policy necessity; do not bulk-delete by count. Identify independently parallelizable post-bootstrap work and semantic artifact-order cycles.
