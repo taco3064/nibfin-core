@@ -4,6 +4,7 @@ import { digest, isDigest, requireThat } from './identity.mjs';
 import { enforcementPaths, equivalentCandidate } from './candidate-evidence.mjs';
 import { integrationRepairRequired, pendingCIObservation } from './github-ci.mjs';
 import { codexIdle } from './codex-bootstrap.mjs';
+import { retryableWriterPressure } from './job-vm-pressure.mjs';
 import { requiredCheckFailed } from './ci-recovery.mjs';
 import {
   githubReadDelay, githubReadWaiting, retryGitHubObservation,
@@ -20,7 +21,9 @@ async function stoppedAgentCanRestart(store, stage, receipt) {
   if (!/^evidence:[a-f0-9]{64}$/.test(reference)) return false;
   const proof = await store.get(reference.slice('evidence:'.length)).catch(() => null);
   return proof?.executionId === receipt.execution.id &&
-    isDigest(proof.terminationHash) && proof.code === codexIdle.code;
+    isDigest(proof.terminationHash) &&
+    (proof.code === codexIdle.code ||
+      stage === 'deliver' && retryableWriterPressure(proof.code));
 }
 
 async function reportedReceipt(store, stage, result) {
