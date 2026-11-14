@@ -25,8 +25,22 @@ An identical existing unit is accepted and a conflicting unit is refused.
 This step writes the unit file. Service activation is a separate operation.
 On WSL 2, the installer includes the packaged host mount restrictions in the
 unit it writes.
-Enable a slot only after verifying the registered Runner, the Controller relay,
-the adopted isolation profile, and the public Workflow admission boundary.
+Before enabling either slot, verify the official Runner archive and register
+with automatic updates disabled. An administrator must protect the slot root,
+registration settings, program tree and service entry from Runner-account writes.
+Keep the official `bin/Runner.Worker` beside its assemblies as
+`bin/Runner.Worker.official` and install the packaged
+`src/security/shared-worker-dispatcher.sh` as `bin/Runner.Worker`. The configured
+Worker must remain anchored to the verified archive when replacing the Runner.
+The slot service refuses startup if this protected layout is missing.
+
+The dispatcher checks the authenticated Listener message against the adopted
+caller and reads the actual GitHub run, branch and Workflow source before
+launching the official Worker. After it launches the Worker, the installed Core
+still checks OIDC, the assigned Runner and the target repository. Do not enable a
+slot until its Controller relay, isolation and real positive and negative
+Workflow admission have been verified. GitHub's job-started hook runs after
+actions are prepared and is not an alternative to this check.
 
 After the shared workflow and host configuration are live, set the
 `NIBFIN_SHARED_RUNNER_POOL` Actions variable to `true` in each participating
