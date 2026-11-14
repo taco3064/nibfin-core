@@ -4,7 +4,6 @@ import { rootOwnedPath } from '../host-paths.mjs';
 import { requireThat } from '../identity.mjs';
 import { sharedRunner } from '../shared-runner.mjs';
 import { admitSharedWorker } from './shared-worker-admission.mjs';
-import { relaySharedWorker } from './shared-worker-relay.mjs';
 
 const slots = ['/var/lib/nibfin/runners/slot-1', '/var/lib/nibfin/runners/slot-2'];
 
@@ -17,21 +16,38 @@ async function main() {
   requireThat(process.cwd() === join(slot, 'bin'), 'SHARED_WORKER_SLOT_MISMATCH');
   const worker = join(slot, 'bin', 'Runner.Worker.official');
   await rootOwnedPath(worker);
-  const reader = { get: async path => {
+  const read = token => ({ get: async path => {
     const res = await fetch(`https://api.github.com${path}`, {
       redirect: 'error',
       signal: AbortSignal.timeout(10000),
-      headers: { 'X-GitHub-Api-Version': '2022-11-28' },
+      headers: {
+        'X-GitHub-Api-Version': '2022-11-28',
+        Authorization: `Bearer ${token}`,
+      },
     });
     requireThat(res.ok, 'SHARED_WORKER_PROVIDER_UNAVAILABLE');
     return res.json();
-  } };
-  return relaySharedWorker(process.argv.slice(2), worker,
-    message => admitSharedWorker(reader, message, runner, caller.ref, caller.ownerId));
+  } });
+  const chunks = [];
+  let size = 0;
+  for await (const chunk of process.stdin) {
+    size += chunk.length;
+    requireThat(size <= 50_000_000, 'SHARED_WORKER_FRAME_INVALID');
+    chunks.push(chunk);
+  }
+  const input = new TextDecoder('utf-16le', { fatal: true });
+  const message = JSON.parse(input.decode(Buffer.concat(chunks)));
+  const credential = message?.variables?.['system.github.token'];
+  requireThat(credential?.isSecret === true &&
+    typeof credential.value === 'string' &&
+    /^[A-Za-z0-9_]{20,512}$/.test(credential.value),
+  'SHARED_WORKER_READ_CREDENTIAL_UNAVAILABLE');
+  await admitSharedWorker(read(credential.value), message, runner, caller.ref,
+    caller.ownerId);
 }
 
 try {
-  process.exitCode = await main();
+  await main();
 } catch {
   process.stderr.write('Nibfin did not admit the Runner job.\n');
   process.exitCode = 1;

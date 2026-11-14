@@ -28,6 +28,9 @@ unit it writes.
 Before enabling either slot, verify the official Runner archive and register
 with automatic updates disabled. An administrator must protect the slot root,
 registration settings, program tree and service entry from Runner-account writes.
+Keep new registration credentials root-owned and readable only by their
+respective slot groups. Retire old registrations and settle old processes
+before reusing a host that allowed writes to the Runner installation.
 Keep the official `bin/Runner.Worker` beside its assemblies as
 `bin/Runner.Worker.official` and install the packaged
 `src/security/shared-worker-dispatcher.sh` as `bin/Runner.Worker`. The configured
@@ -36,11 +39,14 @@ The slot service refuses startup if this protected layout is missing.
 
 The dispatcher checks the authenticated Listener message against the adopted
 caller and reads the actual GitHub run, branch and Workflow source before
-launching the official Worker. After it launches the Worker, the installed Core
+launching the official Worker. The dispatcher replaces itself with Worker so
+the Listener can still cancel the exact process it started. After that, Core
 still checks OIDC, the assigned Runner and the target repository. Do not enable a
 slot until its Controller relay, isolation and real positive and negative
 Workflow admission have been verified. GitHub's job-started hook runs after
 actions are prepared and is not an alternative to this check.
+These read-only API requests use the approved Workflow's per-Job token. The
+dispatcher never receives the Controller credential or the Wake secret.
 
 After the shared workflow and host configuration are live, set the
 `NIBFIN_SHARED_RUNNER_POOL` Actions variable to `true` in each participating

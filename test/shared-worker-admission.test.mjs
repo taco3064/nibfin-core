@@ -3,7 +3,6 @@ import { test } from 'node:test';
 import { gitBlob } from '../src/identity.mjs';
 import { admitSharedWorker, sharedWorkerContext }
   from '../src/security/shared-worker-admission.mjs';
-import { readWorkerFrame } from '../src/security/shared-worker-frame.mjs';
 
 const path = '.github/workflows/shared-runner.yml';
 const commit = 'a'.repeat(40);
@@ -83,25 +82,4 @@ test('requires GitHub run identity and protected, unrevoked Workflow bytes', asy
     'disabled_manually';
   await assert.rejects(admitSharedWorker(reader, request(), binding, ref, 20),
     { code: 'SHARED_WORKER_PROVIDER_DENIED' });
-});
-
-test('reads the first message and preserves later bytes for cancellation', async () => {
-  const body = Buffer.from(JSON.stringify(request()), 'utf16le');
-  const header = Buffer.alloc(8);
-  header.writeInt32LE(1, 0);
-  header.writeInt32LE(body.length, 4);
-  const cancellation = Buffer.from([2, 0, 0, 0, 0, 0, 0, 0]);
-  const input = Buffer.concat([header, body, cancellation]);
-  let offset = 0;
-  const source = {
-    read: async (buffer, start, size) => {
-      const bytesRead = input.copy(buffer, start, offset, offset + Math.min(size, 3));
-      offset += bytesRead;
-      return { bytesRead };
-    },
-  };
-  const parsed = await readWorkerFrame(source);
-  assert.deepEqual(parsed.message, request());
-  assert.deepEqual(input.subarray(offset), cancellation);
-  await assert.rejects(readWorkerFrame(source), { code: 'SHARED_WORKER_FRAME_INVALID' });
 });
