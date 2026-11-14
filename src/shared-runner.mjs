@@ -36,7 +36,12 @@ export function sharedRunner(host, target, runnerUid = host.runnerUid) {
     'SHARED_RUNNER_NOT_ADOPTED');
     selected = { ...runner, runnerId: additional.id, runnerName: additional.name };
   }
-  return { runner: { ...selected, target, gateway: { repositoryId, runnerId } }, caller };
+  const gatewayRunnerId = runnerUid !== host.runnerUid &&
+    config.additionalRunner?.isolation ? selected.runnerId : runnerId;
+  return {
+    runner: { ...selected, target, gateway: { repositoryId, runnerId: gatewayRunnerId } },
+    caller,
+  };
 }
 
 // The GitHub registration and the local isolation are distinct slot bindings.
