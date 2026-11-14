@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { test } from 'node:test';
 import { gitBlob } from '../src/identity.mjs';
 import { admitSharedWorker, sharedWorkerContext }
@@ -82,4 +84,15 @@ test('requires GitHub run identity and protected, unrevoked Workflow bytes', asy
     'disabled_manually';
   await assert.rejects(admitSharedWorker(reader, request(), binding, ref, 20),
     { code: 'SHARED_WORKER_PROVIDER_DENIED' });
+});
+
+test('the Linux dispatcher preserves Worker PID and refuses queued cancellation', {
+  skip: process.platform !== 'linux',
+}, () => {
+  const dispatcher = new URL('../src/security/shared-worker-dispatch.py', import.meta.url);
+  const probe = new URL('./shared-worker-process.py', import.meta.url);
+  const result = spawnSync('/usr/bin/python3', [
+    '-I', fileURLToPath(probe), fileURLToPath(dispatcher),
+  ], { timeout: 15000, encoding: 'utf8' });
+  assert.equal(result.status, 0, result.error?.message ?? result.stderr);
 });
