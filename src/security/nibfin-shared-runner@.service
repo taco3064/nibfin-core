@@ -1,0 +1,18 @@
+[Unit]
+Description=Nibfin shared GitHub Actions Runner slot %i
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=nibfin-runner-%i
+Group=nibfin-runner-%i
+WorkingDirectory=/var/lib/nibfin/runners/slot-%i
+ExecStart=/var/lib/nibfin/runners/slot-%i/bin/runsvc.sh
+UMask=0077
+PrivateTmp=yes
+KillMode=control-group
+TimeoutStopSec=120
+
+[Install]
+WantedBy=multi-user.target

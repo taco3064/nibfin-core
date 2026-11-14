@@ -14,6 +14,14 @@ Set `sharedRunner.repositories` to the adopted repository IDs and add the
 other repositories' host files to `wakePeerFiles`. All adopted configurations
 must use the same controller identity, state directory and Core installation.
 
+For new systemd installations, the packaged
+`src/security/nibfin-shared-runner@.service` defines slot instances `1` and
+`2`. The two dedicated accounts are `nibfin-runner-1` and `nibfin-runner-2`
+and each instance uses its own `/var/lib/nibfin/runners/slot-<number>` directory.
+Install the unit as root only after preparing those accounts and directories.
+Enable a slot only after verifying the registered Runner, the Controller relay,
+the adopted isolation profile, and the public Workflow admission boundary.
+
 After the shared workflow and host configuration are live, set the
 `NIBFIN_SHARED_RUNNER_POOL` Actions variable to `true` in each participating
 repository. For a user-managed execution repository, set the administrator
