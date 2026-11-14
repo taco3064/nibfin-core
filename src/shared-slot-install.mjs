@@ -74,7 +74,8 @@ export async function installSharedSlot(source, slot, owner, runner, repository,
   const destination = join(parent, `slot-${slot}`);
   const group = await lookupGroup(slot, uid);
   const inspect = directory =>
-    checkSharedRunnerSlot(directory, runner, repository, { group, uid, checkAccess: false });
+    checkSharedRunnerSlot(directory, runner, repository,
+      { group, uid, checkAccess: false });
   const existing = await lstat(destination).catch(error => {
     if (error.code !== 'ENOENT') throw error;
   });

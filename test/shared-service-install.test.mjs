@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { checkRegistrationEndpoints } from '../src/security/shared-runner-start-check.mjs';
+import { checkRegistrationEndpoints }
+  from '../src/security/shared-runner-start-check.mjs';
 import { mkdtemp, readFile, readdir, rm, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -30,7 +31,8 @@ test('an offline registration may only connect to public GitHub Actions', () => 
     'https://pipelinesghubeus11.actions.githubusercontent.com.example.com/example',
     'https://pipelinesghubeus11.actions.githubusercontent.com/example?redirect=elsewhere',
   ]) {
-    assert.throws(() => checkRegistrationEndpoints({ ...settings, serverUrl }, credential),
+    const changed = { ...settings, serverUrl };
+    assert.throws(() => checkRegistrationEndpoints(changed, credential),
       { code: 'UNTRUSTED_SHARED_RUNNER_PROVIDER_ENDPOINT' });
   }
   credential.data.authorizationUrlV2 = 'https://example.com/';
