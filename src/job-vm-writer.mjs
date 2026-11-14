@@ -4,12 +4,14 @@ import { join } from 'node:path';
 import { createProxy, toolDownloadHosts, projectDomains } from './egress-proxy.mjs';
 import { runJobVm } from './job-vm.mjs';
 import { exchangeJobVmFrame } from './job-vm-channel.mjs';
-import { openJobVmExecRelay } from './job-vm-exec-relay.mjs';
+import {
+  jobVmExecutorFailures, openJobVmExecRelay, probeJobVmExecutor,
+} from './job-vm-exec-relay.mjs';
 import { snapshotJobVmWorkspace } from './job-vm-workspace.mjs';
 import { installJobVmWorkspace } from './job-vm-install.mjs';
 import { archiveJobVmTools } from './job-vm-tools.mjs';
 import { deliveryRoleTimeout } from './process.mjs';
-import { requireThat } from './identity.mjs';
+import { digest, requireThat } from './identity.mjs';
 
 const workspacePort = 4020;
 const egressPort = 4022;
@@ -73,6 +75,11 @@ export async function runJobVmWriter(config, input, execute) {
       ...result,
       applyWorkspace: () => installJobVmWorkspace(input.work, files),
     } : result;
+  } catch (error) {
+    // runJobVm rethrows the probe error only after it has retired the guest.
+    if (!jobVmExecutorFailures.includes(error.code)) throw error;
+    return { status: 'interrupted', executionId: input.executionId, code: error.code,
+      terminationHash: digest({ executionId: input.executionId, guestRetired: true }) };
   } finally {
     process.off('SIGTERM', cancel);
     process.off('SIGINT', cancel);
@@ -90,6 +97,7 @@ async function runWriter(connect, directory, input, execute, signal) {
   const relay = join(directory, 'exec.sock');
   const close = await openJobVmExecRelay(relay, connect);
   try {
+    await probeJobVmExecutor(relay, signal);
     const result = await execute({ ...input, jobVmSocket: relay });
     signal.throwIfAborted();
     if (result.status !== 'completed') return { result };
