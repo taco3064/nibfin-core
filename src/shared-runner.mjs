@@ -5,6 +5,7 @@ import contract from './shared-runner-contract.json' with { type: 'json' };
 
 export const sharedWorkflowPath = contract.workflowPath;
 export const sharedDestinationVariable = contract.destinationVariable;
+export const originalSharedRepository = 'taco3064/nibfin-core';
 
 export function sharedRunner(host, target, runnerUid = host.runnerUid) {
   const config = host.sharedRunner;
@@ -67,6 +68,8 @@ export async function sharedDispatchWorkflow(reader, runner) {
   ]);
   requireThat(workflow.id === id && workflow.path === path &&
     workflow.state === 'active', 'SHARED_DISPATCH_WORKFLOW_UNAVAILABLE');
+  requireThat(repository === originalSharedRepository || branch.protected === true,
+    'SHARED_WAKE_BRANCH_UNPROTECTED');
   const pin = { path, commit: runner.sourceCommit, blob: runner.workflowBlob };
   const commit = await readCallerContinuity(reader, repository, pin, branch.commit?.sha);
   return { repository, repositoryId, id, path, commit, ref: repo.default_branch };

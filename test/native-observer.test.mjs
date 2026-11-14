@@ -34,7 +34,7 @@ test('offline Runner cannot fall back to another member', async (t) => {
   await assert.rejects(f.observe('shape'), /ACTUAL_RUNNER_BINDING_MISMATCH/);
 });
 
-test('shared stage observation uses four REST reads and sees revocation', async t => {
+test('customer shared stage observes current branch protection and revocation', async t => {
   const f = await fixture(t);
   const { reader, config } = f.adapters;
   const expected = config.runner;
@@ -49,8 +49,10 @@ test('shared stage observation uses four REST reads and sees revocation', async 
   f.runner.runner.labels.push({ name: 'nibfin-shared' });
   const reads = [];
   const get = reader.get;
+  let protectedBranch = true;
   reader.get = path => {
     reads.push(path.split('/').slice(4).join('/'));
+    if (path.endsWith('/branches/main')) return { protected: protectedBranch };
     return get(path);
   };
   reader.repository = reader.issue = reader.blockedBy = () => assert.fail('extra REST');
@@ -87,10 +89,14 @@ test('shared stage observation uses four REST reads and sees revocation', async 
   });
   assert.equal((await observe('shape')).pause.status, 'clear');
   assert.deepEqual(reads.sort(), [
-    'actions/jobs/30', 'actions/runners/40', 'actions/runs/20', 'issues/2/events',
+    'actions/jobs/30', 'actions/runners/40', 'actions/runs/20',
+    'branches/main', 'issues/2/events',
   ]);
   assert.equal(issueQueries, 1);
   assert.equal(callerQueries, 1);
+  protectedBranch = false;
+  await assert.rejects(observe('shape'), /CALLER_BRANCH_UNPROTECTED/);
+  protectedBranch = true;
   f.issue.labels.push({ name: 'pause' });
   assert.equal((await observe('shape')).pause.status, 'pending');
   f.runner.job.status = 'completed';
