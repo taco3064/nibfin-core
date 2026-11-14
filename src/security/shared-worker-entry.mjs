@@ -40,7 +40,7 @@ async function main() {
   const credential = message?.variables?.['system.github.token'];
   requireThat(credential?.isSecret === true &&
     typeof credential.value === 'string' &&
-    /^[A-Za-z0-9_]{20,512}$/.test(credential.value),
+    /^[A-Za-z0-9._~+\/=-]{20,4096}$/.test(credential.value),
   'SHARED_WORKER_READ_CREDENTIAL_UNAVAILABLE');
   await admitSharedWorker(read(credential.value), message, runner, caller.ref,
     caller.ownerId, read());
