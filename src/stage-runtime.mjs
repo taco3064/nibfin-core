@@ -5,6 +5,7 @@ import { integrationRepairRequired, pendingCIObservation } from './github-ci.mjs
 import { pendingMcpObservation } from './mcp-pending.mjs';
 import { githubReadWait, observationFailureCode } from './observation-failure.mjs';
 import { codexIdle, codexPreflightExits } from './codex-bootstrap.mjs';
+import { jobVmExecutorFailures } from './job-vm-exec-relay.mjs';
 import { ciFailureResult } from './ci-recovery.mjs';
 
 export const stageSuccess = Object.freeze({
@@ -242,7 +243,8 @@ export class StageRuntime {
       }
       if (outcome.status !== 'completed') return { schemaVersion: 1, stage, ...outcome };
       const knownInterruption = result?.code === codexIdle.code ||
-        Object.hasOwn(codexPreflightExits, result?.code);
+        Object.hasOwn(codexPreflightExits, result?.code) ||
+        jobVmExecutorFailures.includes(result?.code);
       const code = result?.status === 'interrupted' && knownInterruption
         ? result.code : 'STAGE_REQUIRES_CORRECTION';
       return {

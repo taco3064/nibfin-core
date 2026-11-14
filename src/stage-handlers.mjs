@@ -4,6 +4,7 @@ import { enforcementPaths, sameCandidate } from './candidate-evidence.mjs';
 import { candidateContract } from './candidate-contract.mjs';
 import { runCandidateHooks } from './hooks.mjs';
 import { codexIdle, codexPreflightExits, idleDiagnostic } from './codex-bootstrap.mjs';
+import { jobVmExecutorFailures } from './job-vm-exec-relay.mjs';
 import { ciCorrectionFindings } from './ci-recovery.mjs';
 
 // Only installed adapters enter this factory; the external stage request cannot
@@ -147,7 +148,8 @@ export function stageHandlers({
             [codexIdle.code]: 'Agent was stopped after a period without progress.',
           };
           const finding = findings[execution.code] ??
-            (Object.hasOwn(codexPreflightExits, execution.code)
+            (Object.hasOwn(codexPreflightExits, execution.code) ||
+              jobVmExecutorFailures.includes(execution.code)
               ? `Agent environment check failed before the role ran (${execution.code}).`
               : 'Agent process failed and was stopped.');
           const lastProgress = idleDiagnostic(execution.lastProgress ?? '');
