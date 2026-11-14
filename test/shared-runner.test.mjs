@@ -2,7 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { sharedRepository, sharedRunner } from '../src/shared-runner.mjs';
 import { readForwardedWake } from '../src/shared-wake.mjs';
-import { sharedHostRegistrations } from '../src/shared-host-inspect.mjs';
+import {
+  sharedHostRegistrations, sharedPeerIdentity,
+} from '../src/shared-host-inspect.mjs';
 import { coreRoot } from '../src/host-adoption.mjs';
 
 const central = 'taco3064/nibfin-core';
@@ -36,6 +38,21 @@ test('host discovery exposes only the two adopted registration identities', () =
   assert.deepEqual(sharedHostRegistrations(host), {
     schemaVersion: 1, repository: central, repositoryId: 1, memberId: 5,
     runners: [{ id: 42, name: 'slot-1' }, { id: 43, name: 'slot-2' }],
+  });
+  host.stateRoot = '/state';
+  host.sharedRunner.repositories.push(2);
+  const second = {
+    ...host, runnerUid: 92,
+    sharedRunner: {
+      caller,
+      runner: { ...runner, runnerId: 43, runnerName: 'slot-2' },
+      repositories: [2, 1],
+    },
+  };
+  assert.equal(sharedPeerIdentity(host, second), true);
+  second.sharedRunner.repositories.pop();
+  assert.throws(() => sharedPeerIdentity(host, second), {
+    code: 'SHARED_RUNNER_SLOT_VIEW_MISMATCH',
   });
   host.sharedRunner.additionalRunner.id = 42;
   assert.throws(() => sharedHostRegistrations(host), {
