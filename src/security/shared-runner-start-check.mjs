@@ -39,12 +39,26 @@ async function checkWorkerEntry(directory, local) {
   const packaged = new URL('./shared-worker-dispatcher.sh', import.meta.url);
   await rootOwnedPath(join(directory, '.runner'));
   await rootOwnedPath(fileURLToPath(packaged));
+  await rootOwnedPath('/usr/bin');
+  const python = await realpath('/usr/bin/python3');
+  requireThat(/^\/usr\/bin\/python3\.\d+$/.test(python),
+    'SHARED_RUNNER_WORKER_ADMISSION_REQUIRED');
+  await rootOwnedPath(python);
   const nodePin = new URL('../../.node-version', import.meta.url);
   const version = (await readFile(nodePin, 'utf8')).trim();
   requireThat(/^\d+\.\d+\.\d+$/.test(version), 'SHARED_RUNNER_WORKER_ADMISSION_REQUIRED');
   await rootOwnedPath(`/opt/nibfin/tools/node-v${version}-linux-x64/bin/node`);
   await verifyProgramTree(join(directory, 'bin'));
   await verifyProgramTree(join(directory, 'externals'));
+  for (const name of ['.credentials', '.credentials_rsaparams']) {
+    const path = join(directory, name);
+    await rootOwnedPath(path);
+    const stat = await lstat(path);
+    requireThat(stat.isFile() && stat.nlink === 1 && stat.gid === process.getgid() &&
+      (stat.mode & 0o777) === 0o640,
+      'SHARED_RUNNER_CREDENTIAL_PERMISSIONS');
+    await access(path, constants.R_OK);
+  }
   for (const name of ['.env', '.path']) {
     const path = join(directory, name);
     if (await lstat(path).catch(error => {
@@ -102,6 +116,7 @@ async function checkWslMounts() {
 check().catch(error => {
   const safe = ['INVALID_SHARED_RUNNER_SLOT', 'SHARED_RUNNER_ACCOUNT_MISMATCH',
     'SHARED_RUNNER_REGISTRATION_MISMATCH', 'SHARED_RUNNER_WORKER_ADMISSION_REQUIRED',
+    'SHARED_RUNNER_CREDENTIAL_PERMISSIONS',
     'SHARED_RUNNER_CAN_ACCESS_CONTROLLER_RESOURCE', 'SHARED_RUNNER_WSL_MOUNT_ACCESSIBLE'];
   process.stderr.write((safe.includes(error.code) ? error.code :
     'SHARED_RUNNER_START_CHECK_FAILED') + '\n');
