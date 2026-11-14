@@ -1,4 +1,4 @@
-import { mkdir, open, rename, unlink } from 'node:fs/promises';
+import { lstat, open, rename, unlink } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { boundedHostFile, coreRoot, hostFile } from './host-adoption.mjs';
@@ -139,6 +139,11 @@ async function adoptPeerLocked(name, id, actionCommit, directory) {
   const source = await verifyInstalledSource(coreRoot, host.installation.pin);
   // Only a local administrator may read this existing Controller credential.
   // It never crosses into CLI output, subprocess arguments or an Agent.
+  const credentials = await lstat(dirname(host.tokenFile));
+  const stat = await lstat(host.tokenFile);
+  requireThat(credentials.isDirectory() && credentials.uid === host.uid &&
+    (credentials.mode & 0o077) === 0 && stat.isFile() && stat.uid === host.uid &&
+    (stat.mode & 0o077) === 0, 'CONTROLLER_CREDENTIAL_NOT_PRIVATE');
   const token = (await boundedHostFile(host.tokenFile, 16384)).trim();
   const reader = new GitHubReader(token);
   const producer = await reader.get(
