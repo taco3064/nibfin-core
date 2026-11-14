@@ -10,7 +10,7 @@ import { digest, isId, isSha, requireThat } from './identity.mjs';
 import { rootOwnedPath } from './host-paths.mjs';
 import { controllerRoute } from './controller-contract.mjs';
 import { verifyControllerSeparation } from './controller-separation.mjs';
-import { sharedRepository, sharedRunner } from './shared-runner.mjs';
+import { sharedRepository, sharedRunner, sharedSlotIsolation } from './shared-runner.mjs';
 export { rootOwnedPath } from './host-paths.mjs';
 
 export const hostFile = '/etc/nibfin/host.json';
@@ -138,10 +138,11 @@ export async function loadHostAdoption(issueNumber, targetRepositoryId, runnerUi
       digest(targetHost.installation) === digest(host.installation),
     'SHARED_REPOSITORY_NOT_ADOPTED');
     const { repository, repositoryId } = target;
+    const isolation = sharedSlotIsolation(host, runnerUid ?? host.runnerUid);
     adopted = {
       ...adopted,
       ...sharedRunner(host, { repository, repositoryId }, runnerUid),
-      isolation: { ...host.repository.isolation, issue: target },
+      isolation: { ...isolation, issue: target },
     };
   }
   requireThat(

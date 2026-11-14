@@ -9,6 +9,7 @@ import { sharedHostRegistrations } from './shared-host-inspect.mjs';
 import { verifyInstalledSource } from './source-package.mjs';
 import { checkSharedRunnerSlot } from './security/shared-runner-start-check.mjs';
 import { installSharedSlot } from './shared-slot-install.mjs';
+import { sharedSlotIsolation } from './shared-runner.mjs';
 
 const templatePath = 'src/security/nibfin-shared-runner.service.template';
 const wslPath = 'src/security/runner-wsl-host.conf';
@@ -73,6 +74,9 @@ export async function installSharedServiceTemplate(sources = [], owner) {
   requireThat(sources.length === 0 || sources.length === 2 && sources[0] !== sources[1],
     'INVALID_SHARED_SLOT_INPUT');
   const uids = [host.runnerUid, host.sharedRunner.additionalRunner.uid];
+  const second = sharedSlotIsolation(host, uids[1]);
+  requireThat(second !== host.repository.isolation,
+    'SHARED_RUNNER_SECOND_SLOT_ISOLATION_REQUIRED');
   for (const [index, runner] of runners.entries()) {
     if (sources.length) await installSharedSlot(sources[index], index + 1,
       owner, runner, repository, uids[index]);

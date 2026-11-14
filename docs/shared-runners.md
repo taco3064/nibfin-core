@@ -18,6 +18,9 @@ For new systemd installations, the packaged
 `src/security/nibfin-shared-runner.service.template` defines slot instances `1` and
 `2`. The two dedicated accounts are `nibfin-runner-1` and `nibfin-runner-2`
 and each instance uses its own `/var/lib/nibfin/runners/slot-<number>` directory.
+For this template, adopt the second slot's isolation configuration as
+`sharedRunner.additionalRunner.isolation` in the same host file. Its gateway,
+network and configured project/MCP egress-policy directory must be distinct.
 After preparing those accounts and directories, run the verified, installed Core
 as root with `install-shared-service-template`. It reads the pin in the adopted
 host configuration and installs the unit as `nibfin-shared-runner@.service`.

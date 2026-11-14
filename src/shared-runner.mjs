@@ -39,6 +39,27 @@ export function sharedRunner(host, target, runnerUid = host.runnerUid) {
   return { runner: { ...selected, target, gateway: { repositoryId, runnerId } }, caller };
 }
 
+// The GitHub registration and the local isolation are distinct slot bindings.
+// Existing deployments can still supply the isolation through their slot view.
+export function sharedSlotIsolation(host, runnerUid) {
+  const primary = host.repository.isolation;
+  if (runnerUid === host.runnerUid) return primary;
+  const secondary = host.sharedRunner?.additionalRunner?.isolation;
+  if (!secondary) return primary;
+  requireThat(secondary.kind === primary.kind &&
+    typeof primary.agent?.socket === 'string' &&
+    secondary.agent?.socket === primary.agent.socket &&
+    typeof secondary.agent?.network === 'string' &&
+    secondary.agent.network !== primary.agent.network &&
+    typeof secondary.agent?.gatewayId === 'string' &&
+    secondary.agent.gatewayId !== primary.agent.gatewayId &&
+    (!primary.agent.mcpPolicyDirectory ||
+      typeof secondary.agent.mcpPolicyDirectory === 'string' &&
+      secondary.agent.mcpPolicyDirectory !== primary.agent.mcpPolicyDirectory),
+  'SHARED_RUNNER_SLOT_ISOLATION_CONFLICT');
+  return secondary;
+}
+
 export async function sharedRepository(host, repositoryId, readPeer) {
   requireThat(isId(repositoryId), 'INVALID_SHARED_REPOSITORY');
   const paths = host.wakePeerFiles ?? [];
