@@ -23,6 +23,8 @@ as root with `install-shared-service-template`. It reads the pin in the adopted
 host configuration and installs the unit as `nibfin-shared-runner@.service`.
 An identical existing unit is accepted and a conflicting unit is refused.
 This step writes the unit file. Service activation is a separate operation.
+On WSL 2, the installer includes the packaged host mount restrictions in the
+unit it writes.
 Enable a slot only after verifying the registered Runner, the Controller relay,
 the adopted isolation profile, and the public Workflow admission boundary.
 
