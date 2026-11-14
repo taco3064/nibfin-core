@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises';
-import { isId, requireThat } from './identity.mjs';
+import { gitBlob, isId, requireThat } from './identity.mjs';
 import { GitHubReader, repoPath } from './github-read.mjs';
+import { readPinnedFile } from './github-approval.mjs';
 import { sharedDestinationVariable, sharedWorkflowPath } from './shared-runner.mjs';
 
 async function sharedWakeDestination(env, fetcher) {
@@ -13,14 +14,26 @@ async function sharedWakeDestination(env, fetcher) {
   requireThat(isId(destination?.repositoryId), 'INVALID_SHARED_WAKE_DESTINATION');
   const repository = destination.repository;
   repoPath(repository);
-  const observed = await new GitHubReader(env.NIBFIN_WAKE_TOKEN, fetcher)
-    .repository(repository);
+  const reader = new GitHubReader(env.NIBFIN_WAKE_TOKEN, fetcher);
+  const observed = await reader.repository(repository);
   requireThat(observed.id === destination.repositoryId &&
     observed.full_name === repository && observed.private === false &&
     observed.archived === false && observed.disabled === false &&
     typeof observed.default_branch === 'string' && observed.default_branch,
     'SHARED_WAKE_DESTINATION_CHANGED');
-  return { repository, ref: observed.default_branch };
+  const ref = observed.default_branch;
+  const root = repoPath(repository);
+  const path = sharedWorkflowPath;
+  const workflow = path.split('/').at(-1);
+  const [branch, registered, expected] = await Promise.all([
+    reader.get(`${root}/branches/${encodeURIComponent(ref)}`),
+    reader.get(`${root}/actions/workflows/${workflow}`),
+    readFile(new URL(`../${path}`, import.meta.url)),
+  ]);
+  requireThat(isId(registered?.id) && registered.path === path &&
+    registered.state === 'active', 'SHARED_DISPATCH_WORKFLOW_UNAVAILABLE');
+  await readPinnedFile(reader, repository, path, branch?.commit?.sha, gitBlob(expected));
+  return { repository, ref };
 }
 
 export async function forwardSharedWake(resolved, env, fetcher = fetch) {

@@ -1,10 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, writeFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { forwardSharedWake, readForwardedWake } from '../src/shared-wake.mjs';
 import { people, pauseIdentity } from './pause-fixture.mjs';
+import { gitBlob } from '../src/identity.mjs';
 
 test('shared forwarding keeps pause qualification fields and discards unrelated labels',
   async (t) => {
@@ -78,6 +79,11 @@ test('shared wake uses the configured GitHub identity and default branch', async
     }),
   };
   const rootUrl = 'https://api.github.com/repos/example/execution';
+  const workflowPath = '.github/workflows/shared-runner.yml';
+  const bytes = await readFile(new URL(`../${workflowPath}`, import.meta.url));
+  const head = 'a'.repeat(40);
+  const registered = rootUrl + '/actions/workflows/shared-runner.yml';
+  const contents = `${rootUrl}/contents/${workflowPath}?ref=${head}`;
   const repo = {
     id: 20, full_name: 'example/execution', private: false,
     archived: false, disabled: false, default_branch: 'stable',
@@ -86,6 +92,15 @@ test('shared wake uses the configured GitHub identity and default branch', async
   await forwardSharedWake(result, env, async (url, options) => {
     calls.push(url);
     if (url === rootUrl) return Response.json(repo);
+    if (url === rootUrl + '/branches/stable')
+      return Response.json({ commit: { sha: head } });
+    if (url === registered)
+      return Response.json({ id: 5, path: workflowPath, state: 'active' });
+    if (url === contents) return Response.json({
+      type: 'file', path: workflowPath, sha: gitBlob(bytes),
+      encoding: 'base64', content: bytes.toString('base64'), size: bytes.length,
+    });
+    assert.equal(url, registered + '/dispatches');
     const request = JSON.parse(options.body);
     assert.equal(request.ref, 'stable');
     assert.equal(request.inputs.repository_id, '10');
@@ -94,10 +109,19 @@ test('shared wake uses the configured GitHub identity and default branch', async
       html_url: 'https://github.com/example/execution/actions/runs/81',
     });
   });
-  assert.deepEqual(calls, [rootUrl,
-    rootUrl + '/actions/workflows/shared-runner.yml/dispatches']);
+  assert.deepEqual(calls, [rootUrl, rootUrl + '/branches/stable',
+    registered, contents, registered + '/dispatches']);
   await assert.rejects(forwardSharedWake(result, env, async url => {
     assert.equal(url, rootUrl);
     return Response.json({ ...repo, id: 21 });
   }), { code: 'SHARED_WAKE_DESTINATION_CHANGED' });
+  await assert.rejects(forwardSharedWake(result, env, async url => {
+    if (url === rootUrl) return Response.json(repo);
+    if (url === rootUrl + '/branches/stable')
+      return Response.json({ commit: { sha: head } });
+    if (url === registered)
+      return Response.json({ id: 5, path: workflowPath, state: 'active' });
+    assert.equal(url, contents);
+    return Response.json({ type: 'file', path: workflowPath, sha: 'b'.repeat(40) });
+  }));
 });
