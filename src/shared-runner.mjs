@@ -8,7 +8,7 @@ export function sharedRunner(host, target, runnerUid = host.runnerUid) {
   const config = host.sharedRunner;
   const { runner, caller } = config ?? {};
   requireThat(
-    runner?.repository === 'taco3064/nibfin-core' &&
+    typeof runner?.repository === 'string' &&
       isId(runner.repositoryId) && isId(runner.workflowId) &&
       runner.workflowPath === sharedWorkflowPath &&
       runner.jobName === 'shared-stage' &&
@@ -22,6 +22,7 @@ export function sharedRunner(host, target, runnerUid = host.runnerUid) {
       config.repositories.includes(target.repositoryId),
     'SHARED_RUNNER_NOT_ADOPTED',
   );
+  repoPath(runner.repository);
   const { repositoryId, runnerId } = host.repository.runner;
   let selected = runner;
   if (runnerUid !== host.runnerUid) {

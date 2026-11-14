@@ -17,13 +17,18 @@ const runner = {
 };
 
 test('the shared job keeps its native Runner and uses the slot gateway', () => {
+  const executionRepository = 'example/execution';
   const host = {
     memberId: 5,
     repository: { runner: { repositoryId: 3, runnerId: 22 } },
-    sharedRunner: { runner, caller, repositories: [1, 2, 3] },
+    sharedRunner: {
+      runner: { ...runner, repository: executionRepository },
+      caller: { ...caller, repository: executionRepository },
+      repositories: [1, 2, 3],
+    },
   };
   const actual = sharedRunner(host, issue);
-  assert.equal(actual.runner.repository, central);
+  assert.equal(actual.runner.repository, executionRepository);
   assert.equal(actual.runner.runnerId, 42);
   assert.deepEqual(actual.runner.target, issue);
   assert.deepEqual(actual.runner.gateway, { repositoryId: 3, runnerId: 22 });
