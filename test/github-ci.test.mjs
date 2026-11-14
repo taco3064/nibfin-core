@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readPullRequestCI } from '../src/github-ci.mjs';
+import { GitHubReader } from '../src/github-read.mjs';
 import { ciCorrectionFindings, failedCheckError } from '../src/ci-recovery.mjs';
 import { gitBlob } from '../src/identity.mjs';
 import { now } from './approval-fixture.mjs';
@@ -618,4 +619,17 @@ test('CI correction includes a bounded code and source location', () => {
   assert.match(ciCorrectionFindings(failure).at(-1), /scripts\/probe\.mjs:7/);
   const unavailable = failedCheckError(expected, run, job, null).failure;
   assert.match(ciCorrectionFindings(unavailable).at(-1), /could not retrieve/);
+});
+
+test('check listing collects response request IDs', async () => {
+  const rows = [{ id: 17 }];
+  const requestIds = [];
+  const reader = new GitHubReader('fixture', async () => ({
+    ok: true,
+    headers: new Headers({ 'x-github-request-id': 'ABCD:123:456:789' }),
+    json: async () => ({ total_count: rows.length, check_runs: rows }),
+  }));
+  const path = '/repos/example/core/commits/main/check-runs?filter=latest';
+  assert.deepEqual(await reader.list(path, 'check_runs', { requestIds }), rows);
+  assert.deepEqual(requestIds, ['ABCD:123:456:789']);
 });
