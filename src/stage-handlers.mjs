@@ -5,6 +5,7 @@ import { candidateContract } from './candidate-contract.mjs';
 import { runCandidateHooks } from './hooks.mjs';
 import { codexIdle, codexPreflightExits, idleDiagnostic } from './codex-bootstrap.mjs';
 import { jobVmExecutorFailures } from './job-vm-exec-relay.mjs';
+import { writerPressureWait } from './job-vm-pressure.mjs';
 import { ciCorrectionFindings } from './ci-recovery.mjs';
 
 // Only installed adapters enter this factory; the external stage request cannot
@@ -146,6 +147,7 @@ export function stageHandlers({
           const findings = {
             PROCESS_TIMEOUT: 'Agent exceeded its execution time limit and was stopped.',
             [codexIdle.code]: 'Agent was stopped after a period without progress.',
+            [writerPressureWait]: 'WSL memory pressure prevented Writer VM startup.',
           };
           const finding = findings[execution.code] ??
             (Object.hasOwn(codexPreflightExits, execution.code) ||

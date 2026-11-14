@@ -12,6 +12,9 @@ import { installJobVmWorkspace } from './job-vm-install.mjs';
 import { archiveJobVmTools } from './job-vm-tools.mjs';
 import { deliveryRoleTimeout } from './process.mjs';
 import { digest, requireThat } from './identity.mjs';
+import {
+  acquireWriterCapacity, noteWriterTimeout, writerInitializeTimeout, writerPressureWait,
+} from './job-vm-pressure.mjs';
 
 const workspacePort = 4020;
 const egressPort = 4022;
@@ -58,7 +61,9 @@ export async function runJobVmWriter(config, input, execute) {
   const log = await open('/dev/null', constants.O_WRONLY);
   process.on('SIGTERM', cancel);
   process.on('SIGINT', cancel);
+  let releaseCapacity;
   try {
+    releaseCapacity = await acquireWriterCapacity(config, signal);
     const { result, files } = await runJobVm(config, {
       signal, log,
       prepareTools: input.tools && (directory => archiveJobVmTools(
@@ -77,13 +82,21 @@ export async function runJobVmWriter(config, input, execute) {
     } : result;
   } catch (error) {
     // runJobVm rethrows the probe error only after it has retired the guest.
-    if (!jobVmExecutorFailures.includes(error.code)) throw error;
+    if (error.code !== writerPressureWait &&
+        !jobVmExecutorFailures.includes(error.code)) throw error;
+    if (error.code === writerInitializeTimeout)
+      await noteWriterTimeout(config.pressureRoot).catch(() => {
+        console.error('Nibfin WSL Writer: could not record handshake cooldown');
+      });
     return { status: 'interrupted', executionId: input.executionId, code: error.code,
-      terminationHash: digest({ executionId: input.executionId, guestRetired: true }) };
+      terminationHash: digest({ executionId: input.executionId,
+        ...(error.code === writerPressureWait ? { guestNotStarted: true } :
+          { guestRetired: true }) }) };
   } finally {
     process.off('SIGTERM', cancel);
     process.off('SIGINT', cancel);
-    await log.close();
+    try { await releaseCapacity?.(); }
+    finally { await log.close(); }
   }
 }
 

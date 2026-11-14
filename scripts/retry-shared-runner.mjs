@@ -8,6 +8,7 @@ import {
   githubReadWaiting, retryGitHubObservation,
 } from '../src/observation-failure.mjs';
 import { sharedWorkflowPath } from '../src/shared-runner.mjs';
+import { retryableWriterPressure } from '../src/job-vm-pressure.mjs';
 
 const repository = 'taco3064/nibfin-core';
 const maxAttempt = 3;
@@ -20,6 +21,11 @@ export function retryDelay(log, id, attempt) {
   try { result = JSON.parse(matches[0][1]); }
   catch { return null; }
   const wait = result.retryAfterMs;
+  const memoryWait = result.status === 'denied' &&
+    retryableWriterPressure(result.code) && result.terminalStage === 'deliver';
+  if (memoryWait)
+    return result.stage === 'continue' && result.retrySettled === true &&
+      result.retryRun === id && result.retryAttempt === attempt ? 5 * 60_000 : null;
   return result.status === 'pending' && result.code === githubReadWaiting &&
     result.stage === 'continue' && result.retrySettled === true &&
     result.retryRun === id && result.retryAttempt === attempt &&
