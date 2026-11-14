@@ -120,7 +120,8 @@ export async function acquireWriterCapacity(config, signal, {
         admitted = await tryLock(handle, sample.mode === 'serial' ? '-x' : '-s', signal);
       if (sample.mode !== reported && (sample.mode !== 'parallel' || !admitted)) {
         reported = sample.mode;
-        report(`Nibfin WSL Writer ${sample.mode}: MemAvailable=${Math.floor(sample.available)}MiB, ` +
+        report(`Nibfin WSL Writer ${sample.mode}: ` +
+          `MemAvailable=${Math.floor(sample.available)}MiB, ` +
           `memory PSI full.avg10=${sample.stalls ?? 'unavailable'}, ` +
           `free blocks >=512KiB=${sample.largeBlocks}`);
       }
