@@ -29,6 +29,25 @@ export function sharedHostRegistrations(host) {
   };
 }
 
+export function sharedPeerIdentity(primary, peer) {
+  requireThat(peer.uid === primary.uid && peer.memberId === primary.memberId &&
+    peer.stateRoot === primary.stateRoot &&
+    digest(peer.installation) === digest(primary.installation),
+  'SHARED_REPOSITORY_NOT_ADOPTED');
+  const second = primary.sharedRunner.additionalRunner;
+  if (peer.runnerUid !== second.uid) return false;
+  const expected = { ...primary.sharedRunner.runner,
+    runnerId: second.id, runnerName: second.name };
+  requireThat(controllerRoute(peer) &&
+      digest(peer.sharedRunner?.runner ?? null) === digest(expected) &&
+      digest(peer.sharedRunner.caller) === digest(primary.sharedRunner.caller) &&
+      Array.isArray(peer.sharedRunner.repositories) &&
+      digest([...peer.sharedRunner.repositories].sort()) ===
+        digest([...primary.sharedRunner.repositories].sort()),
+  'SHARED_RUNNER_SLOT_VIEW_MISMATCH');
+  return true;
+}
+
 export async function inspectSharedHost() {
   requireThat(process.platform === 'linux', 'UNSUPPORTED_STAGE_HOST');
   await Promise.all([rootOwnedPath(hostFile), rootOwnedPath(coreRoot)]);
@@ -47,13 +66,12 @@ export async function inspectSharedHost() {
   const ids = host.sharedRunner.repositories;
   requireThat(ids.every(isId) && new Set(ids).size === ids.length,
     'SHARED_REPOSITORY_NOT_ADOPTED');
+  let slotViews = 0;
   for (const id of ids) {
     const peer = await sharedRepository(host, id, readPeer);
-    requireThat(peer.uid === host.uid && peer.memberId === host.memberId &&
-      peer.stateRoot === host.stateRoot &&
-      digest(peer.installation) === digest(host.installation),
-    'SHARED_REPOSITORY_NOT_ADOPTED');
+    if (peer !== host && sharedPeerIdentity(host, peer)) slotViews++;
   }
+  requireThat(slotViews <= 1, 'SHARED_RUNNER_SLOT_VIEW_MISMATCH');
   for (const [path, observed] of peerReads) {
     requireThat(await boundedHostFile(path, 256 * 1024) === observed,
       'HOST_ADOPTION_CHANGED');

@@ -34,7 +34,7 @@ test('offline Runner cannot fall back to another member', async (t) => {
   await assert.rejects(f.observe('shape'), /ACTUAL_RUNNER_BINDING_MISMATCH/);
 });
 
-test('customer shared stage observes current branch protection and revocation', async t => {
+test('shared stage observes branch protection and revocation', async t => {
   const f = await fixture(t);
   const { reader, config } = f.adapters;
   const expected = config.runner;
