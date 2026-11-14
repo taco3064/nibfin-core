@@ -40,7 +40,7 @@ export async function checkSharedRunnerSlot(
   const bytes = await boundedHostFile(registration, 65536);
   const local = JSON.parse(bytes.replace(/^\uFEFF/, ''));
   requireThat(local.agentId === expected.id && local.agentName === expected.name &&
-    local.gitHubUrl === `https://github.com/${repository}`,
+    local.gitHubUrl === `https://github.com/${repository}` && local.workFolder === '_work',
   'SHARED_RUNNER_REGISTRATION_MISMATCH');
   await rootOwnedPath(fileURLToPath(packaged));
   await rootOwnedPath('/usr/bin');
