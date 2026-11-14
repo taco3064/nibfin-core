@@ -1,8 +1,9 @@
 # Shared local Runners
 
-The Nibfin Core repository can accept development Jobs for other adopted
-repositories through `shared-runner.yml`. Register both local Runner services
-with that repository and add the `nibfin-shared` label to each registration.
+An adopted execution repository can accept development Jobs for other adopted
+repositories through `.github/workflows/shared-runner.yml`. Register both local
+Runner services with the execution repository and add the `nibfin-shared`
+label to each registration.
 GitHub assigns each Job to an available Runner. Issue events and pull request
 CI still belong to the repository that owns the Issue.
 
@@ -13,13 +14,67 @@ Set `sharedRunner.repositories` to the adopted repository IDs and add the
 other repositories' host files to `wakePeerFiles`. All adopted configurations
 must use the same controller identity, state directory and Core installation.
 
+For new systemd installations, the packaged
+`src/security/nibfin-shared-runner.service.template` defines slot instances `1` and
+`2`. The two dedicated accounts are `nibfin-runner-1` and `nibfin-runner-2`
+and each instance uses its own `/var/lib/nibfin/runners/slot-<number>` directory.
+After preparing those accounts and directories, run the verified, installed Core
+as root with `install-shared-service-template`. It reads the pin in the adopted
+host configuration and installs the unit as `nibfin-shared-runner@.service`.
+An identical existing unit is accepted and a conflicting unit is refused.
+This step writes the unit file. Service activation is a separate operation.
+On WSL 2, the installer includes the packaged host mount restrictions in the
+unit it writes.
+Before enabling either slot, verify the official Runner archive and register
+with automatic updates disabled. An administrator must protect the slot root,
+registration settings, program tree and service entry from Runner-account writes.
+Keep new registration credentials root-owned and readable only by their
+respective slot groups. Retire old registrations and settle old processes
+before reusing a host that allowed writes to the Runner installation.
+Keep the official `bin/Runner.Worker` beside its assemblies as
+`bin/Runner.Worker.official` and install the packaged
+`src/security/shared-worker-dispatcher.sh` as `bin/Runner.Worker`. The configured
+Worker must remain anchored to the verified archive when replacing the Runner.
+The slot service refuses startup if this protected layout is missing.
+
+The dispatcher checks the authenticated Listener message against the adopted
+caller and reads the actual GitHub run, branch and Workflow source before
+launching the official Worker. The dispatcher replaces itself with Worker so
+the Listener can still cancel the exact process it started. After that, Core
+still checks OIDC, the assigned Runner and the target repository. Do not enable a
+slot until its Controller relay, isolation and real positive and negative
+Workflow admission have been verified. GitHub's job-started hook runs after
+actions are prepared and is not an alternative to this check.
+Source reads use the approved Workflow's per-Job token. Workflow and run
+metadata are public reads. The dispatcher never receives the Controller
+credential or the Wake secret.
+
 After the shared workflow and host configuration are live, set the
 `NIBFIN_SHARED_RUNNER_POOL` Actions variable to `true` in each participating
-repository. The existing Wake token must be able to dispatch the shared
-workflow in Core. Keep the token in the Actions secret store. Leave the
-variable unset while the repository still uses a local registration.
+repository. For a user-managed execution repository, set the administrator
+managed Actions variable `NIBFIN_SHARED_RUNNER_DESTINATION` in each participating
+repository to JSON with `repository` (the canonical full name) and
+`repositoryId` (the GitHub numeric ID). The hosted Wake resolves that identity
+and the current default branch before dispatch. The Wake token needs dispatch
+access to the execution repository and belongs in the Actions secret store.
+Existing official deployments without a destination retain their current Core
+route. Leave the pool variable unset when using a local registration.
 
-For a manual run, select the shared workflow in Core and enter the target
+On Linux, installed Core's `inspect-shared-host` command reads the fixed
+administrator-owned host configuration and validates the installed package.
+It returns the execution repository, member and two adopted registration
+identities. The installer must confirm them with GitHub before reusing the pool.
+
+For a WSL Runner, `src/security/runner-wsl-host.conf` is the service drop-in
+for blocking the default Windows host mount, GUI mount, interop and GPU
+paths from Runner processes. The normal WSL DNS file under `/mnt/wsl` stays
+available. Check the actual distribution mount layout before using it.
+The Controller reached through the fixed sudo relay inherits these mount
+restrictions. Verify GitHub connectivity, the relay, and the adopted project's
+MCP and execution backend before enabling dispatch. This mount restriction
+alone does not establish admission for arbitrary GitHub Jobs.
+
+For a manual run, select the shared workflow in the execution repository and enter the target
 repository ID, Issue number and optional stage. Omitting the stage runs
 `continue`. Core checks the live Issue in the target repository and authenticates
 the GitHub Job in the execution repository. The two Runners retain distinct

@@ -1,14 +1,17 @@
 import { isId, requireThat } from './identity.mjs';
 import { readCallerContinuity } from './caller-source.mjs';
 import { repoPath } from './github-read.mjs';
+import contract from './shared-runner-contract.json' with { type: 'json' };
 
-export const sharedWorkflowPath = '.github/workflows/shared-runner.yml';
+export const sharedWorkflowPath = contract.workflowPath;
+export const sharedDestinationVariable = contract.destinationVariable;
+export const originalSharedRepository = 'taco3064/nibfin-core';
 
 export function sharedRunner(host, target, runnerUid = host.runnerUid) {
   const config = host.sharedRunner;
   const { runner, caller } = config ?? {};
   requireThat(
-    runner?.repository === 'taco3064/nibfin-core' &&
+    typeof runner?.repository === 'string' &&
       isId(runner.repositoryId) && isId(runner.workflowId) &&
       runner.workflowPath === sharedWorkflowPath &&
       runner.jobName === 'shared-stage' &&
@@ -22,6 +25,7 @@ export function sharedRunner(host, target, runnerUid = host.runnerUid) {
       config.repositories.includes(target.repositoryId),
     'SHARED_RUNNER_NOT_ADOPTED',
   );
+  repoPath(runner.repository);
   const { repositoryId, runnerId } = host.repository.runner;
   let selected = runner;
   if (runnerUid !== host.runnerUid) {
@@ -64,6 +68,8 @@ export async function sharedDispatchWorkflow(reader, runner) {
   ]);
   requireThat(workflow.id === id && workflow.path === path &&
     workflow.state === 'active', 'SHARED_DISPATCH_WORKFLOW_UNAVAILABLE');
+  requireThat(repository === originalSharedRepository || branch.protected === true,
+    'SHARED_WAKE_BRANCH_UNPROTECTED');
   const pin = { path, commit: runner.sourceCommit, blob: runner.workflowBlob };
   const commit = await readCallerContinuity(reader, repository, pin, branch.commit?.sha);
   return { repository, repositoryId, id, path, commit, ref: repo.default_branch };

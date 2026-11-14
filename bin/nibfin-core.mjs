@@ -12,6 +12,8 @@ import { launchIssueWake } from '../src/host-issue-wake.mjs';
 import { exportUserMcp, importUserMcp } from '../src/mcp-transfer.mjs';
 import { recoverCommitPr, recoverReview } from '../src/recover-commit-pr.mjs';
 import { promoteHost } from '../src/host-rollout.mjs';
+import { inspectSharedHost } from '../src/shared-host-inspect.mjs';
+import { installSharedServiceTemplate } from '../src/shared-service-install.mjs';
 
 // This entry point never imports a caller-selected adapter or runs candidate code.
 async function main(args) {
@@ -28,6 +30,10 @@ async function main(args) {
     return recoverReview(values[0], values[1]);
   if (command === 'promote-host' && values.length === 0) return promoteHost();
   if (command === 'contract' && values.length === 0) return consumerContract;
+  if (command === 'inspect-shared-host' && values.length === 0)
+    return inspectSharedHost();
+  if (command === 'install-shared-service-template' && values.length === 0)
+    return installSharedServiceTemplate();
   if (command === 'export-mcp' && values.length === 5) {
     const [codex, home, authenticationHome, member, output] = values;
     return exportUserMcp({ codex, home, authenticationHome,
@@ -39,6 +45,7 @@ async function main(args) {
     return {
       commands: [
         'contract',
+        'inspect-shared-host',
         'pack <repository> <commit> <new-output-directory>',
         'verify <installation> <approved-pin.json>',
         'install <archive> <new-directory> <approved-pin.json>',

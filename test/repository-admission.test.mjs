@@ -99,7 +99,7 @@ test('shared Runner verifies the same current workflow revision only once', asyn
   });
   f.job.labels.push('nibfin-shared');
   f.runner.labels.push({ name: 'nibfin-shared' });
-  f.data['/branches/main'] = { commit: { sha: sourceCommit } };
+  f.data['/branches/main'] = { protected: true, commit: { sha: sourceCommit } };
   const get = f.reader.get;
   const reads = [];
   f.reader.get = path => { reads.push(path); return get(path); };

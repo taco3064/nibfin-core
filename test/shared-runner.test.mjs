@@ -2,6 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { sharedRepository, sharedRunner } from '../src/shared-runner.mjs';
 import { readForwardedWake } from '../src/shared-wake.mjs';
+import {
+  sharedHostRegistrations, sharedPeerIdentity,
+} from '../src/shared-host-inspect.mjs';
+import { coreRoot } from '../src/host-adoption.mjs';
 
 const central = 'taco3064/nibfin-core';
 const cli = 'taco3064/gh-nibfin';
@@ -16,14 +20,59 @@ const runner = {
   jobName: 'shared-stage',
 };
 
+test('host discovery exposes only the two adopted registration identities', () => {
+  const host = {
+    schemaVersion: 1, kind: 'single-host-linux-v1', uid: 90, runnerUid: 91,
+    memberId: 5, installation: { directory: coreRoot },
+    tokenFile: '/private/token',
+    repository: {
+      approval: { repositoryId: 1 },
+      runner,
+      isolation: { kind: 'linux-rootful-docker-v1' },
+    },
+    sharedRunner: {
+      runner: { ...runner, runnerName: 'slot-1' }, caller, repositories: [1],
+      additionalRunner: { uid: 92, id: 43, name: 'slot-2' },
+    },
+  };
+  assert.deepEqual(sharedHostRegistrations(host), {
+    schemaVersion: 1, repository: central, repositoryId: 1, memberId: 5,
+    runners: [{ id: 42, name: 'slot-1' }, { id: 43, name: 'slot-2' }],
+  });
+  host.stateRoot = '/state';
+  host.sharedRunner.repositories.push(2);
+  const second = {
+    ...host, runnerUid: 92,
+    sharedRunner: {
+      caller,
+      runner: { ...runner, runnerId: 43, runnerName: 'slot-2' },
+      repositories: [2, 1],
+    },
+  };
+  assert.equal(sharedPeerIdentity(host, second), true);
+  second.sharedRunner.repositories.pop();
+  assert.throws(() => sharedPeerIdentity(host, second), {
+    code: 'SHARED_RUNNER_SLOT_VIEW_MISMATCH',
+  });
+  host.sharedRunner.additionalRunner.id = 42;
+  assert.throws(() => sharedHostRegistrations(host), {
+    code: 'SHARED_RUNNER_NOT_ADOPTED',
+  });
+});
+
 test('the shared job keeps its native Runner and uses the slot gateway', () => {
+  const executionRepository = 'example/execution';
   const host = {
     memberId: 5,
     repository: { runner: { repositoryId: 3, runnerId: 22 } },
-    sharedRunner: { runner, caller, repositories: [1, 2, 3] },
+    sharedRunner: {
+      runner: { ...runner, repository: executionRepository },
+      caller: { ...caller, repository: executionRepository },
+      repositories: [1, 2, 3],
+    },
   };
   const actual = sharedRunner(host, issue);
-  assert.equal(actual.runner.repository, central);
+  assert.equal(actual.runner.repository, executionRepository);
   assert.equal(actual.runner.runnerId, 42);
   assert.deepEqual(actual.runner.target, issue);
   assert.deepEqual(actual.runner.gateway, { repositoryId: 3, runnerId: 22 });

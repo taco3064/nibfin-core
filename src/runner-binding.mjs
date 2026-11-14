@@ -3,6 +3,7 @@ import { digest, isId, isSha, requireThat } from './identity.mjs';
 import { readMemberPermission, readPinnedFile } from './github-approval.mjs';
 import { readCallerSource, readCallerContinuity } from './caller-source.mjs';
 import { wakeRecipe } from './caller-recipes.mjs';
+import { originalSharedRepository } from './shared-runner.mjs';
 
 // Provider-side binding only. The caller is trusted Core, executing from an
 // installed pinned workflow outside the candidate. No event payload, environment
@@ -65,6 +66,12 @@ export async function readRunnerBinding(reader, expected, observeSharedCaller) {
   const jobPath = `${root}/actions/jobs/${expected.jobId}`;
   const runnerPath = `${root}/actions/runners/${expected.runnerId}`;
   const run = await reader.get(runPath);
+  if (shared && expected.repository !== originalSharedRepository) {
+    const branch = await reader.get(
+      `${root}/branches/${encodeURIComponent(repository.default_branch)}`,
+    );
+    requireThat(branch.protected === true, 'CALLER_BRANCH_UNPROTECTED');
+  }
   if (expected.sourceAnchor !== undefined && !shared) {
     const pin = {
       commit: expected.sourceAnchor,
@@ -74,7 +81,9 @@ export async function readRunnerBinding(reader, expected, observeSharedCaller) {
     const branch = await reader.get(
       `${root}/branches/${encodeURIComponent(repository.default_branch)}`,
     );
-    requireThat(expected.nativePolicy || branch.protected === true,
+    const nativePolicyShortcut = expected.nativePolicy &&
+      (!expected.target || expected.repository === originalSharedRepository);
+    requireThat(nativePolicyShortcut || branch.protected === true,
       'CALLER_BRANCH_UNPROTECTED');
     const recipe =
       expected.actionCommit !== undefined
