@@ -8,7 +8,8 @@ import { checkArticleLinks } from './article-links.mjs';
 export async function inspectLandingOutput(base, source = 'website/dist') {
   const original = await readFile(join(source, 'index.html'), 'utf8');
   assert.equal([...original.matchAll(/<h1\b/g)].length, 1, 'One primary heading');
-  for (const text of ['Trusted delivery, from Issue to merge', 'Public Repository',
+  for (const text of ['Automated development, from GitHub Issue to merge.',
+    'less manual handoff', 'Public Repository',
     'independent', 'Unverified: formal', 'Availability vocabulary']) {
     assert(original.includes(text), `Missing landing content: ${text}`);
   }

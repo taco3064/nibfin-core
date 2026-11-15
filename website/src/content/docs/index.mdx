@@ -1,12 +1,12 @@
 ---
-title: Trusted delivery, from Issue to merge
-description: Nibfin brings independently validated delivery to GitHub Issues.
+title: Automated development, from GitHub Issue to merge.
+description: Nibfin automates development from GitHub Issue to protected merge.
 template: splash
 hero:
-  title: Trusted delivery, from Issue to merge
   tagline: >
-    Nibfin takes a bounded GitHub Issue through independent validation,
-    implementation, and protected merge.
+    Define and authorize the work in a GitHub Issue. Nibfin implements the
+    change, verifies it independently, and carries it through your
+    repository’s review and merge rules.
   actions:
     - text: Getting Started
       link: getting-started/
@@ -24,7 +24,12 @@ import HomeLinks from '../../components/HomeLinks.astro';
 
 ## From Issue to verified closure
 
-Each stage has a distinct check before the change reaches the default branch.
+Nibfin uses GitHub Actions to run the work on a Runner when dependencies
+and permissions allow it. It waits when those conditions are unmet.
+
+That means less manual handoff between implementation, verification, and
+review. You can trace what changed and what passed through the Issue,
+pull request, and check results.
 
 [Walk through the delivery stages](lifecycle/#from-scope-to-closure).
 

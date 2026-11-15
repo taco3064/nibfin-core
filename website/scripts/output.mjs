@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile, readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 
-export const english = 'Nibfin takes a bounded GitHub Issue through independent';
+export const english = 'Define and authorize the work in a GitHub Issue.';
 
 // Inspect Astro output, rather than maintaining a parallel route list.
 export async function inspectOutput(base, directory = 'website/dist') {
