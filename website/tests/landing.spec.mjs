@@ -53,6 +53,9 @@ for (const theme of ['light', 'dark']) {
       const row = page.locator('.nf-doc-links a').first();
       await expect(row).toHaveAttribute('data-slot', 'item');
       await expect(row).toHaveCSS('display', 'flex');
+      const rowBorder = page.locator('.nf-delivery-steps > [data-state]').first();
+      await expect(rowBorder).toHaveCSS('border-left-width', '0px');
+      await expect(rowBorder).toHaveCSS('border-bottom-width', '1px');
       const step = page.getByRole('button', { name: /^Shape the work/ });
       await expect(step).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
       await expect(step).toHaveAttribute('aria-expanded', 'false');
