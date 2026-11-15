@@ -65,7 +65,7 @@ test('first adoption pins the protected workflow and two slots', async () => {
   const branch = reader.replies.get(root + '/branches/main');
   branch.protected = true;
   reader.replies.get(root).owner = { id: 70 };
-  const oidc = { use_default: true };
+  const oidc = { use_default: true, use_immutable_subject: true };
   reader.replies.set(root + '/actions/oidc/customization/sub', oidc);
   reader.replies.set(root + '/actions/workflows/shared-runner.yml',
     { id: 55, path, state: 'active' });
@@ -76,15 +76,19 @@ test('first adoption pins the protected workflow and two slots', async () => {
   const slots = [1, 2].map(slot => ({ id: slot + 10, name: `nibfin-123-77-${slot}`,
     os: 'Linux', status: 'offline', busy: false, labels }));
   reader.list = async () => slots;
-  const observe = format =>
+  const observe = () =>
     observeExecutionPool(reader, name, 123, memberId, [11, 12], source,
-      actionCommit, workflow, format);
+      actionCommit, workflow);
   const pool = await observe();
   assert.equal(pool.runner.workflowId, 55);
   assert.equal(pool.caller.subject, 'repo:example@70/peer@123:ref:refs/heads/main');
   assert.equal(pool.second.runnerId, 12);
-  assert.equal((await observe('legacy')).caller.subject,
+  oidc.use_immutable_subject = false;
+  assert.equal((await observe()).caller.subject,
     'repo:example/peer:ref:refs/heads/main');
+  delete oidc.use_immutable_subject;
+  await assert.rejects(observe(), { code: 'SHARED_OIDC_SUBJECT_FORMAT_UNVERIFIED' });
+  oidc.use_immutable_subject = true;
   oidc.use_default = false;
   await assert.rejects(observe(), { code: 'SHARED_CUSTOM_OIDC_TEMPLATE_UNSUPPORTED' });
   oidc.use_default = true;

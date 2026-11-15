@@ -51,11 +51,10 @@ function validateIsolation(isolation) {
 
 async function controllerProfile(profile) {
   const { stateRoot, tokenFile, authFile, model, isolation, secondaryIsolation,
-    globalInstructionsFile, mcp, oidcSubjectFormat = 'immutable' } = profile;
+    globalInstructionsFile, mcp } = profile;
   requireThat(profile.schemaVersion === 1 && isolation && secondaryIsolation &&
     typeof model === 'string' && model.length > 0 && model.length < 128 &&
-    [stateRoot, tokenFile, authFile].every(path => typeof path === 'string') &&
-    ['immutable', 'legacy'].includes(oidcSubjectFormat),
+    [stateRoot, tokenFile, authFile].every(path => typeof path === 'string'),
   'SHARED_HOST_PROFILE_INVALID');
   const [uid, runnerUid, secondUid] = await Promise.all(
     ['nibfin-controller', 'nibfin-runner-1', 'nibfin-runner-2'].map(accountUid));
@@ -64,11 +63,11 @@ async function controllerProfile(profile) {
   for (const path of [tokenFile, authFile]) await privatePath(path, uid);
   [isolation, secondaryIsolation].forEach(validateIsolation);
   return { uid, runnerUid, secondUid, stateRoot, tokenFile, authFile, model,
-    isolation, secondaryIsolation, globalInstructionsFile, mcp, oidcSubjectFormat };
+    isolation, secondaryIsolation, globalInstructionsFile, mcp };
 }
 
 export async function observeExecutionPool(reader, name, repoId, memberId, ids,
-  source, actionCommit, workflow, oidcSubjectFormat = 'immutable') {
+  source, actionCommit, workflow) {
   const root = repoPath(name);
   const observed = await observePeer(
     reader, name, repoId, memberId, source, actionCommit);
@@ -80,6 +79,8 @@ export async function observeExecutionPool(reader, name, repoId, memberId, ids,
     reader.get(root + '/actions/oidc/customization/sub'),
   ]);
   requireThat(oidc.use_default === true, 'SHARED_CUSTOM_OIDC_TEMPLATE_UNSUPPORTED');
+  requireThat(typeof oidc.use_immutable_subject === 'boolean',
+    'SHARED_OIDC_SUBJECT_FORMAT_UNVERIFIED');
   const pool = registrations.filter(value =>
     value.labels?.some(label => label.name === 'nibfin-shared'));
   const runners = ids.map((id, index) => {
@@ -105,8 +106,8 @@ export async function observeExecutionPool(reader, name, repoId, memberId, ids,
     member: { id: actor.id, login: actor.login, type: actor.type }, os: 'linux',
     jobName: 'shared-stage' };
   const [owner, repository] = name.split('/');
-  const subjectRepo = oidcSubjectFormat === 'legacy' ? name :
-    `${owner}@${repo.owner.id}/${repository}@${repoId}`;
+  const subjectRepo = oidc.use_immutable_subject ?
+    `${owner}@${repo.owner.id}/${repository}@${repoId}` : name;
   const caller = { ...identity, ownerId: repo.owner.id, ref,
     subject: `repo:${subjectRepo}:ref:${ref}`,
     workflowRef: `${name}/${sharedWorkflowPath}@${ref}` };
@@ -147,14 +148,14 @@ export async function adoptSharedHost(name, id, memberId, actionCommit, ids, pin
     await rootOwnedPath(path);
     const bytes = await boundedHostFile(path, limit);
     const { uid, runnerUid, secondUid, stateRoot, tokenFile, authFile, model, isolation,
-      secondaryIsolation, globalInstructionsFile, mcp, oidcSubjectFormat } =
+      secondaryIsolation, globalInstructionsFile, mcp } =
       await controllerProfile(JSON.parse(bytes));
     const token = (await boundedHostFile(tokenFile, 16384)).trim();
     const reader = new GitHubReader(token);
     await verifyAdoptionAction(reader, actionCommit, pin);
     const shared = await boundedHostFile(join(coreRoot, sharedWorkflowPath), 65536);
     const pool = await observeExecutionPool(reader, name, id, memberId, ids,
-      source, actionCommit, shared, oidcSubjectFormat);
+      source, actionCommit, shared);
     const { runner, caller, second, observed } = pool;
     const host = { schemaVersion: 1, kind: 'single-host-linux-v1', uid, runnerUid,
       memberId, stateRoot, tokenFile, authFile, model, globalInstructionsFile, mcp,

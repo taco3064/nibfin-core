@@ -156,7 +156,7 @@ async function adoptPeerLocked(name, id, actionCommit, directory) {
   await verifyAdoptionAction(reader, actionCommit, host.installation.pin);
   const observed = await observePeer(
     reader, name, id, host.memberId, source, actionCommit);
-  return publishPeer(host, current, name, id, source, actionCommit,
+  return publishPeer(host, pool, current, name, id, source, actionCommit,
     observed, directory);
 }
 
@@ -169,7 +169,7 @@ export async function verifyAdoptionAction(reader, actionCommit, pin) {
       digest(pin), 'PEER_ACTION_SOURCE_MISMATCH');
 }
 
-async function publishPeer(host, current, name, id, source, actionCommit,
+async function publishPeer(host, pool, current, name, id, source, actionCommit,
   observed, directory) {
   const path = join(directory, `host.peer-${id}.json`);
   const peers = host.wakePeerFiles ?? [];
