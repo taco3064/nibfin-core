@@ -28,9 +28,8 @@ For first adoption through CLI init, the administrator provides a root-owned
 local settings and private credential paths. The profile can also carry
 `globalInstructionsFile` and `mcp` from the existing host contract.
 The three pre-existing accounts must be `nibfin-controller` and
-`nibfin-runner-1` / `nibfin-runner-2`. For older repositories using
-legacy default GitHub OIDC subjects, set `oidcSubjectFormat` to `legacy`.
-The default is the immutable subject used by newly created repositories.
+`nibfin-runner-1` / `nibfin-runner-2`. Core reads whether GitHub uses the
+legacy or immutable default OIDC subject for the execution repository.
 Customized OIDC templates require separate adoption. The installer reads
 GitHub to bind the protected execution Workflow and two offline registrations,
 then creates and reads back the existing host configuration.
