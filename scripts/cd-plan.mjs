@@ -1,7 +1,15 @@
 import { appendFile } from 'node:fs/promises';
 import { spawnSync } from 'node:child_process';
 import { GitHubReader, repoPath } from '../src/github-read.mjs';
-import { cdPaths } from './cd-paths.mjs';
+import { cdPaths, websiteOnlyLockChange } from './cd-paths.mjs';
+
+function lockfile(ref) {
+  const result = spawnSync('git', ['show', `${ref}:package-lock.json`], {
+    encoding: 'utf8', maxBuffer: 32 * 1024 * 1024,
+  });
+  if (result.error) throw result.error;
+  return result.status === 0 ? result.stdout : undefined;
+}
 
 const { GH_TOKEN, GITHUB_REPOSITORY, GITHUB_OUTPUT, GITHUB_EVENT_NAME } = process.env;
 const reader = new GitHubReader(GH_TOKEN);
@@ -34,7 +42,10 @@ if (manual) {
     });
     if (commit.error) throw commit.error;
     if (commit.status !== 0) throw new Error('Could not read main commit subject');
-    routes = cdPaths(diff.stdout.split('\0').filter(Boolean), commit.stdout.trim());
+    const paths = diff.stdout.split('\0').filter(Boolean);
+    const websiteLockOnly = paths.includes('package-lock.json') &&
+      websiteOnlyLockChange(lockfile(previous), lockfile(checkout));
+    routes = cdPaths(paths, commit.stdout.trim(), websiteLockOnly);
     break;
   }
 }

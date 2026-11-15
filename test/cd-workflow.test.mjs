@@ -2,8 +2,9 @@ import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
+import { fileURLToPath } from 'node:url';
 import { parse } from 'yaml';
-import { cdPaths, cdWorkflow } from '../scripts/cd-paths.mjs';
+import { cdPaths, cdWorkflow, websiteOnlyLockChange } from '../scripts/cd-paths.mjs';
 
 const source = readFileSync(new URL('../.github/workflows/cd.yml', import.meta.url),
   'utf8').replaceAll('\r\n', '\n');
@@ -94,6 +95,68 @@ test('CD routes website, package and shared changes', () => {
   const rollout = `Prepare Core ${'a'.repeat(40)} rollout`;
   assert.deepEqual(cdPaths(pinPaths, rollout), { core: false, website: false });
   assert.deepEqual(cdPaths(pinPaths), { core: true, website: false });
+});
+
+test('CD skips Core rollout for website-only dependencies in the shared lockfile', () => {
+  const nestedParser = 'node_modules/yaml/node_modules/parser';
+  const before = {
+    lockfileVersion: 3,
+    packages: {
+      '': { workspaces: ['website'], devDependencies: { yaml: '2.9.1' } },
+      website: { dependencies: { astro: '6.0.0' } },
+      'node_modules/website': { resolved: 'website', link: true },
+      'node_modules/astro': { version: '6.0.0' },
+      'node_modules/yaml': { version: '2.9.1', dependencies: { parser: '1.0.0' } },
+      [nestedParser]: { version: '1.0.0', integrity: 'sha512-old' },
+    },
+  };
+  const after = structuredClone(before);
+  after.packages.website.dependencies.tabs = '1.0.0';
+  after.packages['node_modules/tabs'] = { version: '1.0.0' };
+  const route = (candidate, paths = ['website/package.json', 'package-lock.json']) => {
+    const websiteOnly = websiteOnlyLockChange(
+      JSON.stringify(before), JSON.stringify(candidate),
+    );
+    return cdPaths(paths, '', websiteOnly);
+  };
+  assert.deepEqual(route(after), { core: false, website: true });
+  assert.deepEqual(route(after, ['package-lock.json']), { core: false, website: true });
+  assert.deepEqual(route(after, ['package-lock.json', 'src/stages.mjs']),
+    { core: true, website: true });
+  after.packages[nestedParser].integrity = 'sha512-new';
+  assert.deepEqual(route(after), { core: true, website: true });
+  delete after.packages[nestedParser];
+  assert.deepEqual(route(after), { core: true, website: true });
+  assert.equal(websiteOnlyLockChange(JSON.stringify(before), undefined), false);
+});
+
+test('host rollout diagnoses a behind PR and unfinished checks', {
+  skip: process.platform !== 'linux',
+}, () => {
+  const script = new URL('../scripts/host-auto-rollout.py', import.meta.url);
+  const result = spawnSync('python3', ['-B', '-c', `
+import runpy
+import sys
+
+wait = runpy.run_path(sys.argv[1])["consumer_wait"]
+passed = {"name": "verify", "conclusion": "SUCCESS"}
+assert wait({"mergeStateStatus": "CLEAN", "statusCheckRollup": [passed]}) is None
+assert wait({"mergeStateStatus": "BEHIND", "statusCheckRollup": [passed]}) == {
+    "mergeStateStatus": "BEHIND", "checkRollupPresent": True, "incompleteChecks": [],
+}
+missing = wait({"mergeStateStatus": "CLEAN", "statusCheckRollup": []})
+assert missing["checkRollupPresent"] is False
+blocked = wait({"mergeStateStatus": "BLOCKED", "statusCheckRollup": [
+    passed, {"name": "package", "status": "IN_PROGRESS"},
+    {"name": "integration", "conclusion": "FAILURE"},
+]})
+assert blocked["incompleteChecks"] == [
+    {"name": "package", "status": "IN_PROGRESS"},
+    {"name": "integration", "status": "FAILURE"},
+]
+`, fileURLToPath(script)], { encoding: 'utf8' });
+  assert.ifError(result.error);
+  assert.equal(result.status, 0, result.stderr);
 });
 
 test('workflow-only and contract-test changes select website verification', () => {
