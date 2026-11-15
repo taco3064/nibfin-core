@@ -16,6 +16,7 @@ import { inspectSharedHost } from '../src/shared-host-inspect.mjs';
 import { installSharedServiceTemplate } from '../src/shared-service-install.mjs';
 import { installAndStartSharedServices } from '../src/shared-service-start.mjs';
 import { adoptSharedPeer } from '../src/shared-peer-adoption.mjs';
+import { adoptSharedHost } from '../src/shared-host-adopt.mjs';
 
 // This entry point never imports a caller-selected adapter or runs candidate code.
 async function main(args) {
@@ -40,6 +41,18 @@ async function main(args) {
     return installAndStartSharedServices(values.slice(1), Number(values[0]));
   if (command === 'adopt-shared-peer' && values.length === 3)
     return adoptSharedPeer(values[0], Number(values[1]), values[2]);
+  if (command === 'adopt-shared-host' && values.length === 5) {
+    const chunks = [];
+    let size = 0;
+    for await (const chunk of process.stdin) {
+      size += chunk.length;
+      requireThat(size <= 4096, 'INVALID_SHARED_HOST_SOURCE_PIN');
+      chunks.push(chunk);
+    }
+    const pin = Buffer.concat(chunks).toString('utf8');
+    return adoptSharedHost(values[0], Number(values[1]), Number(values[2]),
+      values[3], values[4].split(',').map(Number), pin);
+  }
   if (command === 'export-mcp' && values.length === 5) {
     const [codex, home, authenticationHome, member, output] = values;
     return exportUserMcp({ codex, home, authenticationHome,
@@ -53,6 +66,8 @@ async function main(args) {
         'contract',
         'inspect-shared-host',
         'install-shared-service-template',
+        'start-shared-services',
+        'adopt-shared-host (administrator-only, root-owned profile and source pin)',
         'adopt-shared-peer <repository> <repository-id> <action-commit>',
         'pack <repository> <commit> <new-output-directory>',
         'verify <installation> <approved-pin.json>',
