@@ -33,6 +33,18 @@ legacy or immutable default OIDC subject for the execution repository.
 Customized OIDC templates require separate adoption. The installer reads
 GitHub to bind the protected execution Workflow and two offline registrations,
 then creates and reads back the existing host configuration.
+
+For a new managed setup, add `managedEgressNetwork` with the name of a reviewed
+user-defined Docker bridge on the dedicated Engine. Keep the rootful Engine,
+AppArmor policy and immutable images in place. Use the fixed Controller paths
+`/var/lib/nibfin/controller/state`, `/var/lib/nibfin/controller/credentials/github-token`,
+and `/var/lib/nibfin/controller/codex/auth.json`. Init creates the three locked
+service accounts and the private directories if needed. Supply the Controller's
+credentials privately under its account, then rerun the same init command.
+Core derives the isolated network and gateway for each verified Runner ID and
+checks both from the Controller identity before installing the exact sudo relay.
+Omit the generated gateway ID, network and proxy script from the managed profile.
+Existing profiles without this setting retain their administrator-managed setup.
 After preparing those accounts and directories, run the verified, installed Core
 as root with `install-shared-service-template`. It reads the pin in the adopted
 host configuration and installs the unit as `nibfin-shared-runner@.service`.

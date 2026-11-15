@@ -15,6 +15,8 @@ import {
 import { dockerBackend, validDockerEndpoint } from './docker-backend.mjs';
 import { command } from './process.mjs';
 import { syncRecoveryDirectory } from './recovery-lock.mjs';
+import { installSharedRelay, prepareSharedAccounts } from './shared-host-setup.mjs';
+import { prepareSharedGateways } from './shared-gateway-setup.mjs';
 
 const profileName = 'shared-host-profile.json';
 const issueWorkflow = '.github/workflows/issue.yml';
@@ -40,30 +42,40 @@ async function accountUid(name) {
   return Number(uid);
 }
 
-function validateIsolation(isolation) {
+function validateIsolation(isolation, managed) {
   const backend = dockerBackend(isolation);
   requireThat(backend.mode === 'rootful' && isolation.agent && isolation.hooks &&
     [isolation.agent, isolation.hooks].every(config =>
       validDockerEndpoint(config, backend) && /^sha256:[0-9a-f]{64}$/.test(config.image)
-    ) && /^[0-9a-f]{64}$/.test(isolation.agent.gatewayId),
+    ) && (managed || /^[0-9a-f]{64}$/.test(isolation.agent.gatewayId)),
   'SHARED_HOST_ISOLATION_INVALID');
 }
 
 async function controllerProfile(profile) {
   const { stateRoot, tokenFile, authFile, model, isolation, secondaryIsolation,
-    globalInstructionsFile, mcp } = profile;
+    globalInstructionsFile, mcp, managedEgressNetwork } = profile;
   requireThat(profile.schemaVersion === 1 && isolation && secondaryIsolation &&
     typeof model === 'string' && model.length > 0 && model.length < 128 &&
-    [stateRoot, tokenFile, authFile].every(path => typeof path === 'string'),
+    [stateRoot, tokenFile, authFile].every(path => typeof path === 'string') &&
+    (managedEgressNetwork === undefined ||
+      /^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/.test(managedEgressNetwork)),
   'SHARED_HOST_PROFILE_INVALID');
+  const managed = managedEgressNetwork !== undefined;
+  [isolation, secondaryIsolation].forEach(value => validateIsolation(value, managed));
+  if (managed) {
+    const firstPolicy = isolation.agent.mcpPolicyDirectory;
+    const secondPolicy = secondaryIsolation.agent.mcpPolicyDirectory;
+    requireThat(!firstPolicy || secondPolicy && secondPolicy !== firstPolicy,
+      'SHARED_RUNNER_SLOT_ISOLATION_CONFLICT');
+    await prepareSharedAccounts(profile);
+  }
   const [uid, runnerUid, secondUid] = await Promise.all(
     ['nibfin-controller', 'nibfin-runner-1', 'nibfin-runner-2'].map(accountUid));
   for (const path of [stateRoot, dirname(tokenFile), dirname(authFile)])
     await privatePath(path, uid, true);
   for (const path of [tokenFile, authFile]) await privatePath(path, uid);
-  [isolation, secondaryIsolation].forEach(validateIsolation);
   return { uid, runnerUid, secondUid, stateRoot, tokenFile, authFile, model,
-    isolation, secondaryIsolation, globalInstructionsFile, mcp };
+    isolation, secondaryIsolation, globalInstructionsFile, mcp, managedEgressNetwork };
 }
 
 export async function observeExecutionPool(reader, name, repoId, memberId, ids,
@@ -148,7 +160,7 @@ export async function adoptSharedHost(name, id, memberId, actionCommit, ids, pin
     await rootOwnedPath(path);
     const bytes = await boundedHostFile(path, limit);
     const { uid, runnerUid, secondUid, stateRoot, tokenFile, authFile, model, isolation,
-      secondaryIsolation, globalInstructionsFile, mcp } =
+      secondaryIsolation, globalInstructionsFile, mcp, managedEgressNetwork } =
       await controllerProfile(JSON.parse(bytes));
     const token = (await boundedHostFile(tokenFile, 16384)).trim();
     const reader = new GitHubReader(token);
@@ -157,12 +169,17 @@ export async function adoptSharedHost(name, id, memberId, actionCommit, ids, pin
     const pool = await observeExecutionPool(reader, name, id, memberId, ids,
       source, actionCommit, shared);
     const { runner, caller, second, observed } = pool;
+    const [primary, secondary] = managedEgressNetwork === undefined
+      ? [isolation, secondaryIsolation]
+      : await prepareSharedGateways([isolation, secondaryIsolation],
+        runner, second, managedEgressNetwork);
     const host = { schemaVersion: 1, kind: 'single-host-linux-v1', uid, runnerUid,
       memberId, stateRoot, tokenFile, authFile, model, globalInstructionsFile, mcp,
       runnerId: runner.runnerId, installation: { directory: coreRoot, pin },
-      repository: { isolation }, sharedRunner: { runner, caller, repositories: [id],
+      repository: { isolation: primary },
+      sharedRunner: { runner, caller, repositories: [id],
         additionalRunner: { uid: secondUid, id: second.runnerId,
-          name: second.runnerName, isolation: secondaryIsolation } } };
+          name: second.runnerName, isolation: secondary } } };
     const workflow = await boundedHostFile(join(coreRoot, issueWorkflow), 65536);
     host.repository = peerConfiguration(host, name, id, source, actionCommit,
       observed, gitBlob(workflow)).repository;
@@ -172,6 +189,7 @@ export async function adoptSharedHost(name, id, memberId, actionCommit, ids, pin
       (await boundedHostFile(tokenFile, 16384)).trim() === token &&
       digest(await verifyInstalledSource(coreRoot, pin)) === digest(source),
     'SHARED_HOST_ADOPTION_CHANGED');
+    if (managedEgressNetwork !== undefined) await installSharedRelay();
     return publishInitialHost(host, directory);
   });
 }
