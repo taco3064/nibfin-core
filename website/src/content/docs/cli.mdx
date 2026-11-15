@@ -4,6 +4,8 @@ description: Commands for repository setup, Runner management, and the local Das
 ---
 
 import Alert from "../../components/DocsAlert.astro";
+import DocsItems from '../../components/DocsItems';
+import CommandTabs from "../../components/CommandTabs";
 
 `gh` is GitHub CLI. The Nibfin extension adds the `nibfin` command group.
 The examples below use the public **candidate CLI**. Formal release and
@@ -19,13 +21,18 @@ Replace `OWNER/REPO` with the public repository you want to work on, such as
 gh nibfin help
 ```
 
-| I want to… | Go to |
-| --- | --- |
-| Check this machine before using a Runner | [Check prerequisites](#check-prerequisites) |
-| Set up a public repository | [Preview and propose setup](#preview-and-propose-setup) |
-| View or manage repository Runners | [Manage Runners](#manage-runners) |
-| See the Issue dependency graph | [Local Dashboard](#local-dashboard) |
-| Update the managed workflow files | [Preview an upgrade](#preview-an-upgrade) |
+<DocsItems links={[
+  { title: 'Check prerequisites', href: '#check-prerequisites',
+    description: 'Check this machine before using a Runner.' },
+  { title: 'Preview and propose setup', href: '#preview-and-propose-setup',
+    description: 'Set up a public repository.' },
+  { title: 'Manage Runners', href: '#manage-runners',
+    description: 'View or manage repository Runners.' },
+  { title: 'Local Dashboard', href: '#local-dashboard',
+    description: 'See the Issue dependency graph.' },
+  { title: 'Preview an upgrade', href: '#preview-an-upgrade',
+    description: 'Inspect changes to managed workflow files.' },
+]} />
 
 ## Check prerequisites
 
@@ -39,19 +46,27 @@ be verified. See [preflight details][preflight].
 
 ## Preview and propose setup
 
-Preview the changes first.
+Preview the changes first. With repository and workflow write permissions,
+you can then open the installation PR and add any missing workflow labels.
+
+<CommandTabs client:load>
+  <div slot="preview">
+    <p>Inspect the proposed changes before applying them.</p>
 
 ```sh
 gh nibfin init --repo OWNER/REPO
 ```
 
-With repository and workflow write permissions, add `--apply` to create the
-installation PR and add any missing workflow labels. Review and merge the PR
-through the repository's normal process.
+  </div>
+  <div slot="apply">
+    <p>Review and merge the PR through the repository's normal process.</p>
 
 ```sh
 gh nibfin init --repo OWNER/REPO --apply
 ```
+
+  </div>
+</CommandTabs>
 
 To include initial Runner registration, add both `--runner-directory` and
 `--runner-name`. A repository administrator reruns the apply command after the

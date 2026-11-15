@@ -4,6 +4,7 @@ import { ButtonLink } from './ui/button';
 
 const { entry } = Astro.locals.starlightRoute;
 const hero = entry.data.hero;
+const logoWidth = 180;
 ---
 
 {entry.data.template === 'splash' && hero ? (
@@ -12,8 +13,8 @@ const hero = entry.data.hero;
       class="nf-hero-logo"
       src={`${import.meta.env.BASE_URL}apple-touch-icon.png`}
       alt="Nibfin"
-      width="180"
-      height="180"
+      width={logoWidth}
+      height={logoWidth}
       fetchpriority="high"
     />
     <div class="stack flex flex-col gap-6">

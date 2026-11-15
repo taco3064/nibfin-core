@@ -3,13 +3,14 @@ title: Installation and configuration
 description: Component sources and honest installation availability.
 ---
 
-import Alert from "../../components/DocsAlert.astro";
+import { Steps } from '@astrojs/starlight/components';
 
 ## Component status
 
-### Core
+<div class="nf-component-status">
+<section>
 
-<Alert title="Availability">
+### Core
 
 {/* claim:core */}
 Unverified formal release and fresh installation. The
@@ -17,14 +18,13 @@ Unverified formal release and fresh installation. The
 describes development and source packaging.
 {/* /claim */}
 
-</Alert>
-
 A trusted host must adopt approved Core source and configuration. Verify adoption
 separately after registering a Runner.
 
-### Action
+</section>
+<section>
 
-<Alert title="Availability">
+### Action
 
 {/* claim:action */}
 Unverified formal release or Marketplace availability. The
@@ -32,14 +32,13 @@ Unverified formal release or Marketplace availability. The
 the Action invokes an approved Core installation.
 {/* /claim */}
 
-</Alert>
-
 Review the proposed workflow's source, permissions, and protected entry before
 adoption. See [security and recovery](../security/) for fork input boundaries.
 
-### CLI
+</section>
+<section>
 
-<Alert title="Availability">
+### CLI
 
 {/* claim:cli */}
 Unverified formal release and fresh-user installation. The
@@ -47,10 +46,11 @@ Unverified formal release and fresh-user installation. The
 describes installation from reviewed source.
 {/* /claim */}
 
-</Alert>
-
 Use the [CLI guide](../cli/) to find the candidate interfaces for onboarding,
 Runner management, and environment inspection.
+
+</section>
+</div>
 
 ## Configuration review
 
@@ -68,8 +68,13 @@ certification of fresh-user installation.
 
 ## Verify your installation
 
-Review the current source and release metadata before selecting a component.
-After the installation PR merges, verify the installed source and trusted
-Runner host adoption before attempting protected execution.
+<Steps>
+
+1. Review the current source and release metadata before selecting a component.
+2. After the installation PR merges, verify the installed source and trusted
+   Runner host adoption before attempting protected execution.
+
+</Steps>
+
 The [CLI guide](../cli/) contains the read-only source-backed example available
 for maintainers. [Getting Started](../getting-started/) separates owner paths.

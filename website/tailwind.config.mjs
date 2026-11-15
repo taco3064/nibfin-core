@@ -11,8 +11,11 @@ export default {
   content: [fileURLToPath(new URL('./src/**/*.{astro,md,mdx,ts,tsx}', import.meta.url))],
   corePlugins: { preflight: false },
   theme: {
-    colors: Object.fromEntries(names.map((name) => [name, paired.has(name)
-      ? { DEFAULT: `var(--${name})`, foreground: `var(--${name}-foreground)` }
-      : `var(--${name})`])),
+    colors: {
+      transparent: 'transparent',
+      ...Object.fromEntries(names.map((name) => [name, paired.has(name)
+        ? { DEFAULT: `var(--${name})`, foreground: `var(--${name}-foreground)` }
+        : `var(--${name})`])),
+    },
   },
 };

@@ -5,24 +5,20 @@ description: Declare the tools, HTTPS destinations, and role Skills for a Job.
 
 import Alert from "../../components/DocsAlert.astro";
 
-import Card from '../../components/DocsCard.astro';
-import CardGrid from '../../components/ui/CardGrid.astro';
+import DocsItems from '../../components/DocsItems';
 
 An adopted public repository can include an optional `.nibfin.json` at its
 root. Core reads the file from the Issue's target repository in the current
 development worktree, including when a shared Runner executes the Job.
 
-<CardGrid columns={3}>
-  <Card title="Tools" href="#tools">
-    Request an exact Node.js, Python, or Go version for isolated work.
-  </Card>
-  <Card title="Network access" href="#https-destinations">
-    Request additional HTTPS destinations for this repository's Job.
-  </Card>
-  <Card title="Role Skills" href="#role-skills">
-    Extend or replace the instructions for a supported automated role.
-  </Card>
-</CardGrid>
+<DocsItems links={[
+  { title: 'Tools', href: '#tools',
+    description: 'Request an exact Node.js, Python, or Go version for isolated work.' },
+  { title: 'Network access', href: '#https-destinations',
+    description: 'Request additional HTTPS destinations for this repository’s Job.' },
+  { title: 'Role Skills', href: '#role-skills',
+    description: 'Extend or replace the instructions for a supported automated role.' },
+]} />
 
 ## Example configuration
 

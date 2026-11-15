@@ -5,26 +5,22 @@ description: What source evidence proves and what still needs release or host ev
 
 import Alert from "../../components/DocsAlert.astro";
 
-import Card from '../../components/DocsCard.astro';
-import CardGrid from '../../components/ui/CardGrid.astro';
+import { Steps } from '@astrojs/starlight/components';
 
 ## Three distinct delivery milestones
 
-<CardGrid columns={3}>
-  <Card title="Manual Bootstrap">
-    Creates and verifies publicly obtainable Core, Action, and CLI candidates
-    and installs them under authorization.
-  </Card>
-  <Card title="External product E2E">
-    Exercises protected delivery in an external public repository. An authorized
-    switch and read-back of the entries, permissions, and installed sources are
-    required before normal self-development. The switch can precede public release.
-  </Card>
-  <Card title="Real self-delivery">
-    Requires Core, Action, and CLI each to deliver actual work through the
-    protected lifecycle. Each repository needs its own evidence.
-  </Card>
-</CardGrid>
+<Steps>
+
+1. **Manual Bootstrap** creates and verifies publicly obtainable Core, Action,
+   and CLI candidates and installs them under authorization.
+2. **External product E2E** exercises protected delivery in an external public
+   repository. An authorized switch and read-back of the entries, permissions,
+   and installed sources are required before normal self-development. The switch
+   can precede public release.
+3. **Real self-delivery** requires Core, Action, and CLI each to deliver actual
+   work through the protected lifecycle. Each repository needs its own evidence.
+
+</Steps>
 
 ## Reading status claims
 
