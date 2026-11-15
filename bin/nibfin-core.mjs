@@ -14,6 +14,7 @@ import { recoverCommitPr, recoverReview } from '../src/recover-commit-pr.mjs';
 import { promoteHost } from '../src/host-rollout.mjs';
 import { inspectSharedHost } from '../src/shared-host-inspect.mjs';
 import { installSharedServiceTemplate } from '../src/shared-service-install.mjs';
+import { installAndStartSharedServices } from '../src/shared-service-start.mjs';
 import { adoptSharedPeer } from '../src/shared-peer-adoption.mjs';
 
 // This entry point never imports a caller-selected adapter or runs candidate code.
@@ -35,6 +36,8 @@ async function main(args) {
     return inspectSharedHost();
   if (command === 'install-shared-service-template' && [0, 3].includes(values.length))
     return installSharedServiceTemplate(values.slice(1), Number(values[0]));
+  if (command === 'start-shared-services' && [0, 3].includes(values.length))
+    return installAndStartSharedServices(values.slice(1), Number(values[0]));
   if (command === 'adopt-shared-peer' && values.length === 3)
     return adoptSharedPeer(values[0], Number(values[1]), values[2]);
   if (command === 'export-mcp' && values.length === 5) {
