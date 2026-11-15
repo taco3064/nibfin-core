@@ -187,7 +187,24 @@ def replacements(repo, config, pins, base, workflows):
     return files
 
 
-def read_consumer(repo, config, pins):
+def consumer_wait(pr):
+    checks = pr["statusCheckRollup"]
+    incomplete = [
+        {"name": check.get("name") or check.get("context"), "status": (
+            check.get("conclusion") or check.get("status") or check.get("state") or "UNKNOWN"
+        )}
+        for check in checks if check.get("conclusion") not in ("SUCCESS", "SKIPPED")
+    ]
+    if pr["mergeStateStatus"] == "CLEAN" and checks and not incomplete:
+        return None
+    return {
+        "mergeStateStatus": pr["mergeStateStatus"],
+        "checkRollupPresent": bool(checks),
+        "incompleteChecks": incomplete,
+    }
+
+
+def read_consumer(repo, config, pins, run_id=None):
     base = main_sha(repo)
     workflows = consumer_workflows(repo, base)
     core, action = pins["core"]["commit"], pins["action"]["commit"]
@@ -209,22 +226,23 @@ def read_consumer(repo, config, pins):
     prs = json.loads(gh("pr", "list", "-R", repo, "--base", "main", "--head", branch,
                         "--json", "number,headRefOid,isDraft,mergeStateStatus,"
                         "isCrossRepository,files,statusCheckRollup"))
-    require(len(prs) == 1, f"{repo} rollout PR is unavailable")
+    require(len(prs) == 1,
+            f"{repo} expected one open rollout PR for {branch}, found {len(prs)}")
     pr = prs[0]
     require(not pr["isCrossRepository"] and not pr["isDraft"],
-            f"{repo} rollout PR is not eligible")
+            f"{repo}#{pr['number']} rollout PR is not eligible")
     files = replacements(repo, config, pins, base, workflows)
     require(set(files) == {item["path"] for item in pr["files"]},
-            f"{repo} rollout PR contains unexpected changes")
+            f"{repo}#{pr['number']} rollout PR contains unexpected changes")
     for path, expected in files.items():
         value, _ = content(repo, path, pr["headRefOid"])
         actual = value if isinstance(expected, bytes) else json.loads(value)
         require(actual == expected,
-                f"{repo} rollout PR changed {path} unexpectedly")
-    checks = pr["statusCheckRollup"]
-    if not checks or pr["mergeStateStatus"] != "CLEAN" or not all(
-        check.get("conclusion") in ("SUCCESS", "SKIPPED") for check in checks
-    ):
+                f"{repo}#{pr['number']} rollout PR changed {path} unexpectedly")
+    wait = consumer_wait(pr)
+    if wait is not None:
+        if run_id is not None:
+            print(f"CD {run_id} waiting for {repo}#{pr['number']} {json.dumps(wait)}", flush=True)
         return base, False
     return base, pr
 
@@ -489,11 +507,10 @@ def rollout(hosts, selected):
     require(comparison in ("identical", "ahead") and
             json.loads(content(ACTION, "core-source.json", action)[0]) == pins["core"],
             "Action main does not contain the verified Core pin")
-    consumers = {repo: read_consumer(repo, config, pins)
+    consumers = {repo: read_consumer(repo, config, pins, run_id)
                  for repo, config in hosts.items()}
-    consumers[E2E] = read_consumer(E2E, None, pins)
+    consumers[E2E] = read_consumer(E2E, None, pins, run_id)
     if any(pr is False for _, pr in consumers.values()):
-        print(f"CD {run_id} waiting for consumer PR checks and mergeability")
         return
     if not plan.exists() and not cleanup_done:
         try:
