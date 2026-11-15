@@ -35,7 +35,8 @@ for (const theme of ['light', 'dark']) {
       await expect(panel.locator('code')).toHaveText('gh nibfin init --repo OWNER/REPO');
       await preview.press('ArrowRight');
       await expect(apply).toBeFocused();
-      await expect(panel.locator('code')).toHaveText('gh nibfin init --repo OWNER/REPO --apply');
+      await expect(panel.locator('code'))
+        .toHaveText('gh nibfin init --repo OWNER/REPO --apply');
       await panel.locator('.copy button').press('Enter');
       await expect.poll(() => page.evaluate(() => window.copied))
         .toEqual(['gh nibfin init --repo OWNER/REPO --apply']);
