@@ -10,21 +10,22 @@ const steps = [
   {
     id: "shape",
     title: "Shape the work",
-    summary: "An independent validator checks the contract for an authorized Issue.",
+    summary:
+      "Nibfin turns the authorized Issue into a plan and checks it independently.",
     detail: "The contract defines the scope and the evidence needed to accept the work.",
   },
   {
     id: "deliver",
     title: "Deliver and verify",
     summary:
-      "A Writer implements the change. An independent Acceptor checks the Candidate.",
-    detail: "The Acceptor checks the implementation against the accepted contract.",
+      "A coding agent implements the change. A separate agent verifies it.",
+    detail: "The Acceptor checks the proposed change and its evidence against the plan.",
   },
   {
     id: "merge",
     title: "Review and merge",
     summary:
-      "Applicable CI and final review cover the PR head before protected integration.",
+      "Nibfin opens a pull request and verifies CI and review before protected merge.",
     detail: "Closure follows verification of the integration outcome.",
   },
 ] as const

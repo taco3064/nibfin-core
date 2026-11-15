@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { assertFocus, assertRenderedContrast } from './rendered.mjs';
 
-const title = 'Trusted delivery, from Issue to merge';
+const title = 'Automated development, from GitHub Issue to merge.';
 const destinations = [
   ['getting-started/', 'Getting Started'],
   ['installation/', 'Installation and configuration'],

@@ -3,7 +3,7 @@
   "network": "Public repositories and GitHub release lists were reachable. No formal release was listed for the three components. Fresh installation was not exercised.",
   "pages": {
     "index.mdx": {
-      "sha256": "4f4d5f79b087793c81047510e257ba2ddeecc67c18de843ce45d914790262455",
+      "sha256": "9fd70af8a48b0c309384e83f8ffa7938c185ee7e5ac3d7f769247027df786351",
       "basis": "Reviewed landing claims against Issue #14, Proposal 14–14.4 and maintained onboarding/lifecycle guides. No release or support evidence inferred.",
       "requirements": {
         "issue": "https://github.com/taco3064/nibfin-core/issues/14",
