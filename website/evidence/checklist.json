@@ -56,7 +56,7 @@
       }
     },
     "cli.mdx": {
-      "sha256": "c3ae31919316c08be0d6ee83ad714d0e21e7e99842a612d37863b6c18fb1964c",
+      "sha256": "ad3ae7b006ebc7f0a728f52e622a1532eef6b3a94729b747d6656ed7c195547c",
       "basis": "Reviewed public-safe projection of current Issue #15 and product requirements. Not evidence of release or support.",
       "requirements": {
         "issue": "https://github.com/taco3064/nibfin-core/issues/15",
@@ -156,7 +156,7 @@
       "page": "cli.mdx",
       "repository": "taco3064/nibfin-core",
       "status": "Unverified",
-      "commit": "6840bdb38ca3f063b2d2b6c39684c6fdaff05873",
+      "commit": "9b24bd6cffce802304aa9ae27bc1449b1430aa7b",
       "location": "bin/nibfin-core.mjs: help branch",
       "command": "node bin/nibfin-core.mjs help",
       "basis": "Bound current-main snapshot inspected on 2026-11-11; native help succeeded. Candidate only."
@@ -199,12 +199,12 @@
   "sources": {
     "core": {
       "repository": "taco3064/nibfin-core",
-      "commit": "6840bdb38ca3f063b2d2b6c39684c6fdaff05873",
+      "commit": "9b24bd6cffce802304aa9ae27bc1449b1430aa7b",
       "path": "bin/nibfin-core.mjs",
-      "sha256": "1ab83aef381176d7933ba40a0269d8e5f15be19128174fe846d4cec0fd329a93",
-      "provenance": "Bound read-only current main snapshot; same bytes compared in writable source. No live public read-back.",
+      "sha256": "58c28513d7d05209746aabcaae6657010c5206dc0697ef4165ec1e5a45498e1c",
+      "provenance": "Read-only help inspected at the pinned candidate commit.",
       "release": null,
-      "observed": "2026-11-11"
+      "observed": "2026-11-15"
     }
   },
   "help": {
@@ -212,6 +212,8 @@
       "contract",
       "inspect-shared-host",
       "install-shared-service-template",
+      "start-shared-services",
+      "adopt-shared-host (administrator-only, root-owned profile and source pin)",
       "adopt-shared-peer <repository> <repository-id> <action-commit>",
       "pack <repository> <commit> <new-output-directory>",
       "verify <installation> <approved-pin.json>",
