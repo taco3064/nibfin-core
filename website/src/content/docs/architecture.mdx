@@ -3,8 +3,7 @@ title: Architecture and authority
 description: Repository responsibilities and the sources of delivery truth.
 ---
 
-import Card from '../../components/DocsCard.astro';
-import CardGrid from '../../components/ui/CardGrid.astro';
+import DocsItems from '../../components/DocsItems';
 
 Nibfin supports protected delivery for public GitHub repositories. The
 [product Proposal](https://app.notion.com/p/40006b644a2080dab1a8c2e562f95373)
@@ -13,19 +12,14 @@ implementation for public readers.
 
 ## Three repositories
 
-<CardGrid columns={3}>
-  <Card title="Core" href="https://github.com/taco3064/nibfin-core">
-    Owns authorization, delivery stages, Skills, Candidate evidence, and protected
-    operations.
-  </Card>
-  <Card title="Action" href="https://github.com/taco3064/nibfin-act">
-    Invokes approved Core from GitHub Actions and returns bounded stage results.
-  </Card>
-  <Card title="CLI" href="https://github.com/taco3064/gh-nibfin">
-    Handles onboarding, Runner management, upgrade proposals, and the optional
-    local Dashboard.
-  </Card>
-</CardGrid>
+<DocsItems links={[
+  { title: 'Core', href: 'https://github.com/taco3064/nibfin-core',
+    description: 'Owns authorization, delivery stages, Skills, Candidate evidence, and protected operations.' },
+  { title: 'Action', href: 'https://github.com/taco3064/nibfin-act',
+    description: 'Invokes approved Core from GitHub Actions and returns bounded stage results.' },
+  { title: 'CLI', href: 'https://github.com/taco3064/gh-nibfin',
+    description: 'Handles onboarding, Runner management, upgrade proposals, and the optional local Dashboard.' },
+]} />
 
 ## Sources of truth
 

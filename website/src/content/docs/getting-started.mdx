@@ -5,6 +5,16 @@ description: Choose an onboarding path and understand prerequisites.
 
 import Alert from "../../components/DocsAlert.astro";
 
+import DocsItems from '../../components/DocsItems';
+import { Steps } from '@astrojs/starlight/components';
+
+<DocsItems links={[
+  { title: 'Personal repository', href: '#personal-repository',
+    description: 'Review installation and Runner setup in a repository you own.' },
+  { title: 'Organization repository', href: '#organization-repository',
+    description: 'Check repository-level policies with an authorized administrator.' },
+]} />
+
 ## Prerequisites
 
 Choose a Public Repository owned by a personal account or an Organization.
@@ -29,6 +39,8 @@ credential-boundary verification. Running a container alone is insufficient.
 
 ## Personal repository
 
+<Steps>
+
 1. Confirm the repository is public and that you have installation permissions.
 2. Review [component availability](../installation/#component-status). Obtain
    verified source identities before choosing an installation candidate.
@@ -37,6 +49,8 @@ credential-boundary verification. Running a container alone is insufficient.
 4. Have a repository administrator follow [Runner onboarding](../runners/).
 5. Confirm trusted host adoption, member authorization, isolation and Agent
    readiness before attempting an authorized delivery.
+
+</Steps>
 
 ## Organization repository
 

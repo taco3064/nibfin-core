@@ -23,12 +23,14 @@ Issues, documentation, logs or Agent workspaces.
 
 ## Registration paths
 
+### Manual GitHub registration
+
 {/* claim:manual */}
 Unverified platform-specific onboarding. Follow GitHub's current instructions
 for your repository and platform.
 {/* /claim */}
 
-**Manual official registration:** open the target repository's Settings, then
+Open the target repository's Settings, then
 Actions and Runners. An authorized administrator uses GitHub's current New
 self-hosted runner instructions for the selected platform. Obtain downloads and
 short-lived registration instructions directly from GitHub; review the target
@@ -37,11 +39,15 @@ See GitHub's
 <a href={runnerDocs + 'adding-self-hosted-runners'}>adding self-hosted runners guide</a>.
 No static download version or credential-bearing command is reproduced here.
 
+### Candidate CLI registration
+
 {/* claim:registration */}
 Unverified release and fresh installation. The candidate CLI supports optional
 Admin-authorized registration after the installation PR merges.
 See the [candidate onboarding guide][onboarding].
 {/* /claim */}
+
+### Team-member handoff
 
 The candidate also includes [team-member quick registration][quick].
 A repository administrator authorizes the short-lived handoff and verifies

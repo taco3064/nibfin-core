@@ -28,6 +28,17 @@ for (const theme of ['light', 'dark']) {
         expect(await page.evaluate(() => document.documentElement.scrollWidth
           <= document.documentElement.clientWidth + 1)).toBe(true);
       }
+      const preview = page.getByRole('tab', { name: 'Preview' });
+      const apply = page.getByRole('tab', { name: 'Open a PR' });
+      const panel = page.getByRole('tabpanel');
+      await expect(preview).toHaveAttribute('aria-selected', 'true');
+      await expect(panel.locator('code')).toHaveText('gh nibfin init --repo OWNER/REPO');
+      await preview.press('ArrowRight');
+      await expect(apply).toBeFocused();
+      await expect(panel.locator('code')).toHaveText('gh nibfin init --repo OWNER/REPO --apply');
+      await panel.locator('.copy button').press('Enter');
+      await expect.poll(() => page.evaluate(() => window.copied))
+        .toEqual(['gh nibfin init --repo OWNER/REPO --apply']);
       const code = page.locator('main pre code').first();
       await expect(code).toHaveText('gh nibfin help');
       await expect(page.locator('main')).toContainText('candidate-only');
@@ -36,7 +47,7 @@ for (const theme of ['light', 'dark']) {
       await expect(button).toBeFocused();
       await button.press('Enter');
       await expect.poll(() => page.evaluate(() => window.copied))
-        .toEqual(['gh nibfin help']);
+        .toEqual(['gh nibfin init --repo OWNER/REPO --apply', 'gh nibfin help']);
     });
   }
 }

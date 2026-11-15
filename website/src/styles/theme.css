@@ -44,9 +44,9 @@
   --sl-color-accent: var(--nf-accent);
   --sl-color-accent-high: var(--nf-link);
   --sl-color-accent-low: var(--nf-raised);
-  --sl-color-hairline: var(--nf-border);
+  --sl-color-hairline: var(--nf-border-subtle);
   --sl-color-hairline-light: var(--nf-border-subtle);
-  --sl-color-hairline-shade: var(--nf-border);
+  --sl-color-hairline-shade: var(--nf-border-subtle);
   --sl-color-blue: var(--nf-info);
   --sl-color-blue-high: var(--nf-info);
   --sl-color-blue-low: var(--nf-info-bg);

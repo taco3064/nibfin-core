@@ -42,10 +42,14 @@ Jobs, but a cancelled GitHub Run alone does not prove host processes stopped.
 Pending is a safety outcome for unresolved execution or effects; it need not mean
 GitHub still has a pending Job.
 
-For example, a lost host with an unknown external write remains **Pending**.
+<Alert title="Pending recovery" variant="caution">
+
+A lost host with an unknown external write remains **Pending**.
 Do not start a second Writer while the original may still run or its effects
 remain unknown. An apparently idle replacement Runner does not resolve either
 uncertainty.
+
+</Alert>
 
 Safe retry requires verified termination of the original execution, reconciled
 external effects and current permission. Only then may another eligible Runner

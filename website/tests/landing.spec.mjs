@@ -50,20 +50,32 @@ for (const theme of ['light', 'dark']) {
       await expect(actions).toHaveCount(2);
       await expect(actions.first()).toHaveClass(/\bbg-primary\b/);
       await expect(actions.last()).toHaveClass(/\bborder-input\b/);
-      const steps = page.locator('.nf-delivery-steps > li');
-      await expect(steps).toHaveCount(3);
-      await expect(steps.first()).toHaveCSS('border-left-width', '0px');
-      await expect(steps.first()).toHaveCSS('border-top-width', '1px');
+      const row = page.locator('.nf-doc-links a').first();
+      await expect(row).toHaveAttribute('data-slot', 'item');
+      await expect(row).toHaveCSS('display', 'flex');
+      const step = page.getByRole('button', { name: /^Shape the work/ });
+      await expect(step).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
+      await expect(step).toHaveAttribute('aria-expanded', 'false');
+      await step.press('Enter');
+      await expect(step).toHaveAttribute('aria-expanded', 'true');
+      await expect(page.getByText('The contract defines the scope', { exact: false }))
+        .toBeVisible();
+      await step.press('ArrowDown');
+      await expect(page.getByRole('button', { name: /^Deliver and verify/ }))
+        .toBeFocused();
       const logo = page.getByRole('img', { name: 'Nibfin', exact: true });
       await expect(logo).toBeVisible();
       const logoBox = await logo.boundingBox();
       expect(logoBox.width).toBeCloseTo(logoBox.height, 0);
       if (width === 360) {
         const stackBox = await page.locator('.hero .stack').boundingBox();
-        expect(logoBox.width).toBeCloseTo(stackBox.width, 0);
+        const intrinsic = await logo.evaluate((node) => node.naturalWidth);
+        expect(intrinsic).toBeGreaterThan(0);
+        expect(logoBox.width).toBeCloseTo(Math.min(stackBox.width, intrinsic), 0);
       } else {
         expect(logoBox.width).toBeLessThan(width / 3);
       }
+      await page.locator('h1').focus();
       const boxes = [];
       for (const action of await actions.all()) {
         await tabTo(page, action);
