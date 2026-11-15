@@ -317,13 +317,25 @@ def host_fenced(hosts):
                for path in roots)
 
 
+def runner_services(hosts):
+    additional = hosts[CORE].get("sharedRunner", {}).get("additionalRunner", {})
+    if additional.get("isolation") is not None:
+        return ["nibfin-shared-runner@1.service", "nibfin-shared-runner@2.service"]
+    return [f"{repo.split('/')[1]}-runner.service" for repo in hosts]
+
+
 def idle(hosts, include_queued=True):
     if host_fenced(hosts):
         return False
     registrations = {}
     checked_workflows = set()
+    execution_pool = hosts[CORE].get("sharedRunner", {})
     for repo, config in hosts.items():
-        shared = config.get("sharedRunner", {}).get("runner")
+        pool = config.get("sharedRunner", {})
+        repository_id = config["repository"]["approval"]["repositoryId"]
+        if repository_id in execution_pool.get("repositories", []):
+            pool = execution_pool
+        shared = pool.get("runner")
         runner_repo = shared["repository"] if shared else repo
         runner_id = shared["runnerId"] if shared else config["runnerId"]
         if runner_repo not in registrations:
@@ -333,7 +345,7 @@ def idle(hosts, include_queued=True):
         require(runner is not None, f"{repo} adopted Runner is missing")
         if runner["busy"]:
             return False
-        additional = config.get("sharedRunner", {}).get("additionalRunner")
+        additional = pool.get("additionalRunner")
         if additional:
             match = next((r for r in runners if r["id"] == additional["id"]), None)
             require(match and match["name"] == additional["name"],
@@ -496,7 +508,7 @@ def rollout(hosts, selected):
             print(waiting)
             return
     source = stage_package(pins, artifacts)
-    services = [f"{repo.split('/')[1]}-runner.service" for repo in hosts]
+    services = runner_services(hosts)
     wanted = {"pin": pins["core"], "actionCommit": action}
     stopped = plan.exists() and json.loads(plan.read_text()) == wanted and all(
         run("systemctl", "show", "-p", "ActiveState", "--value", service).strip()
@@ -640,7 +652,7 @@ def main():
     if plan_path.exists():
         target = json.loads(plan_path.read_text())["pin"]["commit"]
         if target == current:
-            finish([f"{repo.split('/')[1]}-runner.service" for repo in hosts])
+            finish(runner_services(hosts))
             target = None
     selected = next_rollout(current, target)
     if selected:

@@ -8,6 +8,7 @@ import { rootOwnedPath } from './host-paths.mjs';
 import { digest, isSha, requireThat } from './identity.mjs';
 import { command } from './process.mjs';
 import { verifyInstalledSource } from './source-package.mjs';
+import { sharedSlotIsolation } from './shared-runner.mjs';
 
 const coreRoot = '/opt/nibfin/core';
 const planPath = '/etc/nibfin/rollout-plan.json';
@@ -154,6 +155,11 @@ async function promoteLockedHost() {
   requireThat(hosts.every(host => digest(host.current.value.installation.pin) ===
     digest(oldPin)), 'ROLLOUT_EXISTING_HOSTS_DIVERGED');
   const agentProfiles = hosts.map(host => host.next.value.repository.isolation.agent);
+  const primaryConfig = primary.current.value;
+  const additional = primaryConfig.sharedRunner?.additionalRunner;
+  const secondaryIsolation = additional?.isolation &&
+    sharedSlotIsolation(primaryConfig, additional.uid);
+  if (secondaryIsolation) agentProfiles.push(secondaryIsolation.agent);
   const networks = agentProfiles.map(agent => `${agent.socket}:${agent.network}`);
   const gateways = agentProfiles.map(agent => `${agent.socket}:${agent.gatewayId}`);
   const policies = agentProfiles.map(agent => agent.mcpPolicyDirectory).filter(Boolean);
@@ -163,14 +169,17 @@ async function promoteLockedHost() {
   const backup = `/opt/nibfin/core-before-${plan.pin.commit}`;
   await requireMissing(backup, 'ROLLOUT_BACKUP_ALREADY_EXISTS');
   const env = { PATH: '/usr/bin:/bin', LANG: 'C' };
-  for (const host of hosts) {
+  const services = hosts.map(host => `${host.repository}-runner.service`);
+  if (secondaryIsolation)
+    services.push('nibfin-shared-runner@1.service', 'nibfin-shared-runner@2.service');
+  for (const service of services) {
     const status = await command('/usr/bin/systemctl',
-      ['is-active', `${host.repository}-runner.service`],
+      ['is-active', service],
       { env, allowedExitCodes: [0, 3, 4] });
     requireThat(status.stdout.toString().trim() === 'inactive', 'ROLLOUT_RUNNER_ACTIVE');
-    const config = host.current.value;
-    await idleContainers(config.repository.isolation);
   }
+  for (const host of hosts) await idleContainers(host.current.value.repository.isolation);
+  if (secondaryIsolation) await idleContainers(secondaryIsolation);
   for (const root of new Set(hosts.map(host => host.current.value.stateRoot))) {
     await requireMissing(join(root, 'stage.lock'), 'ROLLOUT_FENCE_PRESENT');
     for (const name of await readdir(root)) {
