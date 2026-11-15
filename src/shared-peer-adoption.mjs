@@ -35,29 +35,33 @@ export async function observePeer(reader, name, id, memberId, source, actionComm
     'PEER_DEFAULT_BRANCH_UNAVAILABLE');
   requireThat(permission?.user?.id === memberId && permission.permission === 'admin',
     'PEER_INSTALLATION_ADMIN_REQUIRED');
-  const workflow = async (path, recipe) => {
-    const [actual, file] = await Promise.all([
-      reader.get(`${root}/actions/workflows/${path.split('/').at(-1)}`),
-      reader.get(`${root}/contents/${path}?ref=${head}`),
-    ]);
-    requireThat(isId(actual.id) && actual.state === 'active' && actual.path === path &&
-      file.type === 'file' && file.path === path && file.encoding === 'base64' &&
-      typeof file.content === 'string' &&
-      file.sha === gitBlob(Buffer.from(file.content, 'base64')),
-    'PEER_WORKFLOW_NOT_VERIFIED');
-    const text = Buffer.from(file.content, 'base64').toString('utf8');
-    requireThat(text.replaceAll('\r\n', '\n') ===
-      callerRecipe(recipe.kind, recipe.coreCommit, recipe), 'CALLER_NOT_FIXED_RECIPE');
-    return { workflowId: actual.id, workflowPath: path, workflowBlob: file.sha };
-  };
-  const [issue, action] = await Promise.all([
-    workflow(issueWorkflow, { kind: 'issue', coreCommit: source.commit }),
-    workflow(actionWorkflow, { kind: 'action-dispatch', coreCommit: source.commit,
-      actionCommit, memberId }),
+  const issue = callerRecipe('issue', source.commit);
+  const action = callerRecipe('action-dispatch', source.commit, {
+    actionCommit, memberId,
+  });
+  const [eventBinding, actionBinding] = await Promise.all([
+    observeAdoptionWorkflow(reader, root, issueWorkflow, head, issue),
+    observeAdoptionWorkflow(reader, root, actionWorkflow, head, action),
   ]);
   requireThat((await reader.get(branchPath)).commit?.sha === head,
     'PEER_DEFAULT_BRANCH_CHANGED');
-  return { head, issue, action };
+  return { head, issue: eventBinding, action: actionBinding, repo, actor, branch };
+}
+
+export async function observeAdoptionWorkflow(reader, root, path, head, expected) {
+  const [actual, file] = await Promise.all([
+    reader.get(`${root}/actions/workflows/${path.split('/').at(-1)}`),
+    reader.get(`${root}/contents/${path}?ref=${head}`),
+  ]);
+  requireThat(isId(actual.id) && actual.state === 'active' && actual.path === path &&
+    file.type === 'file' && file.path === path && file.encoding === 'base64' &&
+    typeof file.content === 'string' &&
+    file.sha === gitBlob(Buffer.from(file.content, 'base64')),
+  'PEER_WORKFLOW_NOT_VERIFIED');
+  const body = Buffer.from(file.content, 'base64').toString('utf8');
+  requireThat(body.replaceAll('\r\n', '\n') === expected.replaceAll('\r\n', '\n'),
+    'CALLER_NOT_FIXED_RECIPE');
+  return { workflowId: actual.id, workflowPath: path, workflowBlob: file.sha };
 }
 
 export function peerConfiguration(host, name, id, source, actionCommit, observed, blob) {
@@ -109,6 +113,11 @@ async function replace(path, value) {
 export async function adoptSharedPeer(name, id, actionCommit) {
   requireThat(process.platform === 'linux' && process.getuid() === 0 &&
     coreRoot === '/opt/nibfin/core', 'PEER_INSTALLATION_REQUIRES_HOST_ADMIN');
+  return withSharedAdoptionLock(directory => adoptPeerLocked(name, id, actionCommit,
+    directory));
+}
+
+export async function withSharedAdoptionLock(action) {
   const directory = dirname(hostFile);
   await rootOwnedPath(directory);
   const lock = join(directory, 'rollout.lock');
@@ -119,7 +128,7 @@ export async function adoptSharedPeer(name, id, actionCommit) {
     throw error;
   });
   try {
-    return await adoptPeerLocked(name, id, actionCommit, directory);
+    return await action(directory);
   } finally {
     await guard.close();
     await unlink(lock);
@@ -144,14 +153,24 @@ async function adoptPeerLocked(name, id, actionCommit, directory) {
     (stat.mode & 0o077) === 0, 'CONTROLLER_CREDENTIAL_NOT_PRIVATE');
   const token = (await boundedHostFile(host.tokenFile, 16384)).trim();
   const reader = new GitHubReader(token);
+  await verifyAdoptionAction(reader, actionCommit, host.installation.pin);
+  const observed = await observePeer(
+    reader, name, id, host.memberId, source, actionCommit);
+  return publishPeer(host, current, name, id, source, actionCommit,
+    observed, directory);
+}
+
+export async function verifyAdoptionAction(reader, actionCommit, pin) {
   const producer = await reader.get(
     `/repos/taco3064/nibfin-act/contents/core-source.json?ref=${actionCommit}`);
   requireThat(producer.type === 'file' && producer.encoding === 'base64' &&
     typeof producer.content === 'string' &&
     digest(JSON.parse(Buffer.from(producer.content, 'base64'))) ===
-      digest(host.installation.pin), 'PEER_ACTION_SOURCE_MISMATCH');
-  const observed = await observePeer(
-    reader, name, id, host.memberId, source, actionCommit);
+      digest(pin), 'PEER_ACTION_SOURCE_MISMATCH');
+}
+
+async function publishPeer(host, current, name, id, source, actionCommit,
+  observed, directory) {
   const path = join(directory, `host.peer-${id}.json`);
   const peers = host.wakePeerFiles ?? [];
   requireThat(Array.isArray(peers), 'INVALID_WAKE_PEER_PATH');

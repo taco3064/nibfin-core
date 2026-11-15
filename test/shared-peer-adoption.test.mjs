@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { readFile } from 'node:fs/promises';
 import { observePeer, peerConfiguration } from '../src/shared-peer-adoption.mjs';
+import { observeExecutionPool } from '../src/shared-host-adopt.mjs';
 import { callerRecipe } from '../src/caller-recipes.mjs';
 import { gitBlob } from '../src/identity.mjs';
 
@@ -53,4 +55,42 @@ test('peer adoption verifies callers on an unprotected target branch', async () 
   reader.replies.get(root + '/collaborators/owner/permission').permission = 'write';
   await assert.rejects(observePeer(reader, name, 123, memberId, source, actionCommit),
     { code: 'PEER_INSTALLATION_ADMIN_REQUIRED' });
+});
+
+test('first adoption pins the protected workflow and two slots', async () => {
+  const reader = fixture();
+  const path = '.github/workflows/shared-runner.yml';
+  const workflow = await readFile(new URL('../' + path, import.meta.url), 'utf8');
+  const bytes = Buffer.from(workflow);
+  const branch = reader.replies.get(root + '/branches/main');
+  branch.protected = true;
+  reader.replies.get(root).owner = { id: 70 };
+  const oidc = { use_default: true };
+  reader.replies.set(root + '/actions/oidc/customization/sub', oidc);
+  reader.replies.set(root + '/actions/workflows/shared-runner.yml',
+    { id: 55, path, state: 'active' });
+  const callerFile = { type: 'file', path, encoding: 'base64', sha: gitBlob(bytes),
+    content: bytes.toString('base64') };
+  reader.replies.set(root + '/contents/' + path + '?ref=' + head, callerFile);
+  const labels = [{ name: 'nibfin-shared' }, { name: 'nibfin-user-77' }];
+  const slots = [1, 2].map(slot => ({ id: slot + 10, name: `nibfin-123-77-${slot}`,
+    os: 'Linux', status: 'offline', busy: false, labels }));
+  reader.list = async () => slots;
+  const observe = format =>
+    observeExecutionPool(reader, name, 123, memberId, [11, 12], source,
+      actionCommit, workflow, format);
+  const pool = await observe();
+  assert.equal(pool.runner.workflowId, 55);
+  assert.equal(pool.caller.subject, 'repo:example@70/peer@123:ref:refs/heads/main');
+  assert.equal(pool.second.runnerId, 12);
+  assert.equal((await observe('legacy')).caller.subject,
+    'repo:example/peer:ref:refs/heads/main');
+  oidc.use_default = false;
+  await assert.rejects(observe(), { code: 'SHARED_CUSTOM_OIDC_TEMPLATE_UNSUPPORTED' });
+  oidc.use_default = true;
+  slots[1].busy = true;
+  await assert.rejects(observe(), { code: 'SHARED_HOST_REGISTRATION_CHANGED' });
+  slots[1].busy = false;
+  branch.protected = false;
+  await assert.rejects(observe(), { code: 'SHARED_EXECUTION_BRANCH_UNPROTECTED' });
 });

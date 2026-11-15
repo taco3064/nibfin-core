@@ -21,6 +21,19 @@ and each instance uses its own `/var/lib/nibfin/runners/slot-<number>` directory
 For this template, adopt the second slot's isolation configuration as
 `sharedRunner.additionalRunner.isolation` in the same host file. Its gateway,
 network and configured project/MCP egress-policy directory must be distinct.
+For first adoption through CLI init, the administrator provides a root-owned
+`/etc/nibfin/shared-host-profile.json`. Use `schemaVersion: 1` and supply
+`stateRoot`, `tokenFile`, `authFile`, `model`, `isolation` and
+`secondaryIsolation` from the verified controlled Docker setup. These are
+local settings and private credential paths. The profile can also carry
+`globalInstructionsFile` and `mcp` from the existing host contract.
+The three pre-existing accounts must be `nibfin-controller` and
+`nibfin-runner-1` / `nibfin-runner-2`. For older repositories using
+legacy default GitHub OIDC subjects, set `oidcSubjectFormat` to `legacy`.
+The default is the immutable subject used by newly created repositories.
+Customized OIDC templates require separate adoption. The installer reads
+GitHub to bind the protected execution Workflow and two offline registrations,
+then creates and reads back the existing host configuration.
 After preparing those accounts and directories, run the verified, installed Core
 as root with `install-shared-service-template`. It reads the pin in the adopted
 host configuration and installs the unit as `nibfin-shared-runner@.service`.
