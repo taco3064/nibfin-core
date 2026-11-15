@@ -30,7 +30,9 @@ extracts new root-owned programs from the verified official Runner 2.338.2
 archive and imports only the three private registration files. It keeps the
 same Runner IDs and refuses to replace a conflicting service slot.
 An identical existing unit is accepted and a conflicting unit is refused.
-This step writes the unit file. Service activation is a separate operation.
+The installer can request `start-shared-services` to write the same unit and
+start both services. It refuses overrides and checks both service processes
+through systemd. GitHub must separately report both Runner IDs online.
 On WSL 2, the installer includes the packaged host mount restrictions in the
 unit it writes.
 Before enabling either slot, verify the official Runner archive and register
