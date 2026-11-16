@@ -1,4 +1,5 @@
 import { constants } from 'node:fs';
+import { privateResource } from './managed-credential-files.mjs';
 import { mkdir, open, rename, unlink, readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { spawn } from 'node:child_process';
@@ -12,12 +13,23 @@ const flags = constants.O_RDWR | constants.O_CREAT | constants.O_NOFOLLOW |
 
 // Kernel locks die with their file descriptions: restart needs no stale-lock theft.
 // The parent retains the same open description until the entire callback finishes.
-export async function withRelayGate(root, use) {
-  await privateHostDirectory(root);
-  const handle = await open(join(root, 'relay.lock'), flags, 0o600);
+export async function withRelayGate(root, use, {
+  uid = process.getuid(), name = 'relay.lock',
+} = {}) {
+  requireThat(/^[a-z-]+\.lock$/.test(name), 'UNTRUSTED_RELAY_LOCK');
+  await privateResource(root, uid, true);
+  let handle;
+  try {
+    handle = await open(join(root, name), flags | constants.O_EXCL, 0o600);
+    await handle.chown(uid, -1);
+  } catch (error) {
+    await handle?.close();
+    if (error.code !== 'EEXIST') throw error;
+    handle = await open(join(root, name), flags & ~constants.O_CREAT);
+  }
   try {
     const stat = await handle.stat();
-    requireThat(stat.isFile() && stat.nlink === 1 && stat.uid === process.getuid() &&
+    requireThat(stat.isFile() && stat.nlink === 1 && stat.uid === uid &&
       (stat.mode & 0o077) === 0, 'UNTRUSTED_RELAY_LOCK');
     const child = spawn('/usr/bin/flock', ['-n', '-E', '75', '3'], {
       stdio: ['ignore', 'ignore', 'ignore', handle.fd],
@@ -111,6 +123,18 @@ export class RelayJournal {
     requireThat(value?.schemaVersion === 1 && typeof value.paused === 'boolean',
       'RELAY_CONTROL_UNKNOWN');
     return value;
+  }
+  async requireSettled() {
+    const result = await withRelayGate(this.root, async () => {
+      requireThat((await this.control()).paused, 'RETIREMENT_RELAY_NOT_PAUSED');
+      // A lost dispatch response remains an external effect even if no active
+      // Job or registration is visible. Recovery owns reconciliation; retirement
+      // must neither clear the receipt nor repeat the POST.
+      requireThat((await this.records()).every(record => record.status !== 'pending'),
+        'RETIREMENT_RELAY_EFFECT_PENDING');
+      return { settled: true };
+    });
+    requireThat(result?.settled === true, 'RETIREMENT_RELAY_BUSY');
   }
   async setPaused(paused) {
     return withRelayGate(this.root, async () => {

@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { retireSharedHost } from '../src/retirement-host.mjs';
 import { consumerContract } from '../src/public-api.mjs';
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { resolve, join } from 'node:path';
@@ -35,6 +36,8 @@ async function main(args) {
     return recoverCommitPr(values[0], values[1]);
   if (command === 'recover-review' && values.length === 2)
     return recoverReview(values[0], values[1]);
+  if (command === 'retire-shared-host' && values.length === 0)
+    return retireSharedHost();
   if (command === 'promote-host' && values.length === 0) return promoteHost();
   if (command === 'contract' && values.length === 0) return consumerContract;
   if (command === 'inspect-shared-host' && values.length === 0)
@@ -70,6 +73,7 @@ async function main(args) {
         'contract',
         'managed-credentials <intake|replace|status|disconnect> (local admin)',
         'inspect-shared-host',
+        'retire-shared-host (local administrator, no arguments)',
         'install-shared-service-template',
         'start-shared-services',
         'adopt-shared-host (administrator-only, root-owned profile and source pin)',

@@ -1,3 +1,5 @@
+import { verifySharedSlotIdentity } from '../shared-slot-identity.mjs';
+import { requirePoolOpen } from '../retirement-admission.mjs';
 import { installedProvider } from '../provider-binding.mjs';
 import { access, constants, lstat, readFile, readdir, realpath } from 'node:fs/promises';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -9,6 +11,7 @@ import { requireThat } from '../identity.mjs';
 import { installedSharedRuntime, verifySharedFile } from '../shared-platform.mjs';
 
 async function check() {
+  await requirePoolOpen();
   const slot = process.argv[2];
   requireThat(slot === '1' || slot === '2', 'INVALID_SHARED_RUNNER_SLOT');
   await rootOwnedPath(hostFile);
@@ -40,14 +43,7 @@ export async function checkSharedRunnerSlot(
   target ??= await installedSharedRuntime();
   const dispatcher = join(directory, 'bin', 'Runner.Worker');
   const packaged = new URL('./shared-worker-dispatcher.sh', import.meta.url);
-  const registration = join(directory, '.runner');
-  await rootOwnedPath(registration);
-  const bytes = await boundedHostFile(registration, 65536);
-  const local = JSON.parse(bytes.replace(/^\uFEFF/, ''));
-  requireThat(local.agentId === expected.id && local.agentName === expected.name &&
-    local.gitHubUrl === `https://github.com/${repository}` &&
-    local.workFolder === '_work',
-  'SHARED_RUNNER_REGISTRATION_MISMATCH');
+  const local = await verifySharedSlotIdentity(directory, expected, repository);
   const credentialPath = join(directory, '.credentials');
   await rootOwnedPath(credentialPath);
   const credential = JSON.parse((await boundedHostFile(credentialPath, 65536))

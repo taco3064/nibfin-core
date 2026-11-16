@@ -1,3 +1,7 @@
+import {
+  retiredReplacement, releaseRetiredReplacement,
+} from './retirement-rebind.mjs';
+import { writeRetirementFile } from './retirement-files.mjs';
 import { createProviderBinding } from './provider-binding.mjs';
 import { withManagedAdmission } from './managed-credential-admission.mjs';
 import { link, lstat, open, realpath, unlink } from 'node:fs/promises';
@@ -146,6 +150,7 @@ async function publishInitialHost(host, directory) {
   try {
     const file = await open(temp, 'wx', 0o644);
     try {
+      await file.chmod(0o644);
       await file.writeFile(json);
       await file.sync();
     } finally { await file.close(); }
@@ -166,9 +171,14 @@ export async function adoptSharedHost(name, id, memberId, actionCommit, ids, pin
   const source = await verifyInstalledSource(coreRoot, pin);
   return withManagedAdmission(() => withSharedAdoptionLock(async directory => {
     const path = join(directory, profileName);
+    let retirement;
     try {
       await lstat(hostFile);
-      requireThat(false, 'SHARED_HOST_ALREADY_EXISTS');
+      retirement = await retiredReplacement({ repository: name, repositoryId: id,
+        memberId, runners: ids.map(id => ({ id })) });
+      const current = await boundedHostFile(hostFile, 262144);
+      requireThat(current === retirement.binding.adoptions[0].bytes ||
+        current === retirement.replacement?.bytes, 'RETIREMENT_ADOPTION_CHANGED');
     } catch (error) { if (error.code !== 'ENOENT') throw error; }
     await rootOwnedPath(path);
     const bytes = await boundedHostFile(path, limit);
@@ -191,18 +201,20 @@ export async function adoptSharedHost(name, id, memberId, actionCommit, ids, pin
     const pool = await observeExecutionPool(reader, name, id, memberId, ids,
       source, actionCommit, shared, sharedAdmission);
     const { runner, caller, second, observed } = pool;
-    const [primary, secondary] = managedEgressNetwork === undefined
-      ? [isolation, secondaryIsolation]
-      : await prepareSharedGateways([isolation, secondaryIsolation],
-        runner, second, managedEgressNetwork);
     const host = { schemaVersion: 1, kind: 'single-host-linux-v1', uid, runnerUid,
       memberId, stateRoot, tokenFile, authFile, model, globalInstructionsFile, mcp,
       runnerId: runner.runnerId, installation: { directory: coreRoot, pin },
-      repository: { isolation: primary },
+      repository: { isolation },
       sharedRunner: { runner, caller, repositories: [id],
         additionalRunner: { uid: secondUid, id: second.runnerId,
-          name: second.runnerName, isolation: secondary } } };
+          name: second.runnerName, isolation: secondaryIsolation } } };
     host.providerBinding = createProviderBinding(host, profile.provider);
+    if (managedEgressNetwork !== undefined) {
+      const [primary, secondary] = await prepareSharedGateways(
+        [isolation, secondaryIsolation], runner, second, managedEgressNetwork);
+      host.repository.isolation = primary;
+      host.sharedRunner.additionalRunner.isolation = secondary;
+    }
     const workflow = await boundedHostFile(join(coreRoot, issueWorkflow), 65536);
     host.repository = peerConfiguration(host, name, id, source, actionCommit,
       observed, gitBlob(workflow)).repository;
@@ -213,6 +225,11 @@ export async function adoptSharedHost(name, id, memberId, actionCommit, ids, pin
       digest(await verifyInstalledSource(coreRoot, pin)) === digest(source),
     'SHARED_HOST_ADOPTION_CHANGED');
     if (managedEgressNetwork !== undefined) await installSharedRelay();
+    if (retirement) {
+      await releaseRetiredReplacement(retirement, host,
+        () => writeRetirementFile(hostFile, host));
+      return inspectSharedHost();
+    }
     return publishInitialHost(host, directory);
   }));
 }

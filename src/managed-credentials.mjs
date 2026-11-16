@@ -32,10 +32,14 @@ async function assertOwned(host, state) {
     await sameResource(path, host, state.files?.[index]);
 }
 
-async function consumersSettled(host) {
+export async function assertNoCredentialConsumers(host) {
   const entries = await readdir(dirname(host.tokenFile));
   requireThat(!entries.some(name => name.startsWith('consumer-')),
     'MANAGED_CREDENTIAL_CONSUMER_PENDING');
+}
+
+async function consumersSettled(host) {
+  await assertNoCredentialConsumers(host);
   await managedSettlement(host);
 }
 

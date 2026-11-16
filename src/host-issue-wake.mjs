@@ -97,7 +97,7 @@ export async function launchIssueWake(
   const relayed = await relayHostCommand('dispatch-event', [issueNumber], env);
   if (relayed !== null) return relayed;
   return withManagedAdmission(() => launchAdmittedWake(
-    issueNumber, env, eventBytes, runnerUid));
+    issueNumber, env, eventBytes, runnerUid), { pool: true });
 }
 
 async function launchAdmittedWake(issueNumber, env, eventBytes, runnerUid) {
