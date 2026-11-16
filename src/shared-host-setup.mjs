@@ -6,54 +6,22 @@ import { boundedHostFile } from './host-adoption.mjs';
 import { rootOwnedPath } from './host-paths.mjs';
 import { requireThat } from './identity.mjs';
 import { command } from './process.mjs';
-import { rootfulSocket } from './docker-backend.mjs';
+import { engine } from './engine-contract.mjs';
+import { ownedDirectory } from './engine-files.mjs';
+import { verifyManagedEngine } from './engine-verify.mjs';
 import { controllerProgram } from './controller-contract.mjs';
 import { syncRecoveryDirectory } from './recovery-lock.mjs';
 
 import { managedBase as base, managedPaths } from './managed-credential-files.mjs';
 
-const controller = 'nibfin-controller';
-const runners = ['nibfin-runner-1', 'nibfin-runner-2'];
-const engineGroup = 'nibfin-engine';
-const shell = '/usr/sbin/nologin';
+const controller = engine.controller;
+const runners = engine.runners;
 const sudoers = '/etc/sudoers.d';
 const env = { PATH: '/usr/sbin:/usr/bin:/bin', LANG: 'C' };
 
 async function rootCommand(path, args, allowedExitCodes = [0]) {
   await rootOwnedPath(path);
   return command(path, args, { env, allowedExitCodes, limit: 4096 });
-}
-
-async function getent(database, name) {
-  const result = await rootCommand('/usr/bin/getent', [database, name], [0, 2]);
-  return result.exitCode === 0 ? result.stdout.toString().trim().split(':') : null;
-}
-
-async function account(name, supplement) {
-  let row = await getent('passwd', name);
-  if (!row) {
-    requireThat(!await getent('group', name), 'SHARED_HOST_ACCOUNT_CONFLICT');
-    const groups = supplement ? ['--groups', engineGroup] : [];
-    await rootCommand('/usr/sbin/useradd', [
-      '--system', '--user-group', '--no-create-home', '--home-dir', '/nonexistent',
-      '--shell', shell, ...groups, name,
-    ]).catch(() => {});
-    row = await getent('passwd', name);
-  }
-  const group = await getent('group', name);
-  const shadow = await getent('shadow', name);
-  const uid = Number(row?.[2]);
-  const gid = Number(row?.[3]);
-  requireThat(row?.[0] === name && row[6] === shell &&
-    uid > 0 && uid < 65536 && Number.isSafeInteger(uid) &&
-    gid > 0 && gid < 65536 && Number.isSafeInteger(gid) &&
-    group?.[0] === name && Number(group[2]) === gid && !group[3] &&
-    shadow?.[0] === name && /^[!*]/.test(shadow[1]), 'SHARED_HOST_ACCOUNT_CONFLICT');
-  const { stdout } = await rootCommand('/usr/bin/id', ['-G', name]);
-  const groups = stdout.toString().trim().split(/\s+/).map(Number);
-  requireThat(groups.length === (supplement ? 2 : 1) && groups.includes(gid) &&
-    (!supplement || groups.includes(supplement)), 'SHARED_HOST_ACCOUNT_CONFLICT');
-  return { uid, gid };
 }
 
 async function privateDirectory(path, parentUid, { uid, gid }) {
@@ -77,26 +45,30 @@ async function privateDirectory(path, parentUid, { uid, gid }) {
     (stat.mode & 0o777) === 0o700, 'SHARED_HOST_CONTROLLER_RESOURCE_INVALID');
 }
 
-export async function prepareSharedAccounts(profile) {
+export async function prepareSharedAccounts(profile, { preparation = false } = {}) {
   requireThat(Object.entries(managedPaths).every(
     ([key, path]) => profile[key] === path),
   'SHARED_MANAGED_CONTROLLER_PATH_CONFLICT');
-  await rootOwnedPath(dirname(rootfulSocket));
-  const socket = await lstat(rootfulSocket);
-  const group = await getent('group', engineGroup);
-  requireThat(socket.isSocket() && socket.uid === 0 && (socket.mode & 0o777) === 0o660 &&
-    socket.gid > 0 && group?.[0] === engineGroup && Number(group[2]) === socket.gid &&
-    (!group[3] || group[3] === controller), 'SHARED_DEDICATED_ENGINE_GROUP_REQUIRED');
-  const owner = await account(controller, socket.gid);
-  for (const name of runners) await account(name);
+  const verified = await verifyManagedEngine();
+  const owner = verified.accounts.accounts[controller];
   await rootOwnedPath(dirname(dirname(base)));
-  await mkdir(dirname(base), { mode: 0o755 }).catch(error => {
-    if (error.code !== 'EEXIST') throw error;
-  });
-  await rootOwnedPath(dirname(base));
+  await ownedDirectory(dirname(base), 0o755);
   await privateDirectory(base, 0, owner);
   for (const folder of ['state', 'credentials', 'codex'])
     await privateDirectory(join(base, folder), owner.uid, owner);
+  if (!preparation) return;
+  for (const slot of [1, 2]) {
+    const parent = join(base, `slot-${slot}`);
+    await privateDirectory(parent, owner.uid, owner);
+    const path = join(parent, 'egress');
+    await rootCommand('/usr/sbin/runuser', [
+      '-u', controller, '--', '/usr/bin/mkdir', '-p', '-m', '0755', '--', path,
+    ]);
+    const stat = await lstat(path);
+    requireThat(stat.isDirectory() && stat.uid === owner.uid &&
+      stat.gid === owner.gid && (stat.mode & 0o7777) === 0o755,
+    'SHARED_HOST_CONTROLLER_RESOURCE_INVALID');
+  }
 }
 
 export async function installSharedRelay() {

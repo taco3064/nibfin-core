@@ -36,7 +36,10 @@ export function engineFileStore(operations = nativeFiles) {
     try {
       await mkdir(path, { mode });
       const file = await open(path, constants.O_DIRECTORY | constants.O_NOFOLLOW);
-      try { await file.chown(0, gid); } finally { await file.close(); }
+      try {
+        await file.chown(0, gid);
+        await file.chmod(mode);
+      } finally { await file.close(); }
       await syncRecoveryDirectory(dirname(path));
     } catch (error) { if (error.code !== 'EEXIST') throw error; }
     await rootOwnedPath(path);

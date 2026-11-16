@@ -8,7 +8,7 @@ import { engineAdmission, engineHost } from './engine-host.mjs';
 import { dockerInfo } from './docker-backend.mjs';
 import { newEngineProbe, verifyEngineProbe, probeRootfs } from './engine-probe.mjs';
 
-function managedUnit(unit) {
+export function managedUnit(unit) {
   const argv = /argv\[\]=([^;]+?)\s*;/.exec(unit.ExecStart)?.[1];
   requireThat(unit.LoadState === 'loaded' && unit.FragmentPath === engine.unitPath &&
     unit.DropInPaths === '' && unit.Environment === '' && unit.EnvironmentFiles === '' &&

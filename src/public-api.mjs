@@ -1,3 +1,4 @@
+import { managedPreparationCapability } from './managed-resource-contract.mjs';
 import { managedSharedAdmission } from './shared-admission-policy.mjs';
 
 // Versioned public exports. Thin consumers call Core; they must not copy its
@@ -27,6 +28,7 @@ export { sharedDispatchWorkflow, sharedRepository } from './shared-runner.mjs';
 export const interfaceVersion = 1;
 export const consumerContract = Object.freeze({
   schemaVersion: interfaceVersion,
+  managedResourcePreparation: managedPreparationCapability,
   managedSharedAdmission: Object.freeze({
     kind: managedSharedAdmission,
     adoptionProfileKey: 'sharedAdmission',
