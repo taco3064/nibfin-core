@@ -17,6 +17,7 @@ export function stageHandlers({
   sandbox,
   writerFor,
   publishCommit,
+  deliverBlockedGuidance,
   clock = Date.now,
 }) {
   const pathFindings = paths => paths.map(path =>
@@ -204,6 +205,12 @@ export function stageHandlers({
           }
           const candidate = await workspace.capture(context.shape.body);
           return captureDelivery(context, candidate, result.evidenceReferences);
+        }
+        if (stage === 'deliver' && result.outcome === 'blocked') {
+          const guidance = await deliverBlockedGuidance?.(
+            context, result.evidenceReferences, Boolean(execution.rebaseStatus),
+          );
+          if (guidance) console.error(`Nibfin deliver: ${guidance}`);
         }
         if (['accept', 'review-pr'].includes(stage)) {
           requireThat(
