@@ -1,10 +1,14 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { parse } from 'yaml';
-import { cdPaths, cdWorkflow, websiteOnlyLockChange } from '../scripts/cd-paths.mjs';
+import {
+  cdPaths, cdWorkflow, docsNeedRetry, websiteOnlyLockChange,
+} from '../scripts/cd-paths.mjs';
 
 const source = readFileSync(new URL('../.github/workflows/cd.yml', import.meta.url),
   'utf8').replaceAll('\r\n', '\n');
@@ -31,8 +35,11 @@ function checkWorkflow(text) {
   const build = jobs['build-docs'];
   assert.equal(build.needs, 'verified-main');
   assert.equal(build.if, "needs.verified-main.outputs.website == 'true'");
+  assert.equal(build.outputs.ready, "${{ steps.artifact.outcome == 'success' }}");
   assert.deepEqual(build.permissions, { contents: 'read', pages: 'read' });
   assert.equal(build.steps[0].with['persist-credentials'], false);
+  assert.ok(build.steps.some(step =>
+    step.run === 'bash website/scripts/retry-npm-network.sh ci --ignore-scripts'));
   const check = build.steps.findIndex(step =>
     step.run?.includes('npm run website:preview-check -- --production'));
   const upload = build.steps.findIndex(step =>
@@ -42,17 +49,22 @@ function checkWorkflow(text) {
     /npm run website:check\nnpm run website:preview-check -- --production/);
   assert.equal(build.steps[check].if, undefined);
   assert.equal(build.steps[upload].with.path, 'website/dist');
+  assert.equal(build.steps[upload].id, 'artifact');
   assert.equal(build.steps[upload].if, undefined);
   assert.equal(build.steps[check]['continue-on-error'], undefined);
 
   const deploy = jobs['deploy-docs'];
   assert.equal(deploy.needs, 'build-docs');
-  assert.equal(deploy.if, undefined);
+  assert.equal(deploy.if, "needs.build-docs.outputs.ready == 'true'");
   assert.deepEqual(deploy.permissions, { pages: 'write', 'id-token': 'write' });
   assert.equal(deploy.environment.name, 'github-pages');
   assert.equal(deploy.steps[0].with, undefined);
+  assert.equal(deploy.steps[0].name, 'Publish Docs to Pages');
   assert.match(deploy.steps[0].uses, /^actions\/deploy-pages@[a-f0-9]{40}$/);
   for (const [name, job] of Object.entries(jobs)) {
+    const docs = name === 'build-docs' || name === 'deploy-docs';
+    assert.equal(job['continue-on-error'],
+      docs ? "${{ github.event_name == 'workflow_run' }}" : undefined);
     assert.equal(job.permissions?.pages === 'write', name === 'deploy-docs');
     assert.equal(job.permissions?.['id-token'] === 'write', name === 'deploy-docs');
   }
@@ -75,11 +87,61 @@ test('Core CD gates Pages deployment and version drafts independently', () => {
     ['    needs: build-docs', '    needs: verified-main'],
     ['      name: github-pages', '      name: unrestricted'],
     ['          persist-credentials: false', '          persist-credentials: true'],
-    ['      pages: read\n    steps:', '      pages: write\n    steps:'],
-    ['    needs: build-docs', '    needs: build-docs\n    if: always()'],
+    ['      pages: read', '      pages: write'],
+    ["    if: needs.build-docs.outputs.ready == 'true'", '    if: always()'],
+    ["    continue-on-error: ${{ github.event_name == 'workflow_run' }}",
+      '    continue-on-error: true'],
   ]) {
     assert.ok(source.includes(valid), valid);
     assert.throws(() => checkWorkflow(source.replaceAll(valid, invalid)));
+  }
+});
+
+test('a successful Core run retries Docs when Pages publication failed or was skipped',
+  () => {
+    const build = { name: 'build-docs', conclusion: 'success' };
+    const deploy = { name: 'deploy-docs', steps: [
+      { name: 'Publish Docs to Pages', conclusion: 'failure' },
+    ] };
+    assert.equal(docsNeedRetry([build, deploy]), true);
+    assert.equal(docsNeedRetry([build, { ...deploy, steps: [] }]), true);
+    assert.equal(docsNeedRetry([{ ...build, conclusion: 'skipped' }]), false);
+    assert.equal(docsNeedRetry(undefined), true);
+    for (const name of ['Publish Docs to Pages', 'Run actions/deploy-pages@old']) {
+      assert.equal(docsNeedRetry([build, { ...deploy,
+        steps: [{ name, conclusion: 'success' }],
+      }]), false);
+    }
+  });
+
+test('Docs retries only transient npm failures and preserves final failures', {
+  skip: process.platform !== 'linux',
+}, t => {
+  const directory = mkdtempSync(join(tmpdir(), 'docs-npm-'));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  writeFileSync(join(directory, 'sleep'), '#!/bin/bash\nexit 0\n', { mode: 0o700 });
+  writeFileSync(join(directory, 'npm'), `#!/bin/bash
+echo "$*" >> "$ATTEMPTS"
+if [ "$(wc -l < "$ATTEMPTS")" -ge "$SUCCEEDS_AT" ]; then exit 0; fi
+printf 'npm error code %s\\n' "$ERROR_CODE" >&2
+exit 152
+`, { mode: 0o700 });
+  const script = fileURLToPath(new URL('../website/scripts/retry-npm-network.sh',
+    import.meta.url));
+  for (const [code, successAt, tries, status] of [
+    ['ECONNRESET', 2, 2, 0], ['ETIMEDOUT', 4, 3, 152], ['EUSAGE', 2, 1, 152],
+  ]) {
+    const attempts = join(directory, 'attempts');
+    writeFileSync(attempts, '');
+    const result = spawnSync('bash', [script, 'ci', '--ignore-scripts'], {
+      encoding: 'utf8',
+      env: { ...process.env, PATH: directory + ':/usr/bin:/bin',
+        ATTEMPTS: attempts, SUCCEEDS_AT: String(successAt), ERROR_CODE: code },
+    });
+    assert.ifError(result.error);
+    assert.equal(result.status, status, result.stderr);
+    assert.deepEqual(readFileSync(attempts, 'utf8').trim().split('\n'),
+      Array(tries).fill('ci --ignore-scripts'));
   }
 });
 

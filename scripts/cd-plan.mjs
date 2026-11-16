@@ -1,7 +1,7 @@
 import { appendFile } from 'node:fs/promises';
 import { spawnSync } from 'node:child_process';
 import { GitHubReader, repoPath } from '../src/github-read.mjs';
-import { cdPaths, websiteOnlyLockChange } from './cd-paths.mjs';
+import { cdPaths, docsNeedRetry, websiteOnlyLockChange } from './cd-paths.mjs';
 
 function lockfile(ref) {
   const result = spawnSync('git', ['show', `${ref}:package-lock.json`], {
@@ -46,6 +46,11 @@ if (manual) {
     const websiteLockOnly = paths.includes('package-lock.json') &&
       websiteOnlyLockChange(lockfile(previous), lockfile(checkout));
     routes = cdPaths(paths, commit.stdout.trim(), websiteLockOnly);
+    if (!routes.website) {
+      const jobs = await reader.get(`${root}/actions/runs/${run.id}/jobs?per_page=20`)
+        .catch(() => undefined);
+      routes.website = docsNeedRetry(jobs?.jobs);
+    }
     break;
   }
 }
@@ -57,8 +62,9 @@ if (routes.website) {
     routes.website = site.build_type === 'workflow' &&
       environment.name === 'github-pages';
   } catch (error) {
-    if (error.status !== 404) throw error;
-    routes.website = false;
+    if (error.status === 404) routes.website = false;
+    else if (manual) throw error;
+    else console.warn('Pages configuration read unavailable. Docs will check it.');
   }
   if (!routes.website) {
     const reason = 'Set Pages Source to GitHub Actions and configure github-pages.';
