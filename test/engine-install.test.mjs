@@ -124,5 +124,5 @@ test('the fixed executable denies overrides and a non-installed source', () => {
   { encoding: 'utf8' });
   assert.equal(result.status, 1);
   assert.match(JSON.parse(result.stderr).code,
-    /^ENGINE_REQUIRES_(INSTALLED_CORE|LINUX_X64_ADMINISTRATOR)$/);
+    /^ENGINE_REQUIRES_(INSTALLED_CORE|SUPPORTED_LINUX_ADMINISTRATOR)$/);
 });
