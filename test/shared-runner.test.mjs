@@ -1,3 +1,4 @@
+import { providerHost, providerIsolation, providerPin } from './provider-fixture.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { sharedRepository, sharedRunner, sharedSlotIsolation }
@@ -24,12 +25,13 @@ const runner = {
 test('host discovery exposes only the two adopted registration identities', () => {
   const host = {
     schemaVersion: 1, kind: 'single-host-linux-v1', uid: 90, runnerUid: 91,
-    memberId: 5, installation: { directory: coreRoot },
+    memberId: 5, installation: { directory: coreRoot, pin: providerPin },
+    model: 'gpt-6', authFile: '/private/codex',
     tokenFile: '/private/token',
     repository: {
       approval: { repositoryId: 1 },
       runner,
-      isolation: { kind: 'linux-rootful-docker-v1' },
+      isolation: structuredClone(providerIsolation),
     },
     sharedRunner: {
       runner: { ...runner, runnerName: 'slot-1' }, caller, repositories: [1],
@@ -57,20 +59,21 @@ test('host discovery exposes only the two adopted registration identities', () =
   });
   host.sharedRunner.additionalRunner.id = 42;
   assert.throws(() => sharedHostRegistrations(host), {
-    code: 'SHARED_RUNNER_NOT_ADOPTED',
+    code: 'PROVIDER_POOL_BINDING_MISMATCH',
   });
 });
 
 test('the shared job keeps its native Runner and uses the slot gateway', () => {
   const executionRepository = 'example/execution';
   const host = {
-    memberId: 5, runnerUid: 91,
-    repository: { runner: { repositoryId: 3, runnerId: 22 } },
+    ...providerHost(), memberId: 5, runnerUid: 91,
+    repository: { runner: { repositoryId: 3, runnerId: 22 },
+      isolation: providerIsolation },
     sharedRunner: {
-      runner: { ...runner, repository: executionRepository },
+      runner: { ...runner, repository: executionRepository, runnerName: 'slot-1' },
       caller: { ...caller, repository: executionRepository },
       repositories: [1, 2, 3],
-      additionalRunner: { id: 43, uid: 92, name: 'slot-2', isolation: {} },
+      additionalRunner: { id: 43, uid: 92, name: 'slot-2', isolation: providerIsolation },
     },
   };
   const actual = sharedRunner(host, issue);
@@ -87,11 +90,10 @@ test('the shared job keeps its native Runner and uses the slot gateway', () => {
 });
 
 test('a target repository must be an installed, unambiguous peer', async () => {
-  const host = {
-    repository: { approval: { repositoryId: 1 } },
-    wakePeerFiles: ['/etc/nibfin/host.cli.json'],
-  };
-  const peer = { repository: { approval: { repositoryId: 2 } } };
+  const host = providerHost();
+  host.wakePeerFiles = ['/etc/nibfin/host.cli.json'];
+  const peer = structuredClone(host);
+  peer.repository.approval.repositoryId = 2;
   assert.equal(await sharedRepository(host, 1, assert.fail), host);
   assert.equal(await sharedRepository(host, 2, async () => peer), peer);
   await assert.rejects(sharedRepository(host, 3, async () => peer), {

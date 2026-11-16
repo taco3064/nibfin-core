@@ -1,3 +1,4 @@
+import { compareProviderViews } from './provider-binding.mjs';
 import { lstat, open, rename, unlink } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -78,6 +79,8 @@ export function peerConfiguration(host, name, id, source, actionCommit, observed
   const { schemaVersion, kind, uid, stateRoot, memberId, installation } = host;
   return {
     schemaVersion, kind, uid, stateRoot, memberId, installation,
+    ...(host.providerBinding === undefined ? {} :
+      { providerBinding: structuredClone(host.providerBinding) }),
     runnerId: runner.runnerId,
     repository: {
       approval: { kind: 'repository-admission-v1', repository: name,
@@ -187,6 +190,7 @@ async function publishPeer(host, pool, current, name, id, source, actionCommit,
   const adopted = host.sharedRunner.repositories.includes(id);
   requireThat(adopted === peers.includes(path), 'PEER_HOST_FILE_CONFLICT');
   if (adopted) {
+    compareProviderViews(host, existing ?? {});
     requireThat(existing?.repository?.approval?.repository === name &&
       existing.repository.approval.repositoryId === id &&
       existing.memberId === host.memberId &&

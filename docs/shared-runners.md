@@ -143,3 +143,7 @@ gateway networks and work directories when they run Jobs for the same target.
 
 For local recovery of a shared Job, use the host configuration of the slot
 that ran the Job and set `NIBFIN_TARGET_REPOSITORY_ID` to the original target.
+
+Installed Agent identity and component boundaries are described in
+[Installed Agent provider contracts](installed-provider.md). Managed peers inherit
+the pool provider; changing provider requires retirement and rebuilding the pool.

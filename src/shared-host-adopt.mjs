@@ -1,3 +1,4 @@
+import { createProviderBinding } from './provider-binding.mjs';
 import { link, lstat, open, realpath, unlink } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -200,6 +201,7 @@ export async function adoptSharedHost(name, id, memberId, actionCommit, ids, pin
       sharedRunner: { runner, caller, repositories: [id],
         additionalRunner: { uid: secondUid, id: second.runnerId,
           name: second.runnerName, isolation: secondary } } };
+    host.providerBinding = createProviderBinding(host, profile.provider);
     const workflow = await boundedHostFile(join(coreRoot, issueWorkflow), 65536);
     host.repository = peerConfiguration(host, name, id, source, actionCommit,
       observed, gitBlob(workflow)).repository;

@@ -1,3 +1,4 @@
+import { installedProvider, compareProviderViews } from './provider-binding.mjs';
 import { boundedHostFile, coreRoot, hostFile } from './host-adoption.mjs';
 import { rootOwnedPath } from './host-paths.mjs';
 import { verifyInstalledSource } from './source-package.mjs';
@@ -19,6 +20,7 @@ export function sharedHostRegistrations(host) {
     .map(uid => sharedRunner(host, target, uid).runner);
   requireThat(bindings.every(({ runnerName }) =>
     typeof runnerName === 'string' && runnerName), 'SHARED_RUNNER_NOT_ADOPTED');
+  installedProvider(host);
   return {
     schemaVersion: 1,
     repository: bindings[0].repository,
@@ -30,6 +32,7 @@ export function sharedHostRegistrations(host) {
 }
 
 export function sharedPeerIdentity(primary, peer) {
+  compareProviderViews(primary, peer);
   requireThat(peer.uid === primary.uid && peer.memberId === primary.memberId &&
     peer.stateRoot === primary.stateRoot &&
     digest(peer.installation) === digest(primary.installation),
