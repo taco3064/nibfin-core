@@ -8,7 +8,9 @@ operation does not select Jobs, alter dispatch or switch a global environment.
 import { ToolEnvironmentPreparer } from './src/tool-environment.mjs';
 
 // Installed Core supplies this endpoint and backend, never repository content.
-const preparer = new ToolEnvironmentPreparer({ docker, socket }, { backend });
+const preparer = new ToolEnvironmentPreparer(
+  { docker, socket }, { backend, baseImage },
+);
 const image = await preparer.prepare(projectConfig.tools);
 // null means keep the installed default; otherwise image is a verified sha256 ID.
 ```
@@ -34,8 +36,11 @@ and security checks still apply. Rootful validation also runs the native
 AppArmor/namespace probe. No host tool installation, registry credentials or
 privileged containers are required.
 
-Core composes the maintained `src/security/agent.Dockerfile` with only catalog
-sources in a temporary context containing no target repository files. Selected
+Core automatically composes the adopted Agent image with catalog tools on the
+first job that requests them. The build copies files from the catalog images and
+uses a temporary context with fixed wrappers. It executes no Dockerfile build
+steps that require a network, including on a Runner without the default Docker
+bridge. Registry access is required to acquire uncached catalog images. Selected
 binaries live under `/opt/nibfin/project`. Development commands and offline hooks
 search `/opt/nibfin/project/bin` first. Bootstrap Node, Codex and the Core proxy
 retain their original runtime and PATH. The image's global PATH is unchanged.
@@ -73,6 +78,7 @@ On a Docker-capable test host with the existing supported backend, installed
 AppArmor profile and seccomp fixture, run:
 
 ```sh
+NIBFIN_CODEX_TEST_IMAGE="$VERIFIED_AGENT_IMAGE_ID" \
 NIBFIN_CODEX_TEST_SECCOMP="$PWD/src/security/seccomp.json" \
   node scripts/verify-live-tool-environments.mjs
 ```
@@ -81,7 +87,7 @@ The existing isolation CI route runs this check. It invokes the production
 preparation operation, prepares Node 22, Node 24 and a Python/Go/Node combination,
 checks reuse and coexistence, runs offline hooks with project version assertions,
 and exercises the real Codex adapter's sandbox and missing-login denial. It needs
-acquisition access to Docker's official image service and the maintained Agent
-recipe's package sources. It uses no real login or inference. Simulated tests do
+acquisition access to Docker's official image service and the verified base
+Agent image. It uses no real login or inference. Simulated tests do
 not establish a Docker integration pass; hosts without Docker must report this
 check as Unverified and obtain native CI/Acceptance evidence separately.

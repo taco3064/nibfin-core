@@ -14,6 +14,8 @@ import { digest } from '../src/identity.mjs';
 import { codexPlan } from '../src/codex-plan.mjs';
 
 const config = { docker: '/usr/bin/docker', socket: '/run/user/1000/docker.sock' };
+const baseImage = `sha256:${'a'.repeat(64)}`;
+const baseLayers = [`sha256:${'b'.repeat(64)}`];
 const host = {
   platform: 'linux', uid: 1000,
   lstat: async () => ({ isSocket: () => true, mode: 0o660, uid: 1000 }),
@@ -33,6 +35,8 @@ const output = (value, exitCode = 0) => ({
 function fixture({ info = daemon, observedHost = host, fail, backend,
   endpoint = config } = {}) {
   const calls = [], contexts = [], images = new Map(), cache = new Map();
+  images.set(baseImage, { Id: baseImage, Os: 'linux', Architecture: 'amd64',
+    RootFS: { Layers: baseLayers } });
   const run = async (executable, args, options) => {
     calls.push({ executable, args, options });
     assert.equal(executable, endpoint.docker);
@@ -68,23 +72,25 @@ function fixture({ info = daemon, observedHost = host, fail, backend,
         const failure = await fail(a, options);
         if (failure) return failure;
       }
-      assert.deepEqual(await readdir(context), ['Dockerfile']);
+      assert.deepEqual((await readdir(context)).sort(), ['Dockerfile', 'bin']);
       const recipe = await readFile(join(context, 'Dockerfile'), 'utf8');
       const key = /io.nibfin.tool-environment="([a-f0-9]+)"/.exec(recipe)[1];
       const id = `sha256:${digest(recipe)}`;
       images.set(id, { Id: id, Os: 'linux', Architecture: 'amd64',
+        RootFS: { Layers: baseLayers },
         Config: { Labels: { 'io.nibfin.tool-environment': key } } });
       await writeFile(a[a.indexOf('--iidfile') + 1], id);
       return output('');
     }
     assert.equal(options.env.BUILDX_CONFIG, undefined);
-    if (fail) await fail(a, options);
+    if (fail && a[2] !== baseImage) await fail(a, options);
     if (a[0] === 'image' && a[1] === 'inspect') {
       const image = images.get(cache.get(a[2]) ?? a[2]);
       return image ? output([image]) : output('', 1);
     }
     if (a[0] === 'image' && a[1] === 'tag') {
-      cache.set(a[3], a[2]);
+      if (a[2] === baseImage) assert.match(a[3], /^nibfin-tool-base:[a-f0-9]{64}$/);
+      else cache.set(a[3], a[2]);
       return output('');
     }
     if (a[0] === 'run') {
@@ -104,7 +110,7 @@ function fixture({ info = daemon, observedHost = host, fail, backend,
   };
   return { calls, contexts, images, cache, run,
     preparer: new ToolEnvironmentPreparer(endpoint,
-      { run, host: observedHost, backend }) };
+      { run, host: observedHost, backend, baseImage }) };
 }
 const builds = f => f.calls.filter(c => c.args[2] === 'build').length;
 async function cleaned(f) {
@@ -129,21 +135,21 @@ test('defaults and malformed or unsupported inputs never prepare', async () => {
 test('trusted recipes preserve exact requests, sources and separate bootstrap',
   async () => {
     const tools = { node: '22.15.0', python: '3.13.7', go: '1.27.1' };
-    const recipe = await preparationRecipe(tools);
-    const maintained = await readFile('src/security/agent.Dockerfile', 'utf8');
-    assert.ok(recipe.dockerfile.startsWith(maintained.trimEnd().replace(
-      /^(FROM node[^\n]+)$/m, '$1 AS nibfin-agent')));
+    const recipe = await preparationRecipe(tools, baseImage);
+    assert.ok(recipe.dockerfile.includes('FROM ' + recipe.baseTag));
+    assert.doesNotMatch(recipe.dockerfile, /^RUN\b/m);
     for (const image of ['node:22.15.0-bookworm-slim',
       'python:3.13.7-slim-bookworm', 'golang:1.27.1-bookworm'])
       assert.ok(recipe.dockerfile.includes(`docker.io/library/${image}`));
     assert.ok(recipe.dockerfile.includes('/opt/nibfin/project/node/'));
-    assert.ok(recipe.dockerfile.includes('GOTOOLCHAIN=local exec'));
+    assert.ok(recipe.wrappers.go.includes('GOTOOLCHAIN=local exec'));
     assert.ok(!recipe.dockerfile.includes('ENV PATH='));
     const f = fixture();
     const image = await f.preparer.prepare(tools);
     assert.match(image, /^sha256:[a-f0-9]{64}$/);
     const build = f.calls.find(c => c.args[2] === 'build');
     assert.deepEqual(build.args.slice(2, 5), ['build', '--platform', 'linux/amd64']);
+    assert.ok(build.args.includes('--network=none'));
     assert.ok(!build.args.some(a => a.includes('/work')));
     const probe = f.calls.find(c => c.args[2] === 'run').args.at(-1);
     assert.ok(probe.includes(JSON.stringify(tools)));
@@ -165,7 +171,7 @@ test('canonical requests reuse; different versions coexist; stale cache rebuilds
     assert.notEqual(second, first);
     assert.equal(await f.preparer.prepare(tools), first);
     assert.ok(f.images.has(first) && f.images.has(second));
-    const tag = `nibfin-tools:${(await preparationRecipe(tools)).key}`;
+    const tag = `nibfin-tools:${(await preparationRecipe(tools, baseImage)).key}`;
     const stale = structuredClone(f.images.get(first));
     stale.Id = `sha256:${'a'.repeat(64)}`;
     stale.Config.Labels['io.nibfin.tool-environment'] = 'obsolete';
@@ -310,7 +316,7 @@ test('development PATH reaches Codex tools and documented catalog stays exact',
 
 test('separate preparers share Docker cache safely during equal builds', async () => {
   const f = fixture();
-  const other = new ToolEnvironmentPreparer(config, { run: f.run, host });
+  const other = new ToolEnvironmentPreparer(config, { run: f.run, host, baseImage });
   const [a, b] = await Promise.all([
     f.preparer.prepare({ node: '22.15.0' }), other.prepare({ node: '22.15.0' }),
   ]);

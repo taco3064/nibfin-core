@@ -27,7 +27,8 @@ export async function verifyLiveToolEnvironments(probe = probeToolEnvironments) 
 async function probeToolEnvironments() {
   const { backend, socket } = liveDockerProfile();
   const config = { docker: '/usr/bin/docker', socket };
-  const preparer = new ToolEnvironmentPreparer(config, { backend });
+  const baseImage = process.env.NIBFIN_CODEX_TEST_IMAGE;
+  const preparer = new ToolEnvironmentPreparer(config, { backend, baseImage });
   const [node22, node24] = toolCatalog.node;
   const python = toolCatalog.python[0], go = toolCatalog.go[0];
   assert.equal(await preparer.prepare(), null);
@@ -49,7 +50,7 @@ async function probeToolEnvironments() {
       [first, node22, false], [second, node24, false], [combination, node22, true],
     ]) {
       const sandbox = new OfflineSandbox({ ...config, image }, { backend });
-      const { versions } = await preparationRecipe({ node });
+      const { versions } = await preparationRecipe({ node }, baseImage);
       const script = [
         'set -eu',
         `test "$(node --version)" = v${node}`,
