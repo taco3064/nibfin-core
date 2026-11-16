@@ -1,0 +1,8 @@
+{
+  "requestBytes": 131072,
+  "responseBytes": 262144,
+  "commandSeconds": 120,
+  "outputBytes": 65536,
+  "contentBytes": 65536,
+  "lifetimeSeconds": 10800
+}
