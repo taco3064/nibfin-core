@@ -10,9 +10,8 @@ import {
   dockerBackend, validDockerEndpoint, verifyDockerSocket, dockerInfo,
 } from './docker-backend.mjs';
 import { verifyAppArmor } from './apparmor-proof.mjs';
-import {
-  requestedTools, toolPlatform, supportedToolPlatform,
-} from './tool-catalog.mjs';
+import { requestedTools } from './tool-catalog.mjs';
+import { linuxArchitecture } from './linux-architecture.mjs';
 import { preparationRecipe, versionProbe } from './tool-recipe.mjs';
 
 // Match trusted Docker diagnostics internally; never forward installer output.
@@ -100,7 +99,7 @@ export class ToolEnvironmentPreparer {
     if (!image) return null;
     return immutable.test(image.Id) &&
       (reference === image.Id || !immutable.test(reference)) &&
-      supportedToolPlatform(image.Os, image.Architecture) &&
+      linuxArchitecture(image.Os, image.Architecture) === recipe.architecture &&
       baseLayers.every((layer, i) => image.RootFS?.Layers?.[i] === layer) &&
       image.Config?.Labels?.['io.nibfin.tool-environment'] === recipe.key
       ? image.Id : null;
@@ -179,14 +178,17 @@ export class ToolEnvironmentPreparer {
         'info', '--format', '{{json .}}',
       ])).stdout.toString());
       dockerInfo(info, this.#backend);
-      requireThat(supportedToolPlatform(info.OSType, info.Architecture),
+      const architecture = linuxArchitecture(info.OSType, info.Architecture);
+      requireThat(architecture &&
+        architecture === linuxArchitecture(this.#host.platform, this.#host.arch ??
+          process.arch),
         'UNSUPPORTED_TOOL_PLATFORM');
       phase = 'recipe';
-      const recipe = await preparationRecipe(tools, this.#baseImage);
+      const recipe = await preparationRecipe(tools, this.#baseImage, architecture);
       const base = await this.#image(this.#baseImage);
       const baseLayers = base?.RootFS?.Layers;
       requireThat(base?.Id === this.#baseImage &&
-        supportedToolPlatform(base.Os, base.Architecture) &&
+        linuxArchitecture(base.Os, base.Architecture) === architecture &&
         Array.isArray(baseLayers) && baseLayers.length > 0 &&
         baseLayers.every(layer => immutable.test(layer)), 'UNVERIFIED_TOOL_BASE_IMAGE');
       const tag = `nibfin-tools:${recipe.key}`;
@@ -214,7 +216,7 @@ export class ToolEnvironmentPreparer {
         await writeFile(join(bin, name), wrapper, { mode: 0o600 });
       // This context contains only the maintained composition, no repository
       // files, secrets, credentials, supplied URLs or host installation scripts.
-      const result = await this.#docker(['build', '--platform', toolPlatform,
+      const result = await this.#docker(['build', '--platform', recipe.platform,
         '--network=none',
         '--iidfile', imageId, context], {
         timeout: 20 * 60_000,

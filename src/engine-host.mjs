@@ -1,6 +1,7 @@
 import { lstat, realpath, readFile, readlink, readdir } from 'node:fs/promises';
 import { command } from './process.mjs';
 import { requireThat } from './identity.mjs';
+import { linuxArchitecture } from './linux-architecture.mjs';
 import { rootOwnedPath } from './host-paths.mjs';
 import { boundedHostFile, coreRoot } from './host-adoption.mjs';
 import { verifyInstalledSource } from './source-package.mjs';
@@ -43,8 +44,8 @@ export async function verifyEngineUtilities(inspect = async path => {
 }
 
 export function requireEngineAdministrator(platform, arch, uid, consent) {
-  requireThat(platform === 'linux' && arch === 'x64' && uid === 0,
-    'ENGINE_REQUIRES_LINUX_X64_ADMINISTRATOR');
+  requireThat(linuxArchitecture(platform, arch) && uid === 0,
+    'ENGINE_REQUIRES_SUPPORTED_LINUX_ADMINISTRATOR');
   requireThat(consent === true, 'ENGINE_DEDICATED_HOST_ACKNOWLEDGEMENT_REQUIRED');
 }
 
@@ -90,6 +91,7 @@ export function engineHost() {
     return (await command(path, args, { env, ...options })).stdout.toString();
   };
   const io = {
+    architecture: linuxArchitecture(process.platform, process.arch),
     run,
     async docker(managed, args, options) {
       return run('/usr/bin/docker', [

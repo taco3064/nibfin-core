@@ -1,4 +1,5 @@
 import { requireThat } from './identity.mjs';
+import { linuxArchitecture } from './linux-architecture.mjs';
 import { engine, engineBackend } from './engine-contract.mjs';
 import { engineHost } from './engine-host.mjs';
 import { managedUnit } from './engine-install.mjs';
@@ -30,8 +31,9 @@ export async function verifyManagedEngine(io = engineHost()) {
   const info = JSON.parse(await io.docker(true, ['info', '--format', '{{json .}}']));
   const identity = dockerInfo(info, backend);
   const n = backend.namespace;
+  const architecture = linuxArchitecture(info.OSType, info.Architecture);
   requireThat(info.DockerRootDir === `${engine.data}/${n.uidStart}.${n.gidStart}` &&
-    info.OSType === 'linux' && ['x86_64', 'amd64'].includes(info.Architecture) &&
+    architecture && architecture === (io.architecture ?? 'amd64') &&
     info.LiveRestoreEnabled === false, 'ENGINE_DAEMON_CONFIGURATION_CHANGED');
-  return { accounts: state.accounts, namespace: n, identity };
+  return { accounts: state.accounts, namespace: n, identity, architecture };
 }

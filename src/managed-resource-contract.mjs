@@ -15,7 +15,7 @@ export const managedResources = Object.freeze({
   }),
 });
 export const managedPreparationCapability = Object.freeze({
-  kind: 'linux-x64-managed-resources-v1',
+  kind: 'linux-managed-resources-v1',
   executable: '/opt/nibfin/core/bin/nibfin-prepare-shared-host.mjs',
   arguments: Object.freeze(['--consent-resource-preparation']),
   statuses: Object.freeze(['prepared', 'denied', 'pending']),
@@ -29,6 +29,7 @@ export const managedPreparationCapability = Object.freeze({
   servicesReady: false,
   credentialsRequired: false,
   registrationsRequired: false,
+  architectures: Object.freeze(['amd64', 'arm64']),
 });
 
 export function managedProfile(namespace, images) {
