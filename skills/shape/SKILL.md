@@ -75,7 +75,7 @@ When adding or changing a shared caller recipe, trace its real consumers across
 repositories before drafting or approving the Shape. Check recipe generation,
 installer and upgrade behavior, packaged recipe validators and their accepted
 keys, and workflow source verification. For a managed Issue recipe, spell out
-how managed and existing legacy callers are selected and verified. Identify the package and the install or upgrade entry points the
+how managed and existing legacy callers are selected and checked by the product. Identify the package and the install or upgrade entry points the
 implementation must preserve. Record compatibility checks owned by existing CI. If a
 consumer must change first, identify its owning Issue and the exact native
 `Blocked by` direction. Use the authorized maintenance route for any required
@@ -241,7 +241,7 @@ If the **current product authority or delivery policy** requires a Candidate obl
 
 - **Artifacts:** list every required non-tree deliverable, proof file or other necessary artifact with authorized relative path and purpose. Do not include incidental caches. An ignored but required file still needs identity/evidence.
 - **Hooks:** inspect repository hook configuration (including workspace-managed hooks) and enumerate each applicable supported commit-hook source path and event in actual execution order. Discover currently supported event types from the runtime, not from assumptions about the developer workstation.
-- Explicit empty inventories are valid **only when justified** by inspected repository configuration, Scope and Acceptance Criteria. Missing inventory, omitted applicable artifact/hook, duplicate/unsafe path or unsupported mandatory side effect is a blocker.
+- Explicit empty inventories are valid **only when justified** by inspected repository configuration, the authorized Issue and runtime requirements. Missing inventory, omitted applicable artifact/hook, duplicate/unsafe path or unsupported mandatory side effect is a blocker.
 - Explain isolation, available tools and any unsupported network/credential, signing, platform or side-effect expectation. Never waive a required hook or acceptance proof just because the current runtime cannot safely execute it.
 - Candidate, hook receipts and necessary artifacts remain distinct from the Issue Body; the runtime's identity and immutable evidence gates remain authoritative.
 
