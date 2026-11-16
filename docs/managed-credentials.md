@@ -23,8 +23,13 @@ path; Core returns `MANAGED_CODEX_DEDICATED_LOGIN_REQUIRED`. The caller must
 not substitute credentials from an unrelated session.
 
 The installed host configuration supplies the member and repository identities.
-Before first host adoption, the root-owned fixed file
-`/etc/nibfin/shared-host-profile.json` must contain `credentialIntake` with:
+For first adoption, the fixed administrator command
+`nibfin-core prepare-managed-onboarding --consent-dedicated-engine` accepts a
+bounded nonsecret installation record on stdin. It verifies the installed
+source, prepares the dedicated Engine and managed resources, and records the
+binding in the root-owned `/etc/nibfin/credential-intake.json` file. Manual
+profiles may still supply the same binding as `credentialIntake`. The binding
+has:
 
 - `schemaVersion: 1` and the intended numeric `memberId`.
 - `installation`, containing the fixed `/opt/nibfin/core` directory and its

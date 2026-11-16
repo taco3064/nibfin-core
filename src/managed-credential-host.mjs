@@ -5,7 +5,7 @@ import { boundedHostFile, hostFile, coreRoot } from './host-adoption.mjs';
 import { rootOwnedPath } from './host-paths.mjs';
 import { verifyInstalledSource } from './source-package.mjs';
 import { digest, isId, requireThat } from './identity.mjs';
-import { managedBase, managedPaths, credentialDirectories } from
+import { managedBase, managedPaths, credentialDirectories, credentialBindingFile } from
   './managed-credential-files.mjs';
 
 import { prepareSharedAccounts } from './shared-host-setup.mjs';
@@ -60,7 +60,14 @@ export async function managedCredentialHost(administrator = false, prepare = fal
     if (error.code !== 'ENOENT' || !administrator) throw error;
     beforeAdoption = true;
     const profile = await trustedJson(profileFile);
-    const binding = profile.credentialIntake;
+    const separate = await trustedJson(credentialBindingFile).catch(error => {
+      if (error.code === 'ENOENT') return null;
+      throw error;
+    });
+    requireThat(!separate || !profile.credentialIntake ||
+      digest(separate) === digest(profile.credentialIntake),
+    'MANAGED_CREDENTIAL_TRUSTED_BINDING_CONFLICT');
+    const binding = separate ?? profile.credentialIntake;
     requireThat(binding?.schemaVersion === 1 &&
       Array.isArray(binding.repositories) && binding.repositories.length === 2,
     'MANAGED_CREDENTIAL_TRUSTED_BINDING_REQUIRED');
