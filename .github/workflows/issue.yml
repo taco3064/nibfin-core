@@ -3,6 +3,11 @@ name: Dispatch adopted Issue wake
 on:
   workflow_call:
     inputs:
+      mode:
+        description: Explicit managed artifact mode or legacy routing
+        required: false
+        default: legacy
+        type: string
       core_commit:
         description: Compatibility input for existing callers
         required: false
@@ -11,14 +16,17 @@ on:
       NIBFIN_WAKE_ADOPTION:
         required: false
       NIBFIN_WAKE_TOKEN:
-        required: true
+        required: false
 
 permissions:
   contents: read
 
 jobs:
   resolve:
-    if: github.event_name == 'issues'
+    if: >-
+      github.event_name == 'issues' &&
+      (inputs.mode != 'managed' || github.event.action != 'labeled' ||
+        github.event.label.name == 'scope' || github.event.label.name == 'pause')
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     outputs:
@@ -38,15 +46,25 @@ jobs:
         id: resolve
         env:
           NIBFIN_CORE_COMMIT: ${{ job.workflow_sha }}
-          NIBFIN_WAKE_ADOPTION: ${{ vars.NIBFIN_SHARED_RUNNER_POOL != 'true' && secrets.NIBFIN_WAKE_ADOPTION || '' }}
-          NIBFIN_WAKE_TOKEN: ${{ secrets.NIBFIN_WAKE_TOKEN }}
+          NIBFIN_ISSUE_WAKE_MODE: ${{ inputs.mode }}
+          NIBFIN_WAKE_ADOPTION: ${{ (inputs.mode == 'legacy' || inputs.mode == '') && vars.NIBFIN_SHARED_RUNNER_POOL != 'true' && secrets.NIBFIN_WAKE_ADOPTION || '' }}
+          NIBFIN_WAKE_TOKEN: ${{ (inputs.mode == 'legacy' || inputs.mode == '') && secrets.NIBFIN_WAKE_TOKEN || '' }}
           NIBFIN_SHARED_RUNNER_POOL: ${{ vars.NIBFIN_SHARED_RUNNER_POOL }}
           NIBFIN_SHARED_RUNNER_DESTINATION: ${{ vars.NIBFIN_SHARED_RUNNER_DESTINATION }}
         run: node scripts/issue-ci.mjs
+      - name: Upload the managed Issue wake locator
+        if: inputs.mode == 'managed'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: nibfin-issue-wake-v1-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/nibfin-issue-wake/issue-wake.json
+          if-no-files-found: error
 
   dispatch:
     needs: resolve
-    if: needs.resolve.outputs.issue_number != '' && vars.NIBFIN_SHARED_RUNNER_POOL != 'true'
+    if: >-
+      (inputs.mode == 'legacy' || inputs.mode == '') &&
+      needs.resolve.outputs.issue_number != '' && vars.NIBFIN_SHARED_RUNNER_POOL != 'true'
     runs-on:
       - self-hosted
       - linux
