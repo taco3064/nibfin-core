@@ -1,3 +1,4 @@
+import { withManagedAdmission } from './managed-credential-admission.mjs';
 import { ProjectConfigError } from './project-config.mjs';
 import { projectJob } from './project-job.mjs';
 import { lstat, mkdir } from 'node:fs/promises';
@@ -154,6 +155,11 @@ export async function launchStage(issueNumber, stage, env = process.env, runnerU
   );
   const relayed = await relayHostCommand('stage', [issueNumber, stage], env);
   if (relayed !== null) return relayed;
+  return withManagedAdmission(() => launchAdmittedStage(
+    issueNumber, stage, env, runnerUid));
+}
+
+async function launchAdmittedStage(issueNumber, stage, env, runnerUid) {
   let initial;
   try {
     initial = await retryGitHubObservation(async () => {

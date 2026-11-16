@@ -1,4 +1,5 @@
 import { installedProvider, compareProviderViews } from './provider-binding.mjs';
+import { inspectManagedAccess } from './managed-credential-inspect.mjs';
 import { constants } from 'node:fs';
 import { open, lstat, realpath } from 'node:fs/promises';
 import { dirname, join, resolve, isAbsolute } from 'node:path';
@@ -58,7 +59,9 @@ export async function verifyHostInstallation(installation, approval) {
   requireThat(digest(source) === digest(approval.source), 'ADOPTED_SOURCE_MISMATCH');
 }
 
-export async function inspectHostAdoption({ host, hostBytes, adopted, targetSource }) {
+export async function inspectHostAdoption(context) {
+  const { host, hostBytes, adopted, targetSource, token, reconciling } = context;
+  await inspectManagedAccess(host, token, reconciling);
   await rootOwnedPath(hostFile);
   await rootOwnedPath(coreRoot);
   requireThat(
@@ -80,7 +83,9 @@ export async function inspectHostAdoption({ host, hostBytes, adopted, targetSour
 
 // Fixed administrator-owned backend. Neither entry accepts a host path,
 // credential, adapter or policy from workflow inputs or event contents.
-export async function loadHostAdoption(issueNumber, targetRepositoryId, runnerUid) {
+export async function loadHostAdoption(
+  issueNumber, targetRepositoryId, runnerUid, reconciling = false,
+) {
   requireThat(
     /^[1-9][0-9]*$/.test(issueNumber) && isId(Number(issueNumber)),
     'INVALID_ADOPTED_ISSUE',
@@ -165,7 +170,8 @@ export async function loadHostAdoption(issueNumber, targetRepositoryId, runnerUi
       'INVALID_ACTION_HOST_ADOPTION',
     );
   }
-  const context = { host, hostBytes, adopted, token, reader, targetHost, targetSource };
+  const context = { host, hostBytes, adopted, token, reader, targetHost, targetSource,
+    reconciling };
   await inspectHostAdoption(context);
   return context;
 }

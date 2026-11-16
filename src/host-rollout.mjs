@@ -1,4 +1,5 @@
 import { validateProviderUpdate, compareProviderViews } from './provider-binding.mjs';
+import { withManagedAdmission } from './managed-credential-admission.mjs';
 import {
   lstat, open, readdir, readFile, rename, unlink, writeFile,
 } from 'node:fs/promises';
@@ -136,7 +137,7 @@ export async function promoteHost() {
   await rootOwnedPath('/etc/nibfin');
   const lock = await open(lockPath, 'wx', 0o600);
   try {
-    return await promoteLockedHost();
+    return await withManagedAdmission(() => promoteLockedHost());
   } finally {
     await lock.close();
     await unlink(lockPath);

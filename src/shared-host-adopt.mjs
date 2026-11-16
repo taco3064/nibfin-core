@@ -1,4 +1,5 @@
 import { createProviderBinding } from './provider-binding.mjs';
+import { withManagedAdmission } from './managed-credential-admission.mjs';
 import { link, lstat, open, realpath, unlink } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -163,7 +164,7 @@ export async function adoptSharedHost(name, id, memberId, actionCommit, ids, pin
     'INVALID_SHARED_HOST_IDENTITY');
   const pin = JSON.parse(pinBytes);
   const source = await verifyInstalledSource(coreRoot, pin);
-  return withSharedAdoptionLock(async directory => {
+  return withManagedAdmission(() => withSharedAdoptionLock(async directory => {
     const path = join(directory, profileName);
     try {
       await lstat(hostFile);
@@ -213,5 +214,5 @@ export async function adoptSharedHost(name, id, memberId, actionCommit, ids, pin
     'SHARED_HOST_ADOPTION_CHANGED');
     if (managedEgressNetwork !== undefined) await installSharedRelay();
     return publishInitialHost(host, directory);
-  });
+  }));
 }

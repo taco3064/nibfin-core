@@ -18,9 +18,13 @@ import { installAndStartSharedServices } from '../src/shared-service-start.mjs';
 import { adoptSharedPeer } from '../src/shared-peer-adoption.mjs';
 import { adoptSharedHost } from '../src/shared-host-adopt.mjs';
 
+import { credentialAdministrator } from '../src/managed-credentials.mjs';
+
 // This entry point never imports a caller-selected adapter or runs candidate code.
 async function main(args) {
   const [command, ...values] = args;
+  if (command === 'managed-credentials' && values.length === 1)
+    return credentialAdministrator(values[0]);
   if (command === 'resolve-event' && values.length === 0) return runIssueWake();
   if (command === 'dispatch-event' && values.length === 1)
     return launchIssueWake(values[0]);
@@ -64,6 +68,7 @@ async function main(args) {
     return {
       commands: [
         'contract',
+        'managed-credentials <intake|replace|status|disconnect> (local admin)',
         'inspect-shared-host',
         'install-shared-service-template',
         'start-shared-services',
@@ -132,6 +137,9 @@ main(process.argv.slice(2))
       typeof error.code === 'string' && /^[A-Z][A-Z0-9_]+$/.test(error.code)
         ? error.code
         : 'COMMAND_FAILED';
-    process.stderr.write(JSON.stringify({ status: 'denied', code }) + '\n');
-    process.exitCode = 1;
+    const pending = ['MANAGED_CREDENTIAL_PROVIDER_UNAVAILABLE',
+      'MANAGED_CREDENTIAL_CONSUMER_PENDING'].includes(code);
+    process.stderr.write(JSON.stringify({ status: pending ? 'pending' : 'denied',
+      code }) + '\n');
+    process.exitCode = pending ? 2 : 1;
   });

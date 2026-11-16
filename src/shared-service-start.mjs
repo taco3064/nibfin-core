@@ -1,3 +1,4 @@
+import { withManagedAdmission } from './managed-credential-admission.mjs';
 import { command } from './process.mjs';
 import { requireThat } from './identity.mjs';
 import { rootOwnedPath } from './host-paths.mjs';
@@ -50,7 +51,9 @@ export async function startSharedServices(run = command) {
 export async function installAndStartSharedServices(sources, owner) {
   requireThat(process.platform === 'linux' && process.getuid() === 0,
     'SHARED_SERVICE_REQUIRES_HOST_ADMINISTRATOR');
-  await rootOwnedPath(systemctl);
-  const installation = await installSharedServiceTemplate(sources, owner);
-  return { ...installation, ...await startSharedServices() };
+  return withManagedAdmission(async () => {
+    await rootOwnedPath(systemctl);
+    const installation = await installSharedServiceTemplate(sources, owner);
+    return { ...installation, ...await startSharedServices() };
+  });
 }

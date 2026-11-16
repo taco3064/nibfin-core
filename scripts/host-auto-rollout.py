@@ -658,6 +658,26 @@ def finish(services):
     clean_superseded_staged_packages(current["installation"]["pin"]["commit"])
 
 
+def require_manual_credential(host):
+    # This legacy adapter hands its manual token to gh through an environment.
+    # It must never read an imported credential or bypass Core consumer leases.
+    marker = Path(host["tokenFile"]).with_name("managed.json")
+    require(not marker.exists() and not marker.is_symlink(),
+            "Managed credentials require Core admission; legacy rollout refused")
+
+
+def read_manual_credential(host):
+    path = Path(host["tokenFile"])
+    lock = path.with_name("managed.lock")
+    handle = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY | os.O_NOFOLLOW, 0o600)
+    try:
+        require_manual_credential(host)
+        return path.read_text().strip()
+    finally:
+        os.close(handle)
+        lock.unlink()
+
+
 def main():
     global github_token
     require(os.getuid() == 0, "Rollout must run as host administrator")
@@ -667,7 +687,7 @@ def main():
         if time.time() < json.loads(RATE_WAIT.read_text()):
             return
         RATE_WAIT.unlink()
-    github_token = Path(hosts[CORE]["tokenFile"]).read_text().strip()
+    github_token = read_manual_credential(hosts[CORE])
     require(bool(github_token), "Host GitHub credential is missing")
     current = hosts[CORE]["installation"]["pin"]["commit"]
     plan_path = CONFIG / "rollout-plan.json"
