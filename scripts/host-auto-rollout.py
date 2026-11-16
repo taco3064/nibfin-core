@@ -113,6 +113,19 @@ def artifact(artifacts, name, files):
         return {file: archive.read(file) for file in files}
 
 
+def has_main_ci(commit):
+    # GitHub can omit a successful push when status=success is combined with
+    # the commit filter. Read the exact commit and check the returned result.
+    runs = api(f"repos/{CORE}/actions/workflows/ci.yml/runs"
+               f"?head_sha={commit}&per_page=100")
+    return any(
+        run["head_sha"] == commit and run["head_branch"] == "main" and
+        run["event"] == "push" and run["status"] == "completed" and
+        run["conclusion"] == "success" and run["head_repository"]["full_name"] == CORE
+        for run in runs["workflow_runs"]
+    )
+
+
 def next_rollout(current, target=None):
     runs = api(f"repos/{CORE}/actions/workflows/cd.yml/runs"
                "?branch=main&event=workflow_run&status=success&per_page=15")
@@ -141,9 +154,7 @@ def next_rollout(current, target=None):
             require(pins["action"]["repository"] == ACTION and
                     re.fullmatch("[a-f0-9]{40}", pins["action"]["commit"]),
                     "Rollout Action identity mismatch")
-            ci = api(f"repos/{CORE}/actions/workflows/ci.yml/runs"
-                     f"?event=push&branch=main&head_sha={commit}&status=success")
-            require(bool(ci["workflow_runs"]), "Core main CI is missing")
+            require(has_main_ci(commit), "Core main CI is missing")
             return run_id, pins, artifacts
     return None
 

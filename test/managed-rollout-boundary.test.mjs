@@ -98,3 +98,36 @@ assert not idle(host, include_queued=False)
   assert.ifError(result.error);
   assert.equal(result.status, 0, result.stderr);
 });
+
+test('rollout checks the exact successful main push without a status filter', {
+  skip: process.platform !== 'linux',
+}, () => {
+  const result = spawnSync('python3', ['-B', '-c', `
+import runpy
+import sys
+
+module = runpy.run_path(sys.argv[1])
+core = module["CORE"]
+success = module["has_main_ci"]
+commit = "a" * 40
+run = dict(head_sha=commit, head_branch="main", event="push",
+           status="completed", conclusion="success",
+           head_repository={"full_name": core})
+records = [run]
+
+def api(path):
+    assert path == f"repos/{core}/actions/workflows/ci.yml/runs?head_sha={commit}&per_page=100"
+    return {"workflow_runs": records}
+
+success.__globals__["api"] = api
+assert success(commit)
+for key, value in (("head_sha", "b" * 40), ("head_branch", "other"),
+                   ("event", "pull_request"), ("status", "in_progress"),
+                   ("conclusion", "failure"),
+                   ("head_repository", {"full_name": "someone/fork"})):
+    records[:] = [{**run, key: value}]
+    assert not success(commit)
+`, resolve('scripts/host-auto-rollout.py')], { encoding: 'utf8' });
+  assert.ifError(result.error);
+  assert.equal(result.status, 0, result.stderr);
+});
