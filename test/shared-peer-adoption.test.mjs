@@ -57,7 +57,7 @@ test('peer adoption verifies callers on an unprotected target branch', async () 
     { code: 'PEER_INSTALLATION_ADMIN_REQUIRED' });
 });
 
-test('first adoption pins the protected workflow and two slots', async () => {
+test('managed adoption pins the workflow and both slots', async () => {
   const reader = fixture();
   const path = '.github/workflows/shared-runner.yml';
   const workflow = await readFile(new URL('../' + path, import.meta.url), 'utf8');
@@ -76,9 +76,10 @@ test('first adoption pins the protected workflow and two slots', async () => {
   const slots = [1, 2].map(slot => ({ id: slot + 10, name: `nibfin-123-77-${slot}`,
     os: 'Linux', status: 'offline', busy: false, labels }));
   reader.list = async () => slots;
+  let policy;
   const observe = () =>
     observeExecutionPool(reader, name, 123, memberId, [11, 12], source,
-      actionCommit, workflow);
+      actionCommit, workflow, policy);
   const pool = await observe();
   assert.equal(pool.runner.workflowId, 55);
   assert.equal(pool.caller.subject, 'repo:example@70/peer@123:ref:refs/heads/main');
@@ -97,4 +98,9 @@ test('first adoption pins the protected workflow and two slots', async () => {
   slots[1].busy = false;
   branch.protected = false;
   await assert.rejects(observe(), { code: 'SHARED_EXECUTION_BRANCH_UNPROTECTED' });
+  policy = { kind: 'repository-admission-v1', repository: name, repositoryId: 123,
+    memberId, ownerId: 70 };
+  assert.deepEqual((await observe()).runner.sharedAdmission, policy);
+  policy.ownerId = 71;
+  await assert.rejects(observe(), { code: 'SHARED_EXECUTION_OWNER_INVALID' });
 });

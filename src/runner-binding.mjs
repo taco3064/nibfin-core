@@ -5,6 +5,8 @@ import { readCallerSource, readCallerContinuity } from './caller-source.mjs';
 import { wakeRecipe } from './caller-recipes.mjs';
 import { originalSharedRepository } from './shared-runner.mjs';
 
+import { usesManagedSharedAdmission } from './shared-admission-policy.mjs';
+
 // Provider-side binding only. The caller is trusted Core, executing from an
 // installed pinned workflow outside the candidate. No event payload, environment
 // variable, runner label or JSON object is sufficient to authenticate that caller.
@@ -34,6 +36,11 @@ export async function readRunnerBinding(reader, expected, observeSharedCaller) {
       /^\.github\/workflows\/[A-Za-z0-9_.-]+\.ya?ml$/.test(expected.workflowPath),
     'INVALID_RUNNER_BINDING',
   );
+  const managed = usesManagedSharedAdmission(expected);
+  if (managed) requireThat(expected.target && expected.nativePolicy === true &&
+    expected.sourceAnchor !== undefined && expected.actionCommit === undefined &&
+    !expected.reusable && !expected.wakeWorkflow &&
+    expected.actorId === expected.memberId, 'SHARED_ADMISSION_POLICY_INVALID');
   const root = repoPath(expected.repository);
   const reusablePins = expected.reusable ? [expected.reusable] : [];
   if (expected.wakeWorkflow !== undefined) {
@@ -62,11 +69,13 @@ export async function readRunnerBinding(reader, expected, observeSharedCaller) {
       repository.default_branch,
     'RUNNER_REPOSITORY_CHANGED',
   );
+  if (managed) requireThat(repository.owner?.id === expected.sharedAdmission.ownerId,
+    'RUNNER_REPOSITORY_CHANGED');
   const runPath = `${root}/actions/runs/${expected.runId}`;
   const jobPath = `${root}/actions/jobs/${expected.jobId}`;
   const runnerPath = `${root}/actions/runners/${expected.runnerId}`;
   const run = await reader.get(runPath);
-  if (shared && expected.repository !== originalSharedRepository) {
+  if (shared && !managed && expected.repository !== originalSharedRepository) {
     const branch = await reader.get(
       `${root}/branches/${encodeURIComponent(repository.default_branch)}`,
     );
@@ -83,7 +92,7 @@ export async function readRunnerBinding(reader, expected, observeSharedCaller) {
     );
     const nativePolicyShortcut = expected.nativePolicy &&
       (!expected.target || expected.repository === originalSharedRepository);
-    requireThat(nativePolicyShortcut || branch.protected === true,
+    requireThat(managed || nativePolicyShortcut || branch.protected === true,
       'CALLER_BRANCH_UNPROTECTED');
     const recipe =
       expected.actionCommit !== undefined

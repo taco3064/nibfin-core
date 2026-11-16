@@ -31,8 +31,25 @@ The three pre-existing accounts must be `nibfin-controller` and
 `nibfin-runner-1` / `nibfin-runner-2`. Core reads whether GitHub uses the
 legacy or immutable default OIDC subject for the execution repository.
 Customized OIDC templates require separate adoption. The installer reads
-GitHub to bind the protected execution Workflow and two offline registrations,
+GitHub to bind the execution Workflow and two offline registrations,
 then creates and reads back the existing host configuration.
+
+To adopt a managed customer route under native repository policy, explicitly set
+`sharedAdmission: "repository-admission-v1"` in that root-owned profile before
+first adoption. Core persists a repository, owner and member binding alongside the
+shared Runner identity. This route permits an unprotected default branch while
+retaining pinned workflow bytes, workflow lineage, native Job assignment and the
+independent Core OIDC and target admission checks. Missing policy retains the
+protected route; unknown policy is rejected. This setting is independent of
+`managedEgressNetwork`. Existing installations and token-based hosted forwarding
+retain their existing policy. No GitHub protection or merge requirement is changed.
+
+The versioned `consumerContract.managedSharedAdmission` advertises this capability
+and the adoption profile key. Core exports `sharedRepository` to resolve an adopted
+target and `sharedDispatchWorkflow` to observe the execution repository, workflow ID
+and path, verified current commit and dispatch ref. Supply the Runner selected from
+trusted host adoption; workflow inputs cannot supply this policy record. Local
+fixtures verify the implementation; deployed and logged-in E2E remain unverified.
 
 For a new managed setup, add `managedEgressNetwork` with the name of a reviewed
 user-defined Docker bridge on the dedicated Engine. Keep the rootful Engine,
