@@ -206,12 +206,10 @@ export function stageHandlers({
           const candidate = await workspace.capture(context.shape.body);
           return captureDelivery(context, candidate, result.evidenceReferences);
         }
-        if (stage === 'deliver' && result.outcome === 'blocked') {
-          const guidance = await deliverBlockedGuidance?.(
+        const blockedGuidance = stage === 'deliver' && result.outcome === 'blocked'
+          ? await deliverBlockedGuidance?.(
             context, result.evidenceReferences, Boolean(execution.rebaseStatus),
-          );
-          if (guidance) console.error(`Nibfin deliver: ${guidance}`);
-        }
+          ) : undefined;
         if (['accept', 'review-pr'].includes(stage)) {
           requireThat(
             sameCandidate(await workspace.capture(context.shape.body), context.candidate),
@@ -238,6 +236,7 @@ export function stageHandlers({
           findings: result.blockingFindings,
           references: result.evidenceReferences,
           artifacts,
+          ...(blockedGuidance ? { blockedGuidance } : {}),
         };
       },
     };
