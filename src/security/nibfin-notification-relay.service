@@ -1,0 +1,24 @@
+[Unit]
+Description=Nibfin outgoing Controller notification relay
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+WorkingDirectory=/opt/nibfin/core
+ExecStart=NODE_RUNTIME /opt/nibfin/core/bin/nibfin-notification-relay.mjs poll
+Environment=PATH=/usr/bin:/bin
+Environment=LANG=C.UTF-8
+UMask=0077
+TimeoutStartSec=300
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/lib/nibfin/notification-relay
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+CapabilityBoundingSet=CAP_DAC_READ_SEARCH
+LockPersonality=yes
+RestrictSUIDSGID=yes

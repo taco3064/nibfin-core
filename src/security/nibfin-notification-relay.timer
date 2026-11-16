@@ -1,0 +1,11 @@
+[Unit]
+Description=Poll adopted GitHub Issue notifications approximately once a minute
+
+[Timer]
+OnBootSec=60s
+OnUnitInactiveSec=60s
+AccuracySec=5s
+Unit=nibfin-notification-relay.service
+
+[Install]
+WantedBy=timers.target
