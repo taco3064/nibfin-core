@@ -76,3 +76,85 @@ constructs authoritative receipts; this component performs none of those steps.
 Local executor doubles exercise this interface. Actual runner enforcement,
 authentication, credentials, mounts, network, process cleanup and live integration
 remain AGENT-3/AGENT-7 responsibilities and require their own integration evidence.
+
+### Work bridge and Linux worker package
+
+AGENT-7 now supplies `bin/claude-work-tools.mjs` and
+`src/claude-work-bridge.mjs`. Install the executable as
+`/opt/nibfin/claude/bin/work-tools`, preserving the adjacent `../src` module
+layout from the maintained Core package. Mark the executable executable.
+`claudeWorkServer()` remains the sole authority for its invocation and endpoint;
+no environment variable or command argument selects a transport. The bridge
+forwards newline-delimited stdio MCP with backpressure and finite frame bounds.
+The model launcher must still verify that its credential is stripped from this
+child; this package does not enable installed Claude support.
+
+`src/security/claude-work.Dockerfile` packages the credential-free worker with
+the required Python 3.13.7 runtime. Its `PROJECT_IMAGE` build argument is Core's
+maintained project tool image, never a repository/model-selected image. Package
+inputs include the worker, protocol, filesystem and limits files. Model-container
+packaging and customer authentication remain AGENT-3 responsibilities.
+
+The trusted composing runner constructs `ClaudeWorkWorker` from
+`src/claude-work-launcher.mjs` with the verified rootful remapped backend,
+Docker configuration, and admission `{executionId, stage, peer, work, main,
+input, session}`. Each source/session directory must have a controller-owned
+0700 parent; paths must be disjoint and contain no initial symlinks or hardlinks.
+The session must be fresh. `peer` is the approved model UID/GID in the host's
+remapped namespace. It must differ from the worker's remapped UID/GID 1000;
+for example, the isolated model may use namespace UID/GID 1001. The model gets
+only its matching channel directory at `/session/work-channel`, mounted read-only.
+No project, admission, credential or Controller mount belongs in that container.
+The worker authenticates actual Linux `SO_PEERCRED`, not MCP-supplied identity.
+A connection belongs solely to its immutable admission and private socket.
+
+The runner also supplies an `egress` descriptor `{network, gatewayId, image,
+directory}`. It owns that execution's private isolated Docker bridge named
+`nibfin-work-<UUID>` and its package-only gateway. Before worker creation, the
+network must contain only the indicated gateway. `directory` contains unchanged
+`egress-proxy.mjs` and `claude-package-proxy.mjs`, mounted read-only at
+`/proxy/<filename>` in the gateway. The gateway uses entrypoint `node`, command
+`/proxy/claude-package-proxy.mjs`, a read-only root, dropped capabilities and
+no-new-privileges; its environment must match its credential-free image.
+The existing proxy enforces HTTPS, public upstream addresses and matching TLS
+SNI for the shared package download allowlist only. No provider authentication
+or user MCP policy is attached. Worker inspection refuses extra networks,
+mounts, privileges, devices or environment entries. Project commands receive a
+clean environment and the verified package proxy, with no Docker socket.
+
+The MCP tool names are `read`, `check` and (Deliver only) `write`, exposed by
+Claude under the existing `mcp__work__*` names. `read` takes `surface` (`work`,
+`main`, `input`), relative file `path`, and optional literal `search` text;
+search returns matching numbered lines. `write` takes relative `path` and UTF-8
+`content` and affects only `/work`. Parent directories must already exist.
+Paths reject traversal, symbolic links, hardlinks, special files and `.git`.
+`check` takes project shell `command` text, executed in `/work` inside the
+worker. Only Deliver receives a writable `/work`; `/main` and `/input` always
+remain kernel-enforced read-only mounts. Other roles can use private `/tmp`.
+Shell text never selects the trusted worker executable, mounts or Docker API.
+
+`claude-work-limits.json` is authoritative for request/response, file/command
+output, runtime and worker lifetime limits. Malformed and unauthorized requests
+return fixed bounded errors. Timeout, command output exhaustion, socket EOF
+and cancellation retire the worker process; Core must still reconcile its
+container. Concurrent requests during a running check interrupt that worker.
+The MCP client should serialize work calls.
+
+Use `withClaudeWorkWorker(worker, async handoff => ..., {signal})` around the
+model runner, including model errors, cancellation and normal completion.
+The model runner independently proves model termination using its existing
+contract. The wrapper settles the worker and refuses to return successfully
+without confirmed worker termination. `settle()` force-removes the uniquely
+named container and independently reads back its absence; CLI exit and cleanup
+requests alone are insufficient. Unknown settlement retains admission resources
+and `requireSettlement()` throws `WRITER_TERMINATION_UNKNOWN`. Retain the Writer
+and session fence in that case. After confirmed settlement the launcher removes
+its admission file and channel directory. The composing runner then performs
+normal remapped-workspace reclamation and Candidate capture, and retires its
+own gateway/network only after all consumers have terminated.
+
+Local tests cover actual Python filesystem operations, native Unix peer
+credentials, bounded framing and subprocess limits. Docker, model and host
+isolation scenarios use explicit executor doubles. Building and probing the
+packaged worker on the managed remapped Docker host, and full Claude composition,
+remain unverified by these local component tests.
