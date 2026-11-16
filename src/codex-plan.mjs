@@ -37,7 +37,7 @@ const isolatedVerification = [
 // discovery. Configuration alone is not proof that a host enforces this policy.
 export function codexPlan(stage, {
   model, threadId = null, skill, context, mcpPolicyHash = null, hasProposal = false,
-  globalInstructions, additionalDomains,
+  globalInstructions, additionalDomains, projectTools,
 }) {
   const identity = skillIdentity(stage);
   requireThat(
@@ -72,6 +72,7 @@ export function codexPlan(stage, {
       '/main': 'read', '/tmp': 'write', '/tmp/.git': 'write',
       '/auth': 'deny', '/agent-home': 'deny',
       '/io': 'deny', '/session': 'read', '/proc': 'read',
+      '/opt/nibfin/project': 'read',
     },
     'permissions.nibfin.network.enabled': true,
   };
@@ -143,6 +144,12 @@ export function codexPlan(stage, {
       'Core fetched this snapshot from the adopted Notion page for this Job. ' +
       'Execution permissions come from the protected Core context.\n' : '') +
     (stage === 'deliver' || stage === 'accept' ? isolatedVerification : '') +
+    (projectTools?.python ? [
+      `Project Python: ${projectTools.python}. Verify with python3 --version.`,
+      'Use python3 from the project PATH for tests, with no host path assumption.',
+      'If a Candidate test hard-codes /usr/bin/python3, request a source correction.',
+      '',
+    ].join('\n') : '') +
     (stage === 'review-pr' ?
       'Review the current PR diff and read GitHub PR CI results. ' +
       'Do not rerun CI or add hash or fixed-version requirements.\n' : '') +
@@ -157,6 +164,7 @@ export function codexPlan(stage, {
     additionalDomains: selectedDomains,
     args, config, settings, requirements, schema: resultSchema, prompt,
     expectedThread: threadId, writable, mcpPolicyHash,
+    projectPython: projectTools?.python ?? null,
     policyHash: digest({ config, requirements }),
     cwd: '/session',
     environment: {

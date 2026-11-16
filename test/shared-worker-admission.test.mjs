@@ -155,7 +155,7 @@ test('the Linux dispatcher preserves Worker PID and refuses queued cancellation'
   const path = '../src/security/shared-worker-dispatch.py';
   const dispatcher = new URL(path, import.meta.url);
   const probe = new URL('./shared-worker-process.py', import.meta.url);
-  const result = spawnSync('/usr/bin/python3', [
+  const result = spawnSync('python3', [
     '-I', fileURLToPath(probe), fileURLToPath(dispatcher),
   ], { timeout: 15000, encoding: 'utf8' });
   assert.equal(result.status, 0, result.error?.message ?? result.stderr);
