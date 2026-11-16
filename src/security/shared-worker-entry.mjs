@@ -1,3 +1,4 @@
+import { requirePoolOpen } from '../retirement-admission.mjs';
 import { join } from 'node:path';
 import { boundedHostFile, hostFile } from '../host-adoption.mjs';
 import { rootOwnedPath } from '../host-paths.mjs';
@@ -9,6 +10,7 @@ import { sharedWorkerDiagnostic, sharedWorkerReader } from './shared-worker-read
 const slots = ['/var/lib/nibfin/runners/slot-1', '/var/lib/nibfin/runners/slot-2'];
 
 async function main() {
+  await requirePoolOpen();
   await rootOwnedPath(hostFile);
   const host = JSON.parse(await boundedHostFile(hostFile, 262144));
   const target = { repositoryId: host.repository?.approval?.repositoryId };
@@ -29,6 +31,7 @@ async function main() {
   const credential = message?.variables?.['system.github.token'];
   await admitSharedWorker(sharedWorkerReader(credential), message, runner, caller.ref,
     caller.ownerId);
+  await requirePoolOpen();
 }
 
 try {

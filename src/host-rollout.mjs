@@ -1,3 +1,4 @@
+import { requireNoRetirement } from './retirement-admission.mjs';
 import { validateProviderUpdate, compareProviderViews } from './provider-binding.mjs';
 import { withManagedAdmission } from './managed-credential-admission.mjs';
 import {
@@ -145,6 +146,7 @@ export async function promoteHost() {
 }
 
 async function promoteLockedHost() {
+  await requireNoRetirement();
   const { value: plan } = await readTrusted(planPath);
   requireThat(isSha(plan.pin?.commit) && isSha(plan.actionCommit) &&
     plan.pin.repository === 'taco3064/nibfin-core', 'INVALID_ROLLOUT_PLAN');

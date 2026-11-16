@@ -23,7 +23,9 @@ export function matchesContainerLabel(container, expected) {
   return !expected || container.Config?.Labels?.[expected[0]] === expected[1];
 }
 
-export async function idleContainers(profile, issue, run = command) {
+export async function idleContainers(profile, issue, run = command, {
+  allowMissingGateway = false,
+} = {}) {
   const c = profile.agent;
   requireThat(c.docker === profile.hooks.docker && c.socket === profile.hooks.socket,
     'SPLIT_HOST_DAEMON');
@@ -42,7 +44,8 @@ export async function idleContainers(profile, issue, run = command) {
     list(`network=${c.network}`),
     list(`label=${target}`),
   ]);
-  requireThat(network.length === 1 && network[0] === c.gatewayId &&
-    containers.length === 0, 'PREVIOUS_HOST_PROCESS_UNRESOLVED');
+  const gateway = network.length === 1 && network[0] === c.gatewayId ||
+    allowMissingGateway && network.length === 0;
+  requireThat(gateway && containers.length === 0, 'PREVIOUS_HOST_PROCESS_UNRESOLVED');
   return digest({ network, containers });
 }

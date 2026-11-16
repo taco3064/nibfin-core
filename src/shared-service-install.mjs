@@ -1,3 +1,5 @@
+import { withSharedAdoptionLock } from './shared-peer-adoption.mjs';
+import { requireNoRetirement } from './retirement-admission.mjs';
 import { withManagedAdmission } from './managed-credential-admission.mjs';
 import { link, lstat, open, readFile, unlink } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
@@ -65,10 +67,15 @@ export async function installSharedServiceTemplate(sources = [], owner) {
   requireThat(process.platform === 'linux' && process.getuid() === 0,
     'SHARED_SERVICE_REQUIRES_HOST_ADMINISTRATOR');
   requireThat(coreRoot === '/opt/nibfin/core', 'SHARED_SERVICE_REQUIRES_INSTALLED_CORE');
-  return withManagedAdmission(() => installAdmittedTemplate(sources, owner));
+  return withManagedAdmission(() => withSharedAdoptionLock(async () => {
+    await requireNoRetirement();
+    return installLockedSharedTemplate(sources, owner);
+  }));
 }
 
-async function installAdmittedTemplate(sources, owner) {
+export async function installLockedSharedTemplate(sources = [], owner) {
+  requireThat(process.platform === 'linux' && process.getuid() === 0 &&
+    coreRoot === '/opt/nibfin/core', 'SHARED_SERVICE_REQUIRES_INSTALLED_CORE');
   const template = join(coreRoot, templatePath);
   await Promise.all([hostFile, template, unitDirectory].map(rootOwnedPath));
   const hostBytes = await boundedHostFile(hostFile, 256 * 1024);

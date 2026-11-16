@@ -1,3 +1,5 @@
+import { retiredPeerReplaceable } from './retirement-rebind.mjs';
+import { requireNoRetirement } from './retirement-admission.mjs';
 import { compareProviderViews } from './provider-binding.mjs';
 import { withManagedAdmission } from './managed-credential-admission.mjs';
 import { lstat, open, rename, unlink } from 'node:fs/promises';
@@ -121,7 +123,9 @@ export async function adoptSharedPeer(name, id, actionCommit) {
     adoptPeerLocked(name, id, actionCommit, directory)));
 }
 
-export async function withSharedAdoptionLock(action) {
+export const retirementLockMarker = '{"kind":"managed-retirement-v1"}\n';
+
+export async function withSharedAdoptionLock(action, { retirement = false } = {}) {
   const directory = dirname(hostFile);
   await rootOwnedPath(directory);
   const lock = join(directory, 'rollout.lock');
@@ -132,6 +136,11 @@ export async function withSharedAdoptionLock(action) {
     throw error;
   });
   try {
+    if (retirement) {
+      await guard.writeFile(retirementLockMarker);
+      await guard.sync();
+      await syncRecoveryDirectory(directory);
+    }
     return await action(directory);
   } finally {
     await guard.close();
@@ -141,6 +150,7 @@ export async function withSharedAdoptionLock(action) {
 }
 
 async function adoptPeerLocked(name, id, actionCommit, directory) {
+  await requireNoRetirement();
   requireThat(isSha(actionCommit), 'INVALID_PEER_INSTALLATION_IDENTITY');
   await rootOwnedPath(hostFile);
   const current = await boundedHostFile(hostFile, 262144);
@@ -212,11 +222,12 @@ async function publishPeer(host, pool, current, name, id, source, actionCommit,
       'PEER_REQUIRES_SINGLE_SHARED_HOST_CONFIGURATION');
   }
   requireThat(peers.length < 10, 'SHARED_PEER_LIMIT_REACHED');
-  requireThat(!existing || digest(existing) === digest(peer),
+  const retiredPeer = existing && await retiredPeerReplaceable(path, existing);
+  requireThat(!existing || retiredPeer || digest(existing) === digest(peer),
     'PEER_HOST_FILE_CONFLICT');
   requireThat(await boundedHostFile(hostFile, 262144) === current,
     'HOST_ADOPTION_CHANGED');
-  if (!existing) await replace(path, peer);
+  if (!existing || retiredPeer) await replace(path, peer);
   host.wakePeerFiles = [...peers, path];
   host.sharedRunner.repositories = [...host.sharedRunner.repositories, id];
   await replace(hostFile, host);

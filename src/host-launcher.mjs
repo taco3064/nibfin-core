@@ -1,3 +1,4 @@
+import { requirePoolOpen } from './retirement-admission.mjs';
 import { withManagedAdmission } from './managed-credential-admission.mjs';
 import { ProjectConfigError } from './project-config.mjs';
 import { projectJob } from './project-job.mjs';
@@ -156,7 +157,7 @@ export async function launchStage(issueNumber, stage, env = process.env, runnerU
   const relayed = await relayHostCommand('stage', [issueNumber, stage], env);
   if (relayed !== null) return relayed;
   return withManagedAdmission(() => launchAdmittedStage(
-    issueNumber, stage, env, runnerUid));
+    issueNumber, stage, env, runnerUid), { pool: true });
 }
 
 async function launchAdmittedStage(issueNumber, stage, env, runnerUid) {
@@ -309,6 +310,7 @@ async function launchAdmittedStage(issueNumber, stage, env, runnerUid) {
     });
     const invocations = new Map();
     const execute = async (current, ciFailure) => {
+      await requirePoolOpen();
       const iteration = invocations.get(current) ?? 0;
       invocations.set(current, iteration + 1);
       execution = hostExecution(runner, current, iteration);

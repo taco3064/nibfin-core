@@ -77,7 +77,12 @@ def main():
     source, reply = int(source_pipe), int(reply_pipe)
     if command != "spawnclient" or min(source, reply) < 3 or source == reply:
         raise ValueError("Invalid Runner invocation")
+    drain = Path('/etc/nibfin/managed-pool-drain.json')
+    if drain.exists() or drain.is_symlink():
+        raise ValueError("Managed pool is draining")
     frame = admit(source)
+    if drain.exists() or drain.is_symlink():
+        raise ValueError("Managed pool is draining")
     if select.select([source], [], [], 0)[0]:
         raise ValueError("Runner was cancelled during admission")
     worker = Path.cwd() / "Runner.Worker.official"
@@ -94,6 +99,8 @@ def main():
     os.set_inheritable(receiver, True)
     os.set_inheritable(reply, True)
     # The Listener continues to supervise the same PID after Worker starts.
+    if drain.exists() or drain.is_symlink():
+        raise ValueError("Managed pool is draining")
     os.execv(worker, [str(worker), "spawnclient", str(receiver), str(reply)])
 
 

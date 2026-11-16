@@ -16,7 +16,7 @@ const settings = {
     LANG: 'C' },
 };
 const isolatedOption = 'com.docker.network.bridge.gateway_mode_ipv4';
-const managedLabel = 'io.nibfin.gateway-install';
+export const managedGatewayLabel = 'io.nibfin.gateway-install';
 
 const docker = async args => (await command(dockerPath, [
   '--host', `unix://${rootfulSocket}`, ...args,
@@ -66,10 +66,10 @@ export async function prepareSharedGateway(profile, runner, uplink, run = docker
     'SHARED_GATEWAY_UPLINK_UNVERIFIED');
   const network = await ensure(run, 'network', name, ['network', 'create',
     '--driver', 'bridge', '--internal', '--opt', `${isolatedOption}=isolated`,
-    '--label', `${managedLabel}=${marker}`, name]);
+    '--label', `${managedGatewayLabel}=${marker}`, name]);
   requireThat(network.Name === name && network.Internal === true &&
     network.Driver === 'bridge' && network.Options?.[isolatedOption] === 'isolated' &&
-    network.Labels?.[managedLabel] === marker, 'SHARED_GATEWAY_NETWORK_CONFLICT');
+    network.Labels?.[managedGatewayLabel] === marker, 'SHARED_GATEWAY_NETWORK_CONFLICT');
   const mcp = mcpPolicyDirectory ? [
     '--env', `${mcpPolicyEnvironment}=${mcpPolicyMount}`, '--mount',
     `type=bind,src=${mcpPolicyDirectory},dst=${mcpPolicyMount},readonly`,
@@ -77,12 +77,12 @@ export async function prepareSharedGateway(profile, runner, uplink, run = docker
   const gateway = await ensure(run, 'container', name, ['run', '--detach',
     '--pull=never', '--name', name, '--network', name, '--network', uplink,
     '--read-only', '--cap-drop=ALL', '--security-opt=no-new-privileges',
-    ...containerLabelArgs(label), '--label', `${managedLabel}=${marker}`,
+    ...containerLabelArgs(label), '--label', `${managedGatewayLabel}=${marker}`,
     '--mount', `type=bind,src=${proxyScript},dst=/proxy.mjs,readonly`, ...mcp,
     '--entrypoint', 'node', image, '/proxy.mjs']);
   const attached = gateway.NetworkSettings?.Networks ?? {};
   requireThat(gateway.Name === `/${name}` && gateway.State?.Running === true &&
-    gateway.Config?.Labels?.[managedLabel] === marker &&
+    gateway.Config?.Labels?.[managedGatewayLabel] === marker &&
     gateway.Config.Labels[label[0]] === label[1] &&
     /^[a-f0-9]{64}$/.test(gateway.Id) &&
     Object.keys(attached).length === 2 && attached[name]?.NetworkID === network.Id &&
