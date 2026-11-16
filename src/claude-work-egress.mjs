@@ -5,10 +5,13 @@ import { sameContainerEnvironment } from './container-environment.mjs';
 
 // The composing runner creates a private isolated network and package gateway.
 // No provider/MCP policy mount or authentication destination is admitted here.
-export async function verifyWorkEgress(config, docker) {
+export async function verifyWorkEgress(config, docker, model = false) {
+  const profile = model ? 'model' : 'work';
+  const proxy = model ? 'claude-model-proxy.mjs' : 'claude-package-proxy.mjs';
   requireThat(config && /^[a-f0-9]{64}$/.test(config.gatewayId) &&
     /^sha256:[a-f0-9]{64}$/.test(config.image) &&
-    /^nibfin-work-[a-f0-9-]{36}$/.test(config.network), 'INVALID_WORK_EGRESS');
+    new RegExp(`^nibfin-${profile}-[a-f0-9-]{36}$`).test(config.network),
+  'INVALID_WORK_EGRESS');
   const inspect = async args => {
     const result = JSON.parse((await docker(args)).stdout);
     requireThat(Array.isArray(result) && result.length === 1,
@@ -18,7 +21,7 @@ export async function verifyWorkEgress(config, docker) {
   const network = await inspect(['network', 'inspect', config.network]);
   const gateway = await inspect(['inspect', config.gatewayId]);
   const image = await inspect(['image', 'inspect', config.image]);
-  const sources = ['egress-proxy.mjs', 'claude-package-proxy.mjs'];
+  const sources = ['egress-proxy.mjs', proxy];
   for (const name of sources) {
     const path = join(config.directory, name);
     const maintained = new URL(name, import.meta.url);
@@ -32,7 +35,7 @@ export async function verifyWorkEgress(config, docker) {
     gateway.State?.Running === true && c?.Image === config.image &&
     sameContainerEnvironment(c.Env, image.Config?.Env ?? []) &&
     digest(c.Entrypoint) === digest(['node']) &&
-    digest(c.Cmd) === digest(['/proxy/claude-package-proxy.mjs']) &&
+    digest(c.Cmd) === digest([`/proxy/${proxy}`]) &&
     h?.Privileged === false && h.ReadonlyRootfs === true &&
     !h.PidMode && !h.UsernsMode && !h.CapAdd?.length && !h.Devices?.length &&
     digest(h.CapDrop) === digest(['ALL']) &&
