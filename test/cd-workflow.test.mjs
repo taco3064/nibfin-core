@@ -221,6 +221,55 @@ assert blocked["incompleteChecks"] == [
   assert.equal(result.status, 0, result.stderr);
 });
 
+test('rollout drains actual Runner work despite a queued run without jobs', {
+  skip: process.platform !== 'linux',
+}, () => {
+  const script = new URL('../scripts/host-auto-rollout.py', import.meta.url);
+  const result = spawnSync('python3', ['-B', '-c', `
+import runpy
+import sys
+
+module = runpy.run_path(sys.argv[1])
+core = module["CORE"]
+idle = module["idle"]
+settings = idle.__globals__
+settings["consumer_workflows"] = lambda *args: []
+host = {core: {"repository": {"approval": {"repositoryId": 1}},
+               "sharedRunner": {"repositories": [1],
+                                "runner": {"repository": core, "runnerId": 7}},
+               "stateRoot": "/missing"}}
+
+state = dict(fenced=False, busy=False, active=0, queued=1, jobs=0)
+settings["host_fenced"] = lambda hosts: state["fenced"]
+
+def api(path):
+    if path.endswith("/runners"):
+        return {"runners": [{"id": 7, "busy": state["busy"]}]}
+    if "status=in_progress" in path:
+        return {"total_count": state["active"]}
+    if "status=queued" in path:
+        return {"total_count": state["queued"], "workflow_runs": [{"id": 99}]}
+    assert path.endswith("/runs/99/jobs?per_page=1")
+    return {"total_count": state["jobs"], "jobs": []}
+
+settings["api"] = api
+assert idle(host)
+state["jobs"] = 1
+assert not idle(host)
+assert idle(host, include_queued=False)
+state.update(jobs=0, queued=101)
+assert not idle(host)
+state.update(queued=1, active=1)
+assert not idle(host, include_queued=False)
+state.update(active=0, busy=True)
+assert not idle(host, include_queued=False)
+state.update(busy=False, fenced=True)
+assert not idle(host, include_queued=False)
+`, fileURLToPath(script)], { encoding: 'utf8' });
+  assert.ifError(result.error);
+  assert.equal(result.status, 0, result.stderr);
+});
+
 test('workflow-only and contract-test changes select website verification', () => {
   for (const path of [cdWorkflow, 'test/cd-workflow.test.mjs']) {
     const run = flag => {
