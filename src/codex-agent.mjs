@@ -1,3 +1,4 @@
+import { requireModelTermination } from './provider-contract.mjs';
 import { CandidateWorkspace } from './workspace.mjs';
 import { constants } from 'node:fs';
 import { open, lstat, realpath, mkdir, writeFile } from 'node:fs/promises';
@@ -7,7 +8,7 @@ import { codexPlan } from './codex-plan.mjs';
 import { parseAgentResult } from './agent-result.mjs';
 import { RoleSessions } from './role-sessions.mjs';
 import { subscriptionSecrets, containsCredentials } from './credential-output.mjs';
-import { digest, isDigest, requireThat } from './identity.mjs';
+import { digest, requireThat } from './identity.mjs';
 
 // A role adapter, not a sandbox implementation. Only the installed launcher may
 // supply the code-owned isolator. No external request may load an adapter/module.
@@ -76,12 +77,8 @@ export class CodexRoleAgent {
       const execution = await this.#isolator.execute({ plan,
         executionId: context.execution.id, work: config.work, main: main.directory,
         input, output, session: session.directory, auth });
-      if (execution?.status === 'interrupted') return execution;
-      requireThat(execution?.status === 'completed' &&
-        execution.executionId === context.execution.id &&
-        isDigest(execution.terminationHash) && execution.policyHash === plan.policyHash &&
-        isDigest(execution.isolationHash) && isDigest(execution.probeHash),
-      'AGENT_ISOLATION_OR_TERMINATION_UNPROVEN');
+      requireModelTermination(execution, context.execution.id, plan.policyHash);
+      if (execution.status === 'interrupted') return execution;
       requireThat(typeof execution.stdout === 'string' &&
         typeof execution.stderr === 'string' &&
         !containsCredentials(execution.stdout, secrets) &&

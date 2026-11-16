@@ -1,20 +1,27 @@
+import { providerIsolation } from './provider-fixture.mjs';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   registerE2ePeer, validateE2eRollout, validateRolloutHost,
 } from '../src/host-rollout.mjs';
 
-const pin = { repository: 'taco3064/nibfin-core', commit: 'a'.repeat(40) };
+const pin = { repository: 'taco3064/nibfin-core', commit: 'a'.repeat(40),
+  manifestHash: 'c'.repeat(64) };
 const source = { repository: pin.repository, commit: pin.commit };
 const action = 'b'.repeat(40);
-const current = { kind: 'single-host-linux-v1', uid: 100, runnerUid: 101,
+const current = { schemaVersion: 1, model: 'gpt-6',
+  installation: { directory: '/opt/nibfin/core', pin },
+  repository: { runner: { repository: 'taco3064/nibfin-core', repositoryId: 1,
+    runnerId: 23, runnerName: 'first' }, isolation: providerIsolation },
+  kind: 'single-host-linux-v1', uid: 100, runnerUid: 101,
   runnerId: 23, memberId: 10, stateRoot: '/state', tokenFile: '/auth/token',
   authFile: '/auth/codex' };
 
 function staged(repository) {
-  const runner = { repository: `taco3064/${repository}`, runnerId: 23, memberId: 10 };
+  const runner = { repository: 'taco3064/' + repository, repositoryId: 1,
+    runnerId: 23, runnerName: 'first', memberId: 10 };
   return { ...current, installation: { directory: '/opt/nibfin/core', pin },
-    repository: { approval: { source },
+    repository: { approval: { source }, isolation: providerIsolation,
       runner: { ...runner, actionCommit: action, actionCoreCommit: pin.commit },
       eventRunner: { ...runner, reusable: { commit: pin.commit } },
       eventCaller: { reusable: { commit: pin.commit } },
@@ -24,12 +31,13 @@ function staged(repository) {
 test('host promotion requires the same Core and Action for all bindings', () => {
   for (const repository of ['nibfin-core', 'nibfin-act', 'gh-nibfin']) {
     const next = staged(repository);
-    validateRolloutHost(repository, current, next, pin, source, action);
+    const prior = { ...current, repository: next.repository };
+    validateRolloutHost(repository, prior, next, pin, source, action);
     const wrong = structuredClone(next);
     wrong.repository.eventRunner.reusable.commit = 'c'.repeat(40);
-    assert.throws(() => validateRolloutHost(repository, current, wrong, pin, source,
+    assert.throws(() => validateRolloutHost(repository, prior, wrong, pin, source,
       action), { code: 'ROLLOUT_HOST_BINDING_MISMATCH' });
-    assert.throws(() => validateRolloutHost(repository, current,
+    assert.throws(() => validateRolloutHost(repository, prior,
       { ...next, tokenFile: '/other' }, pin, source, action),
     { code: 'ROLLOUT_HOST_BINDING_MISMATCH' });
   }
@@ -37,8 +45,8 @@ test('host promotion requires the same Core and Action for all bindings', () => 
 
 test('E2E adoption binds the shared host and verified Issue caller', () => {
   const primary = staged('nibfin-core');
-  primary.sharedRunner = { runner: { runnerId: primary.runnerId } };
-  primary.repository.isolation = { kind: 'linux-rootful-docker-v1' };
+  primary.sharedRunner = { runner: primary.repository.runner };
+  primary.repository.isolation = providerIsolation;
   const repository = 'taco3064/nibfin-e2e';
   const repositoryId = 1445256917;
   const runner = { repository, repositoryId, runnerId: primary.runnerId,

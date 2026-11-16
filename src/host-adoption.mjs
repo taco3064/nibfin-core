@@ -1,3 +1,4 @@
+import { installedProvider, compareProviderViews } from './provider-binding.mjs';
 import { constants } from 'node:fs';
 import { open, lstat, realpath } from 'node:fs/promises';
 import { dirname, join, resolve, isAbsolute } from 'node:path';
@@ -72,6 +73,7 @@ export async function inspectHostAdoption({ host, hostBytes, adopted, targetSour
       'HOST_ADOPTION_CHANGED',
     );
   }
+  installedProvider(host);
   await verifyHostInstallation(host.installation, adopted.approval);
   await verifyControllerSeparation(host);
 }
@@ -92,6 +94,7 @@ export async function loadHostAdoption(issueNumber, targetRepositoryId, runnerUi
   const hostBytes = await boundedHostFile(hostFile, 256 * 1024);
   const host = JSON.parse(hostBytes);
   controllerRoute(host);
+  installedProvider(host);
   requireThat(
     host.schemaVersion === 1 &&
       host.uid === process.getuid() &&
@@ -116,6 +119,7 @@ export async function loadHostAdoption(issueNumber, targetRepositoryId, runnerUi
         targetSource = { path, bytes };
       return peer;
     });
+  if (targetHost !== host) compareProviderViews(host, targetHost);
   let adopted = targetHost.issues?.[issueNumber];
   if (!adopted && targetHost.repository) {
     const template = targetHost.repository;

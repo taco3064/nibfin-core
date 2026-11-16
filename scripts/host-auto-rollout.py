@@ -191,7 +191,8 @@ def consumer_wait(pr):
     checks = pr["statusCheckRollup"]
     incomplete = [
         {"name": check.get("name") or check.get("context"), "status": (
-            check.get("conclusion") or check.get("status") or check.get("state") or "UNKNOWN"
+            check.get("conclusion") or check.get("status") or
+            check.get("state") or "UNKNOWN"
         )}
         for check in checks if check.get("conclusion") not in ("SUCCESS", "SKIPPED")
     ]
@@ -242,7 +243,8 @@ def read_consumer(repo, config, pins, run_id=None):
     wait = consumer_wait(pr)
     if wait is not None:
         if run_id is not None:
-            print(f"CD {run_id} waiting for {repo}#{pr['number']} {json.dumps(wait)}", flush=True)
+            message = f"CD {run_id} waiting for {repo}#{pr['number']}"
+            print(f"{message} {json.dumps(wait)}", flush=True)
         return base, False
     return base, pr
 
@@ -395,6 +397,8 @@ def configure(repo, config, base, pins, source, issue_blob):
     core, action = pins["core"]["commit"], pins["action"]["commit"]
     settings = config["repository"]
     config["installation"]["pin"] = pins["core"]
+    if "providerBinding" in config:
+        config["providerBinding"]["components"]["source"] = pins["core"]
     settings["approval"]["source"] = source
     runner_keys = {WAKE: "runner", ISSUE: "eventRunner"}
     for path in consumer_workflows(repo, base):
@@ -472,6 +476,8 @@ def configure_e2e(host, base, pins, source, issue_blob):
         "schemaVersion", "kind", "uid", "memberId", "installation",
         "stateRoot", "tokenFile", "authFile",
     )}
+    if "providerBinding" in host:
+        config["providerBinding"] = host["providerBinding"]
     if "notionProposal" in host:
         config["notionProposal"] = host["notionProposal"]
     config.update(runnerId=runner["runnerId"], issues={})

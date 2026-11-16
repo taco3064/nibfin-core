@@ -1,3 +1,4 @@
+import { installedProvider, compareProviderViews } from './provider-binding.mjs';
 import { isId, requireThat } from './identity.mjs';
 import { readCallerContinuity } from './caller-source.mjs';
 import { repoPath } from './github-read.mjs';
@@ -27,6 +28,7 @@ export function sharedRunner(host, target, runnerUid = host.runnerUid) {
       config.repositories.includes(target.repositoryId),
     'SHARED_RUNNER_NOT_ADOPTED',
   );
+  installedProvider(host);
   repoPath(runner.repository);
   usesManagedSharedAdmission(runner);
   const { repositoryId, runnerId } = host.repository.runner;
@@ -70,6 +72,7 @@ export function sharedSlotIsolation(host, runnerUid) {
 
 export async function sharedRepository(host, repositoryId, readPeer) {
   requireThat(isId(repositoryId), 'INVALID_SHARED_REPOSITORY');
+  installedProvider(host);
   const paths = host.wakePeerFiles ?? [];
   requireThat(
     Array.isArray(paths) && paths.length <= 10 &&
@@ -82,6 +85,7 @@ export async function sharedRepository(host, repositoryId, readPeer) {
     peer => peer.repository?.approval.repositoryId === repositoryId,
   );
   requireThat(matches.length === 1, 'SHARED_REPOSITORY_NOT_ADOPTED');
+  compareProviderViews(host, matches[0]);
   return matches[0];
 }
 

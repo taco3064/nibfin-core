@@ -1,3 +1,4 @@
+import { providerHost, providerIsolation } from './provider-fixture.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { sharedDispatchWorkflow, sharedRunner } from '../src/shared-runner.mjs';
@@ -154,8 +155,8 @@ test('trusted host selection carries managed policy to both isolated slots', () 
   const f = fixture(), runner = { ...f.expected,
     workflowPath: '.github/workflows/shared-runner.yml', jobName: 'shared-stage' };
   const caller = { repository: runner.repository, repositoryId: runner.repositoryId };
-  const host = { memberId: runner.memberId, runnerUid: 91,
-    repository: { runner },
+  const host = { ...providerHost(), memberId: runner.memberId, runnerUid: 91,
+    repository: { runner, isolation: providerIsolation },
     sharedRunner: { runner, caller, repositories: [10, 11],
       additionalRunner: { uid: 92, id: 41, name: 'slot-2' } },
   };

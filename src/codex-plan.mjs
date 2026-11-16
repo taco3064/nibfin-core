@@ -1,3 +1,4 @@
+import { privatePlanContract, validProviderModel } from './provider-contract.mjs';
 import { digest, requireThat } from './identity.mjs';
 import { projectToolPath } from './tool-catalog.mjs';
 import { resultSchema } from './agent-result.mjs';
@@ -41,7 +42,7 @@ export function codexPlan(stage, {
 }) {
   const identity = skillIdentity(stage);
   requireThat(
-    typeof model === 'string' && /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,99}$/.test(model) &&
+    validProviderModel(model) &&
     skill?.identity === identity && typeof skill.content === 'string' &&
     digest(skill.content) === skill.hash,
     'INVALID_CODEX_PLAN',
@@ -50,7 +51,8 @@ export function codexPlan(stage, {
   requireThat(mcpPolicyHash === null || /^[a-f0-9]{64}$/.test(mcpPolicyHash),
     'INVALID_USER_MCP_POLICY');
   const selectedDomains = projectDomains(additionalDomains);
-  const writable = stage === 'deliver';
+  const contract = privatePlanContract(stage, { model });
+  const writable = contract.capabilities.workspace === 'write';
   const config = {
     model, approval_policy: 'never', default_permissions: 'nibfin',
     web_search: 'disabled',
@@ -161,6 +163,7 @@ export function codexPlan(stage, {
       globalInstructions + '\nEND USER GLOBAL WORKING INSTRUCTIONS\n\n' : '') +
     `${skill.content}\n\nBOUND CONTEXT:\n${JSON.stringify(context)}`;
   return {
+    contract,
     additionalDomains: selectedDomains,
     args, config, settings, requirements, schema: resultSchema, prompt,
     expectedThread: threadId, writable, mcpPolicyHash,

@@ -8,7 +8,7 @@ import { readProtectedApproval } from './github-approval.mjs';
 import { actionsCaller } from './actions-identity.mjs';
 import { readCurrentMain } from './current-main.mjs';
 import { hostMainReader } from './github-host-read.mjs';
-import { codexStageExecutor } from './codex-stage.mjs';
+import { installedProviderExecutor } from './installed-provider.mjs';
 import { CandidateWorkspace } from './workspace.mjs';
 import { stages, issueRequirementsChanged } from './stages.mjs';
 import { issueProgress } from './issue-progress.mjs';
@@ -290,7 +290,7 @@ export async function launchStage(issueNumber, stage, env = process.env, runnerU
     }
     const composeStage = await projectJob({
       workspace: new CandidateWorkspace(workspaceRoot, issue), runner, issue,
-    }, codexStageExecutor);
+    }, installedProviderExecutor(host));
     if (!proposal) mcpJob = await prepareHostJobMcp({
       host: { ...host, mcp: mcpSource }, runner, reader, approval,
     }, {

@@ -115,7 +115,8 @@ moduleMock('../src/workspace.mjs', { CandidateWorkspace: class {
     await writeFile(join(this.work, '.nibfin.json'), '{invalid');
   }
 } });
-moduleMock('../src/codex-stage.mjs', { codexStageExecutor: async options => ({
+moduleMock('../src/installed-provider.mjs', {
+  installedProviderExecutor: () => async options => ({
   run: async () => {
     runs++;
     assert.equal(options.config.hostGitHubReads, true);

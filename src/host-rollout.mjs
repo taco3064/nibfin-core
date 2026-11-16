@@ -1,3 +1,4 @@
+import { validateProviderUpdate, compareProviderViews } from './provider-binding.mjs';
 import {
   lstat, open, readdir, readFile, rename, unlink, writeFile,
 } from 'node:fs/promises';
@@ -28,7 +29,14 @@ async function readTrusted(path) {
   return { bytes, value: JSON.parse(bytes) };
 }
 
-export function validateRolloutHost(repository, current, next, pin, source, action) {
+export function validateRolloutHost(repository, current, next, pin, source, action,
+  primary) {
+  if (primary) {
+    compareProviderViews(primary.current, current);
+    compareProviderViews(primary.next, next);
+  } else {
+    validateProviderUpdate(current, next);
+  }
   const path = `taco3064/${repository}`;
   requireThat(next.kind === current.kind && next.uid === current.uid &&
     next.runnerUid === current.runnerUid && next.runnerId === current.runnerId &&
@@ -51,7 +59,22 @@ export function validateRolloutHost(repository, current, next, pin, source, acti
   'ROLLOUT_HOST_BINDING_MISMATCH');
 }
 
+// Validate the installed pool before its enrolled views. Peers do not own a
+// model/authentication profile or a new original installation identity.
+export function validateRolloutHosts(hosts, pin, source, action) {
+  const primary = hosts[0];
+  validateRolloutHost(primary.repository, primary.current, primary.next,
+    pin, source, action);
+  for (const host of hosts.slice(1)) {
+    const enrolled = primary.current.sharedRunner?.repositories
+      ?.includes(host.current.repository?.approval?.repositoryId);
+    validateRolloutHost(host.repository, host.current, host.next, pin, source,
+      action, enrolled ? primary : undefined);
+  }
+}
+
 export function validateE2eRollout(next, primary, source) {
+  compareProviderViews(primary, next);
   const config = next.repository;
   const { reusable, ...runner } = config?.eventRunner ?? {};
   const event = config?.eventRunner;
@@ -133,10 +156,11 @@ async function promoteLockedHost() {
     const path = join('/etc/nibfin', name);
     const current = await readTrusted(path);
     const next = await readTrusted(join(stagedConfig, name));
-    validateRolloutHost(repository, current.value, next.value,
-      plan.pin, source, plan.actionCommit);
     return { repository, name, path, current, next };
   }));
+  validateRolloutHosts(hosts.map(host => ({ repository: host.repository,
+    current: host.current.value, next: host.next.value })),
+  plan.pin, source, plan.actionCommit);
   const primary = hosts[0];
   const e2ePath = join('/etc/nibfin', e2eHost);
   const e2e = await readOptionalHost(join(stagedConfig, e2eHost));
