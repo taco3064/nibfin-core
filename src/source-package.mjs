@@ -11,6 +11,8 @@ export const includesPackagePath = (path) =>
   /^(src|bin|skills|docs)\//.test(path) ||
   /^\.github\/workflows\/[A-Za-z0-9_.-]+\.ya?ml$/.test(path) ||
   [
+    'scripts/issue-ci.mjs',
+    'scripts/routing-output.mjs',
     'scripts/package-ci.mjs',
     'scripts/release-ci.mjs',
     'scripts/host-auto-rollout.py',

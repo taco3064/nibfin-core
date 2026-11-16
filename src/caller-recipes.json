@@ -108,5 +108,33 @@
     "      NIBFIN_WAKE_ADOPTION: ${{ secrets.NIBFIN_WAKE_ADOPTION }}",
     "      NIBFIN_WAKE_TOKEN: ${{ secrets.NIBFIN_WAKE_TOKEN }}",
     ""
+  ],
+  "issue-managed": [
+    "name: Nibfin Issue wake",
+    "on:",
+    "  issues:",
+    "    types:",
+    "      - opened",
+    "      - edited",
+    "      - labeled",
+    "      - unlabeled",
+    "      - assigned",
+    "      - unassigned",
+    "      - reopened",
+    "      - closed",
+    "permissions:",
+    "  contents: read",
+    "  id-token: write",
+    "concurrency:",
+    "  group: nibfin-event-${{ github.repository_id }}-${{ github.event.issue.number }}",
+    "  cancel-in-progress: false",
+    "jobs:",
+    "  wake:",
+    "    uses: \"taco3064/nibfin-core/.github/workflows/issue.yml@\\",
+    "      CORE_COMMIT\"",
+    "    with:",
+    "      core_commit: CORE_COMMIT",
+    "      mode: managed",
+    ""
   ]
 }

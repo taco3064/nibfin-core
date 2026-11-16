@@ -1,3 +1,4 @@
+import { supportsIssueWakeEvent } from './managed-wake.mjs';
 import { pauseTrigger, reconcilePause } from './pause-controller.mjs';
 import { readFile } from 'node:fs/promises';
 import { retryGitHubObservation } from './observation-failure.mjs';
@@ -37,17 +38,7 @@ async function readIssueEvent(reader, adoption, event, invocation) {
     'INVALID_ISSUE_WAKE',
   );
   requireThat(
-    [
-      'opened',
-      'edited',
-      'labeled',
-      'unlabeled',
-      'assigned',
-      'unassigned',
-      'reopened',
-      'closed',
-    ].includes(event?.action) &&
-      (event.action !== 'labeled' || ['scope', 'pause'].includes(event.label?.name)) &&
+    supportsIssueWakeEvent(event) &&
       isId(event.issue?.number) &&
       typeof event.issue.node_id === 'string' &&
       !event.issue.pull_request,
