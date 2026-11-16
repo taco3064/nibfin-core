@@ -73,7 +73,8 @@ test('managed CLI produces a file without credentials and removes stale failed o
       assert.equal(child.status, 0, child.stderr.toString());
       const file = join(root, 'nibfin-issue-wake', managedWakeContract.fileName);
       assert.equal(JSON.parse(await readFile(file)).event.action, 'closed');
-      assert.equal((await produceManagedWake(env)).artifactName, 'nibfin-issue-wake-v1-2');
+      const secondAttempt = await produceManagedWake(env);
+      assert.equal(secondAttempt.artifactName, 'nibfin-issue-wake-v1-2');
       const workflow = await readFile('.github/workflows/issue.yml', 'utf8');
       const name = 'nibfin-issue-wake-v1-${{ github.run_attempt }}';
       assert.ok(workflow.includes('name: ' + name));
