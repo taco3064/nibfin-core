@@ -9,6 +9,8 @@ on:
       stage: { required: false, type: string, default: continue }
       wake_event: { required: false, type: string }
 permissions:
+  actions: read
+  checks: read
   contents: read
   id-token: write
 concurrency:
