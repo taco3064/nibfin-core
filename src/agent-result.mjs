@@ -72,7 +72,13 @@ export function parseAgentResult(stage, stdout, lastMessage, expectedThread) {
   const item = events.filter(event => event.type === 'item.completed').at(-1)?.item;
   requireThat(item?.type === 'agent_message' && typeof item.text === 'string' &&
     item.text === lastMessage, 'AMBIGUOUS_AGENT_RESULT');
-  const result = validateSchema(JSON.parse(item.text), resultSchema);
+  const result = validateAgentResult(stage, JSON.parse(item.text));
+  return { result, threadId: threads[0] };
+}
+
+export function validateAgentResult(stage, value) {
+  requireThat(Object.hasOwn(success, stage), 'INVALID_AGENT_ROLE');
+  const result = validateSchema(value, resultSchema);
   const passed = result.outcome === success[stage];
   requireThat(passed || unsuccessful.includes(result.outcome), 'WRONG_ROLE_OUTCOME');
   // A successful repair may describe the defect it fixed. Findings describe
@@ -84,5 +90,5 @@ export function parseAgentResult(stage, stdout, lastMessage, expectedThread) {
     result.evidenceReferences.every(value => value.trim()) &&
     findings.every(value => value.trim()) && consistent, 'INCONSISTENT_AGENT_RESULT');
   if (stage === 'shape' && passed) requireThat(result.body.trim(), 'EMPTY_SHAPE_RESULT');
-  return { result, threadId: threads[0] };
+  return result;
 }
