@@ -4,6 +4,16 @@ import { includesPackagePath } from '../src/source-package.mjs';
 
 export const cdWorkflow = '.github/workflows/cd.yml';
 
+export function docsNeedRetry(jobs) {
+  if (!Array.isArray(jobs)) return true;
+  const build = jobs.find(job => job.name === 'build-docs');
+  if (!build || build.conclusion === 'skipped') return false;
+  const deploy = jobs.find(job => job.name === 'deploy-docs');
+  return !deploy?.steps?.some(step => step.conclusion === 'success' &&
+    (step.name === 'Publish Docs to Pages' ||
+      step.name?.startsWith('Run actions/deploy-pages@')));
+}
+
 export function websiteInput(path) {
   return path.startsWith('website/') || path === cdWorkflow ||
     /^(?:package(?:-lock)?\.json|\.node-version|\.npmrc)$/.test(path);

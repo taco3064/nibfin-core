@@ -87,6 +87,9 @@ the exact commit and tests installation. Core CD runs after successful push CI o
 run. Core package changes prepare a rollout and its consumer updates.
 To retry a rollout or request
 consumer draft PRs, run the same workflow manually from `main`.
+Automatic Core CD reports Docs failures in the Pages jobs and keeps the
+verified Core rollout eligible. The next automatic run retries unpublished
+Docs. To retry only Docs, run Core CD with `deploy_docs=true`.
 
 To prepare a version draft, first verify that the reviewed version on `main`
 matches `package.json` and has passed CI. The repository must protect release
