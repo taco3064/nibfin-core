@@ -22,8 +22,28 @@ are `mcp__work__read`, `mcp__work__check`, and, for Deliver only,
 `mcp__work__write`. The separately owned work channel must expose exactly that
 set and enforce Core role capabilities, including scratch/check limits. It
 must not accept arbitrary executables, host control or private model settings.
-An unavailable compatible channel is a prerequisite failure, not permission to
-substitute another MCP server. The adapter does not implement this server.
+An unavailable compatible channel is a prerequisite failure. The model adapter
+declares the stdio server; AGENT-7 implements it.
+
+### Stdio handoff
+
+- The trusted model launcher packages the fixed AGENT-7 bridge at the command
+  returned by `claudeWorkServer()`. The Core-owned Claude configuration names
+  it as `work` and supplies empty arguments and environment overrides. The
+  launcher verifies the compatible CLI actually strips the model credential
+  from this child and starts Claude with a scrubbed environment.
+- The bridge forwards MCP over the private Unix socket at `claudeWorkSocket`.
+  The launcher exposes only that socket's per-execution directory to the
+  model and its matching tool worker. The worker verifies the approved
+  remapped peer identity on that private socket and associates the connection
+  with the trusted execution. Project files, other executions, model keys and
+  controller sockets are outside that handoff.
+- The worker calls `bindClaudeWorkChannel(stage, executionId)` with its
+  trusted admission values, then checks the authenticated connection's
+  execution identity and the named operation before dispatch. MCP request
+  data never assigns either the execution identity or stage. The worker
+  owns bounded request schemas, workspace checks and process termination.
+  The model launcher does not report completion until both sides settle.
 
 The injected runner implements `claude-private-runner-v1`:
 
