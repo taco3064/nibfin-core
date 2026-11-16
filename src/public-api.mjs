@@ -1,3 +1,5 @@
+import { managedSharedAdmission } from './shared-admission-policy.mjs';
+
 // Versioned public exports. Thin consumers call Core; they must not copy its
 // lifecycle, selection, acceptance or merge policy into their own repositories.
 export { StageRuntime } from './stage-runtime.mjs';
@@ -20,9 +22,18 @@ export {
   verifyPublishedRelease,
 } from './release.mjs';
 
+export { sharedDispatchWorkflow, sharedRepository } from './shared-runner.mjs';
+
 export const interfaceVersion = 1;
 export const consumerContract = Object.freeze({
   schemaVersion: interfaceVersion,
+  managedSharedAdmission: Object.freeze({
+    kind: managedSharedAdmission,
+    adoptionProfileKey: 'sharedAdmission',
+    nativeRepositoryPolicy: true,
+    dispatchObservation: 'sharedDispatchWorkflow',
+    repositoryObservation: 'sharedRepository',
+  }),
   requestKeys: Object.freeze(['schemaVersion', 'stage']),
   stages: Object.freeze([
     'shape',

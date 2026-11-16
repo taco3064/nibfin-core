@@ -8,6 +8,7 @@ const query = `query($owner: String!, $name: String!, $anchor: String!, $path: S
   }
   repository(owner: $owner, name: $name) {
     databaseId nameWithOwner isPrivate isArchived isDisabled
+    owner { ... on User { databaseId } ... on Organization { databaseId } }
     defaultBranchRef {
       name
       compare(headRef: $anchor) { status baseTarget { oid } headTarget { oid } }
@@ -53,6 +54,7 @@ export async function readSharedCaller(
   requireThat(workflow?.databaseId === expected.workflowId &&
     workflow.resourcePath === `/${repository}/actions/workflows/${filename}` &&
     workflow.state === 'ACTIVE', 'WORKFLOW_DISABLED_OR_CHANGED');
-  return { repository: repositoryMetadata(repo),
+  return { repository: { ...repositoryMetadata(repo),
+    ...(repo.owner && { owner: { id: repo.owner.databaseId } }) },
     workflow: { id: workflow.databaseId, path: workflowPath, state: 'active' } };
 }

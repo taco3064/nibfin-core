@@ -3,6 +3,8 @@ import { repoPath } from '../github-read.mjs';
 import { readCallerContinuity } from '../caller-source.mjs';
 import { sharedWorkflowPath } from '../shared-runner.mjs';
 
+import { requireSharedBranch } from '../shared-admission-policy.mjs';
+
 const uuid = /^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
 
 export function sharedWorkerContext(message, binding, ref) {
@@ -77,7 +79,10 @@ export async function admitSharedWorker(reader, message, binding, ref, ownerId,
     workflow.path === sharedWorkflowPath,
   'SHARED_WORKER_PROVIDER_DENIED');
   const head = await reader.get(`${root}/branches/${encodeURIComponent(branch)}`);
-  requireThat(head.protected === true && isSha(head.commit?.sha),
+  requireThat(isSha(head.commit?.sha), 'SHARED_WORKER_SOURCE_UNAVAILABLE');
+  if (binding.sharedAdmission) requireThat(
+    binding.sharedAdmission.ownerId === ownerId, 'SHARED_WORKER_PROVIDER_DENIED');
+  requireSharedBranch(binding, head.protected,
     'SHARED_WORKER_BRANCH_UNPROTECTED');
   const pin = {
     path: sharedWorkflowPath,

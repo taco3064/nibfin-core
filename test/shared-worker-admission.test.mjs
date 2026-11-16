@@ -123,3 +123,69 @@ test('the Linux dispatcher preserves Worker PID and refuses queued cancellation'
   ], { timeout: 15000, encoding: 'utf8' });
   assert.equal(result.status, 0, result.error?.message ?? result.stderr);
 });
+
+// Exercise the same provider checks with branch protection deliberately absent.
+test('managed admission drops only branch protection, retaining provider denial',
+  async () => {
+    const reader = provider();
+    reader.responses['/repos/example/project/branches/main'].protected = false;
+    const managed = { ...binding, sharedAdmission: {
+      kind: 'repository-admission-v1', repository: binding.repository,
+      repositoryId: 10, memberId: 20, ownerId: 20,
+    } };
+    await admitSharedWorker(reader, request(), managed, ref, 20);
+    for (const [key, property, value] of [
+      ['/actions/runs/40/attempts/1', 'triggering_actor', { id: 21 }],
+      ['/actions/runs/40/attempts/1', 'run_attempt', 2],
+      ['/actions/workflows/30', 'state', 'disabled_manually'],
+      ['/check-runs/60', 'external_id', 'forged'],
+    ]) {
+      const record = reader.responses['/repos/example/project' + key];
+      const original = record[property];
+      record[property] = value;
+      await assert.rejects(admitSharedWorker(reader, request(), managed, ref, 20));
+      record[property] = original;
+    }
+    const file = reader.responses[
+      '/repos/example/project/contents/' + path + '?ref=' + commit];
+    file.content = Buffer.from('replaced').toString('base64');
+    await assert.rejects(admitSharedWorker(reader, request(), managed, ref, 20),
+      { code: 'PINNED_FILE_IDENTITY_MISMATCH' });
+  });
+
+test('managed pre-Worker checks run and current source lineage', async () => {
+  const reader = provider();
+  const managed = { ...binding, sharedAdmission: {
+    kind: 'repository-admission-v1', repository: binding.repository,
+    repositoryId: 10, memberId: 20, ownerId: 20,
+  } };
+  const root = '/repos/example/project';
+  const current = 'c'.repeat(40);
+  const branch = reader.responses[root + '/branches/main'];
+  branch.protected = false;
+  branch.commit.sha = current;
+  reader.responses[`${root}/contents/${path}?ref=${current}`] =
+    structuredClone(reader.responses[`${root}/contents/${path}?ref=${commit}`]);
+  const comparison = { status: 'ahead', merge_base_commit: { sha: commit } };
+  reader.responses[`${root}/compare/${commit}...${current}`] = comparison;
+  const history = sha =>
+    `${root}/commits?sha=${sha}&path=${encodeURIComponent(path)}&per_page=1`;
+  reader.responses[history(commit)] = [{ sha: commit }];
+  reader.responses[history(current)] = [{ sha: commit }];
+  const admit = () => admitSharedWorker(reader, request(), managed, ref, 20);
+  await admit();
+  reader.responses[history(current)] = [{ sha: current }];
+  await assert.rejects(admit(), { code: 'CALLER_REVOKED_OR_SUPERSEDED' });
+  comparison.status = 'diverged';
+  await assert.rejects(admit(), { code: 'CALLER_SOURCE_NOT_DESCENDANT' });
+  comparison.status = 'ahead';
+  reader.responses[history(current)] = [{ sha: commit }];
+  // A descendant run is also verified, without changing the adoption anchor.
+  const message = request({ workflow_sha: current, sha: current });
+  reader.responses[root + '/actions/runs/40/attempts/1'].head_sha = current;
+  reader.responses[root + '/actions/runs/40/attempts/1/jobs?per_page=2']
+    .jobs[0].head_sha = current;
+  reader.responses[root + '/check-runs/60'].head_sha = current;
+  await admitSharedWorker(reader, message, managed, ref, 20);
+  assert.equal(managed.sourceCommit, commit);
+});

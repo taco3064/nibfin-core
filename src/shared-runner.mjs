@@ -3,6 +3,8 @@ import { readCallerContinuity } from './caller-source.mjs';
 import { repoPath } from './github-read.mjs';
 import contract from './shared-runner-contract.json' with { type: 'json' };
 
+import { usesManagedSharedAdmission } from './shared-admission-policy.mjs';
+
 export const sharedWorkflowPath = contract.workflowPath;
 export const sharedDestinationVariable = contract.destinationVariable;
 export const originalSharedRepository = 'taco3064/nibfin-core';
@@ -26,6 +28,7 @@ export function sharedRunner(host, target, runnerUid = host.runnerUid) {
     'SHARED_RUNNER_NOT_ADOPTED',
   );
   repoPath(runner.repository);
+  usesManagedSharedAdmission(runner);
   const { repositoryId, runnerId } = host.repository.runner;
   let selected = runner;
   if (runnerUid !== host.runnerUid) {
@@ -86,7 +89,10 @@ export async function sharedDispatchWorkflow(reader, runner) {
   const { repository, repositoryId, workflowId: id, workflowPath: path } = runner;
   const repo = await reader.repository(repository);
   requireThat(repo.id === repositoryId && repo.full_name === repository &&
-    repo.private === false, 'SHARED_DISPATCH_REPOSITORY_CHANGED');
+    repo.private === false && repo.archived === false && repo.disabled === false &&
+    (!usesManagedSharedAdmission(runner) ||
+      repo.owner?.id === runner.sharedAdmission.ownerId),
+  'SHARED_DISPATCH_REPOSITORY_CHANGED');
   const root = repoPath(repository);
   const [branch, workflow] = await Promise.all([
     reader.get(`${root}/branches/${encodeURIComponent(repo.default_branch)}`),
@@ -94,7 +100,8 @@ export async function sharedDispatchWorkflow(reader, runner) {
   ]);
   requireThat(workflow.id === id && workflow.path === path &&
     workflow.state === 'active', 'SHARED_DISPATCH_WORKFLOW_UNAVAILABLE');
-  requireThat(repository === originalSharedRepository || branch.protected === true,
+  requireThat(usesManagedSharedAdmission(runner) ||
+    repository === originalSharedRepository || branch.protected === true,
     'SHARED_WAKE_BRANCH_UNPROTECTED');
   const pin = { path, commit: runner.sourceCommit, blob: runner.workflowBlob };
   const commit = await readCallerContinuity(reader, repository, pin, branch.commit?.sha);

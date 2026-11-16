@@ -18,6 +18,9 @@ import { syncRecoveryDirectory } from './recovery-lock.mjs';
 import { installSharedRelay, prepareSharedAccounts } from './shared-host-setup.mjs';
 import { prepareSharedGateways } from './shared-gateway-setup.mjs';
 
+import { managedSharedAdmission, requireSharedBranch }
+  from './shared-admission-policy.mjs';
+
 const profileName = 'shared-host-profile.json';
 const issueWorkflow = '.github/workflows/issue.yml';
 const limit = 262144;
@@ -79,11 +82,16 @@ async function controllerProfile(profile) {
 }
 
 export async function observeExecutionPool(reader, name, repoId, memberId, ids,
-  source, actionCommit, workflow) {
+  source, actionCommit, workflow, sharedAdmission) {
   const root = repoPath(name);
   const observed = await observePeer(
     reader, name, repoId, memberId, source, actionCommit);
-  requireThat(observed.branch.protected === true && isId(observed.repo.owner?.id),
+  const policyRunner = { repository: name, repositoryId: repoId, memberId,
+    sharedAdmission };
+  requireThat(isId(observed.repo.owner?.id), 'SHARED_EXECUTION_OWNER_INVALID');
+  if (sharedAdmission) requireThat(sharedAdmission.ownerId === observed.repo.owner.id,
+    'SHARED_EXECUTION_OWNER_INVALID');
+  requireSharedBranch(policyRunner, observed.branch.protected,
     'SHARED_EXECUTION_BRANCH_UNPROTECTED');
   const [binding, registrations, oidc] = await Promise.all([
     observeAdoptionWorkflow(reader, root, sharedWorkflowPath, observed.head, workflow),
@@ -110,11 +118,14 @@ export async function observeExecutionPool(reader, name, repoId, memberId, ids,
   const { repo, actor, head, branch } = observed;
   const branchPath = `${root}/branches/${encodeURIComponent(branch.name)}`;
   const latest = await reader.get(branchPath);
-  requireThat(latest.commit?.sha === head && latest.protected === true,
+  requireThat(latest.commit?.sha === head,
+    'SHARED_EXECUTION_BRANCH_CHANGED');
+  requireSharedBranch(policyRunner, latest.protected,
     'SHARED_EXECUTION_BRANCH_CHANGED');
   const ref = `refs/heads/${branch.name}`;
   const identity = { repository: name, repositoryId: repoId };
-  const runner = { ...identity, ...binding, ...runners[0], memberId, sourceCommit: head,
+  const runner = { ...identity, sharedAdmission, ...binding, ...runners[0], memberId,
+    sourceCommit: head,
     member: { id: actor.id, login: actor.login, type: actor.type }, os: 'linux',
     jobName: 'shared-stage' };
   const [owner, repository] = name.split('/');
@@ -166,8 +177,17 @@ export async function adoptSharedHost(name, id, memberId, actionCommit, ids, pin
     const reader = new GitHubReader(token);
     await verifyAdoptionAction(reader, actionCommit, pin);
     const shared = await boundedHostFile(join(coreRoot, sharedWorkflowPath), 65536);
+    const profile = JSON.parse(bytes);
+    let sharedAdmission;
+    if (profile.sharedAdmission !== undefined) {
+      requireThat(profile.sharedAdmission === managedSharedAdmission,
+        'SHARED_ADMISSION_POLICY_INVALID');
+      const repo = await reader.get(repoPath(name));
+      sharedAdmission = { kind: profile.sharedAdmission, repository: name,
+        repositoryId: id, memberId, ownerId: repo.owner?.id };
+    }
     const pool = await observeExecutionPool(reader, name, id, memberId, ids,
-      source, actionCommit, shared);
+      source, actionCommit, shared, sharedAdmission);
     const { runner, caller, second, observed } = pool;
     const [primary, secondary] = managedEgressNetwork === undefined
       ? [isolation, secondaryIsolation]
