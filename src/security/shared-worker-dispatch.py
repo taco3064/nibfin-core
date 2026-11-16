@@ -2,6 +2,7 @@
 """Admit a GitHub Runner 2.338.2 message before exec'ing its official Worker."""
 
 import ctypes
+import importlib.util
 import os
 from pathlib import Path
 import select
@@ -56,11 +57,11 @@ def admit(source):
     if message_type != 1 or length <= 0 or length > 50_000_000 or length % 2:
         raise ValueError("Invalid Runner frame")
     body = exact_read(source, length)
-    version = (CORE / ".node-version").read_text(encoding="utf-8").strip()
-    if len(version.split(".")) != 3 or not all(x.isascii() and x.isdigit()
-                                               for x in version.split(".")):
-        raise ValueError("Invalid Core runtime pin")
-    node = f"/opt/nibfin/tools/node-v{version}-linux-x64/bin/node"
+    path = CORE / 'src/security/shared-runtime.py'
+    spec = importlib.util.spec_from_file_location('shared_runtime', path)
+    runtime = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(runtime)
+    node = runtime.verify_worker(Path.cwd())
     parent = os.getpid()
     subprocess.run(
         [node, str(CORE / "src/security/shared-worker-entry.mjs")],

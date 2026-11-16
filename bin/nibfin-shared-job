@@ -1,0 +1,4 @@
+#!/bin/sh
+set -eu
+test "$#" -eq 0
+exec /usr/bin/python3 -I /opt/nibfin/core/src/security/shared-runtime.py job
