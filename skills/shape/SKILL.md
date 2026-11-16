@@ -137,10 +137,26 @@ When the question is materially under-specified, investigate discoverable facts 
 1. Read the specific current authoritative clauses **before** relying on implementation or prior conversation.
 2. Inspect the owning repository and actual consumers, current source/tests/workflows, relevant recent history, existing open/closed work and prior attempts.
 3. Distinguish normative owner from observed implementation location; identify implementation drift instead of silently redefining ownership.
-4. Determine current behavior, affected interfaces, security boundaries and compatibility constraints.
+4. Trace the current behavior, affected interfaces, security boundaries and compatibility constraints. Use the reuse investigation below where it affects the proposed change.
 5. Check authoritative third-party documentation if an uncertain external contract materially changes the conclusion.
 6. Separate **verified facts**, **supported interpretations**, **unknowns**, **contradictions**, and **proposed engineering routes**. Use source references and observations; do not present estimates as measured results.
 7. Stop once enough evidence exists to answer the bounded question; do not perform exploratory implementation, make opportunistic repository edits or investigate the entire product for a narrow slice.
+
+### Reuse investigation
+
+Trace the behavior this Issue changes to the maintained implementation and its
+actual callers. Compare behavior, inputs, outputs, failure handling, and
+permission or lifecycle boundaries. Use the existing interface when its
+contract already fits. If it needs a compatible extension, identify how
+existing callers keep their behavior.
+
+Consider extracting shared logic when existing callers and the new work need
+the same rule or invariant. Identify the shared owner, the minimal boundary to
+extract, the callers to migrate, and the behavior each caller must preserve.
+Keep separate paths when their contracts or responsibilities differ. Ground the
+decision in current code and concrete consumers. Keep unrelated cleanup outside
+the Issue and return changes to repository ownership, authorized scope or
+native Issue dependencies to the existing Scope process.
 
 ### Evidence-first decision-question gate
 
@@ -182,7 +198,7 @@ Before producing a formal Shape body:
 0. **Apply the mandatory development-eligibility and feasibility gate above**; do not begin detailed authoring merely because an Issue already has an execution label. A valid enrollment/authorization and an eligible development work type are separate facts.
 1. Re-read relevant **current authority**, the **current authorized Issue and trusted historical Scope provenance where required**, current Issue identity, approved repository responsibility, actual native dependencies and governing policy.
 2. Independently inspect current implementation, consumers, tests, existing contracts, hooks, required artifacts, related Issues/PRs and earlier rejected routes; do not merely copy the Scope handoff or Investigation Findings.
-3. Determine the necessary maintained development change and verify the required existing interfaces. Choose a feasible implementation route and identify the order of changes inside this Issue.
+3. Determine the necessary maintained change and verify its interfaces and reuse decisions through the investigation above. Choose a feasible route and identify the order of changes inside this Issue.
 4. Distinguish binding product decisions from implementation suggestions. Engineering freedom exists only where the requirements do not prescribe the outcome.
 5. Research every consequential uncertainty before raising it. If an unresolved product decision or authority update is necessary, **block/return the runtime-supported decision outcome** with exact evidence. No implicit owner approval or authority-document mutation.
 6. Confirm the proposed contract stays inside the **current authorized Issue and product decisions** and its normatively owning repository, using original Scope for history and for any reapproval boundary enforced by the runtime; recognize related work without modifying or shaping it in the same invocation.
@@ -217,7 +233,12 @@ State only binding decisions already authorized by the current product authority
 
 ### Implementation plan
 
-Name the modules and interfaces to change, the maintained pieces to reuse and the steps needed to make the result work. State operational constraints and real prerequisites. Deliver may adjust engineering details within the authorized goals, scope and trust boundaries.
+Name the modules and interfaces to change and the steps needed to make the result
+work. For each consequential reuse decision, state what to reuse, extend,
+extract or keep separate and why. When sharing changes existing code, name the
+affected callers and their compatibility obligations. State operational
+constraints and real prerequisites. Deliver may adjust engineering details
+within the authorized goals, scope and trust boundaries.
 
 ### Expected behavior
 
@@ -256,6 +277,10 @@ Independently verify:
 - Verified repository/Issue identity, **current authorized requirements**, historical Scope binding where actually required, current product authority and any applicable trusted grant/policy identity.
 - The proposed Shape preserves **all current authorized outcomes and exclusions**, correct normative repository ownership, current dependency boundaries and binding product/security constraints; it does not resurrect historical conditions superseded by a lawful Issue correction. Check whether any changed original boundary actually needs protected Scope reapproval.
 - Check that the implementation plan is feasible, stays within Scope and covers the authorized behavior. Verify the necessary source, interfaces and dependencies. Approve the implementation plan and expected behavior. Accept owns the verification methods.
+- Verify consequential reuse decisions against the maintained code and actual
+  callers. Check that a shared change preserves each affected contract and that
+  any new implementation has a concrete reason where an existing path appears
+  suitable.
 - Check that the Candidate Obligation Inventory matches the actual runtime, hook configuration and required deliverables.
 - Confirm the Issue body describes implementation outcomes. Return a correction
   for any diagnostic run, evidence collection, or new test-writing work added
