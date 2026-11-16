@@ -1,7 +1,7 @@
 # Managed Linux resource preparation
 
 After installing the verified Core package and preparing its dedicated Engine,
-run the fixed administrator executable on the supported Linux x64 host:
+run the fixed administrator executable on the native Linux AMD64 or ARM64 host:
 
 ```sh
 sudo /opt/nibfin/core/bin/nibfin-prepare-shared-host.mjs \

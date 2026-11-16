@@ -88,24 +88,26 @@ test('changed installed resources are refused on repeat invocation', async () =>
 });
 
 test('the real entry refuses a non-installed source before host mutation', async () => {
-  const code = process.platform === 'linux' && process.arch === 'x64' &&
+  const linux = process.platform === 'linux' && ['x64', 'arm64'].includes(process.arch);
+  const code = linux &&
     process.getuid() === 0 ? 'ENGINE_REQUIRES_INSTALLED_CORE' :
-    'ENGINE_REQUIRES_LINUX_X64_ADMINISTRATOR';
+    'ENGINE_REQUIRES_SUPPORTED_LINUX_ADMINISTRATOR';
   await rejected(engineAdmission(true), code);
-  if (process.platform === 'linux' && process.arch === 'x64' && process.getuid() === 0)
+  if (linux && process.getuid() === 0)
     await rejected(engineAdmission(false),
       'ENGINE_DEDICATED_HOST_ACKNOWLEDGEMENT_REQUIRED');
 });
 
 test('administrator admission rejects unsupported platforms and missing consent', () => {
   for (const [platform, arch, uid] of [['darwin', 'x64', 0],
-    ['linux', 'arm64', 0], ['linux', 'x64', 1000]]) {
+    ['linux', 'riscv64', 0], ['linux', 'x64', 1000]]) {
     assert.throws(() => requireEngineAdministrator(platform, arch, uid, true),
-      { code: 'ENGINE_REQUIRES_LINUX_X64_ADMINISTRATOR' });
+      { code: 'ENGINE_REQUIRES_SUPPORTED_LINUX_ADMINISTRATOR' });
   }
   assert.throws(() => requireEngineAdministrator('linux', 'x64', 0, false),
     { code: 'ENGINE_DEDICATED_HOST_ACKNOWLEDGEMENT_REQUIRED' });
   requireEngineAdministrator('linux', 'x64', 0, true);
+  requireEngineAdministrator('linux', 'arm64', 0, true);
 });
 
 test('the fixed executable denies overrides and a non-installed source', () => {

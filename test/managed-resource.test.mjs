@@ -149,10 +149,11 @@ test('public capability and administrator entry accept no resource selection', (
     ['bin/nibfin-prepare-shared-host.mjs', '--consent-resource-preparation'],
     { encoding: 'utf8' });
   assert.equal(result.status, 1);
-  const administrator = process.platform === 'linux' && process.arch === 'x64' &&
+  const administrator = process.platform === 'linux' &&
+    ['x64', 'arm64'].includes(process.arch) &&
     process.getuid?.() === 0;
   const expected = administrator ? 'ENGINE_REQUIRES_INSTALLED_CORE'
-    : 'ENGINE_REQUIRES_LINUX_X64_ADMINISTRATOR';
+    : 'ENGINE_REQUIRES_SUPPORTED_LINUX_ADMINISTRATOR';
   assert.equal(JSON.parse(result.stdout).code, expected);
 });
 

@@ -136,7 +136,7 @@ test('fresh and cached unreviewed archives are refused for both targets', async 
   }
 });
 
-test('host selection ignores GOARCH and retains amd64 Engine admission', {
+test('host selection ignores GOARCH and supports both native Engine targets', {
   skip: process.platform !== 'linux',
 }, async () => {
   const before = process.env.GOARCH;
@@ -148,8 +148,7 @@ test('host selection ignores GOARCH and retains amd64 Engine admission', {
     if (before === undefined) delete process.env.GOARCH;
     else process.env.GOARCH = before;
   }
-  assert.throws(() => requireEngineAdministrator('linux', 'arm64', 0, true),
-    { code: 'ENGINE_REQUIRES_LINUX_X64_ADMINISTRATOR' });
+  requireEngineAdministrator('linux', 'arm64', 0, true);
   requireEngineAdministrator('linux', 'x64', 0, true);
 });
 

@@ -1,5 +1,6 @@
 import { exclusiveRecovery } from './recovery-lock.mjs';
 import { requireThat } from './identity.mjs';
+import { linuxArchitecture } from './linux-architecture.mjs';
 import { engine, engineBackend } from './engine-contract.mjs';
 import {
   inspectStock, settleStock, verifySettledStock, readUnit, inactiveUnit, runningUnit,
@@ -103,9 +104,10 @@ export async function deliverEngine(io) {
   const info = JSON.parse(await io.docker(true, ['info', '--format', '{{json .}}']));
   dockerInfo(info, backend);
   const namespace = backend.namespace;
+  const architecture = linuxArchitecture(info.OSType, info.Architecture);
   requireThat(info.DockerRootDir ===
     `${engine.data}/${namespace.uidStart}.${namespace.gidStart}` &&
-    info.OSType === 'linux' && ['x86_64', 'amd64'].includes(info.Architecture) &&
+    architecture && architecture === (io.architecture ?? 'amd64') &&
     info.LiveRestoreEnabled === false && typeof info.ID === 'string' && info.ID,
   'ENGINE_DAEMON_CONFIGURATION_CHANGED');
   // Each invocation obtains fresh kernel evidence, not a cached metadata claim.

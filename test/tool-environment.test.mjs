@@ -138,9 +138,14 @@ test('trusted recipes preserve exact requests, sources and separate bootstrap',
     const recipe = await preparationRecipe(tools, baseImage);
     assert.ok(recipe.dockerfile.includes('FROM ' + recipe.baseTag));
     assert.doesNotMatch(recipe.dockerfile, /^RUN\b/m);
-    for (const image of ['node:22.15.0-bookworm-slim',
-      'python:3.13.7-slim-bookworm', 'golang:1.27.1-bookworm'])
-      assert.ok(recipe.dockerfile.includes(`docker.io/library/${image}`));
+    for (const image of ['node', 'python', 'golang'])
+      assert.match(recipe.dockerfile,
+        new RegExp(`docker.io/library/${image}@sha256:[a-f0-9]{64}`));
+    const arm = await preparationRecipe(tools, baseImage, 'aarch64');
+    assert.equal(arm.platform, 'linux/arm64');
+    assert.notEqual(recipe.key, arm.key);
+    assert.match(arm.dockerfile, /\/usr\/lib\/aarch64-linux-gnu\//);
+    assert.doesNotMatch(arm.dockerfile, /x86_64-linux-gnu/);
     assert.ok(recipe.dockerfile.includes('/opt/nibfin/project/node/'));
     assert.ok(recipe.wrappers.go.includes('GOTOOLCHAIN=local exec'));
     assert.ok(!recipe.dockerfile.includes('ENV PATH='));

@@ -6,16 +6,18 @@ import { resourceProbe } from './managed-resource-probe.mjs';
 // Pure orchestration; only the installed entry constructs privileged capabilities.
 export async function deliverManagedResources(io) {
   const engine = await io.verifyEngine();
+  const architecture = engine.architecture ?? 'amd64';
   const inputs = await io.inputs();
   let state = await io.load();
   if (!state) {
     await io.pristine();
-    state = { version: 1, owner: randomUUID(), inputs: digest(inputs),
+    state = { version: 1, owner: randomUUID(), inputs: digest(inputs), architecture,
       engine: engine.identity, effects: {}, images: {} };
     await io.save(state, null);
   }
   requireThat(state.version === 1 && /^[a-f0-9-]{36}$/.test(state.owner) &&
     state.inputs === digest(inputs) && state.engine === engine.identity &&
+    (state.architecture ?? 'amd64') === architecture &&
     state.images && state.effects, 'RESOURCE_STATE_CONFLICT');
   requireThat(!state.probe || state.probe.phase === 'complete',
     'RESOURCE_PROBE_RECONCILIATION_REQUIRED');

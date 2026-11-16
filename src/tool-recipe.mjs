@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { digest, requireThat } from './identity.mjs';
-import { toolPlatform, toolSource, projectToolPath } from './tool-catalog.mjs';
+import { toolSource, projectToolPath } from './tool-catalog.mjs';
+import { linuxArchitecture } from './linux-architecture.mjs';
 
 const project = '/opt/nibfin/project';
 const pythonLibraries = [
@@ -10,7 +11,10 @@ const pythonLibraries = [
   'libuuid.so.1*', 'libz.so.1*',
 ];
 
-export async function preparationRecipe(tools, baseImage) {
+export async function preparationRecipe(tools, baseImage, arch = process.arch) {
+  const architecture = linuxArchitecture('linux', arch);
+  requireThat(architecture, 'UNSUPPORTED_TOOL_PLATFORM');
+  const platform = `linux/${architecture}`;
   requireThat(/^sha256:[a-f0-9]{64}$/.test(baseImage), 'INVALID_TOOL_BASE_IMAGE');
   const maintained = await readFile(
     new URL('./security/agent.Dockerfile', import.meta.url), 'utf8');
@@ -19,7 +23,7 @@ export async function preparationRecipe(tools, baseImage) {
   if (!codex) throw new Error('Missing maintained Codex version');
   const baseTag = `nibfin-tool-base:${baseImage.slice(7)}`;
   const lines = Object.entries(tools).map(([name, version]) =>
-    `FROM ${toolSource(name, version)} AS project-${name}`);
+    `FROM ${toolSource(name, version, architecture)} AS project-${name}`);
   lines.push(`FROM ${baseTag}`);
   const wrappers = {};
   const wrapper = (name, exec) => {
@@ -33,7 +37,8 @@ export async function preparationRecipe(tools, baseImage) {
   if (tools.python) {
     lines.push(`COPY --from=project-python /usr/local/ ${project}/python/`);
     for (const lib of pythonLibraries) {
-      const source = `/usr/lib/x86_64-linux-gnu/${lib}`;
+      const triplet = architecture === 'amd64' ? 'x86_64' : 'aarch64';
+      const source = `/usr/lib/${triplet}-linux-gnu/${lib}`;
       lines.push(`COPY --from=project-python ${source} ${project}/python/lib/`);
     }
     for (const name of ['python', 'python3', 'pip', 'pip3']) {
@@ -51,10 +56,11 @@ export async function preparationRecipe(tools, baseImage) {
   const versions = { node: pkg.engines.node, codex: `codex-cli ${codex}` };
   // The key binds all maintained inputs that can change compatibility. It is a
   // cache address, never an authorization prerequisite or an owner-facing pin.
-  const key = digest({ recipe: lines, wrappers, platform: toolPlatform, tools, versions,
+  const key = digest({ recipe: lines, wrappers, platform, tools, versions,
     probe: versionProbe(tools, versions) });
   lines.push(`LABEL io.nibfin.tool-environment="${key}"`, '');
-  return { dockerfile: lines.join('\n'), wrappers, baseTag, key, versions };
+  return { dockerfile: lines.join('\n'), wrappers, baseTag, key, versions, platform,
+    architecture };
 }
 
 // Execute only trusted commands with a fixed bootstrap runtime. The development

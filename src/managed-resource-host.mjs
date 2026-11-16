@@ -1,6 +1,7 @@
 import { readFile, readdir, lstat, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import { digest, requireThat } from './identity.mjs';
+import { linuxArchitecture } from './linux-architecture.mjs';
 import { boundedHostFile, coreRoot } from './host-adoption.mjs';
 import { rootOwnedPath } from './host-paths.mjs';
 import { engineHost } from './engine-host.mjs';
@@ -18,6 +19,8 @@ import { syncRecoveryDirectory } from './recovery-lock.mjs';
 const security = join(coreRoot, 'src/security');
 const journal = `${resources.state}/state.json`;
 const tag = kind => `nibfin-managed-resource:${kind}`;
+const platformTag = (kind, arch) => arch === 'amd64'
+  ? tag(kind) : `${tag(kind)}-${arch}`;
 
 async function kernelPolicy() {
   const base = '/sys/kernel/security/apparmor/policy/profiles';
@@ -78,9 +81,11 @@ export function managedResourceHost(confirmSource, engine = engineHost()) {
       for (const path of [resources.profile, resources.policy, resourcePreparationGate])
         requireThat(!await optionalStat(path), 'RESOURCE_FOREIGN_CONFIGURATION');
       requireThat(!await kernelPolicy(), 'RESOURCE_FOREIGN_POLICY');
-      for (const kind of ['agent', 'hooks'])
-        requireThat(!(await docker(['image', 'ls', '-q', tag(kind)])).trim(),
-          'RESOURCE_FOREIGN_IMAGE');
+      for (const kind of ['agent', 'hooks']) {
+        for (const arch of ['amd64', 'arm64'])
+          requireThat(!(await docker(['image', 'ls', '-q', platformTag(kind, arch)]))
+            .trim(), 'RESOURCE_FOREIGN_IMAGE');
+      }
       requireThat(!(await docker(['network', 'ls', '-q', '--filter',
         `name=^${resources.egress}$`])).trim(), 'RESOURCE_FOREIGN_NETWORK');
     },
@@ -97,26 +102,29 @@ export function managedResourceHost(confirmSource, engine = engineHost()) {
     },
     async image(kind, state, inputs, observe) {
       const marker = digest({ owner: state.owner, inputs: state.inputs, kind });
-      let found = (await docker(['image', 'ls', '--no-trunc', '-q', tag(kind)])).trim();
+      const arch = state.architecture ?? 'amd64';
+      const name = platformTag(kind, arch);
+      let found = (await docker(['image', 'ls', '--no-trunc', '-q', name])).trim();
       if (!found) {
         requireThat(!observe, 'RESOURCE_IMAGE_RECONCILIATION_REQUIRED');
         let recipe = inputs[resources.recipes[kind]];
         if (kind === 'hooks')
           recipe = recipe.replace('nibfin-managed-agent-input', state.images.agent);
         await engine.docker(true, ['build', '--no-cache', '--network=host',
-          '--label', `${resources.label}=${marker}`, '--tag', tag(kind),
+          '--platform', `linux/${arch}`,
+          '--label', `${resources.label}=${marker}`, '--tag', name,
           '--file', '-', security], { input: recipe, timeout: 30 * 60 * 1000,
           limit: 4 * 1024 * 1024 }).catch(() => {});
-        found = (await docker(['image', 'ls', '--no-trunc', '-q', tag(kind)])).trim();
+        found = (await docker(['image', 'ls', '--no-trunc', '-q', name])).trim();
       }
       requireThat(/^sha256:[a-f0-9]{64}$/.test(found),
         'RESOURCE_IMAGE_RECONCILIATION_REQUIRED');
       const rows = JSON.parse(await docker(['image', 'inspect', found]));
       const row = rows[0];
       requireThat(rows.length === 1 && row.Id === found &&
-        row.Os === 'linux' && row.Architecture === 'amd64' &&
+        linuxArchitecture(row.Os, row.Architecture) === arch &&
         row.Config?.Labels?.[resources.label] === marker &&
-        row.RepoTags?.includes(tag(kind)), 'RESOURCE_IMAGE_CONFLICT');
+        row.RepoTags?.includes(name), 'RESOURCE_IMAGE_CONFLICT');
       return found;
     },
     async policy(bytes, observe) {
