@@ -62,6 +62,16 @@ const net = require('node:net');
 const socket = net.connect({host: process.argv[1], port: 3128});
 socket.once('connect', () => process.argv[3] === 'vm' ? passed() : process.exit(43));
 const passed = () => {
+  if (process.argv[4]) {
+    const { spawnSync } = require('node:child_process');
+    const python = spawnSync('python3', ['--version'], {
+      env: { PATH: process.argv[5], LANG: 'C.UTF-8' }, encoding: 'utf8',
+    });
+    if (python.status !== 0 || python.stdout.trim() !== 'Python ' + process.argv[4]) {
+      fs.writeSync(2, 'NIBFIN_PROJECT_PYTHON_UNAVAILABLE\\n');
+      process.exit(44);
+    }
+  }
   fs.writeSync(1, 'NIBFIN_PROBE_PASSED\\n');
   process.exit(0);
 };
@@ -76,7 +86,9 @@ export function sandboxProbeArguments(plan, proxyHost, controllerPid, jobVm = fa
     '--include-managed-config', '--cd', '/tmp/tool-home', '--',
     '/usr/local/bin/node', '-e', denialProbe, proxyHost,
     ...(controllerPid === undefined ? [] : [String(controllerPid)]),
-    ...(jobVm ? ['vm'] : []),
+    ...(jobVm ? ['vm'] : plan.projectPython ?
+      ['local', plan.projectPython, plan.config['shell_environment_policy.set'].PATH] :
+      []),
   ];
 }
 
@@ -166,11 +178,8 @@ socket.pipe(process.stdout);
     'default = "job"', 'include_local = false', '[[environments]]', 'id = "job"',
     'program = "/usr/local/bin/node"', 'args = ' + JSON.stringify(['-e', relay]),
   ].join('\n'), { flag: 'wx', mode: 0o600 });
-  const filesystem = 'permissions.nibfin.filesystem=';
-  return args.filter(arg => arg !== '--ignore-user-config').map(arg => {
-    if (!arg.startsWith(filesystem)) return arg;
-    return arg.replace(/}$/, ', "/opt/nibfin/project" = "read" }');
-  }).flatMap(arg => arg === 'exec' ? [
+  return args.filter(arg => arg !== '--ignore-user-config').flatMap(arg =>
+    arg === 'exec' ? [
     '-c', 'shell_environment_policy.set.NO_PROXY="127.0.0.1,localhost"',
     '-c', 'shell_environment_policy.set.HTTP_PROXY="http://127.0.0.1:3128"',
     '-c', 'shell_environment_policy.set.HTTPS_PROXY="http://127.0.0.1:3128"',

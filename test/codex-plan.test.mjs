@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { codexPlan } from '../src/codex-plan.mjs';
+import { sandboxProbeArguments } from '../src/codex-bootstrap.mjs';
 import { digest } from '../src/identity.mjs';
 import {
   candidateContract, candidateContractSchema,
@@ -74,6 +75,21 @@ test('independent roles are read-only and cannot resume another conversation', (
   });
   assert.equal(review.args.includes('resume'), false);
   assert.equal(review.expectedThread, null);
+});
+
+test('Accept probes the configured Python under the read-only tool policy', () => {
+  const plan = codexPlan('accept', {
+    model: 'configured-model', skill: skill('accept'), context: {},
+    projectTools: { python: '3.13.7' },
+  });
+  const filesystem = plan.config['permissions.nibfin.filesystem'];
+  assert.equal(filesystem['/opt/nibfin/project'], 'read');
+  assert.equal(filesystem['/work'], 'read');
+  const path = plan.config['shell_environment_policy.set'].PATH;
+  assert.equal(path.split(':')[0], '/opt/nibfin/project/bin');
+  assert.match(plan.prompt, /Project Python: 3\.13\.7/);
+  const args = sandboxProbeArguments(plan, '192.0.2.1', 8);
+  assert.deepEqual(args.slice(-4), ['8', 'local', '3.13.7', path]);
 });
 
 test('unknown roles, skill substitution and argument injection reject', () => {

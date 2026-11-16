@@ -51,6 +51,7 @@ export class CodexRoleAgent {
         threadId: session.threadId, skill, context,
         hasProposal: Boolean(config.proposal),
         additionalDomains: config.project?.allowedDomains,
+        projectTools: config.project?.tools,
         globalInstructions: config.globalInstructions });
       const io = join(root, `execution-${context.execution.id}`);
       await mkdir(io, { mode: 0o700 });
