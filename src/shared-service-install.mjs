@@ -10,6 +10,11 @@ import { verifyInstalledSource } from './source-package.mjs';
 import { checkSharedRunnerSlot } from './security/shared-runner-start-check.mjs';
 import { installSharedSlot } from './shared-slot-install.mjs';
 import { sharedSlotIsolation } from './shared-runner.mjs';
+import { installedSharedRuntime, selectSharedPlatform, elfMachine }
+  from './shared-platform.mjs';
+import { engineHost } from './engine-host.mjs';
+import { engine } from './engine-contract.mjs';
+import { machine } from 'node:os';
 
 const templatePath = 'src/security/nibfin-shared-runner.service.template';
 const wslPath = 'src/security/runner-wsl-host.conf';
@@ -73,6 +78,15 @@ export async function installSharedServiceTemplate(sources = [], owner) {
   await verifyInstalledSource(coreRoot, host.installation.pin);
   requireThat(sources.length === 0 || sources.length === 2 && sources[0] !== sources[1],
     'INVALID_SHARED_SLOT_INPUT');
+  const target = await installedSharedRuntime();
+  // Artifact preparation does not authorize ARM64 Engine or service activation.
+  requireThat(target.arch === 'amd64', 'ENGINE_REQUIRES_LINUX_X64_ADMINISTRATOR');
+  await rootOwnedPath(engine.daemon);
+  const daemonExecutable = elfMachine(await readFile(engine.daemon));
+  const info = JSON.parse(await engineHost().docker(true,
+    ['info', '--format', '{{json .}}']));
+  selectSharedPlatform({ platform: info.OSType, kernel: machine(),
+    runtime: process.arch, executable: daemonExecutable, daemon: info.Architecture });
   const uids = [host.runnerUid, host.sharedRunner.additionalRunner.uid];
   const second = sharedSlotIsolation(host, uids[1]);
   requireThat(second !== host.repository.isolation,

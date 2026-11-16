@@ -5,6 +5,7 @@ import { boundedHostFile, hostFile } from '../host-adoption.mjs';
 import { rootOwnedPath } from '../host-paths.mjs';
 import { controllerRoute } from '../controller-contract.mjs';
 import { requireThat } from '../identity.mjs';
+import { installedSharedRuntime, verifySharedFile } from '../shared-platform.mjs';
 
 async function check() {
   const slot = process.argv[2];
@@ -32,8 +33,9 @@ async function check() {
 export async function checkSharedRunnerSlot(
   directory, expected, repository,
   { checkAccess = true, group = checkAccess ? process.getgid() : undefined,
-    uid = checkAccess ? process.getuid() : undefined } = {},
+    uid = checkAccess ? process.getuid() : undefined, target } = {},
 ) {
+  target ??= await installedSharedRuntime();
   const dispatcher = join(directory, 'bin', 'Runner.Worker');
   const packaged = new URL('./shared-worker-dispatcher.sh', import.meta.url);
   const registration = join(directory, '.runner');
@@ -55,10 +57,10 @@ export async function checkSharedRunnerSlot(
   requireThat(/^\/usr\/bin\/python3\.\d+$/.test(python),
     'SHARED_RUNNER_WORKER_ADMISSION_REQUIRED');
   await rootOwnedPath(python);
-  const nodePin = new URL('../../.node-version', import.meta.url);
-  const version = (await readFile(nodePin, 'utf8')).trim();
-  requireThat(/^\d+\.\d+\.\d+$/.test(version), 'SHARED_RUNNER_WORKER_ADMISSION_REQUIRED');
-  await rootOwnedPath(`/opt/nibfin/tools/node-v${version}-linux-x64/bin/node`);
+  await verifySharedFile(join(directory, 'bin', 'Runner.Listener'),
+    target.listenerSha256, target);
+  await verifySharedFile(join(directory, 'bin', 'Runner.Worker.official'),
+    target.workerSha256, target);
   await verifyProgramTree(join(directory, 'bin'));
   await verifyProgramTree(join(directory, 'externals'));
   for (const name of ['.credentials', '.credentials_rsaparams']) {

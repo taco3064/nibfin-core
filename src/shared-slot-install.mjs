@@ -1,16 +1,15 @@
 import { constants } from 'node:fs';
 import { chmod, lstat, mkdir, mkdtemp, open, readFile, rename, rm }
   from 'node:fs/promises';
-import { createHash } from 'node:crypto';
 import { isAbsolute, join, resolve } from 'node:path';
 import { command } from './process.mjs';
 import { rootOwnedPath } from './host-paths.mjs';
 import { requireThat } from './identity.mjs';
 import { syncRecoveryDirectory } from './recovery-lock.mjs';
 import { checkSharedRunnerSlot } from './security/shared-runner-start-check.mjs';
+import { installedSharedRuntime } from './shared-platform.mjs';
+import { verifySharedArchive } from './shared-artifacts.mjs';
 
-// The early admission dispatcher implements the tested 2.338.2 wire protocol.
-const archiveHash = 'baebf204307bac6193480852732f0aba2ae97b6c5597c244f4d5558390147c40';
 const dispatcher = new URL('./security/shared-worker-dispatcher.sh', import.meta.url);
 const registrationFiles = ['.runner', '.credentials', '.credentials_rsaparams'];
 
@@ -25,14 +24,12 @@ async function copyPrivateFile(path, destination, owner, limit, group, mode) {
     const output = await open(destination, 'wx', 0o600);
     try {
       let size = 0;
-      const hash = createHash('sha256');
       const buffer = Buffer.allocUnsafe(256 * 1024);
       while (true) {
         const { bytesRead } = await input.read(buffer, 0, buffer.length, null);
         if (bytesRead === 0) break;
         size += bytesRead;
         requireThat(size <= limit, 'UNTRUSTED_SHARED_SLOT_INPUT');
-        hash.update(buffer.subarray(0, bytesRead));
         for (let offset = 0; offset < bytesRead;) {
           const { bytesWritten } = await output.write(buffer, offset, bytesRead - offset);
           requireThat(bytesWritten > 0, 'SHARED_SLOT_COPY_FAILED');
@@ -43,7 +40,6 @@ async function copyPrivateFile(path, destination, owner, limit, group, mode) {
       await output.chown(0, group);
       await output.chmod(mode);
       await output.sync();
-      return hash.digest('hex');
     } finally { await output.close(); }
   } finally { await input.close(); }
 }
@@ -66,6 +62,7 @@ export async function installSharedSlot(source, slot, owner, runner, repository,
   { parent = '/var/lib/nibfin/runners', lookupGroup = slotAccount } = {}) {
   requireThat((slot === 1 || slot === 2) && Number.isSafeInteger(owner) && owner > 0 &&
     isAbsolute(source) && resolve(source) === source, 'UNTRUSTED_SHARED_SLOT_INPUT');
+  const target = await installedSharedRuntime();
   await rootOwnedPath(resolve(parent, '..'));
   await mkdir(parent, { mode: 0o755 }).catch(error => {
     if (error.code !== 'EEXIST') throw error;
@@ -75,7 +72,7 @@ export async function installSharedSlot(source, slot, owner, runner, repository,
   const group = await lookupGroup(slot, uid);
   const inspect = directory =>
     checkSharedRunnerSlot(directory, runner, repository,
-      { group, uid, checkAccess: false });
+      { group, uid, checkAccess: false, target });
   const existing = await lstat(destination).catch(error => {
     if (error.code !== 'ENOENT') throw error;
   });
@@ -86,9 +83,9 @@ export async function installSharedSlot(source, slot, owner, runner, repository,
   const scratch = await mkdtemp(join(parent, '.nibfin-slot-'));
   try {
     const archive = join(scratch, 'runner.tar.gz');
-    const digest = await copyPrivateFile(join(source, '.nibfin-runner-package'),
+    await copyPrivateFile(join(source, '.nibfin-runner-package'),
       archive, owner, 512 * 1024 * 1024, 0, 0o600);
-    requireThat(digest === archiveHash, 'UNSUPPORTED_SHARED_RUNNER_PACKAGE');
+    await verifySharedArchive(archive, 'runner', target.arch);
     const staged = join(scratch, 'slot');
     await mkdir(staged, { mode: 0o755 });
     await chmod(staged, 0o755);

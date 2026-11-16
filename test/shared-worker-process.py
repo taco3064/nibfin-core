@@ -10,8 +10,7 @@ import sys
 import tempfile
 
 
-WORKER = r"""#!/usr/bin/python3
-import os
+WORKER = r"""import os
 import sys
 source, reply = map(int, sys.argv[2:])
 assert os.read(source, 12) == bytes.fromhex('01000000040000007b007d00')
@@ -83,7 +82,7 @@ def probe(directory, launch, dispatcher, mode):
 with tempfile.TemporaryDirectory() as directory:
     temp = Path(directory)
     worker = temp / "Runner.Worker.official"
-    worker.write_text(WORKER, encoding="utf-8")
+    worker.write_text(f"#!{sys.executable}\n" + WORKER, encoding="utf-8")
     worker.chmod(0o700)
     launch = temp / "launch.py"
     launch.write_text(LAUNCHER, encoding="utf-8")
