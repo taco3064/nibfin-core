@@ -1,3 +1,4 @@
+import { withManagedAdmission } from './managed-credential-admission.mjs';
 import { link, lstat, open, readFile, unlink } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
@@ -64,6 +65,10 @@ export async function installSharedServiceTemplate(sources = [], owner) {
   requireThat(process.platform === 'linux' && process.getuid() === 0,
     'SHARED_SERVICE_REQUIRES_HOST_ADMINISTRATOR');
   requireThat(coreRoot === '/opt/nibfin/core', 'SHARED_SERVICE_REQUIRES_INSTALLED_CORE');
+  return withManagedAdmission(() => installAdmittedTemplate(sources, owner));
+}
+
+async function installAdmittedTemplate(sources, owner) {
   const template = join(coreRoot, templatePath);
   await Promise.all([hostFile, template, unitDirectory].map(rootOwnedPath));
   const hostBytes = await boundedHostFile(hostFile, 256 * 1024);

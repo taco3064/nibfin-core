@@ -1,3 +1,4 @@
+import { withManagedAdmission } from './managed-credential-admission.mjs';
 import { open, readdir, unlink } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { boundedHostFile, coreRoot, loadHostAdoption } from './host-adoption.mjs';
@@ -35,9 +36,11 @@ async function recover(issueNumber, expectedHead, stage) {
   const installed = await import('/opt/nibfin/core/src/host-adoption.mjs');
   const load = coreRoot === '/opt/nibfin/core' ? loadHostAdoption :
     installed.loadHostAdoption;
-  const target = process.env[targetContextKey];
-  const context = await load(issueNumber, target);
-  return recoverAdoptedOperation(context, expectedHead, stage);
+  return withManagedAdmission(async () => {
+    const target = process.env[targetContextKey];
+    const context = await load(issueNumber, target, undefined, true);
+    return recoverAdoptedOperation(context, expectedHead, stage);
+  }, { reconcile: true });
 }
 
 // Private dependency seams for local fixtures; CLI always uses trusted defaults.

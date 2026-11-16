@@ -1,3 +1,4 @@
+import { withManagedAdmission } from './managed-credential-admission.mjs';
 import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import {
@@ -95,6 +96,11 @@ export async function launchIssueWake(
 ) {
   const relayed = await relayHostCommand('dispatch-event', [issueNumber], env);
   if (relayed !== null) return relayed;
+  return withManagedAdmission(() => launchAdmittedWake(
+    issueNumber, env, eventBytes, runnerUid));
+}
+
+async function launchAdmittedWake(issueNumber, env, eventBytes, runnerUid) {
   const targetRepositoryId = env[targetContextKey];
   const context = await loadHostAdoption(issueNumber, targetRepositoryId, runnerUid);
   const { host, adopted, reader, token } = context;

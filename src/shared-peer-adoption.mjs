@@ -1,4 +1,5 @@
 import { compareProviderViews } from './provider-binding.mjs';
+import { withManagedAdmission } from './managed-credential-admission.mjs';
 import { lstat, open, rename, unlink } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -116,8 +117,8 @@ async function replace(path, value) {
 export async function adoptSharedPeer(name, id, actionCommit) {
   requireThat(process.platform === 'linux' && process.getuid() === 0 &&
     coreRoot === '/opt/nibfin/core', 'PEER_INSTALLATION_REQUIRES_HOST_ADMIN');
-  return withSharedAdoptionLock(directory => adoptPeerLocked(name, id, actionCommit,
-    directory));
+  return withManagedAdmission(() => withSharedAdoptionLock(directory =>
+    adoptPeerLocked(name, id, actionCommit, directory)));
 }
 
 export async function withSharedAdoptionLock(action) {

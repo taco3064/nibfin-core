@@ -201,15 +201,16 @@
       "repository": "taco3064/nibfin-core",
       "commit": "9b24bd6cffce802304aa9ae27bc1449b1430aa7b",
       "path": "bin/nibfin-core.mjs",
-      "sha256": "58c28513d7d05209746aabcaae6657010c5206dc0697ef4165ec1e5a45498e1c",
-      "provenance": "Read-only help inspected at the pinned candidate commit.",
+      "sha256": "32dea97510564bb7ae8dc24a6bb16794714d0296d5fdea4e0ee8f617d5826520",
+      "provenance": "Maintained Candidate help read back locally; commit names the prior audited baseline, not a new publication.",
       "release": null,
-      "observed": "2026-11-15"
+      "observed": "2026-11-16"
     }
   },
   "help": {
     "commands": [
       "contract",
+      "managed-credentials <intake|replace|status|disconnect> (local admin)",
       "inspect-shared-host",
       "install-shared-service-template",
       "start-shared-services",

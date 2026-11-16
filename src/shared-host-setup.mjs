@@ -10,12 +10,13 @@ import { rootfulSocket } from './docker-backend.mjs';
 import { controllerProgram } from './controller-contract.mjs';
 import { syncRecoveryDirectory } from './recovery-lock.mjs';
 
+import { managedBase as base, managedPaths } from './managed-credential-files.mjs';
+
 const controller = 'nibfin-controller';
 const runners = ['nibfin-runner-1', 'nibfin-runner-2'];
 const engineGroup = 'nibfin-engine';
 const shell = '/usr/sbin/nologin';
 const sudoers = '/etc/sudoers.d';
-const base = '/var/lib/nibfin/controller';
 const env = { PATH: '/usr/sbin:/usr/bin:/bin', LANG: 'C' };
 
 async function rootCommand(path, args, allowedExitCodes = [0]) {
@@ -77,9 +78,8 @@ async function privateDirectory(path, parentUid, { uid, gid }) {
 }
 
 export async function prepareSharedAccounts(profile) {
-  requireThat(profile.stateRoot === join(base, 'state') &&
-    profile.tokenFile === join(base, 'credentials/github-token') &&
-    profile.authFile === join(base, 'codex/auth.json'),
+  requireThat(Object.entries(managedPaths).every(
+    ([key, path]) => profile[key] === path),
   'SHARED_MANAGED_CONTROLLER_PATH_CONFLICT');
   await rootOwnedPath(dirname(rootfulSocket));
   const socket = await lstat(rootfulSocket);
