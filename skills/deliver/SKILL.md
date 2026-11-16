@@ -35,6 +35,12 @@ before reporting a suggested next step.
 Make changes only in the supplied writable worktree. Do not access Core state,
 host credentials, Docker control, other role sessions or another work item's
 workspace. Do not change workflow/authorization policy to approve this Candidate.
+
+For every security-related change, check the original requirement, protected
+assets and intended permissions against the planned implementation and actual
+effects. Preserve user security, including credential and host boundaries.
+Stop and report the exact conflicting behavior if the route could violate the
+user's intended protection or if the authority for the access is unresolved.
 Do not request or expose privileged tokens. Do not push, publish an Issue Body,
 apply lifecycle labels, approve your own work, merge, close or release anything.
 Those operations belong to the trusted publisher after independent evidence.
