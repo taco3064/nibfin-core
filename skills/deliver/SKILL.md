@@ -35,11 +35,15 @@ apply lifecycle labels, approve your own work, merge, close or release anything.
 Those operations belong to the trusted publisher after independent evidence.
 
 Implement the complete bounded behavior and appropriate positive/negative tests.
-Inspect the whole diff for unintended changes. Run the approved checks that the
-isolated environment supports. Report exact commands, observed outcomes and
-unrun evidence honestly. Record checks assigned to PR CI as Unverified and
-continue through Candidate capture when the required local checks pass. A mock
-is not a live-provider or real-host success.
+Inspect the whole diff for unintended changes. Run the distinct approved local
+checks required for Deliver. Do not repeat builds, suites, packaging or
+deployment checks covered by the applicable CI or CD workflow. Use available
+authoritative results only when the relevant source, run, job and check
+selection match. Record future or unavailable workflow results as Unverified
+and continue through Candidate capture when required local checks pass.
+Report exact commands, observed outcomes and unrun evidence honestly.
+Identify simulated tests as such. Provider and host claims require evidence
+from the corresponding environment.
 
 Honor the published machine-readable Candidate inventory without rewriting it.
 Produce each required artifact at its approved path. Required artifacts remain

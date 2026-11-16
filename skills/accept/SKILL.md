@@ -53,8 +53,12 @@ blocking findings. Acceptance is neither permission to mutate GitHub nor proof
 that future PR head/CI, final Shape fidelity review, merge or closure succeeded.
 Any material Candidate change requires fresh independent Acceptance.
 No historical Agent transcript or permanent evidence archive is required.
-Perform missing verification assigned to pre-PR Accept against current content,
-or report it as blocked. For checks assigned to PR CI, inspect that the Candidate
-includes the applicable test and that the workflow can run it. Leave execution
-to PR CI and record its result as Unverified until the PR has run. Never infer
-that an unobserved past approval occurred.
+Run missing independent checks expressly assigned to pre-PR Accept. Read the
+actual CI and CD workflows and their selection rules. When a workflow covers a
+check, verify the changed content selects that check and use the workflow's
+result for the matching source, run and job. Do not duplicate those checks on
+the Runner, including full website builds, browser suites, package builds and
+deployment verification. Record evidence for a future PR or CD run as
+Unverified and let the existing workflow gate enforce it at its assigned stage.
+Report a missing or skipped applicable check at its owning stage as a wiring
+gap. Never infer that an unobserved past approval occurred.
