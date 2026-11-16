@@ -8,6 +8,7 @@ import { claudePlan, claudeTools, claudeLimits } from '../src/claude-plan.mjs';
 import { parseClaudeResult } from '../src/claude-result.mjs';
 import { ClaudeRoleAgent } from '../src/claude-agent.mjs';
 import { stageFixture } from './stage-fixture.mjs';
+import { bindClaudeWorkChannel } from '../src/claude-work-channel.mjs';
 
 const component = {
   cli: { package: '@anthropic-ai/claude-code', version: '2.1.81',
@@ -45,6 +46,11 @@ test('private plans are deterministic and role tools are exact', () => {
     assert.equal(p.tools.includes('mcp__work__write'), stage === 'deliver');
     assert.equal(p.cwd, '/session');
     assert.equal(p.repositoryMounts, false);
+    assert.deepEqual(JSON.parse(p.args[p.args.indexOf('--mcp-config') + 1]), {
+      mcpServers: { work: { type: 'stdio',
+        command: '/opt/nibfin/claude/bin/work-tools', args: [], env: {} } },
+    });
+    assert.equal(p.environment.CLAUDE_CODE_SUBPROCESS_ENV_SCRUB, '1');
     for (const flag of ['--bare', '--print', '--disable-slash-commands',
       '--strict-mcp-config', '--no-session-persistence']) {
       assert.ok(p.args.includes(flag));
@@ -56,6 +62,19 @@ test('private plans are deterministic and role tools are exact', () => {
     assert.equal(parseClaudeResult(stage, envelope(result(stage))).result.outcome,
       outcomes[stage]);
   }
+});
+
+test('work dispatch is bound to the authenticated execution and role', () => {
+  for (const stage of Object.keys(outcomes)) {
+    const authorize = bindClaudeWorkChannel(stage, thread);
+    authorize(thread, 'read');
+    authorize(thread, 'check');
+    if (stage === 'deliver') authorize(thread, 'write');
+    else assert.throws(() => authorize(thread, 'write'), /OPERATION_DENIED/);
+    assert.throws(() => authorize(thread, 'exec'), /OPERATION_DENIED/);
+    assert.throws(() => authorize('unrelated execution', 'read'), /EXECUTION_MISMATCH/);
+  }
+  assert.throws(() => bindClaudeWorkChannel('deliver', ''), /INVALID_CLAUDE_WORK/);
 });
 
 test('untrusted text cannot select configuration or executable', () => {

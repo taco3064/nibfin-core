@@ -63,6 +63,8 @@ the pool. AGENT-4 implements retirement separately; these checks do not retire i
   caller-selected executables. Codex currently uses the fixed isolated tool policy
   in `codexPlan` and the existing sandbox; this contract does not implement a
   separate Claude tool executor or permit a generic plugin.
+  The Claude-specific stdio handoff and per-execution operation guard are
+  defined in `src/claude-work-channel.mjs` and [the adapter contract](claude-adapter.md).
 - **Termination:** the runner returns `completed` or safely `interrupted`, bound
   to `executionId` and a confirmed `terminationHash`. Completion also binds policy,
   isolation and probe evidence. `requireModelTermination` rejects missing,
