@@ -1,3 +1,4 @@
+import { verifyManagedEngine } from './engine-verify.mjs';
 import { realpath } from 'node:fs/promises';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { join } from 'node:path';
@@ -92,6 +93,7 @@ export async function prepareSharedGateway(profile, runner, uplink, run = docker
 }
 
 export async function prepareSharedGateways(profiles, runner, second, uplink) {
+  await verifyManagedEngine();
   for (const path of [dockerPath, process.execPath, '/usr/sbin/runuser'])
     await rootOwnedPath(path);
   const result = [];

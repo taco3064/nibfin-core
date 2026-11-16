@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { engineFileStore } from '../src/engine-files.mjs';
 
-function fileDouble() {
+function fileDouble(umask = 0) {
   const nodes = new Map();
   const failure = code => Object.assign(Error(code), { code });
   const get = path => {
@@ -25,7 +25,7 @@ function fileDouble() {
     },
     async mkdir(path, { mode }) {
       if (nodes.has(path)) throw failure('EEXIST');
-      nodes.set(path, make('directory', mode));
+      nodes.set(path, make('directory', mode & ~umask));
     },
     async open(path, flags, mode) {
       if (flags === 'wx') {
@@ -112,3 +112,14 @@ test('unexpected managed directory entries are refused and preserved', async () 
     { code: 'ENGINE_UNEXPECTED_RESOURCE' });
   assert.equal(nodes.get('/owned/unrelated').bytes, 'preserve');
 });
+
+test('new owned directories receive their exact mode despite a restrictive umask',
+  async () => {
+    const { store, nodes } = fileDouble(0o077);
+    await store.ownedDirectory('/owned/public', 0o755);
+    assert.equal(nodes.get('/owned/public').mode, 0o755);
+    nodes.get('/owned/public').mode = 0o700;
+    await assert.rejects(store.ownedDirectory('/owned/public', 0o755),
+      { code: 'ENGINE_DIRECTORY_CONFLICT' });
+    assert.equal(nodes.get('/owned/public').mode, 0o700);
+  });

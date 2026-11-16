@@ -2,7 +2,7 @@ import { constants } from 'node:fs';
 import { privateResource } from './managed-credential-files.mjs';
 import { mkdir, open, rename, unlink, readdir } from 'node:fs/promises';
 import { join } from 'node:path';
-import { spawn } from 'node:child_process';
+import { withKernelGate } from './kernel-gate.mjs';
 import { randomUUID } from 'node:crypto';
 import { privateHostDirectory } from './host-fence.mjs';
 import { recoveryFile, syncRecoveryDirectory } from './recovery-lock.mjs';
@@ -31,20 +31,7 @@ export async function withRelayGate(root, use, {
     const stat = await handle.stat();
     requireThat(stat.isFile() && stat.nlink === 1 && stat.uid === uid &&
       (stat.mode & 0o077) === 0, 'UNTRUSTED_RELAY_LOCK');
-    const child = spawn('/usr/bin/flock', ['-n', '-E', '75', '3'], {
-      stdio: ['ignore', 'ignore', 'ignore', handle.fd],
-      env: { PATH: '/usr/bin:/bin' },
-    });
-    const code = await new Promise((resolve, reject) => {
-      const timer = setTimeout(() => child.kill('SIGKILL'), 5000);
-      child.once('error', error => { clearTimeout(timer); reject(error); });
-      child.once('close', value => { clearTimeout(timer); resolve(value); });
-    });
-    if (code === 75) return { status: 'pending', code: 'RELAY_BUSY' };
-    requireThat(code === 0, 'RELAY_LOCK_UNAVAILABLE');
-    // flock(2) attaches to this inherited open file description. The parent
-    // retains the lock after the short-lived helper exits; close releases it.
-    return await use();
+    return await withKernelGate(handle, use);
   } finally { await handle.close(); }
 }
 

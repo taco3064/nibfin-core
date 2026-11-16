@@ -21,7 +21,9 @@ and each instance uses its own `/var/lib/nibfin/runners/slot-<number>` directory
 For this template, adopt the second slot's isolation configuration as
 `sharedRunner.additionalRunner.isolation` in the same host file. Its gateway,
 network and configured project/MCP egress-policy directory must be distinct.
-For first adoption through CLI init, the administrator provides a root-owned
+For managed preparation, use the fixed administrator operation described in
+[managed resource preparation](managed-resource-preparation.md). The manual
+adoption route remains available: the administrator provides a root-owned
 `/etc/nibfin/shared-host-profile.json`. Use `schemaVersion: 1` and supply
 `stateRoot`, `tokenFile`, `authFile`, `model`, `isolation` and
 `secondaryIsolation` from the verified controlled Docker setup. These are
@@ -55,9 +57,9 @@ For a new managed setup, add `managedEgressNetwork` with the name of a reviewed
 user-defined Docker bridge on the dedicated Engine. Keep the rootful Engine,
 AppArmor policy and immutable images in place. Use the fixed Controller paths
 `/var/lib/nibfin/controller/state`, `/var/lib/nibfin/controller/credentials/github-token`,
-and `/var/lib/nibfin/controller/codex/auth.json`. Init creates the three locked
-service accounts and the private directories if needed. Supply the Controller's
-credentials privately under its account, then rerun the same init command.
+and `/var/lib/nibfin/controller/codex/auth.json`. Core verifies the Engine-owned
+locked service accounts and prepares the private directories if needed. Supply
+the Controller's credentials privately under its account, then rerun the same init command.
 Core derives the isolated network and gateway for each verified Runner ID and
 checks both from the Controller identity before installing the exact sudo relay.
 Omit the generated gateway ID, network and proxy script from the managed profile.
