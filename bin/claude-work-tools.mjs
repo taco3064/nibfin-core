@@ -2,7 +2,8 @@
 import { runWorkBridge } from '../src/claude-work-bridge.mjs';
 
 try {
-  if (process.argv.length !== 2) throw new Error('WORK_ARGUMENTS_DENIED');
+  if (process.argv.length !== 2 || process.env.ANTHROPIC_API_KEY)
+    throw new Error('WORK_ARGUMENTS_DENIED');
   await runWorkBridge(process.stdin, process.stdout);
 } catch {
   process.stderr.write('WORK_CHANNEL_UNAVAILABLE\n');

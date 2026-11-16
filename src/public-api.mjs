@@ -1,5 +1,7 @@
 import { managedPreparationCapability } from './managed-resource-contract.mjs';
 import { managedSharedAdmission } from './shared-admission-policy.mjs';
+import { claudeModelComponent } from './claude-model-runner.mjs';
+export { createClaudePrivateRunner } from './claude-model-runner.mjs';
 
 // Versioned public exports. Thin consumers call Core; they must not copy its
 // lifecycle, selection, acceptance or merge policy into their own repositories.
@@ -28,6 +30,7 @@ export { sharedDispatchWorkflow, sharedRepository } from './shared-runner.mjs';
 export const interfaceVersion = 1;
 export const consumerContract = Object.freeze({
   schemaVersion: interfaceVersion,
+  claudeModel: claudeModelComponent,
   managedResourcePreparation: managedPreparationCapability,
   managedSharedAdmission: Object.freeze({
     kind: managedSharedAdmission,
