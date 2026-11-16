@@ -116,7 +116,8 @@ run = dict(head_sha=commit, head_branch="main", event="push",
 records = [run]
 
 def api(path):
-    assert path == f"repos/{core}/actions/workflows/ci.yml/runs?head_sha={commit}&per_page=100"
+    endpoint = f"repos/{core}/actions/workflows/ci.yml/runs"
+    assert path == f"{endpoint}?head_sha={commit}&per_page=100"
     return {"workflow_runs": records}
 
 success.__globals__["api"] = api
