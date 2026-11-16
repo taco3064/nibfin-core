@@ -224,7 +224,12 @@ question for Shape must not become an implementation acceptance criterion.
 If additional maintained tests or CI wiring are needed beyond the authorized
 implementation, report the gap to Scope for a separate test-writing plan. Shape
 does not add that work to the Issue, open a new Issue, or introduce a dependency.
-Use the repository's existing PR CI and acceptance process for routine checks.
+Read the existing CI and CD workflows and their check-selection rules before
+assigning verification. Keep checks already covered there with their existing
+workflow. Assign pre-PR roles only distinct local checks required by the Issue
+or delivery policy. In particular, a website build, browser suite, package
+build or deployment verification covered by CI or CD belongs to that workflow.
+The independent Validator must flag duplicated local execution requirements.
 
 ### Security / Trust / Compatibility boundaries
 
@@ -285,10 +290,11 @@ Run after the project's required independent Acceptance and **current exact-head
 
 Read current product authority, **current authorized Issue and historical Scope provenance where relevant**, final published Shape and decisions, full diff/changed paths, immutable Candidate and required artifact/hook evidence, Acceptance binding, actual PR head/base, trusted CI source/attempt and required integration evidence.
 
-Use the current PR's CI results as the source of truth for CI. Do not run,
-dispatch, or rerun CI in Review. A skipped applicable PR check indicates a CI
-routing gap. Report the check and its trigger or selection condition so the
-wiring can be corrected. A manual diagnostic outside PR CI carries no merge gate.
+Use the current PR's CI results and any applicable authoritative CD evidence.
+Check the observed source, run, job and actual check selection before relying
+on results. Do not run, dispatch, or rerun those checks in Review. A skipped
+applicable PR check indicates a CI routing gap. Report the check and its
+trigger or selection condition so the wiring can be corrected.
 
 Evaluate **decision fidelity**, not a duplicate low-level Acceptance:
 
