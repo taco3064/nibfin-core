@@ -52,7 +52,9 @@ async function readIssueEvent(reader, adoption, event, invocation) {
       event.repository.full_name === repository.full_name,
     'ISSUE_EVENT_REPOSITORY_CHANGED',
   );
-  const run = await reader.get(`${root}/actions/runs/${invocation.runId}`);
+  let run = await reader.get(`${root}/actions/runs/${invocation.runId}`);
+  if (invocation.forwarded && run.run_attempt !== 1)
+    run = await reader.get(`${root}/actions/runs/${invocation.runId}/attempts/1`);
   const pin = hostedRelay ? { id: run.workflow_id, path: issueCallerPath }
     : adoption.eventWorkflow;
   const reference = run.referenced_workflows?.[0];
@@ -81,7 +83,9 @@ async function readIssueEvent(reader, adoption, event, invocation) {
     event.sender.id === run.actor.id && event.sender.login === run.actor.login,
   'UNTRUSTED_PAUSE_ACTOR');
   await readCallerSource(reader, invocation.repository, pin, run.head_sha, {
-    kind: 'issue', coreCommit: eventCommit,
+    kind: invocation.managed ? 'issue-managed'
+      : invocation.forwarded ? 'issue-forwarded' : 'issue',
+    coreCommit: eventCommit,
   });
   if (!hostedRelay) {
     const branch = await reader.get(
@@ -90,7 +94,8 @@ async function readIssueEvent(reader, adoption, event, invocation) {
     requireThat(adoption.repository?.approvalPin?.kind === 'repository-admission-v1' ||
       branch.protected === true, 'UNTRUSTED_ISSUE_EVENT_RUN');
     await readCallerSource(reader, invocation.repository, pin, branch.commit?.sha, {
-      kind: 'issue', coreCommit: invocation.coreCommit,
+      kind: invocation.forwarded ? 'issue-forwarded' : 'issue',
+      coreCommit: invocation.coreCommit,
     });
   }
   const workflow = await reader.get(`${root}/actions/workflows/${pin.id}`);

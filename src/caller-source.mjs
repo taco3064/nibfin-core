@@ -21,7 +21,8 @@ export async function readCallerSource(reader, repository, workflow, current, re
     'CALLER_SOURCE_UNAVAILABLE');
   const source = Buffer.from(file.content, 'base64').toString('utf8');
   const kinds = recipe.kind === 'action-wake'
-    ? ['action-wake', 'action-dispatch'] : [recipe.kind];
+    ? ['action-wake', 'action-dispatch']
+    : recipe.kind === 'issue-forwarded' ? ['issue', 'issue-managed'] : [recipe.kind];
   requireThat(kinds.some(kind =>
     source.replaceAll('\r\n', '\n') === callerRecipe(kind, recipe.coreCommit, recipe)),
   'CALLER_NOT_FIXED_RECIPE');
