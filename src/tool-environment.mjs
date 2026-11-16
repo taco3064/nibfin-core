@@ -48,17 +48,19 @@ export class ToolPreparationError extends Error {
 export class ToolEnvironmentPreparer {
   #config;
   #backend;
+  #baseImage;
   #host;
   #run;
   #pending = new Map();
   constructor(config, {
-    backend, run = command,
+    backend, baseImage, run = command,
     host = { platform: process.platform, uid: process.getuid?.(), lstat, realpath },
   } = {}) {
     this.#backend = dockerBackend(backend);
     requireThat(config && Object.keys(config).sort().join(',') === 'docker,socket' &&
       validDockerEndpoint(config, this.#backend), 'INVALID_TOOL_PREPARATION_CONFIG');
     this.#config = structuredClone(config);
+    this.#baseImage = baseImage;
     this.#host = host;
     this.#run = run;
   }
@@ -85,16 +87,21 @@ export class ToolEnvironmentPreparer {
     try { return await pending; }
     finally { this.#pending.delete(key); }
   }
-  async #inspect(reference, recipe) {
+  async #image(reference) {
     const result = await this.#docker(['image', 'inspect', reference],
       { allowedExitCodes: [0, 1] });
     if (result.exitCode === 1) return null;
     const images = JSON.parse(result.stdout.toString());
     if (!Array.isArray(images) || images.length !== 1) return null;
-    const image = images[0];
+    return images[0];
+  }
+  async #inspect(reference, recipe, baseLayers) {
+    const image = await this.#image(reference);
+    if (!image) return null;
     return immutable.test(image.Id) &&
       (reference === image.Id || !immutable.test(reference)) &&
       supportedToolPlatform(image.Os, image.Architecture) &&
+      baseLayers.every((layer, i) => image.RootFS?.Layers?.[i] === layer) &&
       image.Config?.Labels?.['io.nibfin.tool-environment'] === recipe.key
       ? image.Id : null;
   }
@@ -175,27 +182,40 @@ export class ToolEnvironmentPreparer {
       requireThat(supportedToolPlatform(info.OSType, info.Architecture),
         'UNSUPPORTED_TOOL_PLATFORM');
       phase = 'recipe';
-      const recipe = await preparationRecipe(tools);
+      const recipe = await preparationRecipe(tools, this.#baseImage);
+      const base = await this.#image(this.#baseImage);
+      const baseLayers = base?.RootFS?.Layers;
+      requireThat(base?.Id === this.#baseImage &&
+        supportedToolPlatform(base.Os, base.Architecture) &&
+        Array.isArray(baseLayers) && baseLayers.length > 0 &&
+        baseLayers.every(layer => immutable.test(layer)), 'UNVERIFIED_TOOL_BASE_IMAGE');
       const tag = `nibfin-tools:${recipe.key}`;
       phase = 'cache validation';
-      const cached = await this.#inspect(tag, recipe);
+      const cached = await this.#inspect(tag, recipe, baseLayers);
       if (cached) {
         await this.#validate(cached, tools, recipe);
         return cached;
       }
       phase = 'build';
+      // BuildKit resolves this local tag without executing the adopted image.
+      await this.#docker(['image', 'tag', base.Id, recipe.baseTag]);
       temporaryRoot = await mkdtemp(join(tmpdir(), 'nibfin-tools-'));
       const context = join(temporaryRoot, 'context');
       const buildx = join(temporaryRoot, 'buildx');
       const dockerConfig = join(temporaryRoot, 'docker-config');
       const imageId = join(temporaryRoot, 'image-id');
       await mkdir(context, { mode: 0o700 });
+      const bin = join(context, 'bin');
+      await mkdir(bin, { mode: 0o700 });
       await mkdir(buildx, { mode: 0o700 });
       await mkdir(dockerConfig, { mode: 0o700 });
       await writeFile(join(context, 'Dockerfile'), recipe.dockerfile, { mode: 0o600 });
+      for (const [name, wrapper] of Object.entries(recipe.wrappers))
+        await writeFile(join(bin, name), wrapper, { mode: 0o600 });
       // This context contains only the maintained composition, no repository
       // files, secrets, credentials, supplied URLs or host installation scripts.
       const result = await this.#docker(['build', '--platform', toolPlatform,
+        '--network=none',
         '--iidfile', imageId, context], {
         timeout: 20 * 60_000,
         // Buildx also uses Docker CLI state outside its own configuration.
@@ -210,7 +230,7 @@ export class ToolEnvironmentPreparer {
       const built = (await readFile(imageId, 'utf8')).trim();
       requireThat(immutable.test(built), 'INVALID_PREPARED_IMAGE');
       phase = 'image validation';
-      const image = await this.#inspect(built, recipe);
+      const image = await this.#inspect(built, recipe, baseLayers);
       requireThat(image === built, 'INCOMPATIBLE_PREPARED_IMAGE');
       await this.#validate(image, tools, recipe);
       phase = 'cache publication';

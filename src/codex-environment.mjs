@@ -44,7 +44,7 @@ export function jobToolEnvironment(tools, Preparer = ToolEnvironmentPreparer) {
     if (!tools || !Object.keys(tools).length) return Promise.resolve(null);
     pending ??= new Preparer({
       docker: profile.agent.docker, socket: profile.agent.socket,
-    }, { backend }).prepare(tools);
+    }, { backend, baseImage: profile.agent.image }).prepare(tools);
     return pending;
   };
 }

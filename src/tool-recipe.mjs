@@ -1,55 +1,60 @@
 import { readFile } from 'node:fs/promises';
-import { digest } from './identity.mjs';
+import { digest, requireThat } from './identity.mjs';
 import { toolPlatform, toolSource, projectToolPath } from './tool-catalog.mjs';
 
-export async function preparationRecipe(tools) {
-  const base = await readFile(new URL('./security/agent.Dockerfile', import.meta.url),
-    'utf8');
+const project = '/opt/nibfin/project';
+const pythonLibraries = [
+  'libbz2.so.1*', 'libcrypto.so.3', 'libexpat.so.1*', 'libffi.so.8*',
+  'libgdbm.so.6*', 'libgdbm_compat.so.4*', 'liblzma.so.5*', 'libncursesw.so.6*',
+  'libreadline.so.8*', 'libsqlite3.so.0*', 'libssl.so.3', 'libtinfo.so.6*',
+  'libuuid.so.1*', 'libz.so.1*',
+];
+
+export async function preparationRecipe(tools, baseImage) {
+  requireThat(/^sha256:[a-f0-9]{64}$/.test(baseImage), 'INVALID_TOOL_BASE_IMAGE');
+  const maintained = await readFile(
+    new URL('./security/agent.Dockerfile', import.meta.url), 'utf8');
   const pkg = JSON.parse(await readFile(new URL('../package.json', import.meta.url)));
-  const codex = /^ARG CODEX_VERSION=(\S+)$/m.exec(base)?.[1];
+  const codex = /^ARG CODEX_VERSION=(\S+)$/m.exec(maintained)?.[1];
   if (!codex) throw new Error('Missing maintained Codex version');
-  // Name the maintained final stage; its contents remain the sole Agent recipe.
-  const lines = base.trimEnd().split('\n');
-  const lastFrom = lines.findLastIndex(line => line.startsWith('FROM '));
-  lines[lastFrom] += ' AS nibfin-agent';
-  for (const [name, version] of Object.entries(tools))
-    lines.push(`FROM ${toolSource(name, version)} AS project-${name}`);
-  lines.push('FROM nibfin-agent', 'RUN mkdir -p /opt/nibfin/project/bin');
-  if (tools.node) lines.push(
-    'COPY --from=project-node /usr/local/ /opt/nibfin/project/node/',
-    'RUN for x in node npm npx; do ln -s ../node/bin/$x ' +
-      '/opt/nibfin/project/bin/$x; done',
-  );
-  if (tools.python) lines.push(
-    'RUN apt-get update && apt-get install -y --no-install-recommends ' +
-      'libbz2-1.0 libexpat1 libffi8 libgdbm6 libgdbm-compat4 liblzma5 ' +
-      'libncursesw6 libreadline8 libsqlite3-0 libssl3 libuuid1 zlib1g ' +
-      '&& rm -rf /var/lib/apt/lists/*',
-    'COPY --from=project-python /usr/local/ /opt/nibfin/project/python/',
-    'RUN printf \'#!/bin/sh\\nexec /opt/nibfin/project/python/bin/python3 "$@"\\n\' ' +
-      '> /opt/nibfin/project/bin/python3 ' +
-      '&& chmod 755 /opt/nibfin/project/bin/python3 ' +
-      '&& ln -s python3 /opt/nibfin/project/bin/python ' +
-      '&& printf \'#!/bin/sh\\nexec python3 -m pip "$@"\\n\' ' +
-      '> /opt/nibfin/project/bin/pip ' +
-      '&& chmod 755 /opt/nibfin/project/bin/pip ' +
-      '&& ln -s pip /opt/nibfin/project/bin/pip3',
-  );
-  if (tools.go) lines.push(
-    'COPY --from=project-go /usr/local/go/ /opt/nibfin/project/go/',
-    'RUN printf \'#!/bin/sh\\nGOTOOLCHAIN=local exec ' +
-      '/opt/nibfin/project/go/bin/go "$@"\\n\' ' +
-      '> /opt/nibfin/project/bin/go ' +
-      '&& chmod 755 /opt/nibfin/project/bin/go ' +
-      '&& ln -s ../go/bin/gofmt /opt/nibfin/project/bin/gofmt',
-  );
+  const baseTag = `nibfin-tool-base:${baseImage.slice(7)}`;
+  const lines = Object.entries(tools).map(([name, version]) =>
+    `FROM ${toolSource(name, version)} AS project-${name}`);
+  lines.push(`FROM ${baseTag}`);
+  const wrappers = {};
+  const wrapper = (name, exec) => {
+    wrappers[name] = `#!/bin/sh\n${exec} "$@"\n`;
+  };
+  if (tools.node) {
+    lines.push(`COPY --from=project-node /usr/local/ ${project}/node/`);
+    for (const name of ['node', 'npm', 'npx'])
+      wrapper(name, `exec ${project}/node/bin/${name}`);
+  }
+  if (tools.python) {
+    lines.push(`COPY --from=project-python /usr/local/ ${project}/python/`);
+    for (const lib of pythonLibraries) {
+      const source = `/usr/lib/x86_64-linux-gnu/${lib}`;
+      lines.push(`COPY --from=project-python ${source} ${project}/python/lib/`);
+    }
+    for (const name of ['python', 'python3', 'pip', 'pip3']) {
+      const pip = name.startsWith('pip') ? ' -m pip' : '';
+      wrapper(name, `LD_LIBRARY_PATH=${project}/python/lib ` +
+        `exec ${project}/python/bin/python3${pip}`);
+    }
+  }
+  if (tools.go) {
+    lines.push(`COPY --from=project-go /usr/local/go/ ${project}/go/`);
+    wrapper('go', `GOTOOLCHAIN=local exec ${project}/go/bin/go`);
+    wrapper('gofmt', `exec ${project}/go/bin/gofmt`);
+  }
+  lines.push(`COPY --chmod=0755 bin/ ${project}/bin/`);
   const versions = { node: pkg.engines.node, codex: `codex-cli ${codex}` };
   // The key binds all maintained inputs that can change compatibility. It is a
   // cache address, never an authorization prerequisite or an owner-facing pin.
-  const key = digest({ recipe: lines, platform: toolPlatform, tools, versions,
+  const key = digest({ recipe: lines, wrappers, platform: toolPlatform, tools, versions,
     probe: versionProbe(tools, versions) });
   lines.push(`LABEL io.nibfin.tool-environment="${key}"`, '');
-  return { dockerfile: lines.join('\n'), key, versions };
+  return { dockerfile: lines.join('\n'), wrappers, baseTag, key, versions };
 }
 
 // Execute only trusted commands with a fixed bootstrap runtime. The development
