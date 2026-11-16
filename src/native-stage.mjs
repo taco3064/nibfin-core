@@ -10,6 +10,7 @@ import { pendingCIObservation } from './github-ci.mjs';
 import { pendingMcpObservation } from './mcp-pending.mjs';
 import { githubReadWait, observationFailureCode } from './observation-failure.mjs';
 import { ciFailureResult } from './ci-recovery.mjs';
+import { blockedGuidance } from './blocked-guidance.mjs';
 
 export function validStageRequest(request) {
   return (
@@ -104,6 +105,10 @@ export function nativeStageExecutor({
         sandbox,
         store,
         ...writes,
+        deliverBlockedGuidance: (context, references, rebased) => blockedGuidance(
+          reader, context.approval.record.issue, references,
+          () => rebased ? context.rebaseTarget : workspace.comparisonBase(),
+        ),
         clock,
       });
       const runtime = new StageRuntime({

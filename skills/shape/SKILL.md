@@ -61,6 +61,17 @@ empty registry as a blocker to release. Treat it as an implementation
 prerequisite only if the Issue needs an actual scenario to satisfy its own
 acceptance, and identify the maintained scenario producer in that case.
 
+When adding or changing a shared caller recipe, trace its real consumers across
+repositories before drafting or approving the Shape. Check recipe generation,
+installer and upgrade behavior, packaged recipe validators and their accepted
+keys, and workflow source verification. For a managed Issue recipe, spell out
+how managed and existing legacy callers are selected and verified. Require
+evidence from the actual produced package through the affected install or
+upgrade entry points on the platforms covered by the consumer's CI. If a
+consumer must change first, identify its owning Issue and the exact native
+`Blocked by` direction. Use the authorized maintenance route for any required
+protected workflow change and verify the consumer contract before merge.
+
 ## Current authority, repository reality, and trust
 
 Read the **current authoritative product requirements** designated by the project (for example, its live Proposal or Product BR) for each invocation. Keep distinct:

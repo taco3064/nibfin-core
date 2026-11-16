@@ -110,6 +110,43 @@ test('Deliver reports protected paths before storing a candidate', async () => {
   assert.deepEqual(result.artifacts, { shapeHash: context.shape.hash });
 });
 
+test('blocked Deliver logs dependency guidance and keeps the original finding',
+  async t => {
+    const context = stageFixture();
+    const log = t.mock.method(console, 'error', () => {});
+    const evidenceReferences = ['missing-upstream example/core#338'];
+    const blockingFindings = ['The installer entry point is missing.'];
+    const message = JSON.stringify({
+      outcome: 'blocked', body: '', summary: 'Missing upstream capability',
+      rootCause: 'The code is absent.', failureClass: 'shape_defect',
+      evidenceReferences, blockingFindings, contractConflicts: [],
+    });
+    const handler = stageHandlers({
+      workspace: { discardWriterGit: async () => {} },
+      deliverBlockedGuidance: async (observed, refs, rebased) => {
+        assert.equal(observed, context);
+        assert.deepEqual(refs, evidenceReferences);
+        assert.equal(rebased, false);
+        return 'Verify the native dependency.';
+      },
+    }).deliver;
+    const outcome = await handler.readBack(context, {
+      executionId: context.execution.id, terminationHash: 'a'.repeat(64),
+      lastMessage: message,
+      stdout: [
+        { type: 'thread.started', thread_id: context.execution.sessionId },
+        { type: 'turn.started' },
+        { type: 'item.completed', item: { type: 'agent_message', text: message } },
+        { type: 'turn.completed' },
+      ].map(JSON.stringify).join('\n'),
+    });
+    assert.equal(outcome.outcome, 'blocked');
+    assert.deepEqual(outcome.findings, blockingFindings);
+    assert.deepEqual(outcome.references, evidenceReferences);
+    assert.deepEqual(log.mock.calls.map(call => call.arguments),
+      [['Nibfin deliver: Verify the native dependency.']]);
+  });
+
 test('a published Shape is loaded verbatim without starting Author', async t => {
   const f = await fixture(t);
   const body = f.context.shape.body;

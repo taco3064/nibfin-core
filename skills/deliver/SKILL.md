@@ -18,6 +18,15 @@ reason to abandon locally testable implementation or invent a different product.
 Distinguish code defects, unavailable evidence and genuinely unresolved product
 choices. Do not create extra Issues or silently alter native dependencies.
 
+If Deliver is blocked by a necessary upstream change absent from your worktree,
+name the missing capability and its evidence in `blockingFindings`. In
+`evidenceReferences`, add exactly one locator in the form
+`missing-upstream owner/repo#123`. If you can identify the PR in that repository
+that implements the upstream Issue, extend the locator with ` via #456`.
+Use `missing-upstream unknown` when you cannot establish the upstream Issue.
+Keep the evidence for why it is necessary in the result. Core checks GitHub
+before reporting a suggested next step.
+
 Make changes only in the supplied writable worktree. Do not access Core state,
 host credentials, Docker control, other role sessions or another work item's
 workspace. Do not change workflow/authorization policy to approve this Candidate.
