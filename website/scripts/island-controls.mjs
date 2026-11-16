@@ -16,7 +16,7 @@ try {
     ...process.env, WEBSITE_BASE: '/nibfin-core/', NIBFIN_THEME_FIXTURE: '1',
   };
   assert.equal(runNpm(['run', 'website:build'],
-    { cwd: directory, env: buildEnv }).status, 0);
+    { cwd: directory, env: buildEnv, timeout: 5 * 60 * 1000 }).status, 0);
   const text = await inspectIslandOutput(join(directory, 'website/dist'));
   assert(text.includes('content change control'), 'Content mutation was not rendered');
   if (process.env.CI === 'true' || process.argv.includes('--browser')) {
