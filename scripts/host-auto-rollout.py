@@ -344,6 +344,21 @@ def runner_services(hosts):
     return [f"{repo.split('/')[1]}-runner.service" for repo in hosts]
 
 
+def has_queued_jobs(repository, workflow_runs_path):
+    queued = api(workflow_runs_path + "?status=queued&per_page=100")
+    records = queued["workflow_runs"]
+    # A truncated queue cannot establish that the Runners can stop safely.
+    if queued["total_count"] != len(records):
+        return True
+    for record in records:
+        jobs = api(f"repos/{repository}/actions/runs/{record['id']}/jobs?per_page=1")
+        if jobs["total_count"] != 0 or jobs["jobs"]:
+            return True
+    # GitHub can retain a queued run before creating any Job. It has no
+    # work to drain. Recheck active runs and host fences after stopping dispatch.
+    return False
+
+
 def idle(hosts, include_queued=True):
     if host_fenced(hosts):
         return False
@@ -385,10 +400,7 @@ def idle(hosts, include_queued=True):
             filename = Path(workflow).name
             path = f"repos/{workflow_repo}/actions/workflows/{filename}/runs"
             active = api(path + "?status=in_progress&per_page=1")["total_count"]
-            queued = include_queued and api(path + "?status=queued&per_page=1")[
-                "total_count"
-            ]
-            if active or queued:
+            if active or (include_queued and has_queued_jobs(workflow_repo, path)):
                 return False
     return not host_fenced(hosts)
 
