@@ -231,6 +231,14 @@ Document only evidence that changes the delivery approach: current behavior, own
 
 State only binding decisions already authorized by the current product authority or properly settled within it. Reference exact clauses instead of copying large authority sections. Do not smuggle new product semantics through an implementation note.
 
+For any security-related requirement or change, read its original authority and
+identify the protected users, assets, and operations, the harm it addresses, and
+the access the user intended to permit. Trace how the current controls implement
+that purpose and which callers rely on them. Choose an implementation that
+preserves the intended protection. If the original intent or a material
+security tradeoff is unresolved, report the exact conflict to the owner before
+authorizing a route that could expose users or their data.
+
 ### Implementation plan
 
 Name the modules and interfaces to change and the steps needed to make the result
