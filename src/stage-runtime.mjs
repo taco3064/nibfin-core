@@ -121,6 +121,7 @@ export class StageRuntime {
     if (decision.status !== 'allowed') return decision;
     const frozenContextHash = digest(context);
     let result, receiptHash, receipt, admissionError, freshDenial, changed;
+    let blockedGuidance;
     let checkObservationDiff;
     try {
       const outcome = await this.#journal.run(
@@ -216,6 +217,7 @@ export class StageRuntime {
             };
             receiptHash = await this.#receipts.append(receipt);
             requireThat(receiptHash === digest(receipt), 'RECEIPT_PERSISTENCE_FAILED');
+            blockedGuidance = verified.blockedGuidance;
             return decision.requestHash;
           },
         },
@@ -258,6 +260,8 @@ export class StageRuntime {
             ? 'STAGE_COMPLETED'
             : code,
         receiptHash,
+        // The Controller relay preserves the result printed in Actions.
+        ...(blockedGuidance ? { blockedGuidance } : {}),
       };
     } catch {
       return {

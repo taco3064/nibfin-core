@@ -10,10 +10,11 @@ import { OperationJournal } from '../src/operation-journal.mjs';
 import { digest } from '../src/identity.mjs';
 import { stageFixture } from './stage-fixture.mjs';
 import { now } from './approval-fixture.mjs';
-async function fixture(t) {
+import { relayControllerRequest } from '../src/host-relay.mjs';
+async function fixture(t, stage) {
   const root = await mkdtemp(join(tmpdir(), 'nibfin-runtime-'));
   t.after(() => rm(root, { recursive: true, force: true }));
-  const context = stageFixture(),
+  const context = stageFixture(stage),
     saved = [];
   let performed = 0;
   const adapters = {
@@ -110,10 +111,10 @@ test('Deliver reports protected paths before storing a candidate', async () => {
   assert.deepEqual(result.artifacts, { shapeHash: context.shape.hash });
 });
 
-test('blocked Deliver logs dependency guidance and keeps the original finding',
+test('blocked Deliver returns guidance through the Controller and keeps its finding',
   async t => {
-    const context = stageFixture();
-    const log = t.mock.method(console, 'error', () => {});
+    const { context, adapters, saved } = await fixture(t, 'deliver');
+    delete context.receipts.merge;
     const evidenceReferences = ['missing-upstream example/core#338'];
     const blockingFindings = ['The installer entry point is missing.'];
     const message = JSON.stringify({
@@ -121,30 +122,35 @@ test('blocked Deliver logs dependency guidance and keeps the original finding',
       rootCause: 'The code is absent.', failureClass: 'shape_defect',
       evidenceReferences, blockingFindings, contractConflicts: [],
     });
-    const handler = stageHandlers({
+    adapters.handlers = stageHandlers({
       workspace: { discardWriterGit: async () => {} },
       deliverBlockedGuidance: async (observed, refs, rebased) => {
-        assert.equal(observed, context);
+        assert.deepEqual(observed, context);
         assert.deepEqual(refs, evidenceReferences);
         assert.equal(rebased, false);
         return 'Verify the native dependency.';
       },
-    }).deliver;
-    const outcome = await handler.readBack(context, {
-      executionId: context.execution.id, terminationHash: 'a'.repeat(64),
-      lastMessage: message,
-      stdout: [
-        { type: 'thread.started', thread_id: context.execution.sessionId },
-        { type: 'turn.started' },
-        { type: 'item.completed', item: { type: 'agent_message', text: message } },
-        { type: 'turn.completed' },
-      ].map(JSON.stringify).join('\n'),
+      agent: { run: async () => ({
+        executionId: context.execution.id, terminationHash: 'a'.repeat(64),
+        lastMessage: message,
+        stdout: [
+          { type: 'thread.started', thread_id: context.execution.sessionId },
+          { type: 'turn.started' },
+          { type: 'item.completed', item: { type: 'agent_message', text: message } },
+          { type: 'turn.completed' },
+        ].map(JSON.stringify).join('\n'),
+      }) },
     });
-    assert.equal(outcome.outcome, 'blocked');
-    assert.deepEqual(outcome.findings, blockingFindings);
-    assert.deepEqual(outcome.references, evidenceReferences);
-    assert.deepEqual(log.mock.calls.map(call => call.arguments),
-      [['Nibfin deliver: Verify the native dependency.']]);
+    const outcome = await new StageRuntime(adapters).run({
+      schemaVersion: 1, stage: 'deliver',
+    });
+    const relayed = await relayControllerRequest({ command: 'stage' }, 999, async () =>
+      ({ stdout: Buffer.from(JSON.stringify(outcome)) }));
+    assert.equal(relayed.status, 'denied');
+    assert.equal(relayed.blockedGuidance, 'Verify the native dependency.');
+    assert.equal(saved[0].outcome, 'blocked');
+    assert.deepEqual(saved[0].findings, blockingFindings);
+    assert.deepEqual(saved[0].references, evidenceReferences);
   });
 
 test('a published Shape is loaded verbatim without starting Author', async t => {
