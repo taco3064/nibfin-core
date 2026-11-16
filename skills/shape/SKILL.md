@@ -47,11 +47,21 @@ If the project-required authorization, independent validation, or trusted public
 For projects whose normal delivery requires a **substantive nonempty maintained Candidate**, a work item is eligible for formal Shape only if all are true:
 
 1. **Development, not an evidence-only ceremony:** Its bounded outcome genuinely needs maintained code, meaningful regression/contract tests, configuration, workflow, packaging, or product documentation. Standalone live E2E, security audit, incident diagnosis, publishing a release, deployment approval/read-back, self-delivery proof and support certification are **not** eligible self-delivered work merely because they can be written as an Issue. Put their verification/release responsibility in the existing authorized process; do not invent filler files, no-op source changes, output reports, or a different deliverable to make Candidate nonempty.
-2. **Substantive output and realistic acceptance:** Identify the actual owned source surface and necessary change, with observable functional/behavioral tests. Do not convert missing E2E, inaccessible host/account, unknown provider effects or publication permissions into implementation code requirements. Do not demand a full real-world support claim as the definition of done for an otherwise locally testable implementation Issue.
+2. **Substantive output and realistic acceptance:** Identify the owned source surface, necessary change and observable behavior for later Acceptance. Do not convert missing E2E, inaccessible host/account, unknown provider effects or publication permissions into implementation code requirements. Do not demand a full real-world support claim as the definition of done for an otherwise locally testable implementation Issue.
 3. **Feasible, evidenced dependency:** Independently check each asserted **existing** interface, policy, shared control-state mechanism, termination oracle, package, published release or Runner capability against current code and official provider facts. An Issue may legitimately **implement a new missing capability** when its Scope explicitly owns that work and a grounded route exists. It may **not** insist on *reusing a capability that is absent*, or silently inflate the new feature to manufacture the absent prerequisite. If none exists, return the exact factual gap and authorized Scope choice needed; no fabricated test proof or speculative infrastructure.
 4. **Existing executor can carry it:** Check the **currently installed** Stage/Candidate/artifact/hook contract and the Issue's real dependencies. If the work requires a runtime capability that is itself missing, first shape the **separately authorized actual implementation** of that capability, or report blocked; do not make a task implement the mechanism required to admit itself. Never weaken protected author/validator independence, source pins, sandbox, unknown-effect Pending, native dependency checks or merge admission to make a task appear deliverable.
 
 **Failed gate:** Return the existing runtime-supported blocked/decision outcome with the **specific invalid Issue clause, source evidence, work-type mismatch, or missing prerequisite** and the safe next owner (Scope Plan/Audit, separate authority decision or trusted recovery). Shape Author and Validator must **not** create sibling Issues, relabel, remove dependencies, rewrite Scope, publish a fake Shape or self-authorize de-enrollment. A general-purpose project that expressly uses a different lifecycle may adopt its valid completion form, but never claim compatibility with a code-backed self-delivery runtime when there is no meaningful maintained Candidate.
+
+Check upstream assumptions that determine whether implementation can start.
+Inspect the maintained interface or released artifact when the chosen route
+depends on it. If a required capability is absent, identify the exact
+capability, its owner and any native `Blocked by` direction needed. Where
+the real integration comes later, shape the independently implementable
+component against the grounded interface. If current main contains an
+interface and the assigned worktree lacks it, record the workspace mismatch
+in diagnostic evidence and use the trusted recovery path. Keep transient
+workspace observations and retry status out of the published requirements.
 
 Check planned paths against the installed delivery policy. If the authorized
 Issue requires a protected workflow change, identify the exact path and the
@@ -216,6 +226,13 @@ State the observable behavior the implementation must deliver. Cover the
 authorized outcomes and relevant failure behavior. Keep test procedures,
 diagnostic runs and evidence collection out of the published Issue body.
 
+Deliver implements the work first. Keep Shape focused on the result to build,
+its boundaries and the behaviors Acceptance must verify. Defer detailed test
+selection to the responsible verification stage. Missing later verification
+results are expected during Shape and Deliver. Report an early blocker only
+when a concrete implementation prerequisite, authorization or governing
+requirement prevents the development work.
+
 Shape resolves factual questions about the existing system by inspecting the
 current code, tests and workflows, and running targeted read-only probes when
 needed and permitted. Use the findings to inform the contract. A factual
@@ -224,12 +241,11 @@ question for Shape must not become an implementation acceptance criterion.
 If additional maintained tests or CI wiring are needed beyond the authorized
 implementation, report the gap to Scope for a separate test-writing plan. Shape
 does not add that work to the Issue, open a new Issue, or introduce a dependency.
-Read the existing CI and CD workflows and their check-selection rules before
-assigning verification. Keep checks already covered there with their existing
-workflow. Assign pre-PR roles only distinct local checks required by the Issue
-or delivery policy. In particular, a website build, browser suite, package
-build or deployment verification covered by CI or CD belongs to that workflow.
-The independent Validator must flag duplicated local execution requirements.
+Default to the project's existing Accept, CI and CD stages. When a particular
+check has an unusual executor or timing, state that boundary briefly. Keep
+existing CI/CD checks with their workflows. Leave matching and reviewing the
+evidence to the owning verification stage. Confirm routing during Shape only
+when the proposed implementation depends on a specific verification route.
 
 ### Security / Trust / Compatibility boundaries
 
@@ -265,6 +281,12 @@ Independently verify:
   for any diagnostic run, evidence collection, or new test-writing work added
   beyond the authorized Scope. Check that Shape resolved material factual
   questions or identified the specific unresolved decision.
+- Flag clauses that require later verification before Deliver or duplicate
+  an existing CI/CD check on the Runner. A concise behavioral contract is
+  sufficient for Shape when ordinary verification can follow implementation.
+- Check the upstream interfaces needed to start work. Identify the exact
+  missing capability or workspace mismatch when it prevents implementation.
+  Return a correction if the contract binds a transient workspace state.
 - No unresolved product decision, scope split/move, upstream assumption, unsafe writing permission or ignored required evidence has been papered over.
 - The proposed Issue Body and published evidence references are cleared for the target's actual visibility; access to private research was not misinterpreted as permission to disclose it.
 
