@@ -13,11 +13,11 @@ export async function requireResourcesSettled(observe = lstat) {
   requireThat(!present, 'RESOURCE_PREPARATION_RECONCILIATION_REQUIRED');
 }
 
-// Use the existing root-owned directory as a stable cross-UID lock inode.
-// Readers need no writable host files. Shared leases span the whole admission;
-// preparation takes the exclusive lease before publishing intent or mutating.
+// The installation parent survives package replacement and is readable by the
+// Controller. Host configuration directories may grant search access only.
+// Shared leases span admission; preparation takes the exclusive lease.
 export async function withResourcePreparationLock(action, { preparing = false } = {}) {
-  const directory = '/etc/nibfin';
+  const directory = '/opt/nibfin';
   await rootOwnedPath(directory);
   const handle = await open(directory, constants.O_RDONLY | constants.O_DIRECTORY |
     constants.O_NOFOLLOW);

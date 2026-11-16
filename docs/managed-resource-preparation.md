@@ -27,8 +27,8 @@ resources and refuses foreign resources, profile conflicts, changed package inpu
 image drift or uncertain probes. Do not delete recovery files to force retry.
 Uncertain effects retain the public admission guard
 `/etc/nibfin/resource-preparation.pending`; credential consumers cannot admit work
-until preparation completes. Admissions hold shared kernel leases on the existing
-root-owned `/etc/nibfin` directory from the guard check through the entire operation,
+until preparation completes. Admissions hold shared kernel leases on the stable
+root-owned `/opt/nibfin` directory from the guard check through the entire operation,
 including manual-profile and initial-adoption paths. Preparation takes an exclusive
 lease before initialization or mutation. Concurrent admissions remain supported;
 a conflicting lease returns `pending` with `RESOURCE_PREPARATION_PENDING` and can
