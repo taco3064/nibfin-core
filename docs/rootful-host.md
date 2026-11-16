@@ -149,3 +149,67 @@ identities, retired the temporary exact sudo rule, reconciled/killed the known
 probe processes and removed its temporary files. No GitHub, model or socket
 operations occurred. This proves transport/fence behavior, not authenticated
 stage execution or automatic recovery of a real Issue.
+
+## Managed dedicated Engine installation
+
+Core also provides a fixed administrator entry for a dedicated/disposable Linux
+x64 systemd host with AppArmor enabled, cgroup v2 resource controllers and
+root namespace user-ID mapping. The first supported stock package layout
+is Docker CE's Debian-family `/usr/bin/dockerd`, vendor `docker.service` and
+`docker.socket`, verified against the local package database. Other layouts,
+custom units, daemon configuration, existing Docker workloads (including images,
+volumes, plugins, custom networks and build cache), and other running daemons are
+refused. An inactive stock daemon is eligible only with empty stock data/runtime
+roots. This does not certify a host or install Docker, AppArmor, product images,
+network policy, credentials, or a downstream host profile.
+
+Install and verify Core at `/opt/nibfin/core` through the existing source-package
+process. The administrator supplies `/etc/nibfin/engine-install.json` containing
+only `{"pin": <the approved installed-source pin>}`. This is a root-owned regular
+file under root-owned, non-writable parents; it is not a workflow input. No daemon,
+unit, executable, endpoint, or remap override is accepted. Required utilities are
+checked before dependent effects; missing `getfacl`, for example, reports
+`ENGINE_REQUIRED_GETFACL_UNAVAILABLE` without installing software.
+
+Run locally as root:
+
+```sh
+/opt/nibfin/core/bin/nibfin-engine-install.mjs \
+  --dedicated-disposable-host --acknowledge-stock-handoff
+```
+
+Both acknowledgements are required. They acknowledge a dedicated host and the
+stock-service handoff, including the inability to rule out all external Docker
+clients. They do not replace configuration, workload, ownership or access checks.
+The installer masks persistent stock socket/service activation and verifies their
+settlement before starting `nibfin-engine.service`. It creates locked fixed
+accounts, a controller-only access group, independently allocated non-overlapping
+subordinate UID/GID ranges, private roots and fixed daemon configuration. It never
+rewrites unrelated subordinate-ID entries or conflicting managed files.
+
+Success returns an internal verified descriptor containing the dedicated socket,
+namespace and resource ownership. Verification binds the socket listener to the
+managed daemon process, checks effective units, rootful capabilities, socket ACLs,
+Runner accounts and actual process credentials. A temporary local rootfs containing
+the installed `sleep` and its trusted loader/libraries supplies a restricted,
+networkless verification container. The installer reads its actual kernel UID/GID
+maps and AppArmor label, then verifies container/image cleanup. No image download
+or maintained product image is introduced by this probe.
+
+The root-owned private journal at `/var/lib/nibfin-engine-install/state.json`
+retains original stock state, allocation intent and effect outcomes. Repeated
+invocation adopts only exact readback and obtains fresh kernel evidence. A lost
+command response is successful only when readback proves the intended state.
+Unresolved effects report a reconciliation error; invocation does not blindly
+repeat them or restore stock activation. Interrupted probe identities are retained
+for explicit administrator reconciliation rather than importing another image.
+A crash may also retain the existing recovery guard. Do not delete the journal,
+steal that guard on PID/age evidence, or re-enable stock Docker alongside the
+managed daemon. Reconcile recorded resources, active processes, activation and
+workloads first. Original state is retained for separately authorized removal;
+this entry is not a general uninstaller.
+
+Existing manually prepared rootful hosts and the rootless backend continue to use
+their existing paths without invoking this administrator capability. Local tests
+exercise service, filesystem, access and kernel-evidence doubles; they are not
+live-host installation or support certification.

@@ -4,6 +4,7 @@ import { executionProfile } from './execution-profiles.mjs';
 import { rootOwnedPath } from './host-paths.mjs';
 
 export const rootlessBackend = Object.freeze({ kind: 'linux-rootless-docker-v1' });
+export const rootfulNamespaceSize = 65536;
 export const rootfulSocket = '/run/nibfin-engine/docker.sock';
 
 // Only the installed composition supplies this administrative backend contract.
@@ -15,9 +16,9 @@ export function dockerBackend(value = rootlessBackend) {
       n &&
         Object.keys(n).sort().join(',') === 'gidStart,size,uidStart' &&
         [n.uidStart, n.gidStart].every(
-          (x) => Number.isSafeInteger(x) && x >= 65536 && x <= 4294901760,
+          (x) => Number.isSafeInteger(x) && x >= rootfulNamespaceSize && x <= 4294901760,
         ) &&
-        n.size === 65536,
+        n.size === rootfulNamespaceSize,
       'INVALID_DOCKER_NAMESPACE',
     );
   }
