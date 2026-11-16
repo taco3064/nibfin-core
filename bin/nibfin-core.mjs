@@ -20,10 +20,14 @@ import { adoptSharedPeer } from '../src/shared-peer-adoption.mjs';
 import { adoptSharedHost } from '../src/shared-host-adopt.mjs';
 
 import { credentialAdministrator } from '../src/managed-credentials.mjs';
+import { prepareManagedOnboarding } from '../src/managed-onboarding.mjs';
 
 // This entry point never imports a caller-selected adapter or runs candidate code.
 async function main(args) {
   const [command, ...values] = args;
+  if (command === 'prepare-managed-onboarding' &&
+      values.join(',') === '--consent-dedicated-engine')
+    return prepareManagedOnboarding();
   if (command === 'managed-credentials' && values.length === 1)
     return credentialAdministrator(values[0]);
   if (command === 'resolve-event' && values.length === 0) return runIssueWake();
@@ -71,6 +75,7 @@ async function main(args) {
     return {
       commands: [
         'contract',
+        'prepare-managed-onboarding --consent-dedicated-engine (local admin)',
         'managed-credentials <intake|replace|status|disconnect> (local admin)',
         'inspect-shared-host',
         'retire-shared-host (local administrator, no arguments)',

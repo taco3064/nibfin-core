@@ -7,6 +7,7 @@ import { syncRecoveryDirectory } from './recovery-lock.mjs';
 
 const unsafe = 'MANAGED_CREDENTIAL_PATH_UNSAFE';
 export const managedBase = '/var/lib/nibfin/controller';
+export const credentialBindingFile = '/etc/nibfin/credential-intake.json';
 export const managedPaths = Object.freeze({
   stateRoot: join(managedBase, 'state'),
   tokenFile: join(managedBase, 'credentials/github-token'),
