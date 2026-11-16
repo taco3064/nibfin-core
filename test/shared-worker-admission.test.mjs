@@ -5,6 +5,8 @@ import { test } from 'node:test';
 import { gitBlob } from '../src/identity.mjs';
 import { admitSharedWorker, sharedWorkerContext }
   from '../src/security/shared-worker-admission.mjs';
+import { sharedWorkerDiagnostic, sharedWorkerReader }
+  from '../src/security/shared-worker-reader.mjs';
 
 const path = '.github/workflows/shared-runner.yml';
 const commit = 'a'.repeat(40);
@@ -68,6 +70,41 @@ function provider() {
     return responses[key];
   } };
 }
+
+test('authenticates every pre-Worker read, including Actions and Checks', async () => {
+  const fixture = provider();
+  const token = 'fake-job-token-for-this-test';
+  const reads = new Set();
+  const reader = sharedWorkerReader({ isSecret: true, value: token },
+    async (url, options) => {
+      const parsed = new URL(url);
+      const key = parsed.pathname + parsed.search;
+      assert.equal(parsed.origin, 'https://api.github.com');
+      assert.equal(options.headers.Authorization, `Bearer ${token}`);
+      assert.equal(options.redirect, 'error');
+      reads.add(key);
+      return Response.json(await fixture.get(key));
+    });
+  await admitSharedWorker(reader, request(), binding, ref, 20);
+  assert.deepEqual(reads, new Set(Object.keys(fixture.responses)));
+});
+
+test('denies missing credentials and reports only the failing path and HTTP status',
+  async () => {
+    const secret = 'fake-job-token-for-this-test';
+    assert.throws(() => sharedWorkerReader({ isSecret: false, value: secret }),
+      { code: 'SHARED_WORKER_READ_CREDENTIAL_UNAVAILABLE' });
+    let calls = 0;
+    const reader = sharedWorkerReader({ isSecret: true, value: secret }, async () => {
+      calls++;
+      return new Response(secret, { status: 403 });
+    });
+    const detail = 'SHARED_WORKER_PROVIDER_UNAVAILABLE GET ' +
+      '/repos/example/project/actions/runs/40 HTTP 403';
+    await assert.rejects(reader.get('/repos/example/project/actions/runs/40?a=1'),
+      error => sharedWorkerDiagnostic(error) === detail);
+    assert.equal(calls, 1);
+  });
 
 test('rejects a fork job or alternate Workflow before reading the provider', async () => {
   const reader = { get: () => assert.fail('unexpected GitHub read') };

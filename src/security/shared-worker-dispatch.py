@@ -65,7 +65,7 @@ def admit(source):
     subprocess.run(
         [node, str(CORE / "src/security/shared-worker-entry.mjs")],
         input=body, env={"PATH": "/usr/bin:/bin", "LANG": "C.UTF-8"},
-        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True, timeout=45,
+        stdout=subprocess.DEVNULL, check=True, timeout=45,
         preexec_fn=lambda: exit_with_parent(parent),
     )
     return header + body

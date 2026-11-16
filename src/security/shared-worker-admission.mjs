@@ -54,14 +54,13 @@ async function admitAssignedJob(reader, root, runId, attempt, commit, binding, g
 
 // Checks the Listener's message before launching the official Worker. Core
 // still performs its OIDC, exact Job/Runner and target admission in the caller.
-export async function admitSharedWorker(reader, message, binding, ref, ownerId,
-  publicReader = reader) {
+export async function admitSharedWorker(reader, message, binding, ref, ownerId) {
   const { runId, attempt, commit } = sharedWorkerContext(message, binding, ref);
   const root = repoPath(binding.repository);
   const [repository, run, workflow] = await Promise.all([
     reader.get(root),
-    publicReader.get(`${root}/actions/runs/${runId}/attempts/${attempt}`),
-    publicReader.get(`${root}/actions/workflows/${binding.workflowId}`),
+    reader.get(`${root}/actions/runs/${runId}/attempts/${attempt}`),
+    reader.get(`${root}/actions/workflows/${binding.workflowId}`),
   ]);
   const branch = repository.default_branch;
   requireThat(repository.id === binding.repositoryId &&
@@ -92,6 +91,6 @@ export async function admitSharedWorker(reader, message, binding, ref, ownerId,
   await readCallerContinuity(reader, binding.repository, pin, commit);
   if (head.commit.sha !== commit)
     await readCallerContinuity(reader, binding.repository, pin, head.commit.sha);
-  await admitAssignedJob(publicReader, root, runId, attempt, commit,
+  await admitAssignedJob(reader, root, runId, attempt, commit,
     binding, message.jobId);
 }
