@@ -4,8 +4,9 @@ import { mkdtemp, mkdir, writeFile, rm, access } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { retryDelay } from '../scripts/retry-shared-runner.mjs';
-import { boundedHostFile } from '../src/host-adoption.mjs';
+import * as hostAdoption from '../src/host-adoption.mjs';
 import * as hostContainers from '../src/host-containers.mjs';
+import * as resources from '../src/managed-resource-admission.mjs';
 
 const scenario = process.argv[2];
 const observations = { adoption: 0, job: 0, approval: 0 };
@@ -48,10 +49,13 @@ const moduleMock = (path, namedExports) => mock.module(path, { namedExports });
 moduleMock('../src/notion-proposal.mjs', { readNotionProposal: async () => {} });
 moduleMock('../src/host-relay.mjs', { relayHostCommand: async () => null });
 moduleMock('../src/host-adoption.mjs', {
-  boundedHostFile,
+  ...hostAdoption,
   loadHostAdoption: async () => observe('adoption', context),
   inspectHostAdoption: async () => {},
   readGlobalInstructions: async () => '', rootOwnedPath: async () => {},
+});
+moduleMock('../src/managed-resource-admission.mjs', {
+  ...resources, withResourcePreparationLock: action => action(),
 });
 moduleMock('../src/runner-binding.mjs', { readRunnerBinding: async () => ({}) });
 moduleMock('../src/actions-identity.mjs', { actionsCaller: () => async () => {} });
