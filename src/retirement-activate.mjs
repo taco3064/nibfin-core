@@ -37,7 +37,8 @@ async function verifyRepository(reader, host, target, source) {
   requireThat(approval.repository === target.repository &&
     approval.memberId === host.memberId && runner.runnerId === host.runnerId &&
     runner.runnerName === host.sharedRunner.runner.runnerName &&
-    eventRunner.runnerId === runner.runnerId && eventRunner.runnerName === runner.runnerName,
+    eventRunner.runnerId === runner.runnerId &&
+    eventRunner.runnerName === runner.runnerName,
   'RETIREMENT_REPOSITORY_CHANGED');
   await verifyAdoptionAction(reader, runner.actionCommit, host.installation.pin);
   const observed = await observePeer(reader, target.repository,
@@ -65,11 +66,13 @@ export async function activateSharedReplacement() {
       const reader = await adoptionReader(host);
       for (const target of targets) await verifyRepository(reader, host, target, source);
       const relay = await inspectNotificationRelay();
-      requireThat(relay.github.status === 'verified' && relay.recovery.status === 'observed' &&
-        relay.recovery.control.paused === false && relay.resources.every(
-          resource => resource.status === 'prepared') && relay.service.units?.some(
-          unit => unit.Id === 'nibfin-notification-relay.timer' && unit.LoadState === 'loaded' &&
-            unit.ActiveState === 'active'), 'RETIREMENT_RELAY_UNVERIFIED');
+      const timer = relay.service.units?.find(
+        unit => unit.Id === 'nibfin-notification-relay.timer');
+      requireThat(relay.github.status === 'verified' &&
+        relay.recovery.status === 'observed' && relay.recovery.control.paused === false &&
+        relay.resources.every(resource => resource.status === 'prepared') &&
+        timer?.LoadState === 'loaded' && timer.ActiveState === 'active',
+      'RETIREMENT_RELAY_UNVERIFIED');
       await verifyRunningSharedServices();
       const registrations = await reader.list(
         repoPath(pool.repository) + '/actions/runners', 'runners');
