@@ -1,0 +1,40 @@
+# Changing Nibfin Skills
+
+Use historical GitHub Issues to check that a Skill change improves decisions
+while preserving the approved development outcome and role boundaries.
+
+1. Select a representative failure and a nearby case that should still pass.
+   Use the original Issue body, its edit history and timeline, native
+   dependencies, linked PRs and Actions jobs, and the corresponding source and
+   Runner policy. Keep the input limited to facts available at the stage being
+   replayed. When a body or log cannot be recovered, identify the gap and label
+   the reconstruction as partial. Keep credentials and private runner data out
+   of public evidence.
+2. Write down the expected stage decision and its source before evaluating the
+   revision. Replay the old and revised instructions on the same input in a
+   disposable, read-only exercise. Where possible use a fresh role invocation
+   with the actual prompt and relevant input mounts. Keep the expected answer
+   out of the input. A replay should never edit or dispatch the historical Issue.
+3. Compare both outputs against the expected decision. Check for invented public
+   interfaces, dependencies, permissions and pre-Deliver verification. Preserve
+   the actual product behavior, responsibility and security boundary. Record
+   source links, role, runtime, outcome and limitations in the PR. A manual
+   walkthrough or deterministic prompt test checks a narrower property than a
+   fresh model run. Identify which was used.
+
+Useful cases:
+
+- [E2E #124](https://github.com/taco3064/nibfin-e2e/issues/124) and
+  [the failed Deliver](https://github.com/taco3064/nibfin-core/actions/runs/44093311788).
+  The simulated switch still covers preview without mutation and durable recovery.
+  When the same preview implementation has a maintained fixture interface, the
+  plan can use it without requiring installed Core paths or a public test API.
+  In a separate case where command parsing is the required behavior, preserve
+  the CLI boundary.
+- [Core #343](https://github.com/taco3064/nibfin-core/issues/343),
+  [the failed Deliver](https://github.com/taco3064/nibfin-core/actions/runs/44088851966)
+  and [the merged PR](https://github.com/taco3064/nibfin-core/pull/435).
+  Trace website checks to Core CI and publication to Core CD. Preserve the
+  maintained documentation changes while allowing handoff before the owning
+  workflow result exists. In a separate case with an actual role-owned check,
+  preserve that check.

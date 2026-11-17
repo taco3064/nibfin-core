@@ -128,8 +128,9 @@ test('Writer and Acceptor receive a trusted verification contract', () => {
     assert.match(contract, /only if it resolves a concrete/);
     assert.match(contract, /Avoid duplicate test environments/);
     assert.match(contract, /Block on unresolved failures affecting the change/);
-    assert.match(contract, /omitted required runnable\nlocal checks/);
-    assert.match(contract, /missing evidence required by the Shape/);
+    assert.match(contract, /omitted required runnable\nlocal checks owned by this role/);
+    assert.match(contract, /Do not duplicate them here/);
+    assert.match(contract, /pending or unavailable workflow results as Unverified/);
   }
   const shape = codexPlan('shape', {
     model: 'configured-model', skill: skill('shape'), context: {},

@@ -257,6 +257,23 @@ affected callers and their compatibility obligations. State operational
 constraints and real prerequisites. Deliver may adjust engineering details
 within the authorized goals, scope and trust boundaries.
 
+### Feasible implementation in the assigned Runner
+
+Inspect the current trusted invocation, available source mounts, declared project
+tools and applicable execution policy for capabilities the plan depends on.
+Distinguish Shape's read-only access from Deliver's workspace and from native
+CI/CD. Use focused read-only inspection if a material fact remains uncertain.
+Availability on the host, in a different role or in another repository does not
+establish availability in this Job.
+
+Trace a required entry point through its callers to the shared implementation
+and inspect the fixture or controlled interface and its inputs. Mandate a specific
+public entry point only if an authorized requirement covers that boundary. When
+the goal is shared behavior and an existing fixture can exercise the same
+implementation, use that route. If a required operation is unavailable, name the
+operation, stage and missing capability, and identify the existing owner or the
+authorized Scope decision needed.
+
 ### Expected behavior
 
 Describe the authorized outcome and material failure behavior in observable terms. Accept chooses the verification methods after Deliver. Keep test plans, test commands and diagnostic results in their owning stages and evidence.
@@ -298,6 +315,11 @@ Independently verify:
   callers. Check that a shared change preserves each affected contract and that
   any new implementation has a concrete reason where an existing path appears
   suitable.
+- Independently trace consequential Runner capability and entry-point claims to
+  the current invocation, maintained source or applicable workflow. Return a
+  correction for avoidable host or public-entry prerequisites, or a local run
+  duplicating work owned by existing CI/CD. Report a capability as missing only
+  when the authorized implementation actually needs it.
 - Check that the Candidate Obligation Inventory matches the actual runtime, hook configuration and required deliverables.
 - Confirm the Issue body describes implementation outcomes. Return a correction
   for any diagnostic run, evidence collection, or new test-writing work added
