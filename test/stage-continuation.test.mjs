@@ -255,6 +255,28 @@ test('Protected CI failures during Review and Merge require fresh Accept', async
     await assertCorrectionContinues(stage, { check: 'Windows', conclusion: 'failure' });
 });
 
+test('a correction retries only with a trusted blocked Deliver receipt', async () => {
+  for (const confirmed of [true, false]) {
+    const f = fixture();
+    const execute = f.options.execute;
+    const failure = { check: 'verify', conclusion: 'failure' };
+    f.options.execute = async (stage, diagnostic) => {
+      if (stage === 'review-pr')
+        return { stage, status: 'denied', code: 'CI_REQUIRED_CHECK_FAILED', failure };
+      if (!diagnostic) return execute(stage);
+      assert.deepEqual(diagnostic, failure);
+      const receipt = { stage, outcome: 'blocked', blockedCICorrection: confirmed };
+      const receiptHash = digest(receipt);
+      f.receipts[stage] = receipt;
+      return { stage, status: 'denied', code: 'STAGE_REQUIRES_CORRECTION', receiptHash };
+    };
+    const result = await continueStages(f.options);
+    assert.equal(result.code, confirmed
+      ? 'CI_CORRECTION_RETRY_PENDING' : 'STAGE_REQUIRES_CORRECTION');
+    assert.equal(f.calls.includes('merge'), false);
+  }
+});
+
 test('unchanged rebase retains hooks, Accept and Final Review evidence', async () => {
   const f = fixture();
   const shapeHash = 'a'.repeat(64);

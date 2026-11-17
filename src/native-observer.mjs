@@ -5,6 +5,7 @@ import { readCurrentMain } from './current-main.mjs';
 import { readRunnerBinding } from './runner-binding.mjs';
 import { readDependencies } from './dependencies.mjs';
 import { readPullRequestCI } from './github-ci.mjs';
+import { ciLogsWaiting, requiredCheckFailed } from './ci-recovery.mjs';
 import { selectAssignee } from './selection.mjs';
 import { EvidenceStore } from './evidence-store.mjs';
 import { evidenceBinding, stages } from './stages.mjs';
@@ -180,6 +181,7 @@ export function nativeObserver({
         mergePreview: pr.merge_commit_sha,
         ...(pr.merged ? { mergeCommit: pr.merge_commit_sha } : {}),
       };
+      let resumeCICorrection = false;
       if (stage === 'deliver' && receipts.deliver?.outcome === 'blocked' &&
         pr.state === 'open' && pr.head.sha === saved.head &&
         commit.tree.sha === published.tree &&
@@ -187,6 +189,8 @@ export function nativeObserver({
         // Resume the published changes only if the stopped Writer left them intact.
         context.candidate = published;
         context.rebaseTarget = main.head;
+        resumeCICorrection = !pinned.ciFailure && pr.merged === false &&
+          receipts.deliver.blockedCICorrection === true && pr.base.sha === main.head;
       }
       if (stage === 'deliver' && pinned.ciFailure) {
         const failure = pinned.ciFailure;
@@ -199,7 +203,7 @@ export function nativeObserver({
         );
         context.ciFailure = failure;
       }
-      if (['review-pr', 'merge', 'close'].includes(stage)) {
+      if (resumeCICorrection || ['review-pr', 'merge', 'close'].includes(stage)) {
         const expected = {
           repository: record.issue.repository,
           repositoryId: record.issue.repositoryId,
@@ -229,10 +233,17 @@ export function nativeObserver({
           }));
         }
         if (stage === 'review-pr') context.checkObservations = [];
-        context.ci = await readPullRequestCI(reader, expected, clock(), {
+        const ci = await readPullRequestCI(reader, expected, clock(), {
           repository: approval.repository, pr,
           checkObservations: context.checkObservations,
+        }).catch(error => {
+          if (!resumeCICorrection || error.code !== requiredCheckFailed) throw error;
+          if (error.failure.logsUnavailable)
+            throw Object.assign(new Error(ciLogsWaiting), { code: ciLogsWaiting });
+          context.ciFailure = error.failure;
+          return null;
         });
+        if (!resumeCICorrection) context.ci = ci;
       }
     }
     // A pending CI observation needs no Runner or isolation check. Any stage

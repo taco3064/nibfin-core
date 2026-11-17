@@ -9,6 +9,8 @@ import {
 } from '../src/observation-failure.mjs';
 import { sharedWorkflowPath } from '../src/shared-runner.mjs';
 import { retryableWriterPressure } from '../src/job-vm-pressure.mjs';
+import { pendingCIObservation } from '../src/github-ci.mjs';
+import { ciCorrectionWaiting } from '../src/ci-recovery.mjs';
 
 const repository = 'taco3064/nibfin-core';
 const maxAttempt = 3;
@@ -20,15 +22,17 @@ export function retryDelay(log, id, attempt) {
   let result;
   try { result = JSON.parse(matches[0][1]); }
   catch { return null; }
+  if (result.stage !== 'continue' || result.retrySettled !== true ||
+    result.retryRun !== id || result.retryAttempt !== attempt) return null;
   const wait = result.retryAfterMs;
   const memoryWait = result.status === 'denied' &&
     retryableWriterPressure(result.code) && result.terminalStage === 'deliver';
-  if (memoryWait)
-    return result.stage === 'continue' && result.retrySettled === true &&
-      result.retryRun === id && result.retryAttempt === attempt ? 5 * 60_000 : null;
-  return result.status === 'pending' && result.code === githubReadWaiting &&
-    result.stage === 'continue' && result.retrySettled === true &&
-    result.retryRun === id && result.retryAttempt === attempt &&
+  if (memoryWait) return 5 * 60_000;
+  if (result.status !== 'pending') return null;
+  const correctiveDeliver = result.code === ciCorrectionWaiting &&
+    result.terminalStage === 'deliver';
+  if (pendingCIObservation(result.code) || correctiveDeliver) return 60_000;
+  return result.code === githubReadWaiting &&
     Number.isSafeInteger(wait) && wait >= 0 && wait <= maxDelay
     ? Math.max(30000, wait) : null;
 }

@@ -5,7 +5,7 @@ import { enforcementPaths, equivalentCandidate } from './candidate-evidence.mjs'
 import { integrationRepairRequired, pendingCIObservation } from './github-ci.mjs';
 import { codexIdle } from './codex-bootstrap.mjs';
 import { retryableWriterPressure } from './job-vm-pressure.mjs';
-import { requiredCheckFailed } from './ci-recovery.mjs';
+import { ciCorrectionWaiting, requiredCheckFailed } from './ci-recovery.mjs';
 import {
   githubReadDelay, githubReadWaiting, retryGitHubObservation,
 } from './observation-failure.mjs';
@@ -31,6 +31,18 @@ async function reportedReceipt(store, stage, result) {
   const receipt = (await store.load())[stage];
   return receipt?.stage === stage && digest(receipt) === result.receiptHash
     ? receipt : null;
+}
+
+async function resumableCorrection(store, result) {
+  if (result.status !== 'denied' ||
+    !['STAGE_REQUIRES_CORRECTION', codexIdle.code].includes(result.code))
+    return result;
+  const receipt = await reportedReceipt(store, 'deliver', result);
+  if (receipt?.outcome !== 'blocked' || receipt.blockedCICorrection !== true)
+    return result;
+  if (result.code === codexIdle.code && !await stoppedAgentCanRestart(
+    store, 'deliver', receipt)) return result;
+  return { ...result, status: 'pending', code: ciCorrectionWaiting };
 }
 
 // This only drives the existing ordered stage contract. There is no second
@@ -101,7 +113,7 @@ export async function continueStages({
   const repairCandidate = async (rejected, ciFailure) => {
     await inspectCurrent();
     const repaired = await execute('deliver', ciFailure);
-    if (repaired.status !== 'completed') return repaired;
+    if (repaired.status !== 'completed') return resumableCorrection(store, repaired);
     const delivery = await store.get(repaired.receiptHash);
     const candidate = await store.get(delivery.artifacts.candidateHash);
     if (await equivalentCandidate(store, candidate, rejected.artifacts.candidateHash)) {
@@ -204,7 +216,8 @@ export async function continueStages({
         return repairCandidate(rejected);
       }
     }
-    if (result.status !== 'completed') return result;
+    if (result.status !== 'completed')
+      return stage === 'deliver' ? resumableCorrection(store, result) : result;
     const receipt = await store.get(result.receiptHash);
     const current = await store.load();
     requireThat(

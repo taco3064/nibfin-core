@@ -1,4 +1,6 @@
 export const requiredCheckFailed = 'CI_REQUIRED_CHECK_FAILED';
+export const ciLogsWaiting = 'CI_FAILURE_LOG_WAITING';
+export const ciCorrectionWaiting = 'CI_CORRECTION_RETRY_PENDING';
 
 const goToolErrors = [
   'UNTRUSTED_TOOL_PATH', 'TOOL_UNAVAILABLE', 'TEMP_DIRECTORY_UNAVAILABLE',
@@ -74,6 +76,9 @@ function cleanName(name) {
 export function ciFailureResult(error, stage) {
   if (error?.code !== requiredCheckFailed || !error.failure ||
     !['review-pr', 'merge'].includes(stage)) return null;
+  if (error.failure.logsUnavailable)
+    return { schemaVersion: 1, stage, status: 'pending', code: ciLogsWaiting,
+      failure: error.failure };
   return { schemaVersion: 1, stage, status: 'denied', code: requiredCheckFailed,
     failure: error.failure };
 }

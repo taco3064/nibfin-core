@@ -36,6 +36,20 @@ test('retry marker binds the settled result to this run and attempt', () => {
   assert.equal(retryDelay(marker.replace('60000', '3660001'), 2, 1), null);
 });
 
+test('only settled and matching CI continuations receive a new attempt', () => {
+  const result = { schemaVersion: 1, status: 'pending', stage: 'continue',
+    terminalStage: 'deliver', retrySettled: true, retryRun: 2, retryAttempt: 1 };
+  for (const code of ['CI_WAITING', 'CI_FAILURE_LOG_WAITING',
+    'CI_CORRECTION_RETRY_PENDING']) {
+    assert.equal(retryDelay(JSON.stringify({ ...result, code }), 2, 1), 60000);
+    assert.equal(retryDelay(JSON.stringify({ ...result, code, retrySettled: false }),
+      2, 1), null);
+  }
+  const code = 'CONTROLLER_HANDOFF_UNRESOLVED';
+  assert.equal(retryDelay(JSON.stringify({ ...result, code }), 2, 1), null);
+  assert.equal(retryDelay(JSON.stringify({ ...result, code: 'CI_CORRECTION_RETRY_PENDING',
+    terminalStage: 'accept' }), 2, 1), null);
+});
 test('a settled failure retries once and skips an already resumed attempt', async () => {
   for (const moved of [false, true]) {
     let current = { ...run };

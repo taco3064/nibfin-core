@@ -4,7 +4,7 @@ import { digest, isId, isSha, requireThat } from './identity.mjs';
 import { readReviewers } from './github-approval.mjs';
 import { readProtection } from './github-protection.mjs';
 import { readMergeIdentity } from './github-merge.mjs';
-import { failedCheckError } from './ci-recovery.mjs';
+import { ciLogsWaiting, failedCheckError } from './ci-recovery.mjs';
 
 const pendingObservations = Object.freeze([
   'MERGE_REOBSERVE_REQUIRED',
@@ -14,6 +14,7 @@ const pendingObservations = Object.freeze([
   'CI_RERUN_OR_REVOCATION',
   'CI_REGISTRATION_PENDING',
   'PR_MERGEABILITY_PENDING',
+  ciLogsWaiting,
 ]);
 // These codes arise before an effect, after current PR/source/authority reads.
 // Missing checks and unknown mergeability are not claims of observed running CI.
