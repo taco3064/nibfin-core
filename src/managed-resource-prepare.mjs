@@ -7,7 +7,7 @@ import { resourceProbe } from './managed-resource-probe.mjs';
 export async function deliverManagedResources(io) {
   const engine = await io.verifyEngine();
   const architecture = engine.architecture ?? 'amd64';
-  const inputs = await io.inputs();
+  const inputs = await io.inputs(architecture);
   let state = await io.load();
   if (!state) {
     await io.pristine();
@@ -57,7 +57,8 @@ export async function deliverManagedResources(io) {
   for (const slot of [1, 2]) {
     for (const kind of ['agent', 'hooks']) {
       await resourceProbe(io, state, state.images[kind], engine.namespace, save,
-        `${slot}:${kind}`);
+        `${slot}:${kind}`, () => io.availability(
+          state.probe.id, kind, inputs));
     }
   }
   const profile = managedProfile(engine.namespace, state.images);

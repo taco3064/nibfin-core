@@ -31,6 +31,10 @@ function fixture(fault) {
       io.gateOwner = null;
     },
     controller: async () => {},
+    availability: async () => {
+      if (fault === 'native-unavailable')
+        throw { code: 'RESOURCE_NATIVE_EXECUTABLE_UNAVAILABLE' };
+    },
     async image(kind) {
       if (!io.images[kind]) io.images[kind] = image(kind);
       return io.images[kind];
@@ -187,3 +191,39 @@ test('unresolved preparation blocks admission without private state', async () =
   await assert.rejects(requireResourcesSettled(async () => { throw { code: 'EACCES' }; }),
     { code: 'EACCES' });
 });
+
+test('native availability failure prevents publication and proves probe cleanup',
+  async () => {
+    const io = fixture('native-unavailable');
+    await assert.rejects(deliverManagedResources(io),
+      { code: 'RESOURCE_NATIVE_EXECUTABLE_UNAVAILABLE' });
+    assert.equal(io.state.effects.profile, undefined);
+    assert.equal(io.state.probe.phase, 'complete');
+    assert(io.gateOwner);
+    assert(io.commands.some(args => args[0] === 'rm'));
+  });
+
+test('platform-specific inputs cannot reuse another target recovery state', async () => {
+  const io = fixture();
+  let architecture = 'arm64';
+  io.verifyEngine = async () => ({ identity: 'engine', namespace, architecture });
+  io.inputs = async target => ({ policy: 'policy', native: { platform: target } });
+  await deliverManagedResources(io);
+  assert.equal(io.state.architecture, 'arm64');
+  architecture = 'amd64';
+  const before = io.commands.length;
+  await assert.rejects(deliverManagedResources(io), { code: 'RESOURCE_STATE_CONFLICT' });
+  assert.equal(io.commands.length, before);
+});
+
+test('unavailable native inputs stop before journal, gate or managed effects',
+  async () => {
+    const io = fixture();
+    io.inputs = async () => { throw { code: 'RESOURCE_INPUT_IMAGE_UNAVAILABLE' }; };
+    io.load = async () => { assert.fail('must resolve inputs before recovery'); };
+    await assert.rejects(deliverManagedResources(io),
+      { code: 'RESOURCE_INPUT_IMAGE_UNAVAILABLE' });
+    assert.equal(io.state, null);
+    assert.equal(io.gateOwner, null);
+    assert.equal(io.commands.length, 0);
+  });

@@ -30,9 +30,10 @@ checked against that catalog:
 | python | 3.13.7 | Official Python slim-bookworm |
 | go | 1.27.1 | Official Golang bookworm |
 
-Preparation currently supports **linux/amd64** Docker daemons only, on the existing
-supported Linux rootless or remapped rootful backend. The socket, daemon resource
-and security checks still apply. Rootful validation also runs the native
+Preparation implements **linux/amd64** and **linux/arm64** native Docker routes
+on the existing Linux rootless or remapped rootful backend. The daemon must
+match the host architecture; emulation does not establish support. The socket,
+daemon resource and security checks still apply. Rootful validation also runs the native
 AppArmor/namespace probe. No host tool installation, registry credentials or
 privileged containers are required.
 
@@ -91,3 +92,13 @@ acquisition access to Docker's official image service and the verified base
 Agent image. It uses no real login or inference. Simulated tests do
 not establish a Docker integration pass; hosts without Docker must report this
 check as Unverified and obtain native CI/Acceptance evidence separately.
+
+On the managed native Linux route, Agent Node/Go sources are resolved separately
+from the existing per-architecture project-tool catalog. Project Node, Python and
+Go retain their own immutable child references, platform cache keys and exact
+version checks through the project PATH. The bootstrap Node/Codex PATH remains
+fixed. Unknown platforms and unavailable pinned tools stop the affected request;
+no version substitution or emulation is supported. Browser dependencies remain
+project package/lockfile inputs: the managed Agent checks its Chromium libraries
+and fonts without installing an unrelated browser for every tool request. Actual
+browser launch is verified by the selected project's browser tests.

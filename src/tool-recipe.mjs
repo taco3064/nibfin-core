@@ -65,7 +65,9 @@ export async function preparationRecipe(tools, baseImage, arch = process.arch) {
 
 // Execute only trusted commands with a fixed bootstrap runtime. The development
 // PATH is tested independently; Codex and its Node wrapper use the fixed PATH.
-export function versionProbe(tools, versions) {
+export function versionProbe(tools, versions, {
+  codex = true, npm,
+} = {}) {
   return `
 const {execFileSync} = require('node:child_process');
 const check = (file, args, expected, path, input) => {
@@ -86,7 +88,10 @@ const fixed = '/usr/local/bin:/usr/bin:/bin';
 const project = ${JSON.stringify(projectToolPath)};
 check('/usr/local/bin/node', ['--version'], ${JSON.stringify('v' + versions.node)},
   fixed);
-check('/usr/local/bin/codex', ['--version'], ${JSON.stringify(versions.codex)}, fixed);
+${codex ? `check('/usr/local/bin/codex', ['--version'],
+  ${JSON.stringify(versions.codex)}, fixed);` : ''}
+${npm ? `check('/usr/local/bin/npm', ['--version'],
+  ${JSON.stringify(npm)}, fixed);` : ''}
 const tools = ${JSON.stringify(tools)};
 if (tools.node) {
   check('node', ['--version'], 'v' + tools.node, project);

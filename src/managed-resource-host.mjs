@@ -14,6 +14,11 @@ import { managedResources as resources } from './managed-resource-contract.mjs';
 import { prepareSharedAccounts } from './shared-host-setup.mjs';
 import { managedPaths } from './managed-credential-files.mjs';
 import { resourcePreparationGate } from './managed-resource-admission.mjs';
+import {
+  prepareAgentInputs, resolvedAgentRecipe, agentVersions,
+} from './agent-image-inputs.mjs';
+import { browserRuntimeProbe } from './browser-runtime-inputs.mjs';
+import { versionProbe } from './tool-recipe.mjs';
 import { syncRecoveryDirectory } from './recovery-lock.mjs';
 
 const security = join(coreRoot, 'src/security');
@@ -41,7 +46,7 @@ async function kernelPolicy() {
 
 // The fixed installed composition supplies no overrides; tests use a local IO double.
 export function managedResourceHost(confirmSource, engine = engineHost()) {
-  const docker = args => engine.docker(true, args);
+  const docker = (args, options) => engine.docker(true, args, options);
   const io = {
     ...engine,
     confirmSource,
@@ -66,13 +71,21 @@ export function managedResourceHost(confirmSource, engine = engineHost()) {
       }
       requireThat(false, 'RESOURCE_PROBE_TERMINATION_UNKNOWN');
     },
-    async inputs() {
+    async inputs(architecture) {
       const inputs = {};
       for (const name of Object.values(resources.recipes))
         inputs[name] = await boundedHostFile(join(security, name), 16384);
       for (const name of ['package.json', 'package-lock.json'])
         inputs[name] = await boundedHostFile(join(security, 'managed-npm', name),
           1024 * 1024);
+      inputs['agent.Dockerfile'] = await boundedHostFile(
+        join(security, 'agent.Dockerfile'), 16384);
+      inputs['core-package.json'] = await boundedHostFile(
+        join(coreRoot, 'package.json'), 16384);
+      inputs.versions = agentVersions(inputs['agent.Dockerfile'],
+        JSON.parse(inputs['core-package.json']), JSON.parse(inputs['package.json']));
+      inputs.native = await prepareAgentInputs(inputs['agent.Dockerfile'],
+        architecture, docker);
       inputs.policy = await boundedHostFile(
         join(security, 'codex-security.apparmor'), 16384);
       return inputs;
@@ -104,10 +117,21 @@ export function managedResourceHost(confirmSource, engine = engineHost()) {
       const marker = digest({ owner: state.owner, inputs: state.inputs, kind });
       const arch = state.architecture ?? 'amd64';
       const name = platformTag(kind, arch);
+      if (kind === 'agent') requireThat(inputs.native?.platform === `linux/${arch}`,
+        'RESOURCE_INPUT_IMAGE_PLATFORM_MISMATCH');
       let found = (await docker(['image', 'ls', '--no-trunc', '-q', name])).trim();
       if (!found) {
         requireThat(!observe, 'RESOURCE_IMAGE_RECONCILIATION_REQUIRED');
         let recipe = inputs[resources.recipes[kind]];
+        if (kind === 'agent') {
+          recipe = resolvedAgentRecipe(recipe, inputs.native);
+          recipe = recipe.replace('ARG CODEX_VERSION',
+            `ARG CODEX_VERSION=${inputs.versions.codex.slice('codex-cli '.length)}`);
+          recipe = recipe.replace('ARG GO_VERSION',
+            `ARG GO_VERSION=${inputs.versions.go}`);
+          recipe = recipe.replace('ARG NPM_VERSION',
+            `ARG NPM_VERSION=${inputs.versions.npm}`);
+        }
         if (kind === 'hooks')
           recipe = recipe.replace('nibfin-managed-agent-input', state.images.agent);
         await engine.docker(true, ['build', '--no-cache', '--network=host',
@@ -126,6 +150,27 @@ export function managedResourceHost(confirmSource, engine = engineHost()) {
         row.Config?.Labels?.[resources.label] === marker &&
         row.RepoTags?.includes(name), 'RESOURCE_IMAGE_CONFLICT');
       return found;
+    },
+    async availability(id, kind, inputs) {
+      const versions = inputs.versions;
+      const probe = versionProbe({ go: versions.go }, versions,
+        { codex: kind === 'agent', npm: versions.npm });
+      let output;
+      try {
+        output = await docker(['exec', '--user=1000:1000', id,
+          '/usr/local/bin/node', '-e', probe]);
+      } catch { requireThat(false, 'RESOURCE_NATIVE_EXECUTABLE_UNAVAILABLE'); }
+      requireThat(output === 'NIBFIN_TOOLS_VERIFIED\n',
+        'RESOURCE_NATIVE_EXECUTABLE_UNAVAILABLE');
+      // Both maintained images carry the Chromium runtime libraries. Probe only
+      // those inputs here; this does not acquire an unrelated browser binary.
+      try {
+        output = await docker(['exec', '--user=1000:1000', id,
+          '/usr/local/bin/node', '-e',
+          browserRuntimeProbe(inputs.native.platform.slice(6))]);
+      } catch { requireThat(false, 'RESOURCE_BROWSER_INPUT_UNAVAILABLE'); }
+      requireThat(output === 'NIBFIN_BROWSER_RUNTIME_VERIFIED\n',
+        'RESOURCE_BROWSER_INPUT_UNAVAILABLE');
     },
     async policy(bytes, observe) {
       const proofPath = `${resources.state}/policy.json`;

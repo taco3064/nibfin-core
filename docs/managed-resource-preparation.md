@@ -62,3 +62,36 @@ sudo node /opt/nibfin/core/src/managed-resource-smoke.mjs \
 
 This runs real preparation twice without credentials or registrations. Offline
 fixture tests do not establish kernel, acquisition or host deployment success.
+
+Native image inputs are resolved before managed resource effects. The public
+Agent recipe remains authoritative for the reviewed Node and Go source indexes;
+Core requires unique Linux amd64 and arm64 child manifests in each pinned index.
+It pulls the selected immutable children on the verified dedicated daemon,
+checks their native platform, and renders only those references into the managed
+Agent recipe. No tag fallback, emulation, caller-supplied recipe or alternate
+version is used. Missing/malformed indexes, missing children and unavailable or
+wrong-platform inputs produce bounded `RESOURCE_INPUT_*` diagnostics.
+
+The resolved source references, child references, target platform, recipes and
+versions participate in recovery input identity. Existing amd64 image names stay
+unchanged; arm64 names have an `-arm64` suffix. Old or different input journals
+remain conflicts requiring reconciliation, rather than authorizing image reuse
+or automatic replacement. Builds with uncertain effects retain Pending.
+
+Before profile publication, each isolated slot probe also executes the pinned
+bootstrap Node, npm, Go and companion formatter. Agent probes execute native
+Codex; offline Hook probes never require the removed model CLI. These checks run
+on reuse as well as initial preparation and remain under the existing offline,
+unprivileged container limits and trusted cleanup/termination checks. Native
+executable failures return `RESOURCE_NATIVE_EXECUTABLE_UNAVAILABLE`.
+
+The maintained browser profile supplies Chromium runtime libraries and fonts;
+preparation checks their native dependencies and font availability, reporting
+`RESOURCE_BROWSER_INPUT_UNAVAILABLE` if absent. It does not install a browser
+binary for projects that do not request one. Project browser packages and their
+pinned binaries remain native package/lockfile inputs, rather than additional
+`.nibfin.json` tools. Actual Chromium launch and browser tests belong to that
+project's selected package profile; a library probe alone does not certify a
+browser version or clean-install browser availability on either architecture.
+Native Ubuntu 24.04 amd64/arm64 acquisition, kernel enforcement, browser execution
+and clean-install support claims still require their actual environment results.
