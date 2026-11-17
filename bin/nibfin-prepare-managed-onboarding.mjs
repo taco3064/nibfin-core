@@ -3,7 +3,8 @@ import { prepareManagedOnboarding } from '../src/managed-onboarding.mjs';
 import { requireThat } from '../src/identity.mjs';
 
 try {
-  requireThat(process.argv.length === 3 && process.argv[2] === '--consent-dedicated-engine',
+  const consent = process.argv[2] === '--consent-dedicated-engine';
+  requireThat(process.argv.length === 3 && consent,
     'MANAGED_ONBOARDING_CONSENT_REQUIRED');
   const result = await prepareManagedOnboarding();
   process.stdout.write(JSON.stringify(result) + '\n');
