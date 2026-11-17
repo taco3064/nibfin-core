@@ -7,6 +7,20 @@ import { writeRelayState, withRelayGate } from '../src/relay-state.mjs';
 
 const key = { repositoryId: 1, runId: 30, attempt: 1 };
 
+test('a replacement drain blocks new relay effects until the pool opens', async t => {
+  let checks = 0;
+  let drained = true;
+  const fixture = await relayFixture(t, { requireAdmission: async () => {
+    if (++checks === 2 && drained) throw new Error('MANAGED_POOL_RETIRING');
+  } });
+  await assert.rejects(fixture.process(), /MANAGED_POOL_RETIRING/);
+  assert.equal(fixture.posts, 0);
+  assert.equal(await fixture.journal.read(key), null);
+  drained = false;
+  assert.equal((await fixture.process()).status, 'consumed');
+  assert.equal(fixture.posts, 1);
+});
+
 test('authenticated original, rerun and restart dispatch once using the native envelope',
   async t => {
     const fixture = await relayFixture(t, { latestAttempt: 2 });
