@@ -39,6 +39,13 @@ export function codexPlan(stage, {
     'shell_environment_policy.set': {
       PATH: projectToolPath, HOME: '/tmp/tool-home', LANG: 'C.UTF-8',
       GOMAXPROCS: '2', GOFLAGS: '-p=1',
+      ...(writable && {
+        XDG_CACHE_HOME: '/tmp/tool-home/.cache',
+        XDG_CONFIG_HOME: '/tmp/tool-home/.config',
+        GOCACHE: '/tmp/tool-home/.cache/go-build', GOPATH: '/tmp/tool-home/go',
+        PIP_CACHE_DIR: '/tmp/tool-home/.cache/pip',
+        npm_config_cache: '/tmp/tool-home/.cache/npm',
+      }),
     },
     'permissions.nibfin.filesystem': {
       ':minimal': 'read', '/work': writable ? 'write' : 'read', '/input': 'read',
@@ -48,6 +55,10 @@ export function codexPlan(stage, {
       '/auth': 'deny', '/agent-home': 'deny',
       '/io': 'deny', '/session': 'read', '/proc': 'read',
       '/opt/nibfin/project': 'read',
+      ...(writable && {
+        '/usr/bin': 'read', '/usr/local': 'read', '/usr/lib': 'read',
+        '/usr/include': 'read', '/usr/share': 'read',
+      }),
     },
     'permissions.nibfin.network.enabled': true,
   };

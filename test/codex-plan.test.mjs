@@ -39,6 +39,12 @@ test('candidate text cannot change command, configuration or role boundaries', (
   assert.equal(plan.config['permissions.nibfin.filesystem']['/work/.git'], undefined);
   assert.equal(plan.config['projects."/work".trust_level'], 'untrusted');
   assert.equal(plan.config['shell_environment_policy.inherit'], 'none');
+  const filesystem = plan.config['permissions.nibfin.filesystem'];
+  assert.equal(filesystem['/usr/bin'], 'read');
+  assert.equal(filesystem['/work'], 'write');
+  const shell = plan.config['shell_environment_policy.set'];
+  assert.equal(shell.npm_config_cache, '/tmp/tool-home/.cache/npm');
+  assert.equal(shell.GOCACHE, '/tmp/tool-home/.cache/go-build');
   assert.match(plan.settings.join('\n'), /"\/proc" = "read"/);
   for (const path of ['/auth', '/agent-home', '/io']) {
     assert.equal(plan.config['permissions.nibfin.filesystem'][path], 'deny');
@@ -68,6 +74,7 @@ test('independent roles are read-only and cannot resume another conversation', (
     const plan = codexPlan(stage, options);
     assert.equal(plan.writable, false);
     assert.equal(plan.config['permissions.nibfin.filesystem']['/work'], 'read');
+    assert.equal(plan.config['permissions.nibfin.filesystem']['/usr/bin'], undefined);
     assert.throws(() => codexPlan(stage, { ...options, threadId: thread }));
   }
   const review = codexPlan('review-pr', {
