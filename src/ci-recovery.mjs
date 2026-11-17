@@ -28,7 +28,7 @@ function failureDiagnostic(logs, step) {
   let error, location;
   const goFailures = new Map();
   let goFailure;
-  for (const line of logs.split('\n')) {
+  for (const line of logs.split(/\r?\n/)) {
     const entry = /^(\S+) (.*)$/.exec(line);
     if (!entry) continue;
     const time = Date.parse(entry[1]);

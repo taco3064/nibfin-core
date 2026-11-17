@@ -655,8 +655,8 @@ test('CI correction recognizes bounded Go failures and drops assertion text', ()
     '--- FAIL: TestDesktop (0.01s)',
     'panic: runtime error: invalid memory address or nil pointer dereference',
     'C:/Users/fixture-secret/desktop.go:90 +0x68',
-  ].map(line => prefix + line).join('\n') +
-    '\n2026-11-17T12:10:00.000Z --- FAIL: TestOtherStep (0.01s)';
+  ].map(line => prefix + line).join('\r\n') +
+    '\r\n2026-11-17T12:10:00.000Z --- FAIL: TestOtherStep (0.01s)';
   const expected = { repository: 'example/cli' }, run = { id: 42 };
   const { failure } = failedCheckError(expected, run, job, logs);
   assert.deepEqual(failure.diagnostic, { kind: 'go-test-failures', tests: [
