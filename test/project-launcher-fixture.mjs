@@ -123,6 +123,7 @@ moduleMock('../src/workspace.mjs', { CandidateWorkspace: class {
     await writeFile(join(this.work, '.nibfin.json'), '{invalid');
   }
   async comparisonBase() { return runner.sourceCommit; }
+  async committedProjectConfig() { return null; }
 } });
 moduleMock('../src/installed-provider.mjs', {
   installedProviderExecutor: () => async options => ({
@@ -153,7 +154,7 @@ try {
   await writeFile(join(work, '.nibfin.json'), '{"tools":{"node":"22.15.0"}}');
   assert.equal((await launchStage('189', 'deliver', env)).status, 'ready');
   assert.equal(runs, 1);
-  assert.equal(mainReads, 2, 'Adopted workspace does not reread main');
+  assert.equal(mainReads, 3, 'Each Job reads current main for its backend');
   assert.equal(retired, 1);
   assert.equal(stopped, 1);
   await assert.rejects(access(lock), { code: 'ENOENT' });

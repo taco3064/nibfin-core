@@ -13,6 +13,7 @@ The JSON root is an object with only these optional properties (no version key):
 {
   "tools": { "node": "22.15.0", "python": "3.13.7", "go": "1.24.0" },
   "allowedDomains": ["pypi.org", "files.pythonhosted.org"],
+  "writerBackend": "docker",
   "skills": {
     "shape": { "mode": "extend", "path": ".nibfin/skills/shape/SKILL.md" },
     "deliver": { "mode": "override", "path": ".nibfin/skills/deliver/SKILL.md" },
@@ -38,6 +39,13 @@ The JSON root is an object with only these optional properties (no version key):
   path). Absolute/drive/UNC paths, backslashes, colons, control characters,
   empty components, `.` and `..` components are rejected. Unknown properties
   at every level fail rather than being ignored.
+- `writerBackend` selects `docker` or `firecracker` for Deliver. Docker is
+  the installed baseline. Firecracker requires an enabled host Job VM profile.
+  An omitted setting preserves the host default (Firecracker when configured,
+  Docker otherwise). Each dispatch snapshots this field from the target's
+  current `main`, including when resuming an existing work tree. The selection
+  remains fixed for that Job. Shape, Accept, Review, and hooks retain their normal
+  execution environments. Project configuration cannot supply VM assets.
 
 Absence of the file and `{}` preserve all existing defaults. Omitted properties
 remain absent; explicit empty objects/arrays remain explicit empty declarations.

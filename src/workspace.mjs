@@ -18,6 +18,7 @@ import { validateIssueIdentity } from './approval-record.mjs';
 import { sameCandidate, sameCandidateChanges } from './candidate-evidence.mjs';
 import { safeCandidatePath, candidateContract } from './candidate-contract.mjs';
 import { syncRecoveryDirectory } from './recovery-lock.mjs';
+import { ProjectConfigError } from './project-config.mjs';
 
 const shapeRetry = 'shape-retry';
 
@@ -594,6 +595,27 @@ export class CandidateWorkspace {
     const base = await readFile(join(this.#root, 'base'), 'utf8');
     requireThat(isSha(base), 'INVALID_WORKSPACE_BASE');
     return base;
+  }
+  async committedProjectConfig(commit) {
+    await this.#privateRoot();
+    requireThat(isSha(commit), 'INVALID_WORKSPACE_BASE');
+    const type = await this.#command(['cat-file', '-t', commit]).catch(error => {
+      if (error.code !== 'PROCESS_FAILED') throw error;
+      return null;
+    });
+    if (type === null) await this.#fetch(commit, 1);
+    else requireThat(type.toString().trim() === 'commit', 'INVALID_WORKSPACE_BASE');
+    const path = '.nibfin.json';
+    const entry = (await this.#command(['ls-tree', commit, '--', path])).toString();
+    if (!entry) return null;
+    const regularFile = /^(?:100644|100755) blob ([a-f0-9]{40})\t\.nibfin\.json\n$/;
+    const matched = regularFile.exec(entry);
+    if (!matched)
+      throw new ProjectConfigError('file', 'expected a regular file on main');
+    const size = Number((await this.#command(['cat-file', '-s', matched[1]])).toString());
+    if (!Number.isSafeInteger(size) || size > 65536)
+      throw new ProjectConfigError('file', 'committed configuration exceeds 64 KiB');
+    return (await this.#command(['cat-file', 'blob', matched[1]])).toString('utf8');
   }
   async push(head, branch, token, guard, expectedHead = null) {
     requireThat(

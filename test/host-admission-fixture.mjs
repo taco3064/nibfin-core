@@ -41,6 +41,7 @@ mock.module('../src/workspace.mjs', { namedExports: {
   CandidateWorkspace: class {
     constructor(directory) { this.work = join(directory, 'work'); }
     async prepare() { await mkdir(this.work); }
+    async committedProjectConfig() { return null; }
   },
 } });
 const actions = await import('../src/actions-identity.mjs');

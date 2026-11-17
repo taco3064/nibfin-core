@@ -77,6 +77,37 @@ test('environment hands declarations to consumers without changing policy', asyn
   assert.equal(captured.length, 2);
 });
 
+test('both shared slots select the committed backend once per Job', async t => {
+  const work = await mkdtemp(join(tmpdir(), 'nibfin-writer-backend-'));
+  t.after(() => rm(work, { recursive: true, force: true }));
+  const jobVm = { rootDisk: '/host-configured/disk' };
+  const firstHead = 'a'.repeat(40), secondHead = 'b'.repeat(40);
+  const configs = { [firstHead]: '{"writerBackend":"docker"}',
+    [secondHead]: '{"writerBackend":"firecracker"}' };
+  await writeFile(join(work, '.nibfin.json'), '{"writerBackend":"stale"}');
+  const workspace = { work, committedProjectConfig: async head => configs[head] };
+  for (const runnerId of [25, 26]) {
+    const slot = { ...runner, runnerId };
+    let head = firstHead;
+    const setup = options => projectJob({ workspace, runner: slot, issue,
+      observeMain: async () => ({ head }), ...options }, data => data);
+    const docker = await setup({ jobVm });
+    assert.equal(docker({ jobVm }).jobVm, undefined);
+    head = secondHead;
+    assert.equal(docker({ jobVm }).jobVm, undefined);
+    assert.equal((await setup({ jobVm }))({}).jobVm, jobVm);
+    await assert.rejects(setup({}), /writerBackend: firecracker is not enabled/);
+    head = firstHead;
+    assert.equal((await setup({}))({}).jobVm, undefined);
+  }
+  configs[firstHead] = null;
+  for (const available of [undefined, jobVm]) {
+    const job = await projectJob({ workspace, runner, issue, jobVm: available,
+      observeMain: async () => ({ head: firstHead }) }, data => data);
+    assert.equal(job({}).jobVm, available);
+  }
+});
+
 test('stage composition hands current work-tree Skill declarations to the role', () => {
   const result = spawnSync(process.execPath, [
     '--experimental-test-module-mocks', 'test/project-stage-fixture.mjs',

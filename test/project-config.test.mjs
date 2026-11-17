@@ -8,6 +8,7 @@ import { parseProjectConfig, readProjectConfig } from '../src/project-config.mjs
 const valid = {
   tools: { node: '22.15.0', python: '3.13.7', go: '1.24.0' },
   allowedDomains: ['pypi.org', 'files.pythonhosted.org'],
+  writerBackend: 'firecracker',
   skills: {
     shape: { mode: 'extend', path: '.nibfin/shape.md' },
     deliver: { mode: 'override', path: '.nibfin/deliver.md' },
@@ -33,6 +34,7 @@ test('invalid declarations reject types, authority settings and unsafe values', 
     { skills: [] }, { skills: { review: {} } }, { skills: { scope: {} } },
     { skills: { deliver: null } }, { skills: { deliver: {} } },
     { allowedDomains: {} }, { allowedDomains: [null] },
+    { writerBackend: 'SECRET' }, { writerBackend: null }, { writerBackend: {} },
   ];
   for (const version of ['', '*', '^22.0.0', '22', 'latest', 'v22.0.0',
     '22.0.0; SECRET', '22.0.0-beta', '01.2.3', '22.0.0\n', 22])
