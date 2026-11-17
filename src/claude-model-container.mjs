@@ -9,8 +9,11 @@ const scratchTmp = 'rw,nosuid,nodev,noexec,size=128m,mode=1777';
 const user = '1001:1001';
 
 export function modelEnvironment(plan, egress) {
+  const { PATH, HOME, CLAUDE_CONFIG_DIR, CLAUDE_CODE_SUBPROCESS_ENV_SCRUB } =
+    plan.environment;
   return Object.entries({
-    ...plan.environment, HTTPS_PROXY: egress.proxyUrl, HTTP_PROXY: egress.proxyUrl,
+    PATH, HOME, CLAUDE_CONFIG_DIR, CLAUDE_CODE_SUBPROCESS_ENV_SCRUB,
+    HTTPS_PROXY: egress.proxyUrl, HTTP_PROXY: egress.proxyUrl,
     CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1',
   }).map(([key, value]) => `${key}=${value}`);
 }
