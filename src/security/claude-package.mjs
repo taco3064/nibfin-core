@@ -15,7 +15,9 @@ const platform = process.arch;
 if (!Object.hasOwn(hashes, platform)) throw new Error('CLAUDE_PACKAGE_UNAVAILABLE');
 const name = `claude-code-linux-${platform}`;
 const url = `https://registry.npmjs.org/@anthropic-ai/${name}/-/${name}-${version}.tgz`;
-const response = await fetch(url, { redirect: 'error', signal: AbortSignal.timeout(90000) });
+const response = await fetch(url, {
+  redirect: 'error', signal: AbortSignal.timeout(90000),
+});
 if (!response.ok) throw new Error('CLAUDE_PACKAGE_UNAVAILABLE');
 const chunks = [];
 let length = 0;

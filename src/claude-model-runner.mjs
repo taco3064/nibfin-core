@@ -112,7 +112,8 @@ export function createClaudePrivateRunner(config, {
         try {
           if (!signal?.aborted) output = await docker(['start', '-ai', id], {
             input: JSON.stringify({ key: record.key, prompt: plan.prompt }),
-            timeout: plan.limits.timeoutMs, limit: plan.limits.stdout + plan.limits.stderr,
+            timeout: plan.limits.timeoutMs,
+            limit: plan.limits.stdout + plan.limits.stderr,
             allowedExitCodes: Array.from({ length: 256 }, (_, code) => code),
           });
         } catch (error) {
