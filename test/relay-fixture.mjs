@@ -175,6 +175,7 @@ export async function relayFixture(t, options = {}) {
   fixture.relay = () => new NotificationRelay({
     reader: new RelayReader(token, fixture.fetcher), token, journal,
     configuration: fixture.configuration, inspect: options.inspect ?? (async () => {}),
+    requireAdmission: options.requireAdmission,
     fetcher: fixture.fetcher, now: () => fixture.now,
   });
   fixture.process = () => fixture.relay().process(origin, 30);
