@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { readFile } from 'node:fs/promises';
-import { observePeer, peerConfiguration } from '../src/shared-peer-adoption.mjs';
+import { managedIssueBinding, observePeer, peerConfiguration }
+  from '../src/shared-peer-adoption.mjs';
 import { observeExecutionPool } from '../src/shared-host-adopt.mjs';
 import { callerRecipe } from '../src/caller-recipes.mjs';
 import { gitBlob } from '../src/identity.mjs';
@@ -55,6 +56,28 @@ test('peer adoption verifies callers on an unprotected target branch', async () 
   reader.replies.get(root + '/collaborators/owner/permission').permission = 'write';
   await assert.rejects(observePeer(reader, name, 123, memberId, source, actionCommit),
     { code: 'PEER_INSTALLATION_ADMIN_REQUIRED' });
+});
+
+test('managed caller adoption and transition keep the same workflow identity', async () => {
+  const reader = fixture();
+  const observe = () => observePeer(reader, name, 123, memberId, source, actionCommit);
+  const legacy = await observe();
+  const event = { ...legacy.issue, sourceCommit: 'd'.repeat(40),
+    reusable: { commit: source.commit }, runnerId: 56, memberId };
+  const bytes = Buffer.from(callerRecipe('issue-managed', source.commit));
+  const file = reader.replies.get(root + '/contents/' + event.workflowPath + '?ref=' + head);
+  file.sha = gitBlob(bytes);
+  file.content = bytes.toString('base64');
+  const managed = await observe();
+  const updated = managedIssueBinding(event, managed, source.commit);
+  assert.deepEqual(updated, { ...event, workflowBlob: file.sha, sourceCommit: head });
+  assert.equal(managedIssueBinding(updated, managed, source.commit), updated);
+  assert.throws(() => managedIssueBinding(updated, legacy, source.commit),
+    { code: 'MANAGED_ISSUE_TRANSITION_CONFLICT' });
+  for (const mismatch of [{ workflowId: 99 }, { workflowBlob: 'e'.repeat(40) }]) {
+    assert.throws(() => managedIssueBinding({ ...event, ...mismatch }, managed, source.commit),
+      { code: 'MANAGED_ISSUE_TRANSITION_CONFLICT' });
+  }
 });
 
 test('managed adoption pins the workflow and both slots', async () => {
