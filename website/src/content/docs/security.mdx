@@ -29,6 +29,29 @@ protocol details. These requirements are not a claim that a live security
 exercise has been performed. Publication must preserve the same separation for
 untrusted fork input; the website cannot grant access to protected operations.
 
+## Desktop, guest and Controller credentials
+
+{/* claim:security-environments */}
+Unverified: these boundaries require actual verification on the installed
+OS, architecture, Agent and isolation backend. Desktop target discovery and a
+compatible guest package do not establish isolation. Sign in inside the selected
+Linux guest; the desktop handoff neither copies credentials nor mounts desktop
+homes. Guest-local account checks and managed consent remain mandatory.
+
+The private Controller credential is separate from Runner, Agent and Hook inputs.
+Managed login reuse preserves original stores; changing a local login does not
+renew its imported Controller copy. Use
+[same-provider renewal](../cli/#credential-renewal-and-disconnect) or
+[explicit pool replacement](../agent-providers/#explicit-pool-replacement).
+Do not expose tokens, private paths or recovery state through project inputs.
+
+The managed rootful Engine requires user namespace and AppArmor enforcement.
+Existing rootless profiles keep their own checks; optional Writer Job VMs do not
+remove the base profile's credential and termination requirements. A bounded wake
+notification grants no permission. Core still checks current Issue authority,
+Job/Runner identity, isolation and safe settlement before protected work.
+{/* /claim */}
+
 ## Recovery and single-Writer operation
 
 | Observation | Safe action |
