@@ -10,13 +10,8 @@ import { callerRecipe } from '../src/caller-recipes.mjs';
 let root;
 let context, protectedCalls = 0, dispatches = 0, bootFailure = false;
 const adoption = await import('../src/host-adoption.mjs');
-const resources = await import('../src/managed-resource-admission.mjs');
-const retirement = await import('../src/retirement-admission.mjs');
-mock.module('../src/managed-resource-admission.mjs', { namedExports: {
-  ...resources, withResourcePreparationLock: action => action(),
-} });
-mock.module('../src/retirement-admission.mjs', { namedExports: {
-  ...retirement, withInstalledPoolAdmission: action => action(),
+mock.module('../src/managed-credential-admission.mjs', { namedExports: {
+  withManagedAdmission: action => action(),
 } });
 mock.module('../src/host-adoption.mjs', { namedExports: {
   ...adoption,
@@ -77,6 +72,9 @@ mock.module('../src/host-containers.mjs', { namedExports: {
   idleContainers: async () => [],
 } });
 const mcp = await import('../src/mcp-job-host.mjs');
+mock.module('../src/installed-provider.mjs', { namedExports: {
+  installedProviderExecutor: () => () => assert.fail('unexpected provider launch'),
+} });
 mock.module('../src/mcp-job-host.mjs', { namedExports: {
   ...mcp,
   prepareHostJobMcp: async () => {
