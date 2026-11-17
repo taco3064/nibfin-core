@@ -73,7 +73,7 @@
       }
     },
     "runners.mdx": {
-      "sha256": "c5ff9c8df623e7b603576c75714d10c540ac531af2ce03d9881b4a731f69a82c",
+      "sha256": "fc3c759d415d6263df0c85595368f61690ace7a2403d6a3b7199131066f48c02",
       "basis": "Reviewed public-safe projection of current Issue #15 and product requirements. Not evidence of release or support.",
       "requirements": {
         "issue": "https://github.com/taco3064/nibfin-core/issues/15",
