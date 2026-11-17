@@ -1,6 +1,7 @@
 import { constants } from 'node:fs';
 import {
   mkdir,
+  mkdtemp,
   lstat,
   open,
   realpath,
@@ -16,6 +17,9 @@ import { digest, sha256, isDigest, isSha, requireThat } from './identity.mjs';
 import { validateIssueIdentity } from './approval-record.mjs';
 import { sameCandidate, sameCandidateChanges } from './candidate-evidence.mjs';
 import { safeCandidatePath, candidateContract } from './candidate-contract.mjs';
+import { syncRecoveryDirectory } from './recovery-lock.mjs';
+
+const shapeRetry = 'shape-retry';
 
 // Selective workspace adaptation: Core owns the bare repository outside the
 // Agent mount. Capture runs only after the isolated writer has proven stopped.
@@ -135,6 +139,51 @@ export class CandidateWorkspace {
     await this.#command(['checkout-index', '--all']);
     await writeFile(join(this.#root, 'base'), base, { flag: 'wx', mode: 0o600 });
     return { base, directory: this.work };
+  }
+  // The launcher holds the Issue fence and verifies settlement before refresh.
+  async refreshForShape(base, blockedReceipt) {
+    await this.#privateRoot();
+    requireThat(blockedReceipt === null || isDigest(blockedReceipt),
+      'WORKSPACE_ADOPTION_UNRESOLVED');
+    const parent = dirname(this.#root);
+    const staged = await mkdtemp(join(parent, 'shape-refresh-'));
+    const next = join(staged, 'next');
+    const previous = join(staged, 'previous');
+    let archived = false;
+    try {
+      await mkdir(next, { mode: 0o700 });
+      const workspace = new CandidateWorkspace(next, this.#issue,
+        { git: this.#git, run: this.#run });
+      await workspace.prepare(base);
+      if (blockedReceipt) {
+        const handle = await open(join(next, shapeRetry), 'wx', 0o600);
+        try { await handle.writeFile(blockedReceipt); await handle.sync(); }
+        finally { await handle.close(); }
+      }
+      await syncRecoveryDirectory(next);
+      await rename(this.#root, previous);
+      archived = true;
+      try {
+        await rename(next, this.#root);
+      } catch (error) {
+        await rename(previous, this.#root);
+        archived = false;
+        throw error;
+      }
+      await syncRecoveryDirectory(staged);
+      await syncRecoveryDirectory(parent);
+    } finally {
+      if (!archived) await rm(staged, { recursive: true, force: true });
+    }
+  }
+  async shapeRetryReceipt() {
+    await this.#privateRoot();
+    const value = await readFile(join(this.#root, shapeRetry), 'utf8').catch(error => {
+      if (error.code === 'ENOENT') return null;
+      throw error;
+    });
+    requireThat(value === null || isDigest(value), 'WORKSPACE_ADOPTION_UNRESOLVED');
+    return value;
   }
   async restoreAdoptedCandidate(pin, shapeBody) {
     await this.#privateRoot();

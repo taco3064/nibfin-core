@@ -14,6 +14,7 @@ import { installedProviderExecutor } from './installed-provider.mjs';
 import { CandidateWorkspace } from './workspace.mjs';
 import { stages, issueRequirementsChanged } from './stages.mjs';
 import { issueProgress } from './issue-progress.mjs';
+import { refreshShapeWorkspace } from './host-shape-workspace.mjs';
 import { cleanClosedWorkspace } from './closed-workspace.mjs';
 import { continueStages } from './stage-continuation.mjs';
 import { setTimeout } from 'node:timers/promises';
@@ -264,13 +265,21 @@ async function launchAdmittedStage(issueNumber, stage, env, runnerUid) {
     if (openPr) await journal.assertIdle();
     progress = await issueProgress(root, approval);
     const { workspaceRoot, binding, store, marker: workspaceBinding } = progress;
+    const workspace = new CandidateWorkspace(workspaceRoot, issue);
+    const observeMain = () => retryGitHubObservation(() =>
+      readCurrentMain(reader, issue, hostMainReader(token), approval.repository));
+    const requirementsChanged = async receipts => {
+      if (!receipts.shape || receipts.merge) return false;
+      const current = await reader.issue(issue);
+      return issueRequirementsChanged(current, receipts, hash => store.get(hash));
+    };
     const existing = await lstat(workspaceRoot).catch(error => {
       if (error.code !== 'ENOENT') throw error;
       return null;
     });
-    const main = existing ? null : await retryGitHubObservation(() =>
-      readCurrentMain(reader, approval.record.issue,
-        hostMainReader(token), approval.repository));
+    const main = existing ? null : await observeMain();
+    let restartedShape = null;
+    let observedRequirements;
     let fresh = false;
     try {
       await mkdir(workspaceRoot, { mode: 0o700 });
@@ -281,9 +290,7 @@ async function launchAdmittedStage(issueNumber, stage, env, runnerUid) {
     await privateHostDirectory(workspaceRoot);
     if (fresh) {
       requireThat(main, 'WORKSPACE_ADOPTION_UNRESOLVED');
-      await new CandidateWorkspace(workspaceRoot, approval.record.issue).prepare(
-        main.head,
-      );
+      await workspace.prepare(main.head);
       await store.put(workspaceBinding);
     } else {
       const previous = await store.get(digest(workspaceBinding)).catch(error => {
@@ -294,9 +301,25 @@ async function launchAdmittedStage(issueNumber, stage, env, runnerUid) {
         previous && digest(previous) === digest(workspaceBinding),
         'WORKSPACE_ADOPTION_UNRESOLVED',
       );
+      if (stage === 'continue' || stage === 'shape') {
+        const receipts = await store.load();
+        restartedShape = await refreshShapeWorkspace({
+          workspace, stage, receipts, openPr, observeMain,
+          requirementsChanged: async () => {
+            const changed = await retryGitHubObservation(() =>
+              requirementsChanged(receipts));
+            observedRequirements = { shape: digest(receipts.shape), changed };
+            return changed;
+          },
+          settle: async () => {
+            await journal.assertIdle();
+            await retryGitHubObservation(inspectWriter);
+          },
+        });
+      }
     }
     const composeStage = await projectJob({
-      workspace: new CandidateWorkspace(workspaceRoot, issue), runner, issue,
+      workspace, runner, issue,
     }, installedProviderExecutor(host));
     if (!proposal) mcpJob = await prepareHostJobMcp({
       host: { ...host, mcp: mcpSource }, runner, reader, approval,
@@ -359,8 +382,11 @@ async function launchAdmittedStage(issueNumber, stage, env, runnerUid) {
             execute,
             refreshRequirements: async receipts => {
               if (!receipts.shape || receipts.merge) return false;
-              const issue = await reader.issue(approval.record.issue);
-              return issueRequirementsChanged(issue, receipts, hash => store.get(hash));
+              const shape = digest(receipts.shape);
+              if (shape === restartedShape) return true;
+              if (shape === observedRequirements?.shape)
+                return observedRequirements.changed;
+              return requirementsChanged(receipts);
             },
             inspect: inspectWriter,
             wait: setTimeout,

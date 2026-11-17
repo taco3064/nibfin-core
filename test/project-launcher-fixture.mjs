@@ -122,6 +122,7 @@ moduleMock('../src/workspace.mjs', { CandidateWorkspace: class {
     await mkdir(this.work);
     await writeFile(join(this.work, '.nibfin.json'), '{invalid');
   }
+  async comparisonBase() { return runner.sourceCommit; }
 } });
 moduleMock('../src/installed-provider.mjs', {
   installedProviderExecutor: () => async options => ({
