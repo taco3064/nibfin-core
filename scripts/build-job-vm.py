@@ -57,6 +57,16 @@ def export_agent(docker, image, root):
 
 
 def install_guest(root, source):
+    # Docker export omits the generated hosts mount. The VM has no external
+    # network interface, but tools must still be able to resolve loopback.
+    hosts = root / "etc/hosts"
+    if not hosts.parent.resolve().is_relative_to(root):
+        raise ValueError("Guest hosts path escapes the root")
+    if hosts.exists() or hosts.is_symlink():
+        hosts.unlink()
+    hosts.write_text("127.0.0.1 localhost\n::1 localhost ip6-localhost\n",
+                     encoding="ascii")
+    hosts.chmod(0o644)
     install_file(root, "/lib64/ld-linux-x86-64.so.2")
     for name in ("python3", "docker", "dockerd", "containerd",
                  "containerd-shim-runc-v2", "runc", "ip"):
@@ -78,7 +88,9 @@ def install_guest(root, source):
     install_file(root, source / "job-vm-executor.py", "/opt/nibfin/job-vm-executor.py")
     install_file(root, source / "job-vm-init.sh", "/sbin/init")
     (root / "sbin/init").chmod(0o755)
-    run("chroot", root, "/usr/bin/python3", "-c", "import json, socket, selectors")
+    run("chroot", root, "/usr/bin/python3", "-c",
+        "import json, socket, selectors; "
+        "assert socket.gethostbyname('localhost') == '127.0.0.1'")
     run("chroot", root, "/usr/local/bin/codex", "--version")
 
 
