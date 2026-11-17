@@ -61,7 +61,8 @@ async function fixture(t) {
     try {
       return await command(executable, args, options);
     } catch (error) {
-      throw new Error(JSON.stringify(args), { cause: error });
+      throw Object.assign(new Error(JSON.stringify(args), { cause: error }),
+        { code: error.code });
     }
   };
   const workspace = new CandidateWorkspace(
@@ -72,6 +73,29 @@ async function fixture(t) {
   await workspace.prepare(base);
   return { workspace, root, directory, base, seed, git, run };
 }
+
+test('read committed project config without refreshing the delivery tree', async t => {
+  const { workspace, seed, git, base } = await fixture(t);
+  assert.equal(await workspace.committedProjectConfig(base), null);
+  const name = '.nibfin.json';
+  const config = '{"writerBackend":"docker"}';
+  await writeFile(join(seed, name), config);
+  await git(['add', name]);
+  await git(['commit', '-m', 'Set the backend on main']);
+  const head = await git(['rev-parse', 'HEAD']);
+  await writeFile(join(workspace.work, name), '{"writerBackend":"firecracker"}');
+  assert.equal(await workspace.committedProjectConfig(head), config);
+  assert.equal(await workspace.comparisonBase(), base);
+  assert.equal(await readFile(join(workspace.work, name), 'utf8'),
+    '{"writerBackend":"firecracker"}');
+  await rm(join(seed, name));
+  await symlink('source.txt', join(seed, name));
+  await git(['add', name]);
+  await git(['commit', '-m', 'Replace config with a symlink']);
+  const symlinkHead = await git(['rev-parse', 'HEAD']);
+  await assert.rejects(workspace.committedProjectConfig(symlinkHead),
+    /expected a regular file on main/);
+});
 
 test('a blocked Shape on stale main restarts once on the current source', async t => {
   const { workspace, seed, git, directory } = await fixture(t);
