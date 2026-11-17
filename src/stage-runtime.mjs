@@ -211,6 +211,9 @@ export class StageRuntime {
               ...(stage === 'shape' ? { requirementsBody: context.issue.body } : {}),
               ...(stage === 'publish-shape'
                 ? { requirementsBody: context.shape.body } : {}),
+              ...(stage === 'deliver' && context.ciFailure &&
+                  verified.outcome === 'blocked'
+                ? { blockedCICorrection: true } : {}),
               outcome: verified.outcome,
               findings: verified.findings,
               references: verified.references,
