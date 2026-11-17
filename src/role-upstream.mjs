@@ -6,11 +6,10 @@ import { requireThat } from './identity.mjs';
 
 // Prerequisites come from native admission, never from a link in the Issue Body.
 // Only checked-out source enters /input. Git metadata stays on the Controller.
-export async function prepareShapeUpstream({
-  stage, context, io, input, reader, core, prepare,
+export async function prepareRoleUpstream({
+  context, io, input, reader, core, prepare,
 }) {
-  if (!['shape', 'validate-shape'].includes(stage) ||
-      context.dependencies?.ready !== true) return;
+  if (context.dependencies?.ready !== true) return;
   const issue = context.approval.record.issue;
   const dependencies = new Map();
   for (const dependency of context.dependencies.identities) {

@@ -3,9 +3,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { prepareShapeUpstream } from '../src/shape-upstream.mjs';
+import { prepareRoleUpstream } from '../src/role-upstream.mjs';
 
-test('Shape receives one source tree per verified upstream repo', async t => {
+test('agent roles receive one source tree per admitted upstream repo', async t => {
   const io = await mkdtemp(join(tmpdir(), 'nibfin-upstream-test-'));
   t.after(() => rm(io, { recursive: true, force: true }));
   const input = join(io, 'input');
@@ -39,9 +39,11 @@ test('Shape receives one source tree per verified upstream repo', async t => {
     return { base: head, directory };
   };
   const options = { context, io, input, reader, core, prepare };
-  await prepareShapeUpstream({ stage: 'deliver', ...options });
+  await prepareRoleUpstream({ ...options, context: {
+    ...context, dependencies: { ...context.dependencies, ready: false },
+  } });
   assert.deepEqual(await readdir(input), []);
-  await prepareShapeUpstream({ stage: 'shape', ...options });
+  await prepareRoleUpstream(options);
   assert.equal(count, 1);
   assert.deepEqual(await readdir(join(input, 'upstream', repository)), ['interface.mjs']);
   assert.deepEqual(JSON.parse(await readFile(join(input, 'upstream.json'), 'utf8')), [

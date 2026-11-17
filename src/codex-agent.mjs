@@ -9,7 +9,7 @@ import { parseAgentResult } from './agent-result.mjs';
 import { RoleSessions } from './role-sessions.mjs';
 import { subscriptionSecrets, containsCredentials } from './credential-output.mjs';
 import { digest, requireThat } from './identity.mjs';
-import { prepareShapeUpstream } from './shape-upstream.mjs';
+import { prepareRoleUpstream } from './role-upstream.mjs';
 
 // A role adapter, not a sandbox implementation. Only the installed launcher may
 // supply the code-owned isolator. No external request may load an adapter/module.
@@ -63,8 +63,8 @@ export class CodexRoleAgent {
       requireThat(main.base === comparisonBase, 'AGENT_MAIN_SNAPSHOT_CHANGED');
       const input = join(io, 'input'), output = join(io, 'output');
       await mkdir(input, { mode: 0o700 }); await mkdir(output, { mode: 0o700 });
-      if (this.#upstream) await prepareShapeUpstream({
-        ...this.#upstream, stage, context, io, input, prepare: this.#prepareMain,
+      if (this.#upstream) await prepareRoleUpstream({
+        ...this.#upstream, context, io, input, prepare: this.#prepareMain,
       });
       await writeFile(join(input, 'result-schema.json'), JSON.stringify(plan.schema),
         { flag: 'wx', mode: 0o400 });
