@@ -63,5 +63,12 @@ actual CI/CD selection rules when using workflow evidence. Use the matching
 source, run and job, and leave execution with its existing workflow. Record
 future PR or CD evidence as Unverified and let the existing gate enforce it at
 the owning stage. An applicable skipped check is a workflow coverage gap.
+For the Core documentation website, use source inspection, the
+documentation-source checker and focused tests during Accept. GitHub-hosted
+Core CI owns full Astro validation and the pull-request build, and Core CD owns
+the production build and preview check. Leave `npm run verify`,
+`npm run website:check`, `npm run website:build`, `npm run website:browser`,
+`astro check`, `astro build` and equivalent commands to those workflows,
+including when called through a workspace script.
 Report the methods used, observed results and evidence that still needs its
 owning stage.

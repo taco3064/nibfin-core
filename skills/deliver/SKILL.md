@@ -50,6 +50,13 @@ the change calls for them. Inspect the whole diff for unintended changes.
 Run targeted development checks and any trusted checks required for Deliver.
 Keep existing CI/CD builds, suites, packaging and deployment checks with their
 workflows. Hand off the change, what was checked and remaining uncertainties.
+For the Core documentation website, GitHub-hosted Core CI owns full Astro
+validation and the pull-request build. Core CD owns the production build and
+preview check. In Deliver, use source inspection, the documentation-source
+checker and focused tests. Leave `npm run verify`, `npm run website:check`,
+`npm run website:build`, `npm run website:browser`, `astro check`, `astro build`
+and equivalent commands to the hosted workflows, including when called through
+a workspace script.
 Record future or unavailable workflow results as Unverified and continue
 through Candidate capture once the implementation and Deliver checks are ready.
 Report exact commands, observed outcomes and unrun evidence honestly.
