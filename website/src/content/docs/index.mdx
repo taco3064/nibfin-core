@@ -13,11 +13,15 @@ hero:
     - text: Installation guidance
       link: installation/
       variant: secondary
+    - text: GitHub repositories
+      link: "#github-repositories"
+      variant: secondary
 ---
 
 import Alert from '../../components/DocsAlert.astro';
 import DeliverySteps from '../../components/DeliverySteps';
 import HomeLinks from '../../components/HomeLinks.astro';
+import RepositoryLinks from '../../components/RepositoryLinks.astro';
 
 <div class="nf-home-flow">
   <div>
@@ -38,6 +42,10 @@ pull request, and check results.
     <DeliverySteps client:load />
   </div>
 </div>
+
+## GitHub repositories
+
+<RepositoryLinks />
 
 ## Explore the documentation
 
