@@ -102,21 +102,25 @@ export function createClaudePrivateRunner(config, {
         record.possiblyCreated = true;
         const model = { image: config.image, name: record.name, plan, egress,
           channel: dirname(handoff.socket), inherited };
-        const id = (await docker(modelContainerArgs(model))).stdout.toString().trim();
-        requireThat(/^[a-f0-9]{64}$/.test(id), 'CLAUDE_MODEL_INSPECT_FAILED');
-        const observed = await inspect(['inspect', id]);
-        inspectModelContainer(observed, { ...model, id });
-        let output, timedOut = false, outputLimitExceeded = false;
+        let observed, output, timedOut = false, outputLimitExceeded = false;
         const cancel = () => { void settle(record).catch(() => {}); };
-        signal?.addEventListener('abort', cancel, { once: true });
         try {
+          const id = (await docker(modelContainerArgs(model))).stdout.toString().trim();
+          requireThat(/^[a-f0-9]{64}$/.test(id), 'CLAUDE_MODEL_INSPECT_FAILED');
+          const inspected = await inspect(['inspect', id]);
+          inspectModelContainer(inspected, { ...model, id });
+          observed = inspected;
+          signal?.addEventListener('abort', cancel, { once: true });
           if (!signal?.aborted) output = await docker(['start', '-ai', id], {
             input: JSON.stringify({ key: record.key, prompt: plan.prompt }),
             timeout: plan.limits.timeoutMs,
             limit: plan.limits.stdout + plan.limits.stderr,
             allowedExitCodes: Array.from({ length: 256 }, (_, code) => code),
           });
+          outputLimitExceeded = output?.stdout.length > plan.limits.stdout ||
+            output?.stderr.length > plan.limits.stderr;
         } catch (error) {
+          if (!observed) throw error;
           timedOut = error.code === 'PROCESS_TIMEOUT';
           outputLimitExceeded = error.code === 'PROCESS_OUTPUT_LIMIT';
           if (!timedOut && !outputLimitExceeded && !signal?.aborted)

@@ -9,7 +9,8 @@ test('Claude model mounts just the private read-only channel', () => {
   const args = modelContainerArgs({
     image: `sha256:${'a'.repeat(64)}`, name: 'fixed',
     channel: '/private/session/work-channel',
-    plan: { environment: { CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: '1' }, args: [] },
+    plan: { environment: { CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: '1',
+      ANTHROPIC_API_KEY: 'must-not-enter-docker-config' }, args: [] },
     egress: { network: 'model', proxyUrl: 'http://172.17.0.1:3128' }, inherited: [],
   });
   const mounts = args.flatMap((arg, i) => arg === '--mount' ? [args[i + 1]] : []);
