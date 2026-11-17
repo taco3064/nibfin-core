@@ -22,7 +22,7 @@ test('replacement requires two exact ready registrations and removal of old IDs'
   }
 });
 
-test('failed verification and interrupted publication keep replacement admission closed', async () => {
+test('failed or interrupted activation keeps admission closed', async () => {
   let state = { id: 'one', binding: { pool: old }, replacement: { phase: 'prepared' } };
   let marker = { schemaVersion: 1, retirementId: state.id, pool: old };
   const effects = [];
