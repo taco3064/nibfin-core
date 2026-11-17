@@ -91,14 +91,13 @@ export async function installLockedSharedTemplate(sources = [], owner) {
   requireThat(sources.length === 0 || sources.length === 2 && sources[0] !== sources[1],
     'INVALID_SHARED_SLOT_INPUT');
   const target = await installedSharedRuntime();
-  // Artifact preparation does not authorize ARM64 Engine or service activation.
-  requireThat(target.arch === 'amd64', 'ENGINE_REQUIRES_LINUX_X64_ADMINISTRATOR');
   await rootOwnedPath(engine.daemon);
   const daemonExecutable = elfMachine(await readFile(engine.daemon));
   const info = JSON.parse(await engineHost().docker(true,
     ['info', '--format', '{{json .}}']));
-  selectSharedPlatform({ platform: info.OSType, kernel: machine(),
+  const engineTarget = selectSharedPlatform({ platform: info.OSType, kernel: machine(),
     runtime: process.arch, executable: daemonExecutable, daemon: info.Architecture });
+  requireThat(engineTarget.arch === target.arch, 'SHARED_PLATFORM_MISMATCH');
   const uids = [host.runnerUid, host.sharedRunner.additionalRunner.uid];
   const second = sharedSlotIsolation(host, uids[1]);
   requireThat(second !== host.repository.isolation,

@@ -16,7 +16,7 @@ import { promoteHost } from '../src/host-rollout.mjs';
 import { inspectSharedHost } from '../src/shared-host-inspect.mjs';
 import { installSharedServiceTemplate } from '../src/shared-service-install.mjs';
 import { installAndStartSharedServices } from '../src/shared-service-start.mjs';
-import { adoptSharedPeer } from '../src/shared-peer-adoption.mjs';
+import { adoptSharedPeer, refreshManagedIssueCaller } from '../src/shared-peer-adoption.mjs';
 import { adoptSharedHost } from '../src/shared-host-adopt.mjs';
 
 import { credentialAdministrator } from '../src/managed-credentials.mjs';
@@ -48,6 +48,8 @@ async function main(args) {
     return installAndStartSharedServices(values.slice(1), Number(values[0]));
   if (command === 'adopt-shared-peer' && values.length === 3)
     return adoptSharedPeer(values[0], Number(values[1]), values[2]);
+  if (command === 'refresh-managed-issue-caller' && values.length === 2)
+    return refreshManagedIssueCaller(values[0], Number(values[1]));
   if (command === 'adopt-shared-host' && values.length === 5) {
     const chunks = [];
     let size = 0;
@@ -78,6 +80,7 @@ async function main(args) {
         'start-shared-services',
         'adopt-shared-host (administrator-only, root-owned profile and source pin)',
         'adopt-shared-peer <repository> <repository-id> <action-commit>',
+        'refresh-managed-issue-caller <repository> <repository-id> (administrator-only)',
         'pack <repository> <commit> <new-output-directory>',
         'verify <installation> <approved-pin.json>',
         'install <archive> <new-directory> <approved-pin.json>',

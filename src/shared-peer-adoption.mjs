@@ -39,7 +39,7 @@ export async function observePeer(reader, name, id, memberId, source, actionComm
     'PEER_DEFAULT_BRANCH_UNAVAILABLE');
   requireThat(permission?.user?.id === memberId && permission.permission === 'admin',
     'PEER_INSTALLATION_ADMIN_REQUIRED');
-  const issue = callerRecipe('issue', source.commit);
+  const issue = ['issue', 'issue-managed'].map(kind => callerRecipe(kind, source.commit));
   const action = callerRecipe('action-dispatch', source.commit, {
     actionCommit, memberId,
   });
@@ -63,7 +63,8 @@ export async function observeAdoptionWorkflow(reader, root, path, head, expected
     file.sha === gitBlob(Buffer.from(file.content, 'base64')),
   'PEER_WORKFLOW_NOT_VERIFIED');
   const body = Buffer.from(file.content, 'base64').toString('utf8');
-  requireThat(body.replaceAll('\r\n', '\n') === expected.replaceAll('\r\n', '\n'),
+  requireThat([expected].flat().some(value =>
+    body.replaceAll('\r\n', '\n') === value.replaceAll('\r\n', '\n')),
     'CALLER_NOT_FIXED_RECIPE');
   return { workflowId: actual.id, workflowPath: path, workflowBlob: file.sha };
 }
@@ -123,6 +124,74 @@ export async function adoptSharedPeer(name, id, actionCommit) {
     adoptPeerLocked(name, id, actionCommit, directory)));
 }
 
+function recipeBlobs(kind, commit) {
+  const text = callerRecipe(kind, commit).replaceAll('\r\n', '\n');
+  return [gitBlob(text), gitBlob(text.replaceAll('\n', '\r\n'))];
+}
+
+export function managedIssueBinding(event, observed, commit) {
+  const managed = recipeBlobs('issue-managed', commit);
+  requireThat(event && isSha(observed.head) && event.workflowId === observed.issue.workflowId &&
+    event.workflowPath === issueWorkflow && observed.issue.workflowPath === issueWorkflow &&
+    event.reusable?.commit === commit &&
+    managed.includes(observed.issue.workflowBlob) &&
+    [...managed, ...recipeBlobs('issue', commit)].includes(event.workflowBlob),
+  'MANAGED_ISSUE_TRANSITION_CONFLICT');
+  return event.workflowBlob === observed.issue.workflowBlob ? event :
+    { ...event, ...observed.issue, sourceCommit: observed.head };
+}
+
+export async function refreshManagedIssueCaller(name, id) {
+  requireThat(process.platform === 'linux' && process.getuid() === 0 &&
+    coreRoot === '/opt/nibfin/core', 'PEER_INSTALLATION_REQUIRES_HOST_ADMIN');
+  return withManagedAdmission(() => withSharedAdoptionLock(async () => {
+    await requireNoRetirement();
+    const read = async path => {
+      await rootOwnedPath(path);
+      const bytes = await boundedHostFile(path, 262144);
+      return { path, bytes, value: JSON.parse(bytes) };
+    };
+    const primary = await read(hostFile);
+    const host = primary.value;
+    const pool = sharedHostRegistrations(host);
+    requireThat(isId(id) && host.sharedRunner.repositories.includes(id),
+      'SHARED_REPOSITORY_NOT_ADOPTED');
+    const peers = host.wakePeerFiles ?? [];
+    requireThat(Array.isArray(peers) && peers.length <= 10 &&
+      peers.every(path => /^\/etc\/nibfin\/host\.[A-Za-z0-9_-]+\.json$/.test(path)),
+    'INVALID_WAKE_PEER_PATH');
+    const matches = (id === pool.repositoryId ? [primary] : await Promise.all(peers.map(read)))
+      .filter(entry => entry.value.repository?.approval?.repositoryId === id);
+    requireThat(matches.length === 1, 'SHARED_REPOSITORY_NOT_ADOPTED');
+    const target = matches[0];
+    const adopted = target.value.repository;
+    compareProviderViews(host, target.value);
+    requireThat(adopted.approval.repository === name &&
+      adopted.approval.memberId === host.memberId &&
+      digest(target.value.installation) === digest(host.installation),
+    'MANAGED_ISSUE_TRANSITION_CONFLICT');
+    const source = await verifyInstalledSource(coreRoot, host.installation.pin);
+    const actionCommit = adopted.runner.actionCommit;
+    const reader = await adoptionReader(host);
+    await verifyAdoptionAction(reader, actionCommit, host.installation.pin);
+    const observed = await observePeer(reader, name, id, host.memberId, source, actionCommit);
+    requireThat(adopted.runner.workflowId === observed.action.workflowId &&
+      adopted.runner.workflowBlob === observed.action.workflowBlob,
+    'MANAGED_ISSUE_TRANSITION_CONFLICT');
+    const event = managedIssueBinding(adopted.eventRunner, observed, source.commit);
+    if (event === adopted.eventRunner)
+      return { status: 'unchanged', repositoryId: id, runners: pool.runners };
+    for (const entry of new Set([primary, target]))
+      requireThat(await boundedHostFile(entry.path, 262144) === entry.bytes,
+        'HOST_ADOPTION_CHANGED');
+    adopted.eventRunner = event;
+    await replace(target.path, target.value);
+    const readback = await read(target.path);
+    requireThat(digest(readback.value) === digest(target.value), 'PEER_ADOPTION_UNVERIFIED');
+    return { status: 'adopted', repositoryId: id, runners: pool.runners };
+  }));
+}
+
 export const retirementLockMarker = '{"kind":"managed-retirement-v1"}\n';
 
 export async function withSharedAdoptionLock(action, { retirement = false } = {}) {
@@ -158,20 +227,23 @@ async function adoptPeerLocked(name, id, actionCommit, directory) {
   const pool = sharedHostRegistrations(host);
   requireThat(isId(id) && id !== pool.repositoryId, 'PEER_CANNOT_REPLACE_EXECUTION_HOST');
   const source = await verifyInstalledSource(coreRoot, host.installation.pin);
-  // Only a local administrator may read this existing Controller credential.
-  // It never crosses into CLI output, subprocess arguments or an Agent.
-  const credentials = await lstat(dirname(host.tokenFile));
-  const stat = await lstat(host.tokenFile);
-  requireThat(credentials.isDirectory() && credentials.uid === host.uid &&
-    (credentials.mode & 0o077) === 0 && stat.isFile() && stat.uid === host.uid &&
-    (stat.mode & 0o077) === 0, 'CONTROLLER_CREDENTIAL_NOT_PRIVATE');
-  const token = (await boundedHostFile(host.tokenFile, 16384)).trim();
-  const reader = new GitHubReader(token);
+  const reader = await adoptionReader(host);
   await verifyAdoptionAction(reader, actionCommit, host.installation.pin);
   const observed = await observePeer(
     reader, name, id, host.memberId, source, actionCommit);
   return publishPeer(host, pool, current, name, id, source, actionCommit,
     observed, directory);
+}
+
+async function adoptionReader(host) {
+  // Only a local administrator may read the existing Controller credential.
+  const credentials = await lstat(dirname(host.tokenFile));
+  const stat = await lstat(host.tokenFile);
+  requireThat(credentials.isDirectory() && credentials.uid === host.uid &&
+    (credentials.mode & 0o077) === 0 && stat.isFile() && stat.uid === host.uid &&
+    stat.nlink === 1 && (stat.mode & 0o077) === 0, 'CONTROLLER_CREDENTIAL_NOT_PRIVATE');
+  const token = (await boundedHostFile(host.tokenFile, 16384)).trim();
+  return new GitHubReader(token);
 }
 
 export async function verifyAdoptionAction(reader, actionCommit, pin) {
