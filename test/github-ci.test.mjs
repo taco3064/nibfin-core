@@ -644,6 +644,34 @@ test('CI correction includes a bounded code and source location', () => {
   assert.match(ciCorrectionFindings(unavailable).at(-1), /could not retrieve/);
 });
 
+test('CI correction recognizes bounded Go failures and drops assertion text', () => {
+  const prefix = '2026-11-17T12:08:40.000Z ';
+  const job = { steps: [{ conclusion: 'failure',
+    started_at: '2026-11-17T12:08:00.000Z',
+    completed_at: '2026-11-17T12:09:00.000Z' }] };
+  const logs = [
+    '--- FAIL: TestRebuildProjection/bounded (0.00s)',
+    '    rebuild_linux_test.go:74: fixture-secret UNTRUSTED_TOOL_PATH',
+    '--- FAIL: TestDesktop (0.01s)',
+    'panic: runtime error: invalid memory address or nil pointer dereference',
+    'C:/Users/fixture-secret/desktop.go:90 +0x68',
+  ].map(line => prefix + line).join('\n') +
+    '\n2026-11-17T12:10:00.000Z --- FAIL: TestOtherStep (0.01s)';
+  const expected = { repository: 'example/cli' }, run = { id: 42 };
+  const { failure } = failedCheckError(expected, run, job, logs);
+  assert.deepEqual(failure.diagnostic, { kind: 'go-test-failures', tests: [
+    { name: 'TestRebuildProjection/bounded', location: 'rebuild_linux_test.go:74',
+      error: 'UNTRUSTED_TOOL_PATH' },
+    { name: 'TestDesktop', error: 'GO_NIL_POINTER' },
+  ] });
+  assert.deepEqual(ciCorrectionFindings(failure).slice(-2), [
+    'Go test TestRebuildProjection/bounded failed at rebuild_linux_test.go:74' +
+      ' with UNTRUSTED_TOOL_PATH.',
+    'Go test TestDesktop failed with GO_NIL_POINTER.',
+  ]);
+  assert.doesNotMatch(JSON.stringify(failure), /fixture-secret|TestOtherStep/);
+});
+
 test('check listing collects response request IDs', async () => {
   const rows = [{ id: 17 }];
   const requestIds = [];
