@@ -49,7 +49,7 @@ try {
     installation: { directory: root }, config: { runner,
       approval: { issueId: issue.id } }, isolation: { issue },
     execution: {}, workspaceRoot: join(root, 'workspace'),
-    inspectWriter: async () => {},
+    inspectWriter: async () => {}, token: 'fixture-token',
   };
   await job(options);
   assert.equal(composed, 1);
