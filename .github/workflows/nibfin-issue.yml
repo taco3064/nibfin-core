@@ -19,9 +19,9 @@ concurrency:
 jobs:
   wake:
     uses: "taco3064/nibfin-core/.github/workflows/issue.yml@\
-      6cdd687dc9c0b04674473adb87807aafa8520b0c"
+      a1ea50671a77be449fff6b74e8c8f67c5af87fa4"
     with:
-      core_commit: 6cdd687dc9c0b04674473adb87807aafa8520b0c
+      core_commit: a1ea50671a77be449fff6b74e8c8f67c5af87fa4
     secrets:
       NIBFIN_WAKE_ADOPTION: ${{ secrets.NIBFIN_WAKE_ADOPTION }}
       NIBFIN_WAKE_TOKEN: ${{ secrets.NIBFIN_WAKE_TOKEN }}
