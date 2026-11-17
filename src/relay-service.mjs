@@ -11,6 +11,7 @@ import {
   loadRelayHost, relayStateRoot, relayUnitDirectory, relayUnits,
 } from './relay-host.mjs';
 import { NotificationRelay, safeRelayCode } from './notification-relay.mjs';
+import { installedSharedRuntime } from './shared-platform.mjs';
 
 export async function writeRelayResource(directory, name, content, inspect) {
   const target = join(directory, name);
@@ -41,18 +42,13 @@ export async function writeRelayResource(directory, name, content, inspect) {
 }
 
 async function unitContents() {
-  const versionPath = join(coreRoot, '.node-version');
-  await rootOwnedPath(versionPath);
-  const version = (await boundedHostFile(versionPath, 32)).trim();
-  requireThat(/^\d+\.\d+\.\d+$/.test(version), 'RELAY_INVALID_RUNTIME');
-  const node = `/opt/nibfin/tools/node-v${version}-linux-x64/bin/node`;
-  await rootOwnedPath(node);
+  const { nodePath } = await installedSharedRuntime();
   const result = new Map();
   for (const name of relayUnits) {
     const path = join(coreRoot, 'src/security', name);
     await rootOwnedPath(path);
     const template = await boundedHostFile(path, 16384);
-    result.set(name, template.replaceAll('NODE_RUNTIME', node));
+    result.set(name, template.replaceAll('NODE_RUNTIME', nodePath));
   }
   return result;
 }
