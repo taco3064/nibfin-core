@@ -9,19 +9,21 @@ import { parseAgentResult } from './agent-result.mjs';
 import { RoleSessions } from './role-sessions.mjs';
 import { subscriptionSecrets, containsCredentials } from './credential-output.mjs';
 import { digest, requireThat } from './identity.mjs';
+import { prepareShapeUpstream } from './shape-upstream.mjs';
 
 // A role adapter, not a sandbox implementation. Only the installed launcher may
 // supply the code-owned isolator. No external request may load an adapter/module.
 export class CodexRoleAgent {
-  #config; #isolator; #sessions; #prepareMain;
+  #config; #isolator; #sessions; #prepareMain; #upstream;
   constructor(config, isolator, { prepareMain = async (root, issue, head) => {
     await mkdir(root, { mode: 0o700 });
     return new CandidateWorkspace(root, issue).prepare(head);
-  } } = {}) {
+  }, upstream } = {}) {
     requireThat(config && typeof config.model === 'string' && config.skills &&
       typeof isolator?.execute === 'function', 'INVALID_AGENT_ADAPTER');
     this.#config = structuredClone(config); this.#isolator = isolator;
     this.#sessions = new RoleSessions(config.stateRoot); this.#prepareMain = prepareMain;
+    this.#upstream = upstream;
   }
   async run(stage, context, comparisonBase = context.main.head) {
     const config = this.#config, root = resolve(config.stateRoot);
@@ -61,6 +63,9 @@ export class CodexRoleAgent {
       requireThat(main.base === comparisonBase, 'AGENT_MAIN_SNAPSHOT_CHANGED');
       const input = join(io, 'input'), output = join(io, 'output');
       await mkdir(input, { mode: 0o700 }); await mkdir(output, { mode: 0o700 });
+      if (this.#upstream) await prepareShapeUpstream({
+        ...this.#upstream, stage, context, io, input, prepare: this.#prepareMain,
+      });
       await writeFile(join(input, 'result-schema.json'), JSON.stringify(plan.schema),
         { flag: 'wx', mode: 0o400 });
       await writeFile(join(input, 'context.json'), JSON.stringify(context),

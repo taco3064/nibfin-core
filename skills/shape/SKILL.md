@@ -54,6 +54,15 @@ For projects whose normal delivery requires a **substantive nonempty maintained 
 **Failed gate:** Return the existing runtime-supported blocked/decision outcome with the **specific invalid Issue clause, source evidence, work-type mismatch, or missing prerequisite** and the safe next owner (Scope Plan/Audit, separate authority decision or trusted recovery). Shape Author and Validator must **not** create sibling Issues, relabel, remove dependencies, rewrite Scope, publish a fake Shape or self-authorize de-enrollment. A general-purpose project that expressly uses a different lifecycle may adopt its valid completion form, but never claim compatibility with a code-backed self-delivery runtime when there is no meaningful maintained Candidate.
 
 Check upstream assumptions that determine whether implementation can start.
+When available, read `/input/upstream.json` and the relevant source under
+`/input/upstream/`. Current maintained signatures, caller code, or documented
+contracts can establish how to implement the Issue. Tests can clarify an
+interface when needed. A passing test, test transcript, or proof that a
+dependency behaves correctly is never a prerequisite for beginning
+implementation. Accept selects and runs verification after Deliver.
+If a source cannot be read, use the available interface and caller evidence.
+Only block when a specific interface or required decision remains unknown
+and implementation cannot reasonably proceed under the Issue's authority.
 Inspect the maintained interface or released artifact when the chosen route
 depends on it. If a required capability is absent, identify the exact
 capability, its owner and any native `Blocked by` direction needed. Where
