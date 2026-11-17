@@ -266,7 +266,8 @@ async function launchAdmittedStage(issueNumber, stage, env, runnerUid) {
     progress = await issueProgress(root, approval);
     const { workspaceRoot, binding, store, marker: workspaceBinding } = progress;
     const workspace = new CandidateWorkspace(workspaceRoot, issue);
-    const observeMain = () => retryGitHubObservation(() =>
+    let observedMain;
+    const observeMain = () => observedMain ??= retryGitHubObservation(() =>
       readCurrentMain(reader, issue, hostMainReader(token), approval.repository));
     const requirementsChanged = async receipts => {
       if (!receipts.shape || receipts.merge) return false;
@@ -319,7 +320,10 @@ async function launchAdmittedStage(issueNumber, stage, env, runnerUid) {
       }
     }
     const composeStage = await projectJob({
-      workspace, runner, issue,
+      workspace, runner, issue, observeMain,
+      jobVm: host.jobVm && {
+        ...host.jobVm, stateRoot: root, pressureRoot: host.stateRoot,
+      },
     }, installedProviderExecutor(host));
     if (!proposal) mcpJob = await prepareHostJobMcp({
       host: { ...host, mcp: mcpSource }, runner, reader, approval,
@@ -365,9 +369,6 @@ async function launchAdmittedStage(issueNumber, stage, env, runnerUid) {
         proposal,
         globalInstructions,
         mcpJob,
-        jobVm: host.jobVm && {
-          ...host.jobVm, stateRoot: root, pressureRoot: host.stateRoot,
-        },
         model: host.model,
         isolation: adopted.isolation,
         inspectWriter,

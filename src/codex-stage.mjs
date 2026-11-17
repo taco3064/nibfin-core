@@ -72,6 +72,8 @@ export async function codexStageExecutor({
     { toolEnvironment },
   );
   const { agent: agentSandbox, hooks: hookSandbox, image } = environment;
+  if (actor.role === 'writer')
+    console.log(`Nibfin Writer backend: ${jobVm ? 'firecracker' : 'docker'}`);
   const writer = jobVm && actor.role === 'writer' ? {
     async preflight(...args) {
       await preflightJobVm(jobVm);

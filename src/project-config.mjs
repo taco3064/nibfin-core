@@ -2,7 +2,7 @@ import { lstat, readFile, realpath } from 'node:fs/promises';
 import { join, resolve, win32 } from 'node:path';
 import { exactProjectHost } from './egress-proxy.mjs';
 
-const names = ['tools', 'allowedDomains', 'skills'];
+const names = ['tools', 'allowedDomains', 'skills', 'writerBackend'];
 const tools = ['node', 'python', 'go'];
 const roles = ['shape', 'deliver', 'accept'];
 const exactVersion = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
@@ -45,9 +45,11 @@ function freeze(value) {
   return value;
 }
 
-export function parseProjectConfig(value) {
+export function parseProjectConfig(value, { ignoreWriterBackend = false } = {}) {
   keys(value, names, 'root');
   const result = {};
+  if (!ignoreWriterBackend && Object.hasOwn(value, 'writerBackend'))
+    result.writerBackend = writerBackend(value.writerBackend);
   if (Object.hasOwn(value, 'tools')) {
     keys(value.tools, tools, 'tools');
     result.tools = {};
@@ -80,7 +82,32 @@ export function parseProjectConfig(value) {
   return freeze(result);
 }
 
-export async function readProjectConfig(work) {
+function writerBackend(value) {
+  if (!['docker', 'firecracker'].includes(value))
+    invalid('writerBackend', 'expected docker or firecracker');
+  return value;
+}
+
+function parseJSON(text) {
+  try { return JSON.parse(text); }
+  catch { invalid('root', 'invalid JSON'); }
+}
+
+export function readCommittedWriterBackend(text) {
+  if (text === null) return undefined;
+  const value = parseJSON(text);
+  object(value, 'root');
+  return Object.hasOwn(value, 'writerBackend') ? writerBackend(value.writerBackend)
+    : undefined;
+}
+
+export function selectWriterBackend(requested, jobVm) {
+  if (requested === 'firecracker' && !jobVm)
+    invalid('writerBackend', 'firecracker is not enabled on this host');
+  return requested ?? (jobVm ? 'firecracker' : 'docker');
+}
+
+export async function readProjectConfig(work, options) {
   const file = join(resolve(work), '.nibfin.json');
   let stat;
   try { stat = await lstat(file); }
@@ -93,8 +120,5 @@ export async function readProjectConfig(work) {
   let text;
   try { text = await readFile(file, 'utf8'); }
   catch { invalid('file', 'cannot read configuration'); }
-  let value;
-  try { value = JSON.parse(text); }
-  catch { invalid('root', 'invalid JSON'); }
-  return parseProjectConfig(value);
+  return parseProjectConfig(parseJSON(text), options);
 }
