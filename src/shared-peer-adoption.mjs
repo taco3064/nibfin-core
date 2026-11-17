@@ -131,8 +131,10 @@ function recipeBlobs(kind, commit) {
 
 export function managedIssueBinding(event, observed, commit) {
   const managed = recipeBlobs('issue-managed', commit);
-  requireThat(event && isSha(observed.head) && event.workflowId === observed.issue.workflowId &&
-    event.workflowPath === issueWorkflow && observed.issue.workflowPath === issueWorkflow &&
+  requireThat(event && isSha(observed.head) &&
+    event.workflowId === observed.issue.workflowId &&
+    event.workflowPath === issueWorkflow &&
+    observed.issue.workflowPath === issueWorkflow &&
     event.reusable?.commit === commit &&
     managed.includes(observed.issue.workflowBlob) &&
     [...managed, ...recipeBlobs('issue', commit)].includes(event.workflowBlob),
@@ -160,8 +162,10 @@ export async function refreshManagedIssueCaller(name, id) {
     requireThat(Array.isArray(peers) && peers.length <= 10 &&
       peers.every(path => /^\/etc\/nibfin\/host\.[A-Za-z0-9_-]+\.json$/.test(path)),
     'INVALID_WAKE_PEER_PATH');
-    const matches = (id === pool.repositoryId ? [primary] : await Promise.all(peers.map(read)))
-      .filter(entry => entry.value.repository?.approval?.repositoryId === id);
+    const records = id === pool.repositoryId
+      ? [primary] : await Promise.all(peers.map(read));
+    const matches = records.filter(entry =>
+      entry.value.repository?.approval?.repositoryId === id);
     requireThat(matches.length === 1, 'SHARED_REPOSITORY_NOT_ADOPTED');
     const target = matches[0];
     const adopted = target.value.repository;
@@ -174,7 +178,8 @@ export async function refreshManagedIssueCaller(name, id) {
     const actionCommit = adopted.runner.actionCommit;
     const reader = await adoptionReader(host);
     await verifyAdoptionAction(reader, actionCommit, host.installation.pin);
-    const observed = await observePeer(reader, name, id, host.memberId, source, actionCommit);
+    const observed = await observePeer(reader, name, id, host.memberId,
+      source, actionCommit);
     requireThat(adopted.runner.workflowId === observed.action.workflowId &&
       adopted.runner.workflowBlob === observed.action.workflowBlob,
     'MANAGED_ISSUE_TRANSITION_CONFLICT');
@@ -187,7 +192,8 @@ export async function refreshManagedIssueCaller(name, id) {
     adopted.eventRunner = event;
     await replace(target.path, target.value);
     const readback = await read(target.path);
-    requireThat(digest(readback.value) === digest(target.value), 'PEER_ADOPTION_UNVERIFIED');
+    requireThat(digest(readback.value) === digest(target.value),
+      'PEER_ADOPTION_UNVERIFIED');
     return { status: 'adopted', repositoryId: id, runners: pool.runners };
   }));
 }

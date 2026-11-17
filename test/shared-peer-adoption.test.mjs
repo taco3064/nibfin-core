@@ -58,14 +58,15 @@ test('peer adoption verifies callers on an unprotected target branch', async () 
     { code: 'PEER_INSTALLATION_ADMIN_REQUIRED' });
 });
 
-test('managed caller adoption and transition keep the same workflow identity', async () => {
+test('managed caller conversion keeps the same workflow identity', async () => {
   const reader = fixture();
   const observe = () => observePeer(reader, name, 123, memberId, source, actionCommit);
   const legacy = await observe();
   const event = { ...legacy.issue, sourceCommit: 'd'.repeat(40),
     reusable: { commit: source.commit }, runnerId: 56, memberId };
   const bytes = Buffer.from(callerRecipe('issue-managed', source.commit));
-  const file = reader.replies.get(root + '/contents/' + event.workflowPath + '?ref=' + head);
+  const path = root + '/contents/' + event.workflowPath + '?ref=' + head;
+  const file = reader.replies.get(path);
   file.sha = gitBlob(bytes);
   file.content = bytes.toString('base64');
   const managed = await observe();
@@ -75,7 +76,8 @@ test('managed caller adoption and transition keep the same workflow identity', a
   assert.throws(() => managedIssueBinding(updated, legacy, source.commit),
     { code: 'MANAGED_ISSUE_TRANSITION_CONFLICT' });
   for (const mismatch of [{ workflowId: 99 }, { workflowBlob: 'e'.repeat(40) }]) {
-    assert.throws(() => managedIssueBinding({ ...event, ...mismatch }, managed, source.commit),
+    const changed = { ...event, ...mismatch };
+    assert.throws(() => managedIssueBinding(changed, managed, source.commit),
       { code: 'MANAGED_ISSUE_TRANSITION_CONFLICT' });
   }
 });
