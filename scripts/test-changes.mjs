@@ -78,9 +78,14 @@ const args = process.argv.slice(2);
 const paths = changedPaths(args);
 const website = paths.some(path => websiteInput(path) || controls.test(path) ||
   path === 'test/cd-workflow.test.mjs');
-if (args.includes('--native-docker')) {
+if (args.includes('--claude-docker')) {
+  const claude = paths.some(path => /^src\/(?:security\/)?claude[-/]/.test(path) ||
+    path === 'bin/claude-work-tools.mjs');
+  process.stdout.write(claude ? 'true\n' : 'false\n');
+} else if (args.includes('--native-docker')) {
   const changed = new Set(paths);
   const docker = paths.some(path => controls.test(path) || imageInputs.test(path) ||
+    path.startsWith('src/claude-model-') ||
     path === '.github/actions/native-docker/action.yml') ||
     ['scripts/verify-live-adapter.mjs', 'scripts/verify-live-hooks.mjs',
       'scripts/verify-live-codex.mjs'].some(path => dependencies(path, changed));
