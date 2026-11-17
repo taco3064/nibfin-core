@@ -1,5 +1,5 @@
-import { lstat, realpath, mkdir, writeFile, chmod, unlink, rm } from 'node:fs/promises';
-import { resolve, join } from 'node:path';
+import { lstat, realpath, mkdir, writeFile, chmod, rm } from 'node:fs/promises';
+import { resolve, join, basename } from 'node:path';
 import limits from './claude-work-limits.json' with { type: 'json' };
 import { randomUUID } from 'node:crypto';
 import { command } from './process.mjs';
@@ -36,7 +36,12 @@ export class ClaudeWorkWorker {
   #stopping;
   #timer;
   #channel;
-  constructor(config, admission, { run = command, host, backend, egress } = {}) {
+  #deferDisposal;
+  #containerId;
+  #signal;
+  constructor(config, admission, { run = command, host, backend, egress,
+    deferDisposal = false } = {}) {
+    this.#deferDisposal = deferDisposal;
     this.#backend = dockerBackend(backend);
     requireThat(this.#backend.mode === 'rootful', 'CLAUDE_WORK_REQUIRES_REMAP');
     // Reuse the existing Docker endpoint/image validation and enforced probes.
@@ -62,16 +67,20 @@ export class ClaudeWorkWorker {
           DOCKER_CONFIG: '/nonexistent' }, timeout: 30000, limit: 262144, ...options,
       });
   }
-  start() {
+  start({ signal } = {}) {
     requireThat(!this.#starting, 'CLAUDE_WORK_ALREADY_LAUNCHED');
+    this.#signal = signal;
     this.#starting = this.#start();
     return this.#starting;
   }
   async #start() {
     requireThat(!this.#launched, 'CLAUDE_WORK_ALREADY_LAUNCHED');
     this.#launched = true;
+    const check = () => requireThat(!this.#signal?.aborted,
+      'CLAUDE_WORK_INTERRUPTED');
     const a = this.#admission;
     try {
+      check();
       const paths = [a.work, a.main, a.input, a.session];
       for (const path of paths) {
         requireThat(typeof path === 'string' && path === resolve(path) &&
@@ -86,6 +95,7 @@ export class ClaudeWorkWorker {
       }).preflight();
       const egress = await verifyWorkEgress(this.#egress,
         args => this.#docker(args));
+      check();
       const writable = roleCapabilities(a.stage).workspace === 'write';
       for (const [path, write] of [[a.work, writable], [a.main, false],
         [a.input, false]]) await shareAgentMount(path, write);
@@ -128,6 +138,7 @@ export class ClaudeWorkWorker {
         value.slice(0, value.indexOf('=')));
       requireThat(inherited.every(name => /^[A-Za-z_][A-Za-z0-9_]*$/.test(name)),
         'CLAUDE_WORK_INVALID_IMAGE_ENV');
+      check();
       this.#active = true;
       const id = (await this.#docker(workContainerArgs(
         this.#config, this.#name, this.#mounts, writable, inherited, egress)))
@@ -138,13 +149,15 @@ export class ClaudeWorkWorker {
         'CLAUDE_WORK_AMBIGUOUS_CONTAINER');
       inspectWorkContainer(observed[0], { config: this.#config, name: this.#name,
         id, mounts: this.#mounts, writable, egress });
+      check();
+      this.#containerId = id;
       await this.#docker(['start', id]);
-      await this.#ready(join(channel, 'worker.sock'), id);
-      this.#timer = setTimeout(() => { void this.settle(); },
+      await this.#ready(join(channel, basename(claudeWorkSocket)), id);
+      this.#timer = setTimeout(() => { void this.settle().catch(() => {}); },
         limits.lifetimeSeconds * 1000);
       this.#timer.unref();
       return { channel: claudeWorkChannel, executionId: a.executionId,
-        stage: a.stage, socket: join(channel, 'worker.sock'),
+        stage: a.stage, socket: join(channel, basename(claudeWorkSocket)),
         isolationHash: digest({ preflight, egress, container: observed[0] }) };
     } catch {
       await this.#settle();
@@ -154,15 +167,12 @@ export class ClaudeWorkWorker {
   async #ready(path, id) {
     const host = this.#host ?? { lstat, realpath };
     for (let attempt = 0; attempt < 50; attempt++) {
+      requireThat(!this.#signal?.aborted, 'CLAUDE_WORK_INTERRUPTED');
       const actual = JSON.parse((await this.#docker(['inspect', id])).stdout)[0];
       requireThat(actual?.Id === id && actual.State?.Running === true,
         'CLAUDE_WORK_NOT_RUNNING');
       try {
-        const stat = await host.lstat(path);
-        requireThat(stat.isSocket() && await host.realpath(path) === path &&
-          stat.uid === this.#backend.namespace.uidStart + 1000 &&
-          stat.gid === this.#backend.namespace.gidStart + 1000 &&
-          (stat.mode & 0o777) === 0o666, 'CLAUDE_WORK_SOCKET_SUBSTITUTED');
+        await this.#assertSocket(path, host);
         return;
       } catch (error) {
         if (error.code !== 'ENOENT') throw error;
@@ -197,18 +207,41 @@ export class ClaudeWorkWorker {
       }
       const settled = { status: 'terminated', executionId: this.#admission.executionId,
         terminationHash: digest({ name: this.#name, absent: true }) };
-      // Leave workspace ownership and Candidate capture to the composing runner.
-      // Remove only admission data; channel disposal follows proven settlement.
-      for (const path of this.#files) await unlink(path);
-      this.#files = [];
-      if (this.#channel) await rm(this.#channel, { recursive: true, force: true });
-      clearTimeout(this.#timer);
       this.#settled = settled;
+      if (!this.#deferDisposal) await this.dispose();
       return settled;
     } catch {
       return { status: 'unknown', executionId: this.#admission.executionId,
         code: 'WRITER_TERMINATION_UNKNOWN' };
     }
+  }
+  async dispose() {
+    this.requireSettlement();
+    for (const path of this.#files) await rm(path, { force: true });
+    this.#files = [];
+    if (this.#channel) await rm(this.#channel, { recursive: true, force: true });
+  }
+  async assertHealthy() {
+    requireThat(!this.#settled && this.#containerId, 'CLAUDE_WORK_NOT_RUNNING');
+    const path = join(this.#channel, basename(claudeWorkSocket));
+    const host = this.#host ?? { lstat, realpath };
+    const actual = JSON.parse((await this.#docker([
+      'inspect', this.#containerId,
+    ])).stdout)[0];
+    requireThat(actual?.Id === this.#containerId &&
+      (actual.State?.Running === true || actual.State?.Status === 'exited' &&
+        actual.State?.ExitCode === 0), 'CLAUDE_WORK_NOT_RUNNING');
+    // Worker zero exit is reserved for the fixed bridge's complete-exchange EOF.
+    // All other disconnects, command failures and lifetime expiry exit nonzero.
+    if (actual.State.Running !== true) return;
+    await this.#assertSocket(path, host);
+  }
+  async #assertSocket(path, host) {
+    const stat = await host.lstat(path);
+    requireThat(stat.isSocket() && await host.realpath(path) === path &&
+      stat.uid === this.#backend.namespace.uidStart + 1000 &&
+      stat.gid === this.#backend.namespace.gidStart + 1000 &&
+      (stat.mode & 0o777) === 0o666, 'CLAUDE_WORK_SOCKET_SUBSTITUTED');
   }
   requireSettlement() {
     requireThat(this.#settled?.status === 'terminated',
@@ -222,7 +255,7 @@ export class ClaudeWorkWorker {
 export async function withClaudeWorkWorker(worker, execute, { signal } = {}) {
   const cancel = () => { void worker.settle(); };
   try {
-    const handoff = await worker.start();
+    const handoff = await worker.start({ signal });
     if (signal?.aborted) throw new Error('CLAUDE_WORK_INTERRUPTED');
     signal?.addEventListener('abort', cancel, { once: true });
     return await execute(handoff);

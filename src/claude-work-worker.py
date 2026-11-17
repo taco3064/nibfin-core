@@ -106,7 +106,7 @@ class Frames:
         return line
 
 
-def serve(config):
+def _serve(config):
     global CONNECTION, PENDING
     endpoint = config["socket"]
     directory = Path(endpoint).parent
@@ -138,12 +138,15 @@ def serve(config):
                     try:
                         line = PENDING.readline()
                         if not line:
-                            break
+                            return False
                         request = protocol.decode(line)
+                        if request == {"jsonrpc": "2.0",
+                                       "method": protocol.LIMITS["completionMethod"]}:
+                            return not PENDING.buffer
                         if (type(request) is dict and "id" not in request
                                 and request.get("jsonrpc") == "2.0"
                                 and request.get("method") == "notifications/cancelled"):
-                            return
+                            return False
                         response = protocol.dispatch(
                             request, config["operations"], execute)
                         if response is not None:
@@ -154,7 +157,16 @@ def serve(config):
                 CONNECTION, PENDING = None, None
             # A disconnected bridge cancels the worker. Reconnection/replay must
             # be a new trusted launch after this container is confirmed absent.
-            return
+            return False
+    return False
+
+
+def serve(config):
+    global CONNECTION, PENDING
+    try:
+        return _serve(config)
+    finally:
+        CONNECTION, PENDING = None, None
 
 
 def main():
@@ -166,7 +178,8 @@ def main():
             or config["peer"][1] == os.getgid()):
         raise ValueError("INVALID_ADMISSION")
     ENV.update(config["environment"])
-    serve(config)
+    if not serve(config):
+        os._exit(1)
 
 
 if __name__ == "__main__":

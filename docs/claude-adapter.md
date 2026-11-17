@@ -92,7 +92,10 @@ Provider selection and real-account verification remain separate.
 AGENT-7 now supplies `bin/claude-work-tools.mjs` and
 `src/claude-work-bridge.mjs`. Install the executable as
 `/opt/nibfin/claude/bin/work-tools`, preserving the adjacent `../src` module
-layout from the maintained Core package. Mark the executable executable.
+layout from the maintained Core package, including the dependency-light
+`claude-work-transport.mjs` and limits JSON. The model recipe copies this
+complete import closure without Core delivery modules. Mark the executable
+executable.
 `claudeWorkServer()` remains the sole authority for its invocation and endpoint;
 no environment variable or command argument selects a transport. The bridge
 forwards newline-delimited stdio MCP with backpressure and finite frame bounds.
@@ -149,18 +152,43 @@ and cancellation retire the worker process; Core must still reconcile its
 container. Concurrent requests during a running check interrupt that worker.
 The MCP client should serialize work calls.
 
-Use `withClaudeWorkWorker(worker, async handoff => ..., {signal})` around the
-model runner, including model errors, cancellation and normal completion.
-The model runner independently proves model termination using its existing
-contract. The wrapper settles the worker and refuses to return successfully
-without confirmed worker termination. `settle()` force-removes the uniquely
-named container and independently reads back its absence; CLI exit and cleanup
-requests alone are insufficient. Unknown settlement retains admission resources
-and `requireSettlement()` throws `WRITER_TERMINATION_UNKNOWN`. Retain the Writer
-and session fence in that case. After confirmed settlement the launcher removes
-its admission file and channel directory. The composing runner then performs
-normal remapped-workspace reclamation and Candidate capture, and retires its
-own gateway/network only after all consumers have terminated.
+`createClaudePrivateRunner` owns both container lifecycles. Cancellation is
+observed before and during worker startup, before model launch and throughout
+execution. The runner polls the worker's Docker state and private socket every
+100 ms (each observation has the existing bounded Docker command timeout), and
+checks health again when model output completes. Premature worker exit, socket
+loss or failed observation interrupts the model and invalidates later output.
+A bridge-generated completion notification marks orderly stdin EOF only after
+all exchanges finish; model input cannot forward that reserved notification.
+The worker exits zero only for that completion. Trusted Docker observation of
+this zero exit permits orderly bridge shutdown before model exit. Other worker
+exits invalidate the model result. Supervision ends after model execution
+completes; subsequent forced shutdown is expected cleanup.
+
+The bridge rejects inherited model credentials, socket closure, transport errors,
+partial frames and unfinished request/response exchanges. It tracks bounded MCP
+request IDs, preserves stream backpressure and permits normal stdin EOF only
+after all exchanges finish. EOF itself never proves container termination.
+
+Cleanup is shared by execution, cancellation and `requestCleanup`. It waits for
+in-flight creation before reconciling the unique names, including lost create
+responses. Both reconciliations are attempted even when one fails. Repeated or
+concurrent requests share cleanup; failures permit later reconciliation retries.
+Only independently confirmed absence of both containers permits disposable
+admission/channel removal. Unknown settlement retains those recovery resources,
+the credential for output scanning, and the existing Writer/session fence.
+`retire` refuses unknown termination; the adapter calls it only after validating
+termination and output safety.
+
+Standalone compositions may use `withClaudeWorkWorker(worker, execute, {signal})`;
+the downstream runner must independently prove model termination and ensure
+shared resources outlive both consumers. `settle()` reconciles worker absence;
+`requireSettlement()` refuses unknown termination. The private runner uses
+`deferDisposal` so worker settlement cannot delete resources still used by an
+unsettled model. After proven joint settlement it calls `dispose()`.
+
+Core performs normal remapped-workspace reclamation and Candidate capture.
+The caller retires its gateway/network only after all consumers have terminated.
 
 Local tests cover actual Python filesystem operations, native Unix peer
 credentials, bounded framing and subprocess limits. Docker, model and host
