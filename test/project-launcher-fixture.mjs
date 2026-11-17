@@ -7,6 +7,7 @@ import { retryDelay } from '../scripts/retry-shared-runner.mjs';
 import * as hostAdoption from '../src/host-adoption.mjs';
 import * as hostContainers from '../src/host-containers.mjs';
 import * as resources from '../src/managed-resource-admission.mjs';
+import * as retirement from '../src/retirement-admission.mjs';
 
 const scenario = process.argv[2];
 const observations = { adoption: 0, job: 0, approval: 0 };
@@ -56,6 +57,9 @@ moduleMock('../src/host-adoption.mjs', {
 });
 moduleMock('../src/managed-resource-admission.mjs', {
   ...resources, withResourcePreparationLock: action => action(),
+});
+moduleMock('../src/retirement-admission.mjs', {
+  ...retirement, withInstalledPoolAdmission: action => action(),
 });
 moduleMock('../src/runner-binding.mjs', { readRunnerBinding: async () => ({}) });
 moduleMock('../src/actions-identity.mjs', { actionsCaller: () => async () => {} });
