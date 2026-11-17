@@ -47,7 +47,8 @@ export async function checkDocs(directory = 'website') {
       .map((match) => match[1].trim());
     const listed = checklist.claims.filter((claim) => claim.page === page
       && claim.command).map((claim) => claim.command);
-    const candidate = page === 'cli.mdx' ? checklist.candidateCli.commands : [];
+    const candidate = checklist.candidateCli.commands
+      .filter((entry) => entry.pages.includes(page)).map((entry) => entry.command);
     assert.deepEqual(commands, [...candidate, ...listed],
       `Unlisted actionable command: ${page}`);
     for (const [, inline] of text.matchAll(/`([^`\n]+)`/g)) {
