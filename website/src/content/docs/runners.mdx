@@ -23,6 +23,20 @@ Issues, documentation, logs or Agent workspaces.
 
 ## Registration paths
 
+Managed users should follow the [installation walkthrough](../installation/).
+Its verified continuation registers/adopts the shared slots and configures the
+relay. The manual, optional CLI and quick-handoff paths below are separate legacy
+instructions; they are not additional managed onboarding steps. Legacy Wake-secret
+setup is not required by the managed route.
+
+Ordinary upgrade preserves the installed Issue transport; init refuses edited or
+legacy callers instead of silently overwriting them. An explicit managed migration
+proposal is available only for a verified inactive legacy installation with
+compatible official release/source evidence. An active legacy route or existing
+Wake secret needs explicit local migration and reconciliation. No automatic
+active-route migration command is supported. See the
+[managed activation guide][activation] for eligibility and recovery.
+
 ### Manual GitHub registration
 
 {/* claim:manual */}
@@ -99,3 +113,5 @@ Return to [Getting Started](../getting-started/) or [CLI usage](../cli/).
 [quick]: https://github.com/taco3064/gh-nibfin/blob/main/docs/quick-registration.md
 [runner-commands]:
   https://github.com/taco3064/gh-nibfin#manual-repository-runner-management
+
+[activation]: https://github.com/taco3064/gh-nibfin/blob/main/docs/managed-activation.md

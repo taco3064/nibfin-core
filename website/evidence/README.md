@@ -12,8 +12,12 @@ Run `node website/scripts/docs-check.mjs` from the repository root for a read-on
 comparison. The native website check runs it before Astro. It compares the actual
 Core entry bytes and read-only help with the projection, checks adjacent candidate
 warnings/identity, and rejects unlisted commands and changed article audits.
-The CLI guide's candidate examples are compared with the reviewed command list
-and link to maintained CLI documentation for the full options.
+Candidate examples on the CLI and installation pages share one command inventory.
+Each entry lists its allowed pages; per-page order and exact syntax are checked.
+The installation article owns managed onboarding. CLI and Runner articles retain
+explicit legacy/manual references without making those steps managed prerequisites.
+Unlisted commands, misplaced commands and contradictory availability still fail,
+even when an article digest is refreshed.
 No onboarding mutations, credentials or remote writes are involved.
 
 The Core help projection still compares the inspected source and current read-only
@@ -36,3 +40,25 @@ and fragment, under each configured base. Missing-route and broken-fragment
 controls restore valid input and rerun. Existing theme/island controls remain.
 Stable content routes are `getting-started`, `installation`, `cli` and `runners`;
 DOC04 and DOC07 can consume them without treating this work as Pages deployment.
+
+## Managed walkthrough review (#335)
+
+The supplied gh-nibfin source snapshot identified in the checklist was inspected
+directly: its parser, managed login consent, original installation intent,
+15-minute merge polling, host/peer adoption and relay activation. Core's maintained
+credential and relay guides ground renewal, disconnect, private credential
+authority, notification bounds and unknown-effect recovery. These observations
+update the article audit, not the older public release-list observation above.
+No new public release readback, fresh installation or provider E2E was performed.
+
+The checklist records producer source paths and qualifications alongside the
+shared candidate command inventory. Compatible producer verification remains an
+installation obligation: available implementation or cross-built binaries do not
+prove that a selected CLI pin can consume those features. In particular, the
+current producer's unprotected-default-branch refusal is documented as a limitation
+rather than a product prerequisite. No pin workaround is prescribed.
+
+Tests refresh article digests in disposable copies to exercise the independent
+command and status checks, including managed consent syntax on the installation
+page and rejection of commands moved to an unlisted page. Synthetic release
+fixtures retain their independent public-readback requirement.

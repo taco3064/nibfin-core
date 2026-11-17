@@ -71,6 +71,30 @@ test('real projection rejects contradicted labels and unlisted examples', async 
     await writeFile(landing, home);
     await writeFile(checklistPath, audit);
     await checkDocs(directory);
+    const install = join(directory, 'src/content/docs/installation.mdx');
+    const walkthrough = await readFile(install, 'utf8');
+    const consent = JSON.parse(audit).candidateCli.commands
+      .find((entry) => entry.route === 'managed').command;
+    for (const [page, text, message] of [
+      ['installation.mdx', walkthrough.replace('--consent-managed-login',
+        '--invented-consent'), /Unlisted actionable command/],
+      ['installation.mdx', walkthrough + '\n```sh\ngh nibfin fabricated\n```\n',
+        /Unlisted actionable command/],
+      ['cli.mdx', original + `\n\`\`\`sh\n${consent}\n\`\`\`\n`,
+        /Unlisted actionable command/],
+      ['installation.mdx', walkthrough.replace('Unverified formal release',
+        'Installed: formal release'), /Contradicted availability/],
+    ]) {
+      const changed = join(directory, 'src/content/docs', page);
+      const data = JSON.parse(audit);
+      data.pages[page].sha256 = digest(text);
+      await writeFile(changed, text);
+      await writeFile(checklistPath, JSON.stringify(data));
+      await assert.rejects(checkDocs(directory), message);
+      await writeFile(changed, page === 'cli.mdx' ? original : walkthrough);
+      await writeFile(checklistPath, audit);
+    }
+    await checkDocs(directory);
     const entry = join(root, 'bin/nibfin-core.mjs');
     await writeFile(entry, (await readFile(entry, 'utf8')) + '\n// changed\n');
     await assert.rejects(checkDocs(directory), /source comparison failed/);

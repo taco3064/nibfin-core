@@ -41,20 +41,21 @@ credential-boundary verification. Running a container alone is insufficient.
 
 <Steps>
 
-1. Confirm the repository is public and that you have installation permissions.
-2. Review [component availability](../installation/#component-status). Obtain
-   verified source identities before choosing an installation candidate.
-3. Review the installation PR and its real checks before protected merge.
-   PR creation is not installation completion.
-4. Have a repository administrator follow [Runner onboarding](../runners/).
-5. Confirm trusted host adoption, member authorization, isolation and Agent
-   readiness before attempting an authorized delivery.
+1. Confirm the repository is public and identify the intended executing member.
+2. Follow the [managed installation walkthrough](../installation/) for CLI
+   acquisition, GitHub/Codex sign-in, preview, consent and apply.
+3. Review and merge the native installation PR. Let the running command continue
+   locally, or resume with the original installation intent after interruption.
+4. Read back host adoption, services, Runner online state and configured routing
+   separately. Manual registration is for the explicit legacy path.
+5. Confirm isolation and Agent readiness before the first eligible Issue below.
 
 </Steps>
 
 ## Organization repository
 
-Use the same repository-level model for an Organization-owned Public Repository.
+Follow the same [managed walkthrough](../installation/) for an
+Organization-owned Public Repository.
 Ask an authorized administrator to check workflow permissions, branch rules and
 repository Runner policy. Installation write rights and Runner management rights
 remain separate.
@@ -67,10 +68,29 @@ this onboarding path; use repository-level Runners only.
 
 ## First delivery expectations
 
-A registered Runner is not a trusted adopted host or proof of completed delivery.
-An authorized Issue proceeds through Shape, Deliver, independent Accept, applicable
-CI, final review and protected merge. Labels alone do not grant execution rights.
-A successful local build does not demonstrate this product flow.
+Enroll the repository through installation and verified host adoption. Create an
+Issue containing the authorized work boundary, add `scope` and assign an enrolled
+member with a trusted route. Native Blocked by dependencies must be satisfied
+before admission; labels or assignment alone do not authorize execution. See
+[the lifecycle](../lifecycle/#from-scope-to-closure) and
+[wake-up admission](../lifecycle/#wake-ups-and-admission) for current eligibility.
+
+A registered Runner, configured route, online service and observed native dispatch
+are different observations. An authorized Issue still proceeds through Shape,
+Deliver, independent Accept, applicable CI, final review and native merge.
+Only verified lifecycle results establish completed delivery; a consumed relay
+receipt or successful local build does not demonstrate this flow.
+
+An offline host delays polling and Jobs; there is no delivery SLA or automatic
+cross-member takeover. The relay discovers recent notifications within a bounded
+24-hour window and at most three pages of 50 runs per adopted workflow. Recovery
+can consume an eligible original before retention expires, but recovery outside
+those bounds is not promised. A rerun cannot replace a failed, absent, expired or
+consumed original. Confirmed expiry/deletion yields `RELAY_ORIGINAL_EXPIRED`;
+incomplete access or timeouts do not prove expiry. Unknown dispatch effects stay
+Pending without another POST. Preserve receipts and use
+[safe recovery](../security/#recovery-and-single-writer-operation), rather than
+removing state or rerunning an expired notification to force delivery.
 
 After host adoption, [project configuration](../project-environment/) can
 declare the tools, network access, and Skills that your Jobs need.

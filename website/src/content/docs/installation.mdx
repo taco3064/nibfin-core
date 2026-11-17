@@ -1,6 +1,6 @@
 ---
 title: Installation and configuration
-description: Component sources and honest installation availability.
+description: Managed onboarding, consent, installation merge and readiness.
 ---
 
 import { Steps } from '@astrojs/starlight/components';
@@ -18,8 +18,8 @@ Unverified formal release and fresh installation. The
 describes development and source packaging.
 {/* /claim */}
 
-A trusted host must adopt approved Core source and configuration. Verify adoption
-separately after registering a Runner.
+A trusted host must adopt approved Core source and configuration. The managed
+route below verifies adoption separately from Runner registration.
 
 </section>
 <section>
@@ -52,29 +52,155 @@ Runner management, and environment inspection.
 </section>
 </div>
 
+## Before you begin
+
+This is the authoritative managed walkthrough for personal and organization
+Public Repositories. CLI owns onboarding; Core owns trust and delivery decisions.
+The managed route needs no separate Nibfin account, manually supplied PAT,
+repository Actions token secret or Nibfin App.
+
+Use a dedicated Linux x64 host with systemd, GitHub CLI, Docker and a compatible
+Codex installation. Managed setup prepares a dedicated Docker Engine and private
+Controller resources with your consent. Other platforms, cross-built binaries and
+source availability do not establish supported installation. Organization policies
+can restrict Actions, authentication or repository Runners; live organization-policy
+combinations remain Unverified.
+
+You need two distinct kinds of authority:
+
+- Native GitHub repository/workflow write permissions to propose installation,
+  and repository Admin permission to register Runners. Organization membership
+  or repository write access alone does not supply Runner administration rights.
+- Local administrator authorization for verified Core installation, dedicated
+  Engine preparation, host adoption and systemd services. Run init as the
+  installing user, not root; the flow requests administrator authorization when
+  needed. Local sudo authority does not grant GitHub permissions.
+
 ## Configuration review
 
-For either owner type, review the target Public Repository, intended member,
-applicable protections, actual required checks, workflow permissions and repository
-Runner policy with the authorized administrator. Keep credentials out of Issues,
-documentation and Agent workspaces. Use verified immutable source identities and
-approved component pairing, not a floating branch as a release pin.
+Review the target repository, executing member, workflow permissions, actual
+branch rules and required checks with its administrator. Preserve configured
+protections and independent validation; do not bypass native rules.
 
-Review the installation PR through protected merge. Initial optional Runner
-registration happens only after that PR has merged and requires Repository Admin
-authority. See [registration paths](../runners/#registration-paths).
-An installed candidate in one reviewed configuration is not a formal release or
-certification of fresh-user installation.
-
-## Verify your installation
+## Acquire the CLI and sign in
 
 <Steps>
 
-1. Review the current source and release metadata before selecting a component.
-2. After the installation PR merges, verify the installed source and trusted
-   Runner host adoption before attempting protected execution.
+1. Review [component status](#component-status). Formal release and fresh-user
+   installation remain Unverified. For a reviewed candidate, follow the maintained
+   [CLI build and local-extension guide][candidate]: check out the reviewed full
+   source commit, use its pinned Go version, run its checks, build the executable
+   and install that local extension through GitHub CLI. Keep the exact checkout
+   while registered. Inspect an existing extension before replacing it.
+2. Verify that the selected CLI's approved Core/Action producers are compatible
+   with managed onboarding. Init verifies producer identities, source and pairing;
+   an available newer source tree does not mean the installed CLI consumes it.
+   If compatible producers are unavailable, stop at the reported pending result.
+   Do not substitute a floating branch or edit product-internal pins or profiles.
+3. Sign in to github.com on this host using
+   [GitHub CLI authentication][gh-login], selecting the intended installing member.
+   Use [official authentication refresh guidance][gh-refresh] if the provider
+   reports missing scopes. Authorize only the access needed by the reviewed route;
+   never print or paste tokens into commands, Issues or Agent workspaces.
+4. Sign in to Codex on the same dedicated host using its maintained login flow.
+   This candidate imports compatible ChatGPT subscription authentication.
+   Unsupported authentication returns a dedicated-login requirement; do not copy
+   another session's credentials or treat API-key authentication as equivalent.
 
 </Steps>
 
-The [CLI guide](../cli/) contains the read-only source-backed example available
-for maintainers. [Getting Started](../getting-started/) separates owner paths.
+## Preview, apply and consent
+
+Replace `OWNER/REPO` with the intended Public Repository. Check prerequisites:
+
+```sh
+gh nibfin preflight --repo OWNER/REPO
+```
+
+Preflight is read-only and reports tools, login presence, Docker observations and
+repository permissions. It does not certify protected execution. Preview next:
+
+```sh
+gh nibfin init --repo OWNER/REPO
+```
+
+Review the target/member, planned workflows and two shared Runner slots. On a
+compatible fresh Linux host, plain init selects the managed route. Apply it:
+
+```sh
+gh nibfin init --repo OWNER/REPO --apply
+```
+
+The interactive prompt asks whether to reuse the selected github.com login for
+unattended Nibfin on this dedicated host. Consent also authorizes Core's managed
+Engine and Controller credential setup. Declining stops the managed flow. For an
+explicit consent decision without that prompt, the supported form is:
+
+```sh
+gh nibfin init --repo OWNER/REPO --apply --consent-managed-login
+```
+
+Consent is host-level authorization to retain the existing GitHub and Codex login
+material privately for unattended work. Credentials keep their actual provider
+authority; private storage does not reduce token permissions. Original login
+stores remain untouched. Keep Controller credentials outside Runner, Agent and
+Hook inputs. Native GitHub and local administrator authorization still apply.
+
+Do not add manual Runner directory/name, shared-service or legacy Wake options to
+this route. Those select separate [legacy paths](../runners/#registration-paths).
+
+## Merge and local continuation
+
+Apply publishes the installation PR URL and polls for native review and merge.
+Review the proposed workflow sources, permissions, checks and member routing.
+Merge through the repository's actual rules; PR creation is not installation.
+The running command then automatically verifies the merged workflow and continues
+locally. Its merge wait is bounded to 15 minutes. If interrupted or still awaiting
+merge, rerun the same apply command from the original installing account, host
+and compatible CLI, retaining its private original installation intent. Do not
+recreate that intent by editing files. Changed PR identity, workflow contents or
+producer pairing requires inspection rather than a blind retry.
+
+**Current producer limitation:** the inspected CLI returns
+`MANAGED_INSTALL_DEFAULT_BRANCH_UNPROTECTED` when the merged default branch is
+reported unprotected. The product permits repositories without configured branch
+protection. This refusal is an implementation limitation, not a product
+prerequisite or advice to enable additional protection. Do not bypass the check.
+
+For the first repository, continuation prepares verified Core and host resources,
+imports the consented login, registers two shared slots, adopts the host and
+starts or reads back services. Init on a peer repository on the same adopted host
+verifies its own installation and adoption while reusing the existing execution
+repository, Runner slots and relay. It does not add another pair of slots.
+Each repository retains its own Issues, native dependencies, PRs and CI.
+
+## Verify your installation
+
+Read the actual result rather than inferring success from the merge or a service
+command. `MANAGED_ROUTING_CONFIGURED` reports readback of bindings, destination,
+Runner identities, variables, timer and relay control. Service state and GitHub
+Runner online observations are separate from `relay.dispatch_observed` for the
+target repository. Host-wide consumed receipts and unknown-effect counts are
+also separate. A configured route may not have received a notification yet.
+A consumed receipt proves dispatch readback, not Issue completion or future
+Runner availability.
+
+Pending results can mean unavailable compatible source, unverified credentials,
+changed bindings, paused state, local conflicts or uncertain writes. Preserve
+original intent, locks and recovery receipts. Do not delete credentials, locks or
+relay state to retry uncertain effects. A local administrator can inspect the
+installed relay through its [maintained administration interface][relay]. A busy
+pause is not an effective pause; an existing paused relay is not silently resumed
+by init. Resolve uncertainty through supported Core recovery before resuming.
+
+Continue with the [first eligible Issue](../getting-started/#first-delivery-expectations).
+For renewal, disconnect and provider revocation, see
+[credential administration](../cli/#credential-renewal-and-disconnect).
+The [managed activation guide][activation] describes producer recovery limits.
+An installed candidate is not a formal release or clean-host E2E certification.
+
+[candidate]: https://github.com/taco3064/gh-nibfin#build-and-use-the-candidate
+[gh-login]: https://cli.github.com/manual/gh_auth_login
+[gh-refresh]: https://cli.github.com/manual/gh_auth_refresh
+[relay]: https://github.com/taco3064/nibfin-core/blob/main/docs/notification-relay.md
+[activation]: https://github.com/taco3064/gh-nibfin/blob/main/docs/managed-activation.md

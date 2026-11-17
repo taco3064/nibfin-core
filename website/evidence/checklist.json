@@ -4,7 +4,7 @@
   "pages": {
     "index.mdx": {
       "sha256": "67eda92c1c25866f867ae0f32f86ccf8987ccec6fd96d36af74fe4f642b6376a",
-      "basis": "Reviewed landing claims against Issue #14, Proposal 14–14.4 and maintained onboarding/lifecycle guides. No release or support evidence inferred.",
+      "basis": "Reviewed landing claims against Issue #14, Proposal 14\u201314.4 and maintained onboarding/lifecycle guides. No release or support evidence inferred.",
       "requirements": {
         "issue": "https://github.com/taco3064/nibfin-core/issues/14",
         "sections": [
@@ -22,16 +22,15 @@
       }
     },
     "getting-started.mdx": {
-      "sha256": "4c4efbe68512eb1d2ac2c60dba10410785821f23017ddd71a84710647ae828d6",
-      "basis": "Reviewed public-safe projection of current Issue #15 and product requirements. Not evidence of release or support.",
+      "sha256": "792537fffcaea9bc35d682114c9e4085b6b8235a7df4aa5579375b7b5fd93de2",
+      "basis": "Reviewed current Issue #335 managed onboarding and preserved Core #15 baseline against supplied maintained producer and Core interfaces; no release, clean-host installation or live E2E inferred.",
       "requirements": {
-        "issue": "https://github.com/taco3064/nibfin-core/issues/15",
+        "issue": "https://github.com/taco3064/nibfin-core/issues/335",
         "sections": [
-          "2",
           "7",
-          "8",
-          "9.2",
-          "11",
+          "8.1",
+          "8.3",
+          "11.3",
           "14.1",
           "14.4"
         ],
@@ -39,16 +38,15 @@
       }
     },
     "installation.mdx": {
-      "sha256": "990977a07a09cdf9d00f3a06bc177995a69ba79cd1403b40dfa13c2096d9448a",
-      "basis": "Reviewed public-safe projection of current Issue #15 and product requirements. Not evidence of release or support.",
+      "sha256": "39e21979e4c275704f7b5379e48da2164fcf1afd5678d008f8bb4236290832d8",
+      "basis": "Reviewed current Issue #335 managed onboarding and preserved Core #15 baseline against supplied maintained producer and Core interfaces; no release, clean-host installation or live E2E inferred.",
       "requirements": {
-        "issue": "https://github.com/taco3064/nibfin-core/issues/15",
+        "issue": "https://github.com/taco3064/nibfin-core/issues/335",
         "sections": [
-          "2",
           "7",
-          "8",
-          "9.2",
-          "11",
+          "8.1",
+          "8.3",
+          "11.3",
           "14.1",
           "14.4"
         ],
@@ -56,16 +54,15 @@
       }
     },
     "cli.mdx": {
-      "sha256": "37e9ead531a3d55dddc745b1e072a727031a5d98853f3c3a1043944f893be49d",
-      "basis": "Reviewed public-safe projection of current Issue #15 and product requirements. Not evidence of release or support.",
+      "sha256": "3f9243be01d80d4f282b161d8247b61e3825870b8a8c595901e844f2f8e3b804",
+      "basis": "Reviewed current Issue #335 managed onboarding and preserved Core #15 baseline against supplied maintained producer and Core interfaces; no release, clean-host installation or live E2E inferred.",
       "requirements": {
-        "issue": "https://github.com/taco3064/nibfin-core/issues/15",
+        "issue": "https://github.com/taco3064/nibfin-core/issues/335",
         "sections": [
-          "2",
           "7",
-          "8",
-          "9.2",
-          "11",
+          "8.1",
+          "8.3",
+          "11.3",
           "14.1",
           "14.4"
         ],
@@ -73,16 +70,15 @@
       }
     },
     "runners.mdx": {
-      "sha256": "fc3c759d415d6263df0c85595368f61690ace7a2403d6a3b7199131066f48c02",
-      "basis": "Reviewed public-safe projection of current Issue #15 and product requirements. Not evidence of release or support.",
+      "sha256": "6c646df84779dcbc61bed396161d9087885771fb60d5a5e35eeadb47735da279",
+      "basis": "Reviewed current Issue #335 managed onboarding and preserved Core #15 baseline against supplied maintained producer and Core interfaces; no release, clean-host installation or live E2E inferred.",
       "requirements": {
-        "issue": "https://github.com/taco3064/nibfin-core/issues/15",
+        "issue": "https://github.com/taco3064/nibfin-core/issues/335",
         "sections": [
-          "2",
           "7",
-          "8",
-          "9.2",
-          "11",
+          "8.1",
+          "8.3",
+          "11.3",
           "14.1",
           "14.4"
         ],
@@ -169,7 +165,7 @@
       "commit": null,
       "location": null,
       "command": null,
-      "basis": "CLI Issues #78–80 and current public CLI README confirm source implementation."
+      "basis": "CLI Issues #78\u201380 and current public CLI README confirm source implementation."
     },
     {
       "id": "registration",
@@ -179,7 +175,7 @@
       "commit": null,
       "location": null,
       "command": null,
-      "basis": "Public CLI README and Proposal §1.4 confirm candidate initial Admin registration."
+      "basis": "Public CLI README and Proposal \u00a71.4 confirm candidate initial Admin registration."
     },
     {
       "id": "manual",
@@ -266,15 +262,93 @@
     }
   ],
   "candidateCli": {
-    "source": "https://github.com/taco3064/gh-nibfin/blob/main/README.md",
+    "source": "https://github.com/taco3064/gh-nibfin",
     "commands": [
-      "gh nibfin help",
-      "gh nibfin preflight --repo OWNER/REPO",
-      "gh nibfin init --repo OWNER/REPO",
-      "gh nibfin init --repo OWNER/REPO --apply",
-      "gh nibfin runner list --repo OWNER/REPO",
-      "gh nibfin dashboard --repo OWNER/REPO",
-      "gh nibfin upgrade --repo OWNER/REPO"
-    ]
+      {
+        "command": "gh nibfin help",
+        "pages": [
+          "cli.mdx"
+        ],
+        "route": "candidate"
+      },
+      {
+        "command": "gh nibfin preflight --repo OWNER/REPO",
+        "pages": [
+          "installation.mdx",
+          "cli.mdx"
+        ],
+        "route": "candidate"
+      },
+      {
+        "command": "gh nibfin init --repo OWNER/REPO",
+        "pages": [
+          "installation.mdx",
+          "cli.mdx"
+        ],
+        "route": "candidate"
+      },
+      {
+        "command": "gh nibfin init --repo OWNER/REPO --apply",
+        "pages": [
+          "installation.mdx",
+          "cli.mdx"
+        ],
+        "route": "candidate"
+      },
+      {
+        "command": "gh nibfin init --repo OWNER/REPO --apply --consent-managed-login",
+        "pages": [
+          "installation.mdx"
+        ],
+        "route": "managed"
+      },
+      {
+        "command": "gh nibfin runner list --repo OWNER/REPO",
+        "pages": [
+          "cli.mdx"
+        ],
+        "route": "legacy/manual"
+      },
+      {
+        "command": "gh nibfin dashboard --repo OWNER/REPO",
+        "pages": [
+          "cli.mdx"
+        ],
+        "route": "candidate"
+      },
+      {
+        "command": "gh nibfin upgrade --repo OWNER/REPO",
+        "pages": [
+          "cli.mdx"
+        ],
+        "route": "candidate"
+      }
+    ],
+    "evidence": {
+      "snapshot": "574456fcca9f00271f00a6e88f74ac1083b3121e",
+      "paths": [
+        "README.md",
+        "internal/cli/app.go",
+        "internal/cli/init-command.go",
+        "internal/cli/managed-init.go",
+        "internal/cli/managed-init_linux.go",
+        "internal/cli/managed-host-linux.go",
+        "internal/cli/managed-login_linux.go",
+        "internal/cli/managed-relay_linux.go",
+        "docs/managed-activation.md"
+      ],
+      "basis": "Supplied read-only gh-nibfin source: parser, managed consent, polling, persisted intent, adoption and relay behavior. Command examples are source-backed candidate interfaces, not release or installation certification.",
+      "qualifications": [
+        "Linux x64/systemd managed route; organization policies and other platforms Unverified.",
+        "Producer tuple must independently verify compatible maintained Core/Action sources; newer source availability alone is insufficient.",
+        "Merged default branch reported unprotected is currently refused, contrary to the broader permitted product model; no additional protection is prescribed.",
+        "Managed routing, service/online readback, native dispatch and Issue completion are separate.",
+        "Legacy/manual options do not implicitly migrate active routes or remove Wake secrets."
+      ],
+      "coreReferences": [
+        "docs/managed-credentials.md",
+        "docs/notification-relay.md"
+      ]
+    }
   }
 }

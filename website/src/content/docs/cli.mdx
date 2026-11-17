@@ -68,10 +68,43 @@ gh nibfin init --repo OWNER/REPO --apply
   </div>
 </CommandTabs>
 
-To include initial Runner registration, add both `--runner-directory` and
-`--runner-name`. A repository administrator reruns the apply command after the
-installation PR merges. See [Runner readiness](../runners/#after-registration)
-before attempting a delivery.
+On compatible Linux x64/systemd hosts, plain init uses managed onboarding.
+The [installation walkthrough](../installation/) owns consent, merge polling,
+automatic continuation, original-intent resume and readiness interpretation.
+Explicit `--consent-managed-login` supplies the host login-reuse consent decision;
+it does not grant repository or local administrator permissions.
+
+The paired `--runner-directory` and `--runner-name` flags select legacy optional
+registration. That path requires a repository administrator to rerun apply after
+merge. Explicit shared-service and Wake options also retain manual behavior;
+keep them separate from managed init. See
+[registration paths](../runners/#registration-paths).
+
+## Credential renewal and disconnect
+
+GitHub CLI reauthentication or [scope refresh][gh-refresh] changes the local gh
+login, not an already imported Controller credential. Sign in again using the
+same intended GitHub member and compatible Codex account when renewal is needed.
+Repeating init on an adopted host does not replace adopted credentials, and this
+CLI has no dedicated reauthorization command.
+
+The installed root-only Core `managed-credentials` administration interface owns
+`status`, `replace`, `disconnect` and fresh `intake`. A local administrator uses
+that verified installed interface for same-member renewal, invoking
+`/opt/nibfin/core/bin/nibfin-core.mjs` with the installed pinned Node runtime.
+Replacement requires active managed state and settled consumers/effects. Follow the
+[maintained credential guide][credentials] and its private producer integration;
+do not construct credential envelopes manually or pass tokens through arguments,
+environment variables, repositories, Runner or Agent inputs. Unsupported active
+Codex authentication needs the dedicated Controller login path.
+
+Disconnect stops new admissions and removes only Controller-managed credentials
+after active leases and effects settle. Unknown processes or writes remain
+Pending; do not force deletion to finish it. It does not revoke provider grants
+or remove the original gh/Codex stores. After completed disconnect, reconnection
+uses fresh same-member intake. To revoke provider access, use GitHub's authorized
+application/token controls and the corresponding Codex provider controls.
+[GitHub CLI logout][gh-logout] alone does not revoke an imported token.
 
 ## Manage Runners
 
@@ -151,3 +184,8 @@ not the onboarding CLI and not a released installation instruction.
 [upgrade]: https://github.com/taco3064/gh-nibfin/blob/main/docs/upgrade.md
 [core-help]:
   https://github.com/taco3064/nibfin-core/commit/9b24bd6cffce802304aa9ae27bc1449b1430aa7b
+
+[gh-refresh]: https://cli.github.com/manual/gh_auth_refresh
+[gh-logout]: https://cli.github.com/manual/gh_auth_logout
+[credentials]:
+  https://github.com/taco3064/nibfin-core/blob/main/docs/managed-credentials.md
