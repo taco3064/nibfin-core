@@ -5,6 +5,7 @@ import {
   mkdir,
   writeFile,
   readFile,
+  readdir,
   symlink,
   link,
   rm,
@@ -14,6 +15,7 @@ import { join } from 'node:path';
 import { CandidateWorkspace } from '../src/workspace.mjs';
 import { command } from '../src/process.mjs';
 import { digest, sha256 } from '../src/identity.mjs';
+import { refreshShapeWorkspace } from '../src/host-shape-workspace.mjs';
 
 const shape =
   'Shape\n```kairo-candidate\n' +
@@ -70,6 +72,50 @@ async function fixture(t) {
   await workspace.prepare(base);
   return { workspace, root, directory, base, seed, git, run };
 }
+
+test('a blocked Shape on stale main restarts once on the current source', async t => {
+  const { workspace, seed, git, directory } = await fixture(t);
+  await writeFile(join(seed, 'source.txt'), 'Current main\n');
+  await git(['commit', '-am', 'Merge the required component']);
+  const head = await git(['rev-parse', 'HEAD']);
+  const blocked = { stage: 'shape', outcome: 'blocked', execution: { runId: 1 } };
+  let settled = 0;
+  const options = { workspace, stage: 'continue', receipts: { shape: blocked },
+    observeMain: async () => ({ head }),
+    settle: async () => { settled++; },
+    requirementsChanged: async () => false,
+  };
+  assert.equal(await refreshShapeWorkspace(options), digest(blocked));
+  assert.equal(await workspace.comparisonBase(), head);
+  assert.equal(await readFile(join(workspace.work, 'source.txt'), 'utf8'),
+    'Current main\n');
+  const archive = (await readdir(directory))
+    .find(name => name.startsWith('shape-refresh-'));
+  assert.equal(await readFile(join(directory, archive, 'previous/work/source.txt'),
+    'utf8'), 'Original\n');
+  // If the job stops before Shape, the same blocked receipt remains retryable.
+  assert.equal(await refreshShapeWorkspace(options), digest(blocked));
+  const latest = { ...blocked, execution: { runId: 2 } };
+  assert.equal(await refreshShapeWorkspace({ ...options, receipts: { shape: latest } }),
+    null);
+  assert.equal(settled, 1);
+});
+
+test('a new Shape preserves delivery progress and retains the base on fetch failure',
+  async t => {
+    const { workspace, base } = await fixture(t);
+    const options = { workspace, stage: 'shape', receipts: {},
+      observeMain: async () => ({ head: 'f'.repeat(40) }),
+      settle: async () => {},
+    };
+    assert.equal(await refreshShapeWorkspace({ ...options,
+      receipts: { deliver: { outcome: 'ready' } } }), null);
+    assert.equal(await refreshShapeWorkspace({ ...options, openPr: {} }), null);
+    await assert.rejects(refreshShapeWorkspace(options));
+    assert.equal(await workspace.comparisonBase(), base);
+    assert.equal(await readFile(join(workspace.work, 'source.txt'), 'utf8'),
+      'Original\n');
+  });
 
 test('capture and commit bind files, artifacts and tree', async (t) => {
   const f = await fixture(t);
