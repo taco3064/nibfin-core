@@ -22,10 +22,10 @@
       }
     },
     "getting-started.mdx": {
-      "sha256": "792537fffcaea9bc35d682114c9e4085b6b8235a7df4aa5579375b7b5fd93de2",
-      "basis": "Reviewed current Issue #335 managed onboarding and preserved Core #15 baseline against supplied maintained producer and Core interfaces; no release, clean-host installation or live E2E inferred.",
+      "sha256": "a219b77a5b521e86726cbf8c87ebac393657cc93b24f0ea4b466329d1f678aad",
+      "basis": "Issue #343 environment/provider expansion; preserves #335 managed walkthrough. Maintained source interfaces only; no native installation, security or release certification inferred.",
       "requirements": {
-        "issue": "https://github.com/taco3064/nibfin-core/issues/335",
+        "issue": "https://github.com/taco3064/nibfin-core/issues/343",
         "sections": [
           "7",
           "8.1",
@@ -34,14 +34,14 @@
           "14.1",
           "14.4"
         ],
-        "basis": "Current authorized product requirements, not observed installation support."
+        "basis": "Current requirements and inspected maintained source; not installed support."
       }
     },
     "installation.mdx": {
-      "sha256": "39e21979e4c275704f7b5379e48da2164fcf1afd5678d008f8bb4236290832d8",
-      "basis": "Reviewed current Issue #335 managed onboarding and preserved Core #15 baseline against supplied maintained producer and Core interfaces; no release, clean-host installation or live E2E inferred.",
+      "sha256": "cdcd14e09884eec498eb87a8b9c05f4ddc7f00b94120950edd84bedcdcb59e44",
+      "basis": "Issue #343 environment/provider expansion; preserves #335 managed walkthrough. Maintained source interfaces only; no native installation, security or release certification inferred.",
       "requirements": {
-        "issue": "https://github.com/taco3064/nibfin-core/issues/335",
+        "issue": "https://github.com/taco3064/nibfin-core/issues/343",
         "sections": [
           "7",
           "8.1",
@@ -50,14 +50,14 @@
           "14.1",
           "14.4"
         ],
-        "basis": "Current authorized product requirements, not observed installation support."
+        "basis": "Current requirements and inspected maintained source; not installed support."
       }
     },
     "cli.mdx": {
-      "sha256": "3f9243be01d80d4f282b161d8247b61e3825870b8a8c595901e844f2f8e3b804",
-      "basis": "Reviewed current Issue #335 managed onboarding and preserved Core #15 baseline against supplied maintained producer and Core interfaces; no release, clean-host installation or live E2E inferred.",
+      "sha256": "923fc7c9dfd493c580a369c7547c9f946571aceb90f99e41041b85bbb550bfd3",
+      "basis": "Issue #343 environment/provider expansion; preserves #335 managed walkthrough. Maintained source interfaces only; no native installation, security or release certification inferred.",
       "requirements": {
-        "issue": "https://github.com/taco3064/nibfin-core/issues/335",
+        "issue": "https://github.com/taco3064/nibfin-core/issues/343",
         "sections": [
           "7",
           "8.1",
@@ -66,14 +66,14 @@
           "14.1",
           "14.4"
         ],
-        "basis": "Current authorized product requirements, not observed installation support."
+        "basis": "Current requirements and inspected maintained source; not installed support."
       }
     },
     "runners.mdx": {
-      "sha256": "6c646df84779dcbc61bed396161d9087885771fb60d5a5e35eeadb47735da279",
-      "basis": "Reviewed current Issue #335 managed onboarding and preserved Core #15 baseline against supplied maintained producer and Core interfaces; no release, clean-host installation or live E2E inferred.",
+      "sha256": "b27149c411f8d93c92dd4391d82c0f1c72e0efbbe9b669e70a7bc432c0d8b56b",
+      "basis": "Issue #343 environment/provider expansion; preserves #335 managed walkthrough. Maintained source interfaces only; no native installation, security or release certification inferred.",
       "requirements": {
-        "issue": "https://github.com/taco3064/nibfin-core/issues/335",
+        "issue": "https://github.com/taco3064/nibfin-core/issues/343",
         "sections": [
           "7",
           "8.1",
@@ -82,7 +82,87 @@
           "14.1",
           "14.4"
         ],
-        "basis": "Current authorized product requirements, not observed installation support."
+        "basis": "Current requirements and inspected maintained source; not installed support."
+      }
+    },
+    "execution-environments.mdx": {
+      "sha256": "7cd4a3d32a2f6891ee398906a07bbf2d9945f0e0833859d0409e6f9a3b2d1e4d",
+      "basis": "Issue #343 environment/provider expansion; preserves #335 managed walkthrough. Maintained source interfaces only; no native installation, security or release certification inferred.",
+      "requirements": {
+        "issue": "https://github.com/taco3064/nibfin-core/issues/343",
+        "sections": [
+          "7",
+          "8.1",
+          "8.3",
+          "11.3",
+          "14.1",
+          "14.4"
+        ],
+        "basis": "Current requirements and inspected maintained source; not installed support."
+      }
+    },
+    "agent-providers.mdx": {
+      "sha256": "186bae041a644e874369ad30dee55e5bd6c2bda3c57cd35a179349423339cdaf",
+      "basis": "Issue #343 environment/provider expansion; preserves #335 managed walkthrough. Maintained source interfaces only; no native installation, security or release certification inferred.",
+      "requirements": {
+        "issue": "https://github.com/taco3064/nibfin-core/issues/343",
+        "sections": [
+          "7",
+          "8.1",
+          "8.3",
+          "11.3",
+          "14.1",
+          "14.4"
+        ],
+        "basis": "Current requirements and inspected maintained source; not installed support."
+      }
+    },
+    "architecture.mdx": {
+      "sha256": "f5aff6174a0ad64529c094f38d1630c1f57da5eaaa0734ca5618619893aa809c",
+      "basis": "Issue #343 environment/provider expansion; preserves #335 managed walkthrough. Maintained source interfaces only; no native installation, security or release certification inferred.",
+      "requirements": {
+        "issue": "https://github.com/taco3064/nibfin-core/issues/343",
+        "sections": [
+          "7",
+          "8.1",
+          "8.3",
+          "11.3",
+          "14.1",
+          "14.4"
+        ],
+        "basis": "Current requirements and inspected maintained source; not installed support."
+      }
+    },
+    "security.mdx": {
+      "sha256": "4fcc25ff1402ee4d7b537596e9b714dfd3b0d8b3dcc0f66a002065f5947d5ed2",
+      "basis": "Issue #343 environment/provider expansion; preserves #335 managed walkthrough. Maintained source interfaces only; no native installation, security or release certification inferred.",
+      "requirements": {
+        "issue": "https://github.com/taco3064/nibfin-core/issues/343",
+        "sections": [
+          "7",
+          "8.1",
+          "8.3",
+          "11.3",
+          "14.1",
+          "14.4"
+        ],
+        "basis": "Current requirements and inspected maintained source; not installed support."
+      }
+    },
+    "limitations.mdx": {
+      "sha256": "08340c8569308105cac0ba5e5f6a9eabb9566d5b2fd90cc53d15ae983aab6b53",
+      "basis": "Issue #343 environment/provider expansion; preserves #335 managed walkthrough. Maintained source interfaces only; no native installation, security or release certification inferred.",
+      "requirements": {
+        "issue": "https://github.com/taco3064/nibfin-core/issues/343",
+        "sections": [
+          "7",
+          "8.1",
+          "8.3",
+          "11.3",
+          "14.1",
+          "14.4"
+        ],
+        "basis": "Current requirements and inspected maintained source; not installed support."
       }
     }
   },
@@ -105,7 +185,7 @@
       "commit": null,
       "location": null,
       "command": null,
-      "basis": "Product requirements, not independently verified component implementation. Public source/help/release read-back unavailable."
+      "basis": "Inspected architecture-matched managed resource preparation and supplied desktop target source. Native installation and security combinations remain Unverified."
     },
     {
       "id": "organization",
@@ -189,6 +269,94 @@
       "references": [
         "https://docs.github.com/en/actions/hosting-your-own-runners/managing-self-hosted-runners/adding-self-hosted-runners",
         "https://docs.github.com/en/actions/hosting-your-own-runners/managing-self-hosted-runners/removing-self-hosted-runners"
+      ]
+    },
+    {
+      "id": "execution-targets",
+      "page": "execution-environments.mdx",
+      "repository": "taco3064/nibfin-core",
+      "status": "Unverified",
+      "commit": null,
+      "location": null,
+      "command": null,
+      "basis": "Inspected maintained Core and supplied gh-nibfin source; availability remains qualified.",
+      "references": [
+        "https://github.com/taco3064/nibfin-core/blob/main/docs/managed-resource-preparation.md",
+        "https://github.com/taco3064/gh-nibfin/blob/main/docs/desktop-targets.md"
+      ]
+    },
+    {
+      "id": "provider-codex",
+      "page": "agent-providers.mdx",
+      "repository": "taco3064/nibfin-core",
+      "status": "Unverified",
+      "commit": null,
+      "location": null,
+      "command": null,
+      "basis": "Inspected maintained Core and supplied gh-nibfin source; availability remains qualified.",
+      "references": [
+        "https://github.com/taco3064/nibfin-core/blob/main/docs/installed-provider.md",
+        "https://github.com/taco3064/gh-nibfin/blob/main/internal/cli/agent-capability_linux.go"
+      ],
+      "provider": "codex"
+    },
+    {
+      "id": "provider-claude",
+      "page": "agent-providers.mdx",
+      "repository": "taco3064/nibfin-core",
+      "status": "Planned",
+      "commit": null,
+      "location": null,
+      "command": null,
+      "basis": "Inspected maintained Core and supplied gh-nibfin source; availability remains qualified.",
+      "references": [
+        "https://github.com/taco3064/nibfin-core/blob/main/docs/installed-provider.md",
+        "https://github.com/taco3064/gh-nibfin/blob/main/internal/cli/agent-capability_linux.go"
+      ],
+      "provider": "claude"
+    },
+    {
+      "id": "architecture-environments",
+      "page": "architecture.mdx",
+      "repository": "taco3064/nibfin-core",
+      "status": "Unverified",
+      "commit": null,
+      "location": null,
+      "command": null,
+      "basis": "Inspected maintained Core and supplied gh-nibfin source; availability remains qualified.",
+      "references": [
+        "https://github.com/taco3064/nibfin-core/blob/main/docs/managed-resource-preparation.md",
+        "https://github.com/taco3064/nibfin-core/blob/main/docs/notification-relay.md",
+        "https://github.com/taco3064/nibfin-core/blob/main/docs/project-configuration.md"
+      ]
+    },
+    {
+      "id": "security-environments",
+      "page": "security.mdx",
+      "repository": "taco3064/nibfin-core",
+      "status": "Unverified",
+      "commit": null,
+      "location": null,
+      "command": null,
+      "basis": "Inspected maintained Core and supplied gh-nibfin source; availability remains qualified.",
+      "references": [
+        "https://github.com/taco3064/nibfin-core/blob/main/docs/managed-credentials.md",
+        "https://github.com/taco3064/gh-nibfin/blob/main/docs/desktop-targets.md",
+        "https://github.com/taco3064/nibfin-core/blob/main/docs/managed-resource-preparation.md"
+      ]
+    },
+    {
+      "id": "limitations-environments",
+      "page": "limitations.mdx",
+      "repository": "taco3064/nibfin-core",
+      "status": "Unverified",
+      "commit": null,
+      "location": null,
+      "command": null,
+      "basis": "Inspected maintained Core and supplied gh-nibfin source; availability remains qualified.",
+      "references": [
+        "https://github.com/taco3064/nibfin-core/blob/main/docs/installed-provider.md",
+        "https://github.com/taco3064/nibfin-core/blob/main/docs/managed-resource-preparation.md"
       ]
     }
   ],
@@ -323,10 +491,31 @@
           "cli.mdx"
         ],
         "route": "candidate"
+      },
+      {
+        "command": "gh nibfin init --repo OWNER/REPO --agent codex",
+        "pages": [
+          "agent-providers.mdx"
+        ],
+        "route": "candidate"
+      },
+      {
+        "command": "gh nibfin runner rebuild --repo OWNER/REPO --agent codex",
+        "pages": [
+          "agent-providers.mdx"
+        ],
+        "route": "candidate"
+      },
+      {
+        "command": "gh nibfin runner rebuild --repo OWNER/REPO --agent codex --apply --consent-rebuild",
+        "pages": [
+          "agent-providers.mdx"
+        ],
+        "route": "candidate"
       }
     ],
     "evidence": {
-      "snapshot": "574456fcca9f00271f00a6e88f74ac1083b3121e",
+      "snapshot": "5caa2dc0c92e5a446cf7f26b858f2469be276a22",
       "paths": [
         "README.md",
         "internal/cli/app.go",
@@ -336,20 +525,37 @@
         "internal/cli/managed-host-linux.go",
         "internal/cli/managed-login_linux.go",
         "internal/cli/managed-relay_linux.go",
-        "docs/managed-activation.md"
+        "docs/managed-activation.md",
+        "docs/desktop-targets.md",
+        "docs/managed-replacement.md",
+        "internal/cli/agent-selection.go",
+        "internal/cli/agent-capability_linux.go",
+        "internal/cli/desktop-discovery.go",
+        "internal/cli/rebuild_linux.go"
       ],
       "basis": "Supplied read-only gh-nibfin source: parser, managed consent, polling, persisted intent, adoption and relay behavior. Command examples are source-backed candidate interfaces, not release or installation certification.",
       "qualifications": [
-        "Linux x64/systemd managed route; organization policies and other platforms Unverified.",
+        "Native Ubuntu 24.04 amd64/arm64 source interfaces; desktop runtime, clean installation, security and organization-policy combinations remain Unverified.",
         "Producer tuple must independently verify compatible maintained Core/Action sources; newer source availability alone is insufficient.",
         "Merged default branch reported unprotected is currently refused, contrary to the broader permitted product model; no additional protection is prescribed.",
         "Managed routing, service/online readback, native dispatch and Issue completion are separate.",
-        "Legacy/manual options do not implicitly migrate active routes or remove Wake secrets."
+        "Legacy/manual options do not implicitly migrate active routes or remove Wake secrets.",
+        "Production Claude composition is missing; selection is rejected before credential intake or retirement. Private fixtures cannot enable installed support.",
+        "Two native slots and peers share one provider/model/profile. Rebuild requires explicit selection and separate apply consent; Core settlement and final activation remain authoritative."
       ],
       "coreReferences": [
         "docs/managed-credentials.md",
-        "docs/notification-relay.md"
+        "docs/notification-relay.md",
+        "docs/installed-provider.md",
+        "docs/managed-resource-preparation.md",
+        "docs/project-configuration.md"
       ]
+    },
+    "status": "Unverified",
+    "release": null,
+    "providers": {
+      "codex": "Unverified",
+      "claude": "Planned"
     }
   }
 }

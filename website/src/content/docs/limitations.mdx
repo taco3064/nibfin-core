@@ -62,6 +62,26 @@ fallback, and migration of uncommitted work or sessions across failed hosts are
 same model with repository-level Runners; a separate organization Runner
 management product is outside scope.
 
+## Environment and provider evidence
+
+{/* claim:limitations-environments */}
+Unverified: desktop discovery, architecture-matched Linux packages and source
+composition are separate from native installation, security verification and
+formal release. The [environment guide](../execution-environments/) maps Windows
+x64 to Ubuntu 24.04 WSL 2, Apple Silicon to a native Ubuntu 24.04 ARM64 VM and
+OCI Compute to a matching Ubuntu image. It does not certify those installations
+or promise continuous desktop availability or multi-host scaling.
+
+Codex is the maintained composed provider. Claude installation remains Planned;
+controlled fixtures cannot enable production composition. Both slots and peer
+repositories share the installed choice. See [Agent providers](../agent-providers/).
+
+Optional Writer Job VMs require the actual adopted Firecracker profile and apply
+to Deliver only. They are separate from the managed rootful Docker base profile
+and from existing rootless installations. Source support for backend selection
+cannot establish availability or security for an unobserved host combination.
+{/* /claim */}
+
 ## Website verification
 
 Browser checks verify the tested site output. GitHub Pages deployment read-back

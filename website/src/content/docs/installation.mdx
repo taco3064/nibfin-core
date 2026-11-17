@@ -59,8 +59,12 @@ Public Repositories. CLI owns onboarding; Core owns trust and delivery decisions
 The managed route needs no separate Nibfin account, manually supplied PAT,
 repository Actions token secret or Nibfin App.
 
-Use a dedicated Linux x64 host with systemd, GitHub CLI, Docker and a compatible
-Codex installation. Managed setup prepares a dedicated Docker Engine and private
+Choose a dedicated Ubuntu 24.04 Linux execution environment with systemd,
+GitHub CLI, Docker and a compatible Codex installation. Maintained resource
+preparation selects native amd64 or arm64 inputs. Review the
+[environment guide](../execution-environments/) for WSL 2, Apple Silicon VM and
+OCI mappings, and [Agent providers](../agent-providers/) for the installed choice.
+Managed setup prepares a dedicated Docker Engine and private
 Controller resources with your consent. Other platforms, cross-built binaries and
 source availability do not establish supported installation. Organization policies
 can restrict Actions, authentication or repository Runners; live organization-policy
@@ -97,12 +101,12 @@ protections and independent validation; do not bypass native rules.
    an available newer source tree does not mean the installed CLI consumes it.
    If compatible producers are unavailable, stop at the reported pending result.
    Do not substitute a floating branch or edit product-internal pins or profiles.
-3. Sign in to github.com on this host using
+3. Sign in to github.com inside the chosen Linux environment using
    [GitHub CLI authentication][gh-login], selecting the intended installing member.
    Use [official authentication refresh guidance][gh-refresh] if the provider
    reports missing scopes. Authorize only the access needed by the reviewed route;
    never print or paste tokens into commands, Issues or Agent workspaces.
-4. Sign in to Codex on the same dedicated host using its maintained login flow.
+4. Sign in to Codex inside that same environment using its maintained login flow.
    This candidate imports compatible ChatGPT subscription authentication.
    Unsupported authentication returns a dedicated-login requirement; do not copy
    another session's credentials or treat API-key authentication as equivalent.
@@ -125,7 +129,8 @@ gh nibfin init --repo OWNER/REPO
 ```
 
 Review the target/member, planned workflows and two shared Runner slots. On a
-compatible fresh Linux host, plain init selects the managed route. Apply it:
+compatible fresh Linux host, plain init selects the managed route and defaults
+to Codex. Existing pools and peers retain the installed Agent binding. Apply it:
 
 ```sh
 gh nibfin init --repo OWNER/REPO --apply

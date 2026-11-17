@@ -14,7 +14,7 @@ test('real projection rejects contradicted labels and unlisted examples', async 
       await mkdir(join(root, path, '..'), { recursive: true });
       await cp(path, join(root, path), { recursive: true });
     }
-    // Neighboring documentation must coexist without entering this audit.
+    // Unrelated documentation must coexist without entering this audit.
     await writeFile(join(directory, 'src/content/docs/neighbor.md'),
       '---\ntitle: Neighbor\n---\nSeparate maintained guide.\n');
     await checkDocs(directory);
@@ -92,6 +92,70 @@ test('real projection rejects contradicted labels and unlisted examples', async 
       await writeFile(checklistPath, JSON.stringify(data));
       await assert.rejects(checkDocs(directory), message);
       await writeFile(changed, page === 'cli.mdx' ? original : walkthrough);
+      await writeFile(checklistPath, audit);
+    }
+    await checkDocs(directory);
+    for (const [page, before, after, message] of [
+      ['execution-environments.mdx', 'Unverified: native', 'Installed: native',
+        /Contradicted availability/],
+      ['agent-providers.mdx', 'Planned: Claude', 'Released: Claude',
+        /Contradicted availability/],
+      ['architecture.mdx', 'Unverified: source', 'Installed: source',
+        /Contradicted availability/],
+      ['security.mdx', 'Unverified: these', 'Released: these',
+        /Contradicted availability/],
+      ['limitations.mdx', 'Unverified: desktop', 'Installed: desktop',
+        /Contradicted availability/],
+    ]) {
+      const target = join(directory, 'src/content/docs', page);
+      const source = await readFile(target, 'utf8');
+      const text = source.replace(before, after);
+      assert.notEqual(text, source, 'Mutation must exercise the claim');
+      const data = JSON.parse(audit);
+      data.pages[page].sha256 = digest(text);
+      await writeFile(target, text);
+      await writeFile(checklistPath, JSON.stringify(data));
+      await assert.rejects(checkDocs(directory), message);
+      await writeFile(target, source);
+      await writeFile(checklistPath, audit);
+    }
+    for (const page of ['execution-environments.mdx', 'agent-providers.mdx']) {
+      const target = join(directory, 'src/content/docs', page);
+      const source = await readFile(target, 'utf8');
+      for (const addition of [
+        '\n```sh\ngh nibfin fabricated\n```\n',
+        '\n`gh nibfin fabricated`\n',
+      ]) {
+        const data = JSON.parse(audit);
+        const text = source + addition;
+        data.pages[page].sha256 = digest(text);
+        await writeFile(target, text);
+        await writeFile(checklistPath, JSON.stringify(data));
+        await assert.rejects(checkDocs(directory), /Unlisted .*command/);
+      }
+      await writeFile(target, source);
+      await writeFile(checklistPath, audit);
+    }
+    for (const [mutate, message] of [
+      [data => { data.candidateCli.status = 'Released'; },
+        /Candidate availability/],
+      [data => { data.candidateCli.release = 'unobserved'; },
+        /cannot certify a release/],
+      [data => { data.candidateCli.providers.claude = 'Unverified'; },
+        /Provider availability differs/],
+      [data => { data.candidateCli.commands.push({
+        command: 'gh nibfin init --repo OWNER/REPO --agent claude',
+        route: 'candidate', pages: ['agent-providers.mdx'],
+      }); }, /Unavailable provider command/],
+      [data => { data.candidateCli.commands.push({
+        command: 'gh nibfin init --repo OWNER/REPO --agent=claude',
+        route: 'candidate', pages: ['agent-providers.mdx'],
+      }); }, /Unavailable provider command/],
+    ]) {
+      const data = JSON.parse(audit);
+      mutate(data);
+      await writeFile(checklistPath, JSON.stringify(data));
+      await assert.rejects(checkDocs(directory), message);
       await writeFile(checklistPath, audit);
     }
     await checkDocs(directory);

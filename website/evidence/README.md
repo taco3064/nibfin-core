@@ -3,16 +3,19 @@
 `checklist.json` is an audit projection of the inspected source and reviewed
 articles, not command authority. Article digests bind the complete reviewed text,
 including GUI guidance and support statements, to this audit. The audited articles
-are the index and the four onboarding routes. Neighboring guides retain their own
-source reviews; generated link validation still covers every article. Update them only
-after inspecting the changed text and its evidence. Command syntax comes from
+are listed once in `checklist.json`: the index, four onboarding routes,
+Execution environments, Agent providers, Architecture, Security and Limitations.
+Generated link validation still covers every article, including neighboring guides
+outside this claim audit. Update audited text only after inspecting its evidence.
+Command syntax comes from
 maintained component source/help, never a hand-edited availability label.
 
 Run `node website/scripts/docs-check.mjs` from the repository root for a read-only
 comparison. The native website check runs it before Astro. It compares the actual
 Core entry bytes and read-only help with the projection, checks adjacent candidate
 warnings/identity, and rejects unlisted commands and changed article audits.
-Candidate examples on the CLI and installation pages share one command inventory.
+Candidate examples on the CLI, Installation and Agent providers pages share one
+command inventory.
 Each entry lists its allowed pages; per-page order and exact syntax are checked.
 The installation article owns managed onboarding. CLI and Runner articles retain
 explicit legacy/manual references without making those steps managed prerequisites.
@@ -62,3 +65,20 @@ Tests refresh article digests in disposable copies to exercise the independent
 command and status checks, including managed consent syntax on the installation
 page and rejection of commands moved to an unlisted page. Synthetic release
 fixtures retain their independent public-readback requirement.
+
+## Environment and provider review (#343)
+
+The supplied gh-nibfin source grounds WSL and Multipass discovery, guest-local
+handoff, install-time Agent selection and explicit managed rebuild. Core's
+installed-provider and resource-preparation contracts ground the shared binding
+and native Linux architecture mappings. These observations extend the claim
+inventory; they do not certify desktop runtime, clean installation, kernel
+isolation, live provider operation or a formal release.
+
+The candidate inventory records Codex as Unverified and production Claude as
+Planned. The focused candidate validator keeps provider claims consistent with
+that inventory and withholds commands selecting unavailable providers. Existing
+audit regression controls cover both guides, affected environment claims,
+unlisted fenced and inline commands, and contradictory provider availability.
+Website audit, build and browser results belong to the existing PR CI; publication
+and its read-back belong to CD after merge.

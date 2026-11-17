@@ -4,15 +4,14 @@ import { resolve, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { compareClaim, digest } from './source-claims.mjs';
+import { checkCandidateInventory } from './candidate-claims.mjs';
 
 export async function checkDocs(directory = 'website') {
   const load = (path) => readFile(join(directory, path), 'utf8');
   const checklist = JSON.parse(await load('evidence/checklist.json'));
-  // This audit owns onboarding; neighboring guides have their own checks.
-  const pages = ['index.mdx', 'getting-started.mdx', 'installation.mdx',
-    'cli.mdx', 'runners.mdx'];
-  assert.deepEqual(Object.keys(checklist.pages).sort(), [...pages].sort(),
-    'Onboarding audit inventory changed');
+  // The checklist is the single inventory for audited public guidance.
+  const pages = Object.keys(checklist.pages);
+  checkCandidateInventory(checklist, pages);
   const seen = new Set();
   for (const page of pages) {
     const text = await load(`src/content/docs/${page}`);
@@ -43,7 +42,8 @@ export async function checkDocs(directory = 'website') {
         assert(!/```/.test(block), 'Unavailable command must be withheld');
       }
     }
-    const commands = [...text.matchAll(/```(?:sh|bash|shell)\n([\s\S]*?)```/g)]
+    const commands = [...text.matchAll(
+      /```(?:sh|bash|shell|powershell|console)?\n([\s\S]*?)```/g)]
       .map((match) => match[1].trim());
     const listed = checklist.claims.filter((claim) => claim.page === page
       && claim.command).map((claim) => claim.command);

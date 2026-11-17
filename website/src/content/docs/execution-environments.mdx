@@ -1,0 +1,108 @@
+---
+title: Execution environments
+description: Choose a Linux target and distinguish discovery from verified execution.
+---
+
+## Choose the Linux execution target
+
+The desktop CLI discovers an existing Linux guest; it is not the execution
+backend. Use the [managed installation walkthrough](../installation/) after
+choosing the target, and review [Agent providers](../agent-providers/).
+
+{/* claim:execution-targets */}
+Unverified: native installation and security coverage for the combinations below
+has not been established by this guide. Maintained source includes desktop
+selection and architecture-matched Linux resource preparation. A compatible
+package, successful discovery or preflight is not verified installed operation.
+
+| Entry host | Linux execution OS | Native architecture | Agent | Base isolation |
+| --- | --- | --- | --- | --- |
+| Windows x64 | Ubuntu 24.04 / WSL 2 | amd64 | Codex | Managed container |
+| Apple Silicon | Ubuntu 24.04 VM | arm64 | Codex | Managed container |
+| OCI x64 | Ubuntu 24.04 image | amd64 | Codex | Managed container |
+| OCI ARM64 | Ubuntu 24.04 image | arm64 | Codex | Managed container |
+
+The managed container profile uses dedicated rootful Docker with user namespaces
+and AppArmor. x64 is amd64; ARM64 is arm64. Each row remains Unverified for native
+acquisition, kernel enforcement and clean-install lifecycle evidence. Claude
+installation is Planned for every row.
+Optional Writer Job VMs need a separately adopted host profile; the table does
+not promise Firecracker availability on these combinations.
+{/* /claim */}
+
+### Windows x64
+
+Use an Ubuntu 24.04 WSL 2 environment. The Windows executable is the installer;
+the guest needs the native Linux amd64 CLI and execution artifacts. Discovery
+uses official WSL inventory, excludes Docker Desktop implementation distributions
+and diagnoses WSL 1. A WSL 1 distribution needs operator-managed WSL 2 setup.
+Follow [Microsoft's WSL guidance][wsl] when no suitable environment exists.
+
+### Apple Silicon
+
+Use a native Ubuntu 24.04 ARM64 VM and Linux arm64 artifacts inside it. The macOS
+executable discovers existing Ubuntu guests through the installed Canonical
+Multipass CLI. Install [Multipass][multipass] and create the guest yourself if
+needed. An equivalent native ARM64 VM can instead run the Linux CLI directly;
+that does not imply automatic discovery through other hypervisors or emulation.
+
+### OCI Compute
+
+Choose the Ubuntu 24.04 Compute image matching the instance architecture, then
+use the corresponding Linux amd64 or arm64 artifacts directly on that host.
+Review [OCI image guidance][oci] and the host's actual systemd, kernel, Docker
+and AppArmor prerequisites. This describes one host. It does not implement
+multi-host scaling, another scheduler or automatic failover.
+
+## Discovery, selection and consent
+
+The maintained desktop interface prefers an eligible adopted target. A sole
+eligible target is shown with its plan; multiple targets require selection.
+Preview does not open stopped guests. A sole stopped target can be proposed,
+but stopped or coarsely inspected guests remain unverified until native checks.
+Interactive use asks for selection and consent before opening when needed.
+
+The CLI exposes `--target` and `--consent-open-target` for explicit selection and
+opening consent; unattended opening requires explicit consent. See the
+[source-backed desktop target interface][targets] for the exact forms.
+Opening consent does not replace guest-local login reuse consent, GitHub account
+verification, local administrator authorization or Core admission.
+
+The desktop entry delegates to the selected Linux CLI rather than creating its
+own installation PR. Guest machine identity and architecture are rechecked before
+handoff and again in Linux before setup or PR mutation. Unavailable or changed
+observations stop setup. Linux directory options and quick registration belong
+inside Linux; desktop paths are not silently translated.
+
+When no eligible target exists, use the official OS or VM setup guidance above,
+prepare the matching guest-side CLI and prerequisites, then return to
+[installation](../installation/#acquire-the-cli-and-sign-in). Discovery does not
+provision guests, convert WSL versions, configure kernels or install hypervisors.
+Artifact names identify architecture, not a published download or support claim.
+
+## Sign in inside the execution environment
+
+Install the official GitHub CLI and compatible Codex CLI inside the chosen Linux
+environment. Use their official sign-in flows there with the intended member.
+Desktop tokens, login stores and home directories are not copied or mounted by
+desktop handoff. Managed consent retains guest-local credentials privately for
+the Controller while preserving original stores; see
+[installation consent](../installation/#preview-apply-and-consent).
+
+## Availability and interrupted setup
+
+WSL shutdown, desktop sleep and guest shutdown interrupt execution. Systemd
+alone does not keep WSL alive; an online snapshot is no continuous availability
+promise. A cloud host also needs actual service and network observations.
+
+After a desktop disconnect, re-enter the same guest and resume using the original
+installation options and private intent. Do not move to a different guest to
+bypass Pending. Host-offline recovery must reconcile old processes and GitHub
+effects before another Writer; see [safe recovery](../security/).
+For bounded notification delay and retention, see
+[first delivery expectations](../getting-started/#first-delivery-expectations).
+
+[targets]: https://github.com/taco3064/gh-nibfin/blob/main/docs/desktop-targets.md
+[wsl]: https://learn.microsoft.com/en-us/windows/wsl/basic-commands
+[multipass]: https://canonical.com/multipass/docs/
+[oci]: https://docs.oracle.com/en-us/iaas/Content/Compute/References/images.htm

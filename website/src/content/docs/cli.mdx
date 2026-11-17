@@ -41,8 +41,10 @@ gh nibfin preflight --repo OWNER/REPO
 ```
 
 This read-only check reports host tools, login presence, Docker observations,
-and repository permissions. It also reports whether protected execution can
-be verified. See [preflight details][preflight].
+and repository permissions. It reports observations and gaps, not security
+certification or successful Issue execution. Desktop discovery is separate from
+native guest verification; see [execution environments](../execution-environments/)
+and [preflight details][preflight].
 
 ## Preview and propose setup
 
@@ -68,7 +70,7 @@ gh nibfin init --repo OWNER/REPO --apply
   </div>
 </CommandTabs>
 
-On compatible Linux x64/systemd hosts, plain init uses managed onboarding.
+On compatible native Linux/systemd hosts, plain init uses managed onboarding.
 The [installation walkthrough](../installation/) owns consent, merge polling,
 automatic continuation, original-intent resume and readiness interpretation.
 Explicit `--consent-managed-login` supplies the host login-reuse consent decision;
@@ -79,6 +81,22 @@ registration. That path requires a repository administrator to rerun apply after
 merge. Explicit shared-service and Wake options also retain manual behavior;
 keep them separate from managed init. See
 [registration paths](../runners/#registration-paths).
+
+## Agent selection and pool replacement
+
+Fresh managed pools default to Codex. Init accepts `--agent` for explicit
+selection; existing pools preserve their binding when omitted and peers inherit
+it. Both slots share one provider/model/profile. A conflicting selection requires
+explicit managed replacement rather than ordinary init. Claude installation is
+Planned because production composition is unavailable, even though the parser
+recognizes its name. See [Agent providers](../agent-providers/) for source-backed
+Codex candidate examples and authentication differences.
+
+The maintained `runner rebuild` interface previews whole-pool replacement;
+`--apply` and `--consent-rebuild` separately authorize applying or resuming it.
+Use the [replacement guide](../agent-providers/#explicit-pool-replacement) inside
+the managed Linux host. Core settlement and final activation govern progress.
+Individual unregister/remove do not retire a pool or switch its provider.
 
 ## Credential renewal and disconnect
 

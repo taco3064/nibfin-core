@@ -52,6 +52,29 @@ Job. Editing Assignees does not change a previously queued Job's routing label.
 See [recovery](../security/#recovery-and-single-writer-operation) before retrying
 or assigning another Writer.
 
+## Execution boundaries
+
+{/* claim:architecture-environments */}
+Unverified: source architecture does not establish every host's installed safety.
+A desktop host discovers a Linux guest; native Linux Runners register and receive
+GitHub Jobs there. The private Controller verifies admission, owns privileged
+GitHub operations and keeps managed credentials outside Runner and isolated
+Agent/Hook inputs. Desktop handoff does not transfer desktop login stores.
+
+The managed Linux base profile uses a dedicated rootful Docker Engine, user
+namespace separation and AppArmor. Existing rootless Docker profiles are distinct;
+this does not rename their configured backend. An optional Writer Job VM uses
+Firecracker only where an administrator has adopted the required host profile.
+It applies to Deliver development commands, not every role or hook. See
+[project backend selection](../project-environment/#writer-backend).
+
+Bounded outgoing wake notifications locate work without granting authority.
+Registration, an online Runner and dispatch readback cannot replace admission,
+settlement, independent Accept or actual Issue completion. See
+[environments](../execution-environments/), [providers](../agent-providers/) and
+[Runner readiness](../runners/#after-registration).
+{/* /claim */}
+
 ## Website boundary
 
 This English site lives in Core's `website/` and is served by GitHub Pages.

@@ -78,8 +78,9 @@ approved host configuration before privileged work. Untrusted public content
 must remain isolated from administrative credentials and member Agent logins.
 
 Unverified: organization policy and OS/Agent combinations need separate testing.
-No private directory layout, WSL installation or universal platform support is
-prescribed by this guide.
+A matching Linux package is not a verified installation. See
+[execution environments](../execution-environments/) for target selection and
+[Agent providers](../agent-providers/) for availability and shared-pool identity.
 
 ## Shared Runners
 
@@ -89,6 +90,31 @@ Each Job uses its target repository's
 [project environment](../project-environment/) and isolation boundaries.
 To choose Docker or Firecracker for Deliver, see
 [Writer backend](../project-environment/#writer-backend).
+
+## Pending, delay and host recovery
+
+Registration, service online state, configured routing, dispatch observation and
+actual Issue execution are separate results. The outgoing relay polls about one
+minute after the preceding pass; it supplies bounded wake notifications, not a
+delivery SLA or execution permission. Discovery covers a 24-hour window and at
+most three pages of 50 runs per adopted workflow. An offline host delays polling
+and Jobs; recovery outside those bounds is not promised.
+
+A consumed receipt proves dispatch readback only. Pending may mean missing
+prerequisites or uncertain writes. Re-enter the same execution environment and
+preserve original intent and receipts. Unknown dispatch effects do not permit
+another POST. Read [installation readiness](../installation/#verify-your-installation)
+and [safe recovery](../security/#recovery-and-single-writer-operation) before retrying.
+
+## Managed pool rebuild
+
+Two shared slots have distinct native IDs/names but one installed
+provider/model/profile. Peer repositories reuse the slots and inherit that choice.
+The [Agent guide](../agent-providers/#explicit-pool-replacement) explains the
+candidate `runner rebuild` preview and separate apply consent. Rebuild retains
+original logins and delivery history, creates fresh Runner identities, re-adopts
+historical peers and waits for Core final activation. Offline state or remote
+cancellation cannot settle unknown old processes or GitHub effects.
 
 ## Unregister and remove
 

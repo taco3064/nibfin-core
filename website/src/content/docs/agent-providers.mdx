@@ -1,0 +1,104 @@
+---
+title: Agent providers
+description: Shared-pool Agent identity, authentication, renewal and replacement.
+---
+
+## Authentication and availability
+
+{/* claim:provider-codex */}
+Unverified formal release and clean installation. Codex is composed by the
+maintained managed-install source. Its current route imports compatible ChatGPT
+subscription authentication from the intended user's maintained Codex sign-in
+flow in the [Linux execution environment](../execution-environments/).
+Unsupported authentication requires a dedicated Controller login; API keys are
+not interchangeable with that imported login route. Follow the
+[managed walkthrough](../installation/) for consent and readiness.
+{/* /claim */}
+
+{/* claim:provider-claude */}
+Planned: Claude Code installation is unavailable because production composition
+is missing. The proposed route uses an API key with API billing, distinct from
+Codex's ChatGPT sign-in and subscription model. This is not a claim of Claude
+subscription, MCP or Job VM support. A recognized provider name or positive
+controlled fixture does not enable installed Claude support. The production CLI
+rejects unavailable composition before credential intake or pool retirement.
+{/* /claim */}
+
+## One installed choice for two slots
+
+A fresh managed pool defaults to Codex. Explicit Agent selection is available at
+init; an existing pool preserves its provider, model and profile when omitted.
+Both native Runner IDs and names belong to one installed provider binding. The
+two shared slots use the same provider/model/profile, with separate execution
+isolation. A peer repository inherits that complete installed choice and reuses
+the slots. It does not select another Agent or create a second pool.
+
+Project configuration, Issue text, labels and workflow inputs cannot switch the
+installed implementation. Explicit init selection that conflicts with an existing
+pool is rejected with guidance to rebuild. There is no cross-provider fallback.
+See the [installed-provider contract][binding] for the maintained identity rules.
+
+Source-backed **candidate-only** preview for a new Codex pool:
+
+```sh
+gh nibfin init --repo OWNER/REPO --agent codex
+```
+
+This example is not release or installation certification. Apply, login consent,
+merge, continuation and original-intent recovery stay in the
+[canonical walkthrough](../installation/). Use the same Agent selection when
+resuming the original intent; init does not change an adopted provider.
+
+## Same-provider renewal
+
+Reauthenticate the same intended member through the original provider's login
+flow. Updating the original login alone does not replace the Controller copy.
+The installed Core credential administration interface handles same-provider
+renewal after active consumers and effects settle. Repeating init is not renewal.
+See [credential renewal and disconnect](../cli/#credential-renewal-and-disconnect).
+Original logins remain intact; disconnect is distinct from provider revocation.
+
+## Explicit pool replacement
+
+Provider changes require explicit whole-pool retirement and reinstallation.
+Ordinary init, same-provider credential replacement and individual Runner
+unregister/remove are different operations. Production Claude replacement stays
+Planned; the examples below expose only the maintained Codex candidate route,
+which can rebuild a Codex pool without promising another available provider.
+
+Run inside the managed Linux host as the original installing user. Preview:
+
+```sh
+gh nibfin runner rebuild --repo OWNER/REPO --agent codex
+```
+
+Review all adopted repositories and the intended pool. Applying or resuming
+requires separate rebuild consent:
+
+```sh
+gh nibfin runner rebuild --repo OWNER/REPO --agent codex --apply --consent-rebuild
+```
+
+This requires the stored GitHub login, repository administration rights for all
+adopted repositories and independent local administrator authorization. Rebuild
+uses Core settlement before old registration removal or resource cleanup. Only
+a retired pool permits fresh registration. It reconciles uncertain registration
+results instead of creating duplicate Runners, matches fresh IDs during primary
+adoption, re-adopts historical peers and verifies service and wake routing.
+Core's final activation releases replacement admission; an online listener or
+local orchestration phase is insufficient.
+
+Original GitHub/Codex login stores and delivery history are retained. New native
+Runner identities replace the old pair; historical peer repositories must be
+re-adopted rather than forgotten. Preserve private replacement intent and recovery
+receipts. Repeating the same apply command resumes the maintained recovery path;
+do not edit Core records or remove unrelated registrations.
+
+An offline old Runner, cancelled Run or elapsed time does not prove settlement.
+Unknown old processes or GitHub effects keep progress Pending until reconciled.
+Do not force removal, delete recovery intent or start another Writer to bypass
+that result. See [managed replacement recovery][replacement] and
+[single-Writer recovery](../security/#recovery-and-single-writer-operation).
+
+[binding]: https://github.com/taco3064/nibfin-core/blob/main/docs/installed-provider.md
+[replacement]: https://github.com/taco3064/gh-nibfin/blob/main/docs/managed-replacement.md

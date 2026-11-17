@@ -22,6 +22,8 @@ export const sidebar = [
   {
     label: 'Execution environment',
     items: [
+      { label: 'Execution environments', slug: 'execution-environments' },
+      { label: 'Agent providers', slug: 'agent-providers' },
       { label: 'Runners', slug: 'runners' },
       { label: 'Project environment', slug: 'project-environment' },
     ],
