@@ -11,6 +11,7 @@ import { claudeWorkChannel, claudeWorkServer } from './claude-work-channel.mjs';
 import { verifyWorkEgress } from './claude-work-egress.mjs';
 import { inspectModelContainer, modelContainerArgs } from './claude-model-container.mjs';
 import { readClaudeApiKey, validClaudeApiKey } from './claude-model-credentials.mjs';
+import { containsCredentials } from './credential-output.mjs';
 
 const immutable = /^sha256:[a-f0-9]{64}$/;
 export const claudeModelComponent = Object.freeze({
@@ -146,7 +147,8 @@ export function createClaudePrivateRunner(config, {
     },
     async assertOutputSafe(executionId, stdout, stderr) {
       const key = executions.get(executionId)?.key;
-      return !!key && !stdout.includes(key) && !stderr.includes(key);
+      return !!key && !containsCredentials(stdout, [key]) &&
+        !containsCredentials(stderr, [key]);
     },
     async retire(executionId) { executions.delete(executionId); },
   };

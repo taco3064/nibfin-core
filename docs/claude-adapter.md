@@ -1,8 +1,8 @@
 # Bounded Claude component
 
 `claude-plan.mjs`, `claude-result.mjs` and `claude-agent.mjs` implement the
-component adapter only. Installed provider composition still rejects Claude.
-No live authentication, host isolation or complete Claude support is claimed.
+component adapter. `createClaudePrivateRunner` supplies the model launcher.
+Installing Claude as the selected provider is a separate integration step.
 
 The trusted caller supplies the stage, protected effective Skill, context and
 model profile. Component configuration pins the official unmodified
@@ -73,9 +73,19 @@ provider errors and invalid closed-schema data fail. Official transport metadata
 is discarded. Core alone applies workspace changes, captures the Candidate and
 constructs authoritative receipts; this component performs none of those steps.
 
-Local executor doubles exercise this interface. Actual runner enforcement,
-authentication, credentials, mounts, network, process cleanup and live integration
-remain AGENT-3/AGENT-7 responsibilities and require their own integration evidence.
+### Private model package
+
+`src/security/claude-model.Dockerfile` uses the pinned upstream binary for the
+native platform and includes the fixed stdio bridge. The host supplies a
+separate model-only bridge and gateway running `claude-model-proxy.mjs` with
+the shared HTTPS transport. The gateway permits `api.anthropic.com` and
+requires the same isolated-network readback as the work gateway.
+
+The administrator intake entry accepts an API key over a private pipe on an
+adopted host. The model launcher sends it over container stdin, sets it for
+the official Claude process and checks that model output contains no key.
+The packaged stdio bridge rejects a child environment containing that key.
+Provider selection and real-account verification remain separate.
 
 ### Work bridge and Linux worker package
 
@@ -92,8 +102,7 @@ child; this package does not enable installed Claude support.
 `src/security/claude-work.Dockerfile` packages the credential-free worker with
 the required Python 3.13.7 runtime. Its `PROJECT_IMAGE` build argument is Core's
 maintained project tool image, never a repository/model-selected image. Package
-inputs include the worker, protocol, filesystem and limits files. Model-container
-packaging and customer authentication remain AGENT-3 responsibilities.
+inputs include the worker, protocol, filesystem and limits files.
 
 The trusted composing runner constructs `ClaudeWorkWorker` from
 `src/claude-work-launcher.mjs` with the verified rootful remapped backend,
