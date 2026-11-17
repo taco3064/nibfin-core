@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { mkdtemp, mkdir, readFile, readdir, rm, chmod, symlink, writeFile } from
+import { mkdtemp, mkdir, readFile, readdir, rename, rm, chmod, symlink, writeFile } from
   'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -249,7 +249,7 @@ test('changed credential inode, ownership and linked paths are refused', async t
   const stat = await privateResource(host.tokenFile, host.uid);
   await assert.rejects(privateResource(host.tokenFile, stat.uid + 1),
     { code: 'MANAGED_CREDENTIAL_PATH_UNSAFE' });
-  await rm(host.authFile);
+  await rename(host.authFile, host.authFile + '.preserved');
   await symlink(host.tokenFile, host.authFile);
   await assert.rejects(manageCredentials(host, 'replace', material(), options));
   await rm(host.authFile);

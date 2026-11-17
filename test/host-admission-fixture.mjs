@@ -10,6 +10,10 @@ import { callerRecipe } from '../src/caller-recipes.mjs';
 let root;
 let context, protectedCalls = 0, dispatches = 0, bootFailure = false;
 const adoption = await import('../src/host-adoption.mjs');
+const resources = await import('../src/managed-resource-admission.mjs');
+mock.module('../src/managed-resource-admission.mjs', { namedExports: {
+  ...resources, withResourcePreparationLock: action => action(),
+} });
 mock.module('../src/host-adoption.mjs', { namedExports: {
   ...adoption,
   loadHostAdoption: async () => context,
