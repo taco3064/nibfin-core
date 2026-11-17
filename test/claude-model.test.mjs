@@ -31,3 +31,37 @@ test('model package and protected runner share the bridge and release', async ()
   assert.ok(recipe.includes(`io.nibfin.claude-version="${version}"`));
   assert.ok(recipe.includes(claudeWorkServer().command));
 });
+
+test('recipe copy closure loads bridge without Core delivery dependencies', async () => {
+  const { mkdtemp, mkdir, copyFile, rm } = await import('node:fs/promises');
+  const { tmpdir } = await import('node:os');
+  const { join, dirname } = await import('node:path');
+  const { pathToFileURL } = await import('node:url');
+  const { spawnSync } = await import('node:child_process');
+  const root = await mkdtemp(join(tmpdir(), 'claude-recipe-'));
+  try {
+    const recipe = (await readFile('src/security/claude-model.Dockerfile', 'utf8'))
+      .replaceAll('\\\n', '');
+    for (const line of recipe.split('\n')) {
+      if (!line.startsWith('COPY ')) continue;
+      const fields = line.trim().split(/\s+/).slice(1)
+        .filter(field => !field.startsWith('--'));
+      const destination = fields.pop();
+      for (const source of fields) {
+        const target = destination.endsWith('/') ?
+          join(root, destination, source.split('/').at(-1)) : join(root, destination);
+        await mkdir(dirname(target), { recursive: true });
+        await copyFile(source, target);
+      }
+    }
+    const url = pathToFileURL(join(root, 'opt/nibfin/claude/src/claude-work-bridge.mjs'));
+    const imported = spawnSync(process.execPath, ['--input-type=module', '-e',
+      `await import(${JSON.stringify(url.href)})`], { encoding: 'utf8' });
+    assert.equal(imported.status, 0, imported.stderr);
+    const bridge = join(root, 'opt/nibfin/claude/bin/work-tools');
+    const rejected = spawnSync(process.execPath, [bridge], { encoding: 'utf8',
+      env: { ANTHROPIC_API_KEY: 'synthetic-inherited-key' } });
+    assert.equal(rejected.status, 1);
+    assert.equal(rejected.stderr, 'WORK_CHANNEL_UNAVAILABLE\n');
+  } finally { await rm(root, { recursive: true, force: true }); }
+});

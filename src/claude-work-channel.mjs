@@ -1,14 +1,9 @@
 import { requireThat } from './identity.mjs';
 import { roleCapabilities } from './provider-contract.mjs';
 
-export const claudeWorkChannel = 'claude-scoped-work-v1';
-export const claudeWorkSocket = '/session/work-channel/worker.sock';
-const command = '/opt/nibfin/claude/bin/work-tools';
+export { claudeWorkChannel, claudeWorkSocket, claudeWorkServer }
+  from './claude-work-transport.mjs';
 const uuid = /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i;
-
-export function claudeWorkServer() {
-  return { type: 'stdio', command, args: [], env: {} };
-}
 
 function operations(stage) {
   return roleCapabilities(stage).workspace === 'write'

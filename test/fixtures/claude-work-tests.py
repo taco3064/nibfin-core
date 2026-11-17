@@ -162,6 +162,47 @@ class NativeTransportTests(unittest.TestCase):
             self.assertFalse(thread.is_alive())
             self.assertEqual(failures, [])
 
+    def test_only_bridge_completion_is_orderly(self):
+        completion = protocol.encode({
+            "jsonrpc": "2.0", "method": protocol.LIMITS["completionMethod"]})
+        for frame, expected in [(completion, True), (b"", False),
+                                (b'{"id":', False),
+                                (completion + b'{"id":1}\n', False)]:
+            with self.subTest(frame=frame):
+                with tempfile.TemporaryDirectory(prefix="work-complete-") as root:
+                    endpoint = str(Path(root) / "worker.sock")
+                    config = {"socket": endpoint,
+                              "peer": [os.getuid(), os.getgid()],
+                              "operations": ["read"], "lifetime": 3}
+                    outcomes = []
+                    failures = []
+                    def serve():
+                        try:
+                            outcomes.append(worker.serve(config))
+                        except BaseException as error:
+                            failures.append(error)
+                    thread = threading.Thread(target=serve)
+                    thread.start()
+                    try:
+                        deadline = time.monotonic() + 2
+                        while (not Path(endpoint).exists()
+                               and time.monotonic() < deadline):
+                            time.sleep(0.01)
+                        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as peer:
+                            peer.settimeout(1)
+                            peer.connect(endpoint)
+                            if frame:
+                                peer.sendall(frame)
+                            peer.shutdown(socket.SHUT_WR)
+                            while peer.recv(protocol.RESPONSE_LIMIT):
+                                pass
+                    finally:
+                        thread.join(4)
+                    self.assertFalse(thread.is_alive())
+                    self.assertEqual(failures, [])
+                    self.assertEqual(outcomes, [expected])
+
+
 
 class CommandTests(unittest.TestCase):
     def test_clean_environment_and_exit_status(self):

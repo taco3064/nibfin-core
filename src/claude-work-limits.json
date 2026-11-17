@@ -4,5 +4,7 @@
   "commandSeconds": 120,
   "outputBytes": 65536,
   "contentBytes": 65536,
-  "lifetimeSeconds": 10800
+  "lifetimeSeconds": 10800,
+  "completionMethod": "notifications/nibfin-work-complete",
+  "pendingRequests": 128
 }
