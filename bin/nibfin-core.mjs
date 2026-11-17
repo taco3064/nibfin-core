@@ -16,7 +16,8 @@ import { promoteHost } from '../src/host-rollout.mjs';
 import { inspectSharedHost } from '../src/shared-host-inspect.mjs';
 import { installSharedServiceTemplate } from '../src/shared-service-install.mjs';
 import { installAndStartSharedServices } from '../src/shared-service-start.mjs';
-import { adoptSharedPeer, refreshManagedIssueCaller } from '../src/shared-peer-adoption.mjs';
+import { adoptSharedPeer, refreshManagedIssueCaller }
+  from '../src/shared-peer-adoption.mjs';
 import { adoptSharedHost } from '../src/shared-host-adopt.mjs';
 
 import { credentialAdministrator } from '../src/managed-credentials.mjs';
