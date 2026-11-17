@@ -4,7 +4,8 @@ import { candidateRuntimeContract } from './candidate-contract.mjs';
 const isolatedVerification = [
   'TRUSTED CORE VERIFICATION CONTRACT:',
   'Run required checks owned by this role and supported by its environment.',
-  'Read the applicable workflow and check selection rules for this change.',
+  'Trace applicable workflow selection through wrappers to their component checks.',
+  'A component check stays workflow-owned when run alone under another command.',
   'Leave CI/CD-owned checks to their workflows. Do not duplicate them here.',
   'Record pending or unavailable workflow results as Unverified.',
   'Use the owning workflow result for the matching source revision when available.',

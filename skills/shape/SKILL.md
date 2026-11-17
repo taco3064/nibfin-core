@@ -280,7 +280,11 @@ Describe the authorized outcome and material failure behavior in observable term
 
 Investigate source, tests and workflows where they inform implementation. Use targeted read-only probes when needed to settle an implementation question. Report a concrete missing prerequisite, authority or requirement when it prevents development.
 
-Keep existing CI/CD verification at its owning stage. If a new test suite or CI change is itself a required maintained output outside this Issue, report the scope gap for authorized planning.
+Keep existing CI/CD verification at its owning stage. Trace workflow selectors
+and wrapper scripts to their component checks before assigning work to a role.
+Treat a component check as workflow-owned even if it can be invoked alone.
+If new tests or CI changes are required maintained outputs outside this Issue,
+report the Scope gap for authorized planning.
 
 ### Security / Trust / Compatibility boundaries
 
