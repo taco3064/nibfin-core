@@ -66,6 +66,23 @@ Read the project's **current normative authority** (Proposal, product specificat
 4. **Bound work:** Target roughly 1,000 lines or fewer of meaningful maintained first-party changes per implementation Issue, including copied/ported adaptations, tests, workflows, configuration and nontrivial refactors (not merely net added lines). Give an estimate range and confidence. If larger, seek separable outcomes; if not safely divisible, record the reason and its explicit exception within the Owner-approved Plan. Use appropriate alternative effort units for **maintained product documentation**. Release/evidence work stays in its actual non-delivery responsibility, not an implementation estimate. Never drop necessary tests to meet the budget.
 5. **Resolve actual operation and inherited-permission paths:** Identify the necessary actor, input and permission for operations that affect the split or development feasibility, including operations inherited through shared helpers. Ground any decision affecting the split in actual code or authoritative provider behavior. Shape investigates and selects the implementation route within those boundaries.
 
+### Runner feasibility before publication
+
+For work proposed for automatic delivery, check the capabilities that materially
+affect the Issue split against the adopted Runner profile, project configuration,
+maintained fixture interfaces and existing CI/CD selection rules. Identify which
+stage needs each capability. The planning machine's tools, host permissions,
+credentials and network do not establish what a Runner Job can use.
+
+Prefer a maintained fixture or shared implementation interface when it exercises
+the required behavior. Require a public command, live service, native platform or
+privileged operation only when the approved goal needs that boundary. If a
+necessary capability is missing, identify its actual owner and sequence the work
+around its output. If the assigned profile is unknown, record that uncertainty
+and leave enrollment readiness unverified where the uncertainty is material.
+Keep the Issue focused on implementation outcomes and leave verification methods
+to Accept and the existing workflows.
+
 ### Producer, consumer and delivery order
 
 For each required upstream interface or artifact, trace the producer to the consumer and confirm that it will be available when needed.

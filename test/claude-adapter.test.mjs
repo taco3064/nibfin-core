@@ -40,6 +40,13 @@ test('private plans are deterministic and role tools are exact', () => {
   for (const stage of Object.keys(outcomes)) {
     const p = plan(stage);
     assert.deepEqual(p, plan(stage));
+    if (stage === 'shape' || stage === 'validate-shape') {
+      assert.match(p.prompt, /check material Runner assumptions/);
+    }
+    if (stage === 'deliver' || stage === 'accept') {
+      assert.match(p.prompt, /Do not duplicate them here/);
+      assert.match(p.prompt, /pending or unavailable workflow results as Unverified/);
+    }
     assert.deepEqual(p.tools, claudeTools(stage));
     assert.equal(p.contract.capabilities.workspace,
       stage === 'deliver' ? 'write' : 'read');

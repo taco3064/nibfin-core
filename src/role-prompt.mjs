@@ -3,7 +3,11 @@ import { candidateRuntimeContract } from './candidate-contract.mjs';
 
 const isolatedVerification = [
   'TRUSTED CORE VERIFICATION CONTRACT:',
-  'Run the required checks supported by the assigned isolated environment.',
+  'Run required checks owned by this role and supported by its environment.',
+  'Read the applicable workflow and check selection rules for this change.',
+  'Leave CI/CD-owned checks to their workflows. Do not duplicate them here.',
+  'Record pending or unavailable workflow results as Unverified.',
+  'Use the owning workflow result for the matching source revision when available.',
   'Without a Git index, pass known changed paths to the test selector or run',
   'the affected tests directly.',
   'Use read-only /main when a focused source comparison helps.',
@@ -16,13 +20,12 @@ const isolatedVerification = [
   'An unavailable local Git check is not a code failure or evidence of a pass.',
   'Continue implementation after recording unavailable checks. Do not run git init.',
   'Start with the current failure. Inspect current code and diagnostics, fix',
-  'the cause, and rerun the affected checks.',
+  'the cause, and rerun affected checks owned by this role.',
   'Use history or a targeted baseline comparison only if it resolves a concrete',
   'uncertainty or supports a rollback. Avoid duplicate test environments.',
   'If you compare versions, record the check and both observed outcomes.',
   'Block on unresolved failures affecting the change, omitted required runnable',
-  'local checks, or missing evidence required by the Shape at this stage.',
-  'A later check cannot substitute for evidence required now.',
+  'local checks owned by this role, or missing required evidence owned by this role.',
   'Use the live authorized Issue for requirements. Original Scope is history.',
   'Final Review binds delivered content. Merge verifies current integration CI.',
   '',
@@ -65,7 +68,10 @@ export function rolePrompt(stage, {
     'cross-repository dependencies. Use these sources to check the interfaces ' +
     'relevant to your role.\n' +
     (stage === 'shape' || stage === 'validate-shape'
-      ? 'Plan the implementation and leave behavior verification to Accept.\n' : '') +
+      ? 'Plan the implementation and leave behavior verification to Accept.\n' +
+        'Use the trusted Job inputs and the maintained fixture and workflow sources ' +
+        'to check material Runner assumptions. Do not infer host or other-role access.\n'
+      : '') +
     (stage === 'deliver' || stage === 'accept' ? isolatedVerification : '') +
     (projectTools?.python ? [
       `Project Python: ${projectTools.python}. Verify with python3 --version.`,
