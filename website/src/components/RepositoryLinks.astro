@@ -1,0 +1,30 @@
+---
+import { Cog, Terminal, Workflow } from 'lucide-react';
+import DocsItems from './DocsItems';
+
+const links = [
+  {
+    title: 'Core · nibfin-core',
+    href: 'https://github.com/taco3064/nibfin-core',
+    Icon: Cog,
+    description: 'The delivery engine. Checks authorization, runs delivery stages, '
+      + 'and records the evidence used to verify changes.',
+  },
+  {
+    title: 'Action · nibfin-act',
+    href: 'https://github.com/taco3064/nibfin-act',
+    Icon: Workflow,
+    description: 'The GitHub Actions integration. Verifies the installed Core, '
+      + 'invokes it from a workflow, and reports the stage result.',
+  },
+  {
+    title: 'CLI · gh-nibfin',
+    href: 'https://github.com/taco3064/gh-nibfin',
+    Icon: Terminal,
+    description: 'The GitHub CLI extension. Helps set up a repository, manage '
+      + 'Runners, check the environment, and propose upgrades.',
+  },
+];
+---
+
+<DocsItems {links} />

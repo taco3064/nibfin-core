@@ -47,7 +47,7 @@ for (const theme of ['light', 'dark']) {
       await expect(skip).toBeFocused();
       await page.keyboard.press('Enter');
       const actions = page.locator('.hero .actions a');
-      await expect(actions).toHaveCount(2);
+      await expect(actions).toHaveCount(3);
       await expect(actions.first()).toHaveClass(/\bbg-primary\b/);
       await expect(actions.last()).toHaveClass(/\bborder-input\b/);
       const row = page.locator('.nf-doc-links a').first();
@@ -101,6 +101,16 @@ for (const theme of ['light', 'dark']) {
         await tabTo(page, action);
         await action.press('Enter');
         await expect(page.locator('h1')).toHaveText(destinations[index][1]);
+      }
+      await page.goto('');
+      const github = page.getByRole('link', { name: 'GitHub repositories' });
+      await github.click();
+      await expect(page).toHaveURL(/#github-repositories$/);
+      await expect(page.locator('#github-repositories')).toBeInViewport();
+      for (const name of ['nibfin-core', 'nibfin-act', 'gh-nibfin']) {
+        const source = page.locator(`main a[href="https://github.com/taco3064/${name}"]`);
+        await expect(source).toBeVisible();
+        await expect(source).toContainText(name);
       }
       for (const [route, heading] of destinations) {
         await page.goto('');
