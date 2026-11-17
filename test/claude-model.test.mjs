@@ -23,9 +23,10 @@ test('Claude model mounts just the private read-only channel', () => {
   assert.ok(!args.some(value => value.includes('ANTHROPIC_API_KEY')));
 });
 
-test('packaged model and protected runner share the fixed bridge and release', async () => {
+test('model package and protected runner share the bridge and release', async () => {
   const recipe = await readFile(
     new URL('../src/security/claude-model.Dockerfile', import.meta.url), 'utf8');
-  assert.ok(recipe.includes(`io.nibfin.claude-version="${claudeModelComponent.cli.version}"`));
+  const version = claudeModelComponent.cli.version;
+  assert.ok(recipe.includes(`io.nibfin.claude-version="${version}"`));
   assert.ok(recipe.includes(claudeWorkServer().command));
 });
