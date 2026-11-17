@@ -58,10 +58,11 @@ Any material Candidate change requires fresh independent Acceptance.
 No historical Agent transcript or permanent evidence archive is required.
 Choose independent verification methods within the assigned environment.
 Code inspection can suffice when it establishes the required behavior and
-no stronger evidence is required. Review the
-actual CI/CD selection rules when using workflow evidence. Use the matching
-source, run and job, and leave execution with its existing workflow. Record
-future PR or CD evidence as Unverified and let the existing gate enforce it at
-the owning stage. An applicable skipped check is a workflow coverage gap.
+no stronger evidence is required. Review the CI/CD selection rules for checks
+assigned to those workflows and skip duplicate runs during Accept. The result
+from the owning workflow's matching source revision, run and job is authoritative
+for that check. Record pending or unavailable workflow results as Unverified
+and let the existing gate enforce them at the owning stage. An applicable
+skipped check is a workflow coverage gap.
 Report the methods used, observed results and evidence that still needs its
 owning stage.

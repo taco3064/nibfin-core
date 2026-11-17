@@ -48,10 +48,12 @@ Those operations belong to the trusted publisher after independent evidence.
 Implement the complete bounded behavior and maintain regression tests where
 the change calls for them. Inspect the whole diff for unintended changes.
 Run targeted development checks and any trusted checks required for Deliver.
-Keep existing CI/CD builds, suites, packaging and deployment checks with their
-workflows. Hand off the change, what was checked and remaining uncertainties.
-Record future or unavailable workflow results as Unverified and continue
-through Candidate capture once the implementation and Deliver checks are ready.
+Leave checks assigned to CI/CD to their owning workflows. Skip duplicate runs
+during Deliver. The owning workflow's result for the matching source revision
+is authoritative for that check. Record pending or unavailable workflow results
+as Unverified and continue through Candidate capture once the implementation and
+required Deliver checks are ready. Hand off the change, what was checked and
+remaining uncertainties.
 Report exact commands, observed outcomes and unrun evidence honestly.
 Identify simulated tests as such. Provider and host claims require evidence
 from the corresponding environment.
