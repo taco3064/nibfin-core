@@ -117,6 +117,26 @@ test('a new Shape preserves delivery progress and retains the base on fetch fail
       'Original\n');
   });
 
+test('an edited Shape reads current source even after a successful draft', async t => {
+  const { workspace, seed, git, base } = await fixture(t);
+  await writeFile(join(seed, '.nibfin.json'), '{"tools":{"node":"22.15.0"}}');
+  await git(['add', '.nibfin.json']);
+  await git(['commit', '-m', 'Update project tools on main']);
+  const head = await git(['rev-parse', 'HEAD']);
+  const options = {
+    workspace, stage: 'continue', receipts: { shape: { outcome: 'ready' } },
+    observeMain: async () => ({ head }),
+    settle: async () => {},
+    requirementsChanged: async () => false,
+  };
+  await refreshShapeWorkspace(options);
+  assert.equal(await workspace.comparisonBase(), base);
+  await refreshShapeWorkspace({ ...options, requirementsChanged: async () => true });
+  assert.equal(await workspace.comparisonBase(), head);
+  assert.equal(await readFile(join(workspace.work, '.nibfin.json'), 'utf8'),
+    '{"tools":{"node":"22.15.0"}}');
+});
+
 test('capture and commit bind files, artifacts and tree', async (t) => {
   const f = await fixture(t);
   await writeFile(join(f.workspace.work, 'source.txt'), 'Changed\n');
