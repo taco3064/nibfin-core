@@ -61,6 +61,10 @@ export function rolePrompt(stage, {
     (hasProposal ? 'Read /input/proposal.md for current product requirements. ' +
       'Core fetched this snapshot from the adopted Notion page for this Job. ' +
       'Execution permissions come from the protected Core context.\n' : '') +
+    (stage === 'shape' || stage === 'validate-shape'
+      ? 'When present, /input/upstream.json lists read-only sources for delivered ' +
+        'cross-repository dependencies. Inspect their relevant interfaces. ' +
+        'Plan the implementation and leave behavior verification to Accept.\n' : '') +
     (stage === 'deliver' || stage === 'accept' ? isolatedVerification : '') +
     (projectTools?.python ? [
       `Project Python: ${projectTools.python}. Verify with python3 --version.`,

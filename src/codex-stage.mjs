@@ -11,6 +11,7 @@ import { loadUserMcp } from './mcp-source.mjs';
 import { runJobVmWriter } from './job-vm-writer.mjs';
 import { preflightJobVm } from './job-vm.mjs';
 import { issueContainerLabel } from './host-containers.mjs';
+import { GitHubReader } from './github-read.mjs';
 
 // Fixed composition for the provisional Codex adapter. The privileged launcher
 // supplies adopted paths and native writer proof. No request can import a host
@@ -101,6 +102,7 @@ export async function codexStageExecutor({
       projectRoot,
     },
     inheritedAgent,
+    { upstream: { core: installed.pin, reader: new GitHubReader(token, fetcher) } },
   );
   const agent = {
     async run(stage, context) {
