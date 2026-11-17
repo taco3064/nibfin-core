@@ -103,7 +103,9 @@ for (const theme of ['light', 'dark']) {
         await expect(page.locator('h1')).toHaveText(destinations[index][1]);
       }
       await page.goto('');
-      const github = page.getByRole('link', { name: 'GitHub repositories' });
+      const github = page.getByRole('link', {
+        name: 'GitHub repositories', exact: true,
+      });
       await github.click();
       await expect(page).toHaveURL(/#github-repositories$/);
       await expect(page.locator('#github-repositories')).toBeInViewport();
