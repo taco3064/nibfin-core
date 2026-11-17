@@ -111,6 +111,10 @@ export async function manageCredentials(host, operation, material, {
     requireThat(material && typeof material.token === 'string' &&
       typeof material.auth === 'string', 'MANAGED_CREDENTIAL_INPUT_INVALID');
     await verify(host, material.token);
+    if (operation === 'replace' &&
+        (await readPrivate(host.tokenFile, host, 16384)).trim() === material.token)
+      return { status: 'active', memberId: host.memberId, reused: true,
+        guidance: credentialGuidance };
     await settle(host);
     const next = { schemaVersion: 1, memberId: host.memberId,
       phase: 'installing', files: [...(state?.files ?? [])] };
