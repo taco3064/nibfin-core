@@ -12,6 +12,7 @@ import {
 } from './relay-host.mjs';
 import { NotificationRelay, safeRelayCode } from './notification-relay.mjs';
 import { installedSharedRuntime } from './shared-platform.mjs';
+import { requirePoolOpen } from './retirement-admission.mjs';
 
 export async function writeRelayResource(directory, name, content, inspect) {
   const target = join(directory, name);
@@ -137,5 +138,5 @@ export async function controlNotificationRelay(paused) {
 export async function pollNotificationRelay() {
   const context = await loadRelayHost({ verifyRemote: false });
   await context.journal.control();
-  return new NotificationRelay(context).poll();
+  return new NotificationRelay({ ...context, requireAdmission: requirePoolOpen }).poll();
 }

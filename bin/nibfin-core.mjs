@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { retireSharedHost } from '../src/retirement-host.mjs';
+import { activateSharedReplacement } from '../src/retirement-activate.mjs';
 import { consumerContract } from '../src/public-api.mjs';
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { resolve, join } from 'node:path';
@@ -39,6 +40,8 @@ async function main(args) {
     return recoverReview(values[0], values[1]);
   if (command === 'retire-shared-host' && values.length === 0)
     return retireSharedHost();
+  if (command === 'activate-shared-replacement' && values.length === 0)
+    return activateSharedReplacement();
   if (command === 'promote-host' && values.length === 0) return promoteHost();
   if (command === 'contract' && values.length === 0) return consumerContract;
   if (command === 'inspect-shared-host' && values.length === 0)
@@ -77,6 +80,7 @@ async function main(args) {
         'managed-credentials <intake|replace|status|disconnect> (local admin)',
         'inspect-shared-host',
         'retire-shared-host (local administrator, no arguments)',
+        'activate-shared-replacement (local administrator, no arguments)',
         'install-shared-service-template',
         'start-shared-services',
         'adopt-shared-host (administrator-only, root-owned profile and source pin)',

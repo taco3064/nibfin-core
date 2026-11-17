@@ -8,6 +8,16 @@ import {
 } from './shared-peer-adoption.mjs';
 import { syncRecoveryDirectory } from './recovery-lock.mjs';
 import { requireThat } from './identity.mjs';
+import { drainPath, retirementPath } from './retirement-admission.mjs';
+import { readRetirementFile } from './retirement-files.mjs';
+
+export async function withReplacementAwareAdoptionLock(action) {
+  const state = await readRetirementFile(retirementPath);
+  if (state?.phase === 'retired' && (state.replacement?.phase !== 'released' ||
+    await readRetirementFile(drainPath) !== null))
+    return withRetirementLock(action);
+  return withSharedAdoptionLock(action);
+}
 
 // A retained adoption/rollout guard is never stolen. Only a tagged retirement
 // guard can recover, after acquiring the kernel lock held by every retirement.

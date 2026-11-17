@@ -32,6 +32,10 @@ export const consumerContract = Object.freeze({
   schemaVersion: interfaceVersion,
   claudeModel: claudeModelComponent,
   managedResourcePreparation: managedPreparationCapability,
+  managedPoolReplacement: Object.freeze({
+    kind: 'managed-pool-replacement-v1',
+    activationCommand: 'activate-shared-replacement',
+  }),
   managedSharedAdmission: Object.freeze({
     kind: managedSharedAdmission,
     adoptionProfileKey: 'sharedAdmission',

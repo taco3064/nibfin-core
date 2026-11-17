@@ -1,4 +1,5 @@
-import { retiredPeerReplaceable } from './retirement-rebind.mjs';
+import { pendingReplacement, retiredPeerReplaceable } from './retirement-rebind.mjs';
+import { withReplacementAwareAdoptionLock } from './retirement-lock.mjs';
 import { requireNoRetirement } from './retirement-admission.mjs';
 import { compareProviderViews } from './provider-binding.mjs';
 import { withManagedAdmission } from './managed-credential-admission.mjs';
@@ -120,7 +121,7 @@ async function replace(path, value) {
 export async function adoptSharedPeer(name, id, actionCommit) {
   requireThat(process.platform === 'linux' && process.getuid() === 0 &&
     coreRoot === '/opt/nibfin/core', 'PEER_INSTALLATION_REQUIRES_HOST_ADMIN');
-  return withManagedAdmission(() => withSharedAdoptionLock(directory =>
+  return withManagedAdmission(() => withReplacementAwareAdoptionLock(directory =>
     adoptPeerLocked(name, id, actionCommit, directory)));
 }
 
@@ -146,8 +147,7 @@ export function managedIssueBinding(event, observed, commit) {
 export async function refreshManagedIssueCaller(name, id) {
   requireThat(process.platform === 'linux' && process.getuid() === 0 &&
     coreRoot === '/opt/nibfin/core', 'PEER_INSTALLATION_REQUIRES_HOST_ADMIN');
-  return withManagedAdmission(() => withSharedAdoptionLock(async () => {
-    await requireNoRetirement();
+  return withManagedAdmission(() => withReplacementAwareAdoptionLock(async () => {
     const read = async path => {
       await rootOwnedPath(path);
       const bytes = await boundedHostFile(path, 262144);
@@ -155,6 +155,7 @@ export async function refreshManagedIssueCaller(name, id) {
     };
     const primary = await read(hostFile);
     const host = primary.value;
+    await requireAdoptionAllowed(host, name, id);
     const pool = sharedHostRegistrations(host);
     requireThat(isId(id) && host.sharedRunner.repositories.includes(id),
       'SHARED_REPOSITORY_NOT_ADOPTED');
@@ -225,11 +226,11 @@ export async function withSharedAdoptionLock(action, { retirement = false } = {}
 }
 
 async function adoptPeerLocked(name, id, actionCommit, directory) {
-  await requireNoRetirement();
   requireThat(isSha(actionCommit), 'INVALID_PEER_INSTALLATION_IDENTITY');
   await rootOwnedPath(hostFile);
   const current = await boundedHostFile(hostFile, 262144);
   const host = JSON.parse(current);
+  await requireAdoptionAllowed(host, name, id);
   const pool = sharedHostRegistrations(host);
   requireThat(isId(id) && id !== pool.repositoryId, 'PEER_CANNOT_REPLACE_EXECUTION_HOST');
   const source = await verifyInstalledSource(coreRoot, host.installation.pin);
@@ -241,7 +242,15 @@ async function adoptPeerLocked(name, id, actionCommit, directory) {
     observed, directory);
 }
 
-async function adoptionReader(host) {
+async function requireAdoptionAllowed(host, name, id) {
+  const replacement = await pendingReplacement(host);
+  if (!replacement) return requireNoRetirement();
+  requireThat(replacement.binding.repositories.some(entry =>
+    entry.repository === name && entry.repositoryId === id),
+  'RETIREMENT_REPOSITORY_CHANGED');
+}
+
+export async function adoptionReader(host) {
   // Only a local administrator may read the existing Controller credential.
   const credentials = await lstat(dirname(host.tokenFile));
   const stat = await lstat(host.tokenFile);
