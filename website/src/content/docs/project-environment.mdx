@@ -1,6 +1,6 @@
 ---
 title: Project environment
-description: Declare the tools, HTTPS destinations, and role Skills for a Job.
+description: Declare the Writer backend, tools, HTTPS destinations, and role Skills for a Job.
 ---
 
 import Alert from "../../components/DocsAlert.astro";
@@ -10,8 +10,11 @@ import DocsItems from '../../components/DocsItems';
 An adopted public repository can include an optional `.nibfin.json` at its
 root. Core reads the file from the Issue's target repository in the current
 development worktree, including when a shared Runner executes the Job.
+Core reads the Writer backend from the target repository's current `main`.
 
 <DocsItems links={[
+  { title: 'Writer backend', href: '#writer-backend',
+    description: 'Choose Docker or Firecracker for the Deliver stage.' },
   { title: 'Tools', href: '#tools',
     description: 'Request an exact Node.js, Python, or Go version for isolated work.' },
   { title: 'Network access', href: '#https-destinations',
@@ -22,11 +25,12 @@ development worktree, including when a shared Runner executes the Job.
 
 ## Example configuration
 
-All three fields are optional. An absent file uses Nibfin's defaults.
+All fields are optional. An absent file uses Nibfin's defaults.
 An invalid declaration produces a configuration error before affected work starts.
 
 ```json title=".nibfin.json"
 {
+  "writerBackend": "docker",
   "tools": { "node": "22.15.0" },
   "allowedDomains": ["pypi.org", "files.pythonhosted.org"],
   "skills": {
@@ -37,6 +41,19 @@ An invalid declaration produces a configuration error before affected work start
 ```
 
 ## What applies to each Job
+
+### Writer backend
+
+Set `writerBackend` to `docker` or `firecracker` in the target repository's
+`.nibfin.json`. Firecracker requires a Job VM profile enabled on the Runner
+host. A host without that profile reports a configuration error when
+`firecracker` is requested.
+
+Omit the field to use the host default: Firecracker on hosts with a Job VM
+profile, Docker on other hosts. A change merged to `main` takes effect on the
+next dispatch, including resumed Issues. Each running Job retains its original
+selection. This field applies to Deliver. Shape, Accept, Review, and hooks use
+their existing environments. The host administrator controls the VM assets.
 
 ### Tools
 
