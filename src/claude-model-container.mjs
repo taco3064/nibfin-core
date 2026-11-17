@@ -29,7 +29,8 @@ export function modelContainerArgs({ image, name, plan, channel, egress, inherit
     '--entrypoint', fixedNode, image, modelEntry, ...plan.args];
 }
 
-export function inspectModelContainer(actual, { image, name, id, plan, channel, egress }) {
+export function inspectModelContainer(actual, { image, name, id, plan,
+  channel, egress }) {
   const config = actual?.Config, host = actual?.HostConfig;
   const expected = modelEnvironment(plan, egress).sort();
   const [mount] = actual?.Mounts ?? [];

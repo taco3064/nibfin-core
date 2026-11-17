@@ -45,7 +45,8 @@ export async function intakeClaudeApiKey(input = process.stdin) {
     }
     const bytes = Buffer.concat(chunks);
     try {
-      requireThat(validClaudeApiKey(bytes.toString().trim()), 'CLAUDE_API_KEY_UNAVAILABLE');
+      requireThat(validClaudeApiKey(bytes.toString().trim()),
+        'CLAUDE_API_KEY_UNAVAILABLE');
       await publishPrivate(claudeApiKeyFile, bytes, { uid: host.uid, gid });
     } finally { bytes.fill(0); }
     return { status: 'stored', credentialKind: 'anthropic-api-key' };
