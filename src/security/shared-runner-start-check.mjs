@@ -1,5 +1,6 @@
 import { verifySharedSlotIdentity } from '../shared-slot-identity.mjs';
 import { requirePoolOpen } from '../retirement-admission.mjs';
+import { pendingReplacement } from '../retirement-rebind.mjs';
 import { installedProvider } from '../provider-binding.mjs';
 import { access, constants, lstat, readFile, readdir, realpath } from 'node:fs/promises';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -11,11 +12,13 @@ import { requireThat } from '../identity.mjs';
 import { installedSharedRuntime, verifySharedFile } from '../shared-platform.mjs';
 
 async function check() {
-  await requirePoolOpen();
   const slot = process.argv[2];
   requireThat(slot === '1' || slot === '2', 'INVALID_SHARED_RUNNER_SLOT');
   await rootOwnedPath(hostFile);
   const host = JSON.parse(await boundedHostFile(hostFile, 256 * 1024));
+  // The listener can prove readiness during replacement. Worker and Controller
+  // admission still use the drain marker and cannot execute a Job.
+  if (!await pendingReplacement(host)) await requirePoolOpen();
   installedProvider(host);
   const second = host.sharedRunner?.additionalRunner;
   const primary = host.sharedRunner?.runner;

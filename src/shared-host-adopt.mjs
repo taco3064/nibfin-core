@@ -1,7 +1,8 @@
 import {
-  retiredReplacement, releaseRetiredReplacement,
+  retiredReplacement, pendingReplacement, prepareRetiredReplacement,
 } from './retirement-rebind.mjs';
 import { writeRetirementFile } from './retirement-files.mjs';
+import { withReplacementAwareAdoptionLock } from './retirement-lock.mjs';
 import { createProviderBinding } from './provider-binding.mjs';
 import { withManagedAdmission } from './managed-credential-admission.mjs';
 import { link, lstat, open, realpath, unlink } from 'node:fs/promises';
@@ -16,7 +17,6 @@ import { sharedSlotIsolation, sharedWorkflowPath } from './shared-runner.mjs';
 import { inspectSharedHost, sharedHostRegistrations } from './shared-host-inspect.mjs';
 import {
   observeAdoptionWorkflow, observePeer, peerConfiguration, verifyAdoptionAction,
-  withSharedAdoptionLock,
 } from './shared-peer-adoption.mjs';
 import { dockerBackend, validDockerEndpoint } from './docker-backend.mjs';
 import { command } from './process.mjs';
@@ -169,7 +169,7 @@ export async function adoptSharedHost(name, id, memberId, actionCommit, ids, pin
     'INVALID_SHARED_HOST_IDENTITY');
   const pin = JSON.parse(pinBytes);
   const source = await verifyInstalledSource(coreRoot, pin);
-  return withManagedAdmission(() => withSharedAdoptionLock(async directory => {
+  return withManagedAdmission(() => withReplacementAwareAdoptionLock(async directory => {
     const path = join(directory, profileName);
     let retirement;
     try {
@@ -177,6 +177,17 @@ export async function adoptSharedHost(name, id, memberId, actionCommit, ids, pin
       retirement = await retiredReplacement({ repository: name, repositoryId: id,
         memberId, runners: ids.map(id => ({ id })) });
       const current = await boundedHostFile(hostFile, 262144);
+      if (['prepared', 'released'].includes(retirement.replacement?.phase)) {
+        const host = JSON.parse(current);
+        const observed = await inspectSharedHost();
+        requireThat((await pendingReplacement(host) ||
+          retirement.replacement.phase === 'released') &&
+          observed.runners.every((runner, index) => runner.id === ids[index]) &&
+          digest(host.installation.pin) === digest(pin) &&
+          host.repository.runner.actionCommit === actionCommit,
+        'RETIREMENT_REPLACEMENT_CHANGED');
+        return observed;
+      }
       requireThat(current === retirement.binding.adoptions[0].bytes ||
         current === retirement.replacement?.bytes, 'RETIREMENT_ADOPTION_CHANGED');
     } catch (error) { if (error.code !== 'ENOENT') throw error; }
@@ -226,7 +237,7 @@ export async function adoptSharedHost(name, id, memberId, actionCommit, ids, pin
     'SHARED_HOST_ADOPTION_CHANGED');
     if (managedEgressNetwork !== undefined) await installSharedRelay();
     if (retirement) {
-      await releaseRetiredReplacement(retirement, host,
+      await prepareRetiredReplacement(retirement, host,
         () => writeRetirementFile(hostFile, host));
       return inspectSharedHost();
     }

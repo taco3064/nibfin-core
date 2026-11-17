@@ -39,11 +39,10 @@ the same operation. No token, model authentication, or exception text is returne
    and private networks. Each effect has durable intent and independent
    readback. Unknown outcomes stay Pending; known incomplete effects have
    explicitly bounded retry semantics. The reusable systemd template remains.
-7. `retired` is the durable release point. Replacement availability is irrelevant
-   to completion. The drain marker remains until a separately verified adoption
-   publishes fresh IDs and its new provider binding. The existing
-   `adopt-shared-host` administrator operation can perform this explicit rebuild;
-   ordinary updates and stale IDs cannot rebind the provider.
+7. `retired` records completed retirement, independent of replacement availability.
+   The administrator can prepare a replacement using `adopt-shared-host` with
+   fresh IDs and a new provider binding. The drain marker remains in place.
+   Ordinary updates and stale IDs cannot rebind the provider.
 
 Runtime records are `/etc/nibfin/managed-retirement.json` and the root-owned
 `/etc/nibfin/managed-pool-drain.json`. Retirement serializes with adoption and
@@ -52,11 +51,19 @@ of a tagged retirement guard after process death; an unresolved adoption or
 rollout guard is preserved. A later retirement archives the previous completed
 record as `retirement-history-<retirementId>.json` in the same directory.
 
-The completed record preserves bounded peer adoption identities. A replacement
-starts with its own primary adoption; historical peers require fresh native and
-source revalidation through `adopt-shared-peer`. Historical views cannot execute
-against the new pool. A failed replacement leaves retirement completed and
-admission closed. Relay resume remains a separate administrator decision.
+The verified Core contract advertises `managedPoolReplacement`. After preparing
+the primary adoption, re-adopt the historical peers with `adopt-shared-peer`,
+start the two new listeners, and prepare and resume the managed notification
+relay. While the drain marker exists, the listeners can be observed online,
+but both Worker execution and new relay dispatches remain closed.
+
+The fixed, argument-free `activate-shared-replacement` operation is local
+administrator only. It verifies both new registrations, absence of the old IDs,
+the local services, all historical repository and caller bindings, and the relay
+configuration and timer. Then Core durably records the release and removes the
+drain marker. A verification failure leaves admission closed. If publication is
+interrupted before the marker is removed, retrying activation revalidates the
+replacement before completing the release.
 
 Retirement preserves repositories, PRs, Issues, delivery evidence, original user
 login stores, shared credentials, unrelated services and shared uplink networks.

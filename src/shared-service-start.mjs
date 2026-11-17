@@ -1,10 +1,11 @@
-import { withSharedAdoptionLock } from './shared-peer-adoption.mjs';
-import { requirePoolOpen, requireNoRetirement } from './retirement-admission.mjs';
+import { withReplacementAwareAdoptionLock } from './retirement-lock.mjs';
 import { withManagedAdmission } from './managed-credential-admission.mjs';
 import { command } from './process.mjs';
 import { requireThat } from './identity.mjs';
 import { rootOwnedPath } from './host-paths.mjs';
-import { installLockedSharedTemplate } from './shared-service-install.mjs';
+import {
+  installLockedSharedTemplate, requireSharedServicePreparation,
+} from './shared-service-install.mjs';
 
 const systemctl = '/usr/bin/systemctl';
 const fragment = '/etc/systemd/system/nibfin-shared-runner@.service';
@@ -35,7 +36,6 @@ const running = unit => unit.get('ActiveState') === 'active' &&
   unit.get('SubState') === 'running' && /^[1-9]\d*$/.test(unit.get('MainPID'));
 
 export async function startSharedServices(run = command) {
-  await requirePoolOpen();
   const observe = () =>
     Promise.all(units.map((unit, index) => readUnit(run, unit, index)));
   await run(systemctl, ['daemon-reload'], options);
@@ -54,10 +54,17 @@ export async function startSharedServices(run = command) {
 export async function installAndStartSharedServices(sources, owner) {
   requireThat(process.platform === 'linux' && process.getuid() === 0,
     'SHARED_SERVICE_REQUIRES_HOST_ADMINISTRATOR');
-  return withManagedAdmission(() => withSharedAdoptionLock(async () => {
-    await requireNoRetirement();
+  return withManagedAdmission(() => withReplacementAwareAdoptionLock(async () => {
+    await requireSharedServicePreparation();
     await rootOwnedPath(systemctl);
     const installation = await installLockedSharedTemplate(sources, owner);
     return { ...installation, ...await startSharedServices() };
   }));
+}
+
+export async function verifyRunningSharedServices() {
+  await rootOwnedPath(systemctl);
+  const observations = await Promise.all(
+    units.map((unit, index) => readUnit(command, unit, index)));
+  requireThat(observations.every(running), 'SHARED_SERVICE_START_READBACK_REQUIRED');
 }

@@ -121,6 +121,8 @@ export async function retireSharedHost() {
     let previous = await readRetirementFile(retirementPath);
     const archive = previous?.replacement?.phase === 'released' ? previous : null;
     if (archive) {
+      requireThat(await readRetirementFile(drainPath) === null,
+        'RETIREMENT_RELEASE_PENDING');
       requireThat(/^[a-f0-9-]{36}$/.test(archive.id), 'RETIREMENT_STATE_INVALID');
       const pool = sharedHostRegistrations(host);
       const { schemaVersion: _schema, ...identity } = pool;

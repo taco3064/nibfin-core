@@ -16,8 +16,9 @@ const pending = runId => ({ status: 'pending', code: 'RELAY_EFFECT_UNKNOWN',
 // Trusted adapters supply credentials, adoption, and storage. Artifacts supply locators.
 export class NotificationRelay {
   constructor({ reader, token, journal, configuration, inspect, fetcher = fetch,
-    now = () => Date.now() }) {
-    Object.assign(this, { reader, token, journal, configuration, inspect, fetcher, now });
+    now = () => Date.now(), requireAdmission = async () => {} }) {
+    Object.assign(this, { reader, token, journal, configuration, inspect, fetcher, now,
+      requireAdmission });
   }
   async #reconcile(record) {
     if (record.nextReadAt > this.now()) return pending(record.runId);
@@ -40,6 +41,7 @@ export class NotificationRelay {
         : { status: previous.status, code: 'RELAY_REPLAY', runId: previous.runId };
       if ((await this.journal.control()).paused)
         return { status: 'paused', code: 'RELAY_PAUSED' };
+      await this.requireAdmission();
       requireThat((await this.journal.records()).length < 4096,
         'RELAY_JOURNAL_CAPACITY');
       const config = this.configuration;
@@ -88,6 +90,7 @@ export class NotificationRelay {
         createdAt: new Date(Math.floor(this.now() / 1000) * 1000).toISOString(),
       };
       requireThat(!(await this.journal.control()).paused, 'RELAY_PAUSED');
+      await this.requireAdmission();
       const record = { origin: key, status: 'pending', intent };
       await this.journal.write(record);
       try {
