@@ -5,7 +5,9 @@ import { managedResources as resources } from './managed-resource-contract.mjs';
 
 // A journal is saved before create. Interrupted creates/cleanup never spawn a
 // replacement probe. The administrator must reconcile any uncertain effect.
-export async function resourceProbe(io, state, image, namespace, save, key) {
+export async function resourceProbe(
+  io, state, image, namespace, save, key, availability,
+) {
   requireThat(!state.probe || state.probe.phase === 'complete',
     'RESOURCE_PROBE_RECONCILIATION_REQUIRED');
   const name = `nibfin-resource-proof-${randomUUID()}`;
@@ -18,7 +20,7 @@ export async function resourceProbe(io, state, image, namespace, save, key) {
     '--ipc=none', '--cap-drop=ALL', '--security-opt=no-new-privileges',
     `--security-opt=apparmor=${resources.apparmor}`, '--user=1000:1000',
     '--pids-limit=32', '--memory=128m', '--cpus=1',
-    '--entrypoint=/usr/bin/sleep', image, '60',
+    '--entrypoint=/usr/bin/sleep', image, '300',
   ])).trim();
   requireThat(/^[a-f0-9]{64}$/.test(id), 'RESOURCE_PROBE_CREATE_UNKNOWN');
   probe.id = id;
@@ -47,6 +49,7 @@ export async function resourceProbe(io, state, image, namespace, save, key) {
     verifyNamespace(proof, namespace);
     requireThat(proof.label.trim() === `${resources.apparmor} (enforce)`,
       'RESOURCE_APPARMOR_NOT_ENFORCED');
+    await availability();
     const after = await inspect();
     requireThat(after.State.Running === true && after.State.Pid === pid,
       'RESOURCE_PROBE_PROCESS_CHANGED');
