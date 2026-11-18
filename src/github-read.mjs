@@ -31,31 +31,36 @@ export class GitHubReader {
         path.split('?')[0].split('/').some(part => part === '..' || part === '.')) {
       throw new Error('Invalid GitHub resource path');
     }
+    const resource = path.split('?')[0];
     const response = await fetchGitHubRead(this.#fetch, `https://api.github.com${path}`, {
       method: 'GET', redirect: 'error',
       headers: {
         Authorization: `Bearer ${this.#token}`, Accept: 'application/vnd.github+json',
         'X-GitHub-Api-Version': '2022-11-28',
       },
-    }, { retryNotFound });
+    }, { retryNotFound }).catch(error => {
+      throw Object.assign(error, { githubApiRead: true, resource });
+    });
     if (!response.ok) {
       const status = response.status;
       throw Object.assign(new Error(`GitHub read failed: HTTP ${status}`), {
         status,
-        githubReadRejected: status === 422,
+        githubApiRead: true,
         transientGitHubRead: retryableGitHubStatus(response),
         retryAfter: response.headers?.get('retry-after'),
         rateLimitReset: response.headers?.get('x-ratelimit-remaining') === '0'
           ? response.headers.get('x-ratelimit-reset') : null,
         requestId: response.headers?.get('x-github-request-id'),
-        resource: path.split('?')[0],
+        resource,
       });
     }
     if (requestIds) {
       const requestId = response.headers?.get('x-github-request-id');
       requestIds.push(/^[0-9a-f:]{1,80}$/i.test(requestId ?? '') ? requestId : null);
     }
-    return response.json();
+    return response.json().catch(error => {
+      throw Object.assign(error, { githubApiRead: true, resource });
+    });
   }
   async list(path, key, { requestIds } = {}) {
     const result = [];

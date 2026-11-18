@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { settleHostStage } from '../src/host-stage-settlement.mjs';
-import { githubReadRejectedWaiting, githubReadWaiting }
+import { githubApiWaiting, githubReadWaiting }
   from '../src/observation-failure.mjs';
 import { ciCorrectionWaiting, ciLogsWaiting } from '../src/ci-recovery.mjs';
 
@@ -34,7 +34,7 @@ test('a read timeout releases the fence after local proof', async () => {
 
 test('the host proves settlement before retrying CI or corrective Deliver', async () => {
   for (const code of ['CI_WAITING', ciLogsWaiting, ciCorrectionWaiting,
-    githubReadRejectedWaiting]) {
+    githubApiWaiting]) {
     const pending = { status: 'pending', code };
     let released = false;
     const result = await settleHostStage(async () => pending,

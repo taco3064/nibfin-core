@@ -22,18 +22,18 @@ const hostPreflightCodes = new Set([
 ]);
 
 export const githubReadWaiting = 'GITHUB_READ_RETRY_PENDING';
-export const githubReadRejectedWaiting = 'GITHUB_READ_422_RETRY_PENDING';
+export const githubApiWaiting = 'GITHUB_API_RETRY_PENDING';
 export const githubReadDelay = (retryAfterMs, attempt) =>
   Math.max(retryAfterMs ?? 0, Math.min(60000, 5000 * 2 ** attempt));
 
 export function githubReadWait(error, now = Date.now(), { stage = false } = {}) {
   // The stage caller is still observing or admitting. Writes are journaled
   // separately, and a status from a write or untyped error is insufficient.
-  const rejected = stage && error?.status === 422 && error.githubReadRejected === true;
-  if (!rejected && !transientGitHubRead(error)) return null;
+  const apiRead = stage && error?.githubApiRead === true;
+  if (!apiRead && !transientGitHubRead(error)) return null;
   const digits = value => /^\d{1,12}$/.test(value ?? '') ? Number(value) : 0;
   const retryAfterMs = Math.max(
-    rejected || [403, 429].includes(error.status) ? 60000 : 0,
+    apiRead || [403, 429].includes(error.status) ? 60000 : 0,
     digits(error.retryAfter) * 1000,
     digits(error.rateLimitReset) * 1000 - now + 1000,
   );
@@ -43,20 +43,20 @@ export function githubReadWait(error, now = Date.now(), { stage = false } = {}) 
     ? ` (request ${error.requestId})` : '';
   const status = Number.isInteger(error.status) ? error.status : 'network';
   console.error(`GitHub read waiting: ${resource} ${status}${request}`);
-  const code = rejected ? githubReadRejectedWaiting : githubReadWaiting;
+  const code = apiRead ? githubApiWaiting : githubReadWaiting;
   return { status: 'pending', code, retryAfterMs };
 }
 
 // Use only for observations whose callback cannot perform an external write.
 export async function retryGitHubObservation(observe, {
-  wait = setTimeout, clock = Date.now, timeout = 600000,
+  wait = setTimeout, clock = Date.now, timeout = 600000, stage = false,
 } = {}) {
   const deadline = clock() + timeout;
   for (let attempt = 0; ; attempt++) {
     try {
       return await observe();
     } catch (error) {
-      const waiting = githubReadWait(error, clock());
+      const waiting = githubReadWait(error, clock(), { stage });
       if (!waiting) throw error;
       const delay = githubReadDelay(waiting.retryAfterMs, attempt);
       if (clock() + delay > deadline) throw error;

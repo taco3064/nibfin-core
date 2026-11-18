@@ -36,9 +36,9 @@ test('retry marker binds the settled result to this run and attempt', () => {
   assert.equal(retryDelay(marker.replace('60000', '3660001'), 2, 1), null);
 });
 
-test('a settled 422 observation uses a separate delayed attempt', () => {
+test('a settled GitHub API failure uses a separate delayed attempt', () => {
   const result = { schemaVersion: 1, stage: 'continue', terminalStage: 'publish-shape',
-    code: 'GITHUB_READ_422_RETRY_PENDING', status: 'pending', retryAfterMs: 60000,
+    code: 'GITHUB_API_RETRY_PENDING', status: 'pending', retryAfterMs: 60000,
     retrySettled: true, retryRun: 2, retryAttempt: 1 };
   assert.equal(retryDelay(JSON.stringify(result), 2, 1), 60000);
   assert.equal(retryDelay(JSON.stringify({ ...result, retrySettled: false }), 2, 1),

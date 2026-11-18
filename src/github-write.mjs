@@ -1,6 +1,7 @@
 import { repoPath, issuePath } from './github-read.mjs';
 import { digest, isDigest, isId, isSha, requireThat } from './identity.mjs';
 import { readMergeIdentity } from './github-merge.mjs';
+import { retryGitHubObservation } from './observation-failure.mjs';
 
 export class MergeBeforeWrite extends Error {
   constructor(code = 'MERGE_REOBSERVE_REQUIRED') {
@@ -46,7 +47,14 @@ export class GitHubWriter {
         typeof fetcher === 'function',
       'INVALID_WRITE_ADAPTER',
     );
-    this.#reader = reader;
+    const observe = callback => retryGitHubObservation(callback, {
+      stage: true, timeout: 125000,
+    });
+    this.#reader = {
+      get: path => observe(() => reader.get(path)),
+      repository: name => observe(() => reader.repository(name)),
+      issue: issue => observe(() => reader.issue(issue)),
+    };
     this.#token = token;
     this.#guard = guard;
     this.#fetch = fetcher;
