@@ -2,7 +2,8 @@ import { join } from 'node:path';
 import { hostExecution } from './host-launcher.mjs';
 import { digest, isId, isSha, requireThat } from './identity.mjs';
 import { repoPath } from './github-read.mjs';
-import { executionIdentity, samePublishedRequirements, stages } from './stages.mjs';
+import { evidenceBinding, executionIdentity, samePublishedRequirements,
+  stageAdmissionFields, stages } from './stages.mjs';
 import { issueProgress } from './issue-progress.mjs';
 import { RecoveryEvidenceSnapshot } from './recovery-evidence-snapshot.mjs';
 
@@ -40,7 +41,7 @@ export async function deliverExecutionEvidence(context, fence, run, approval, st
   const root = join(issueRoot, 'agent');
   const snapshots = new RecoveryEvidenceSnapshot();
   const names = await snapshots.directory(root);
-  const retained = [];
+  const retained = [], localDeliverDecisions = [];
   const native = { ...adopted.runner, sourceCommit: run.head_sha,
     ...fence.binding.execution };
   const outer = ['shape', 'deliver'].some(stage =>
@@ -83,6 +84,14 @@ export async function deliverExecutionEvidence(context, fence, run, approval, st
       value.isolation?.profile === adopted.isolation.kind,
     'RECOVERY_EXECUTION_MISMATCH');
     requireRetainedExecution(value.execution, native, stage);
+    if ((!stage || stage === 'deliver') && value.execution.role === 'writer' &&
+      value.shape?.hash && Array.isArray(value.issue?.labels)) {
+      // Use exactly the old admission fields, even if current main has moved.
+      const requestHash = digest(stageAdmissionFields(value, { stage: 'deliver',
+        binding: evidenceBinding(value), artifacts: { shapeHash: value.shape.hash } }));
+      localDeliverDecisions.push(digest({ operation: 'deliver',
+        bindingHash: requestHash }));
+    }
     retained.push({ classification: invocation === null ? 'incomplete-input' :
       'complete-stage', execution: value.execution, ...(stage ? { stage } : {}) });
   }
@@ -152,7 +161,8 @@ export async function deliverExecutionEvidence(context, fence, run, approval, st
     entry.execution && digest(entry.execution) === digest(hostExecution(native,
       'deliver')));
   return { execution: delivery?.execution ?? fence.binding.execution, coverage,
-    confirm, hash: digest({ snapshots: snapshots.hash, receipts, selection, coverage }) };
+    confirm, localDeliverDecisions,
+    hash: digest({ snapshots: snapshots.hash, receipts, selection, coverage }) };
 }
 
 export async function terminalDeliverJob(context, fence, approval) {

@@ -132,6 +132,7 @@ export class StageRuntime {
       const outcome = await this.#journal.run(
         { operation: decision.operation, bindingHash: decision.requestHash },
         {
+          localDeliver: stage === 'deliver',
           admit: async () => {
             let fresh;
             try {

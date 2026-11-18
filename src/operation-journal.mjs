@@ -153,7 +153,7 @@ export class OperationJournal {
     );
     requireThat((await this.#read()).pending === null, 'EXTERNAL_EFFECT_UNKNOWN');
   }
-  async run(request, { admit, perform, readBack }) {
+  async run(request, { admit, perform, readBack, localDeliver = false }) {
     // The binding identifies immutable approval, Scope/Shape, candidate, source,
     // role/session and operation target. All three callbacks belong to trusted
     // Core; none can be supplied by an Agent/worktree or external JSON request.
@@ -161,6 +161,8 @@ export class OperationJournal {
       request?.operation === 'release') && isDigest(request.bindingHash) &&
       [admit, perform, readBack].every(value => typeof value === 'function'),
     'INVALID_OPERATION_REQUEST');
+    requireThat(!localDeliver || request.operation === 'deliver',
+      'INVALID_LOCAL_DELIVER_REQUEST');
     const decision = digest({
       operation: request.operation, bindingHash: request.bindingHash,
     });
@@ -176,8 +178,9 @@ export class OperationJournal {
         requireThat(await admit() === request.bindingHash, 'ADMISSION_BINDING_CHANGED');
       }
       catch { return { status: 'denied', code: 'ADMISSION_FAILED' }; }
-      // Durable intent precedes every external effect, including the first call.
-      await this.#write({ ...state, pending: decision });
+      // The Deliver handler prepares a local Candidate. It has no publisher.
+      // Keep the local mutex without recording a possible GitHub write.
+      if (!localDeliver) await this.#write({ ...state, pending: decision });
       try {
         let result;
         try { result = await perform(); }
@@ -196,9 +199,27 @@ export class OperationJournal {
         requireThat(await readBack() === request.bindingHash,
           'READBACK_BINDING_MISMATCH');
         await this.#complete(state, decision);
-      } catch { return { status: 'pending', code: 'EXTERNAL_EFFECT_UNKNOWN' }; }
+      } catch {
+        return { status: 'pending', code: localDeliver ?
+          'LOCAL_DELIVER_INTERRUPTED' : 'EXTERNAL_EFFECT_UNKNOWN' };
+      }
       return { status: 'completed', decisionId: decision };
     });
+  }
+  async settleInterruptedLocalDeliver(decisions, prove) {
+    requireThat(Array.isArray(decisions) && decisions.every(isDigest) &&
+      typeof prove === 'function', 'INVALID_RECOVERY_REQUEST');
+    const result = await this.#withLock(digest(decisions), async state => {
+      if (state.pending === null) return { status: 'completed' };
+      requireThat(decisions.includes(state.pending), 'EXTERNAL_EFFECT_UNKNOWN');
+      await prove();
+      requireThat(digest(await this.#read()) === digest(state),
+        'RECOVERY_JOURNAL_CHANGED');
+      // Keep prior receipts. Retiring an interrupted intent does not finish Deliver.
+      await this.#write({ ...state, pending: null });
+      return { status: 'completed' };
+    });
+    requireThat(result.status === 'completed', result.code);
   }
   async recoverCommitPr(decision, readBack, proof) {
     return this.#reconcile(decision, readBack, proof);
