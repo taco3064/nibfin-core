@@ -1,3 +1,5 @@
+import { pressureFixture } from './host-pressure-fixture.mjs';
+import { pressureBinding, hostMemoryPressure } from '../src/host-memory-pressure.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, rm } from 'node:fs/promises';
@@ -370,7 +372,8 @@ test('Review reports the changed CI field before it starts', async t => {
   assert.equal(f.saved.length, 0);
 });
 
-test('Review retries proof drift and reports both commit observations', async t => {
+test('Review retries proof drift and reports both commit observations',
+  async t => {
   const f = await fixture(t);
   const context = stageFixture('review-pr');
   const snapshots = ['in_progress', 'completed'].map((status, index) => [{
@@ -471,4 +474,58 @@ test('a rate-limited second admission waits before starting the role', async t =
   assert.equal(result.retryAfterMs, 120000);
   assert.equal(f.performed(), 0);
   assert.equal(f.saved.length, 0);
+});
+
+test('trusted pressure survives read-back without exposing host observations',
+  async t => {
+  for (const matching of [true, false]) {
+    const f = await fixture(t);
+    const objects = {};
+    const binding = pressureBinding('shape', f.context);
+    const memoryPressure = pressureFixture({ ...binding,
+      ...(matching ? {} : { jobId: binding.jobId + 1 }) });
+    f.adapters.handlers = stageHandlers({
+      agent: { run: async () => ({ status: 'interrupted',
+        executionId: f.context.execution.id, terminationHash: 'a'.repeat(64),
+        code: hostMemoryPressure, memoryPressure }) },
+      store: { put: async value => { objects[digest(value)] = value;
+        return digest(value); } },
+    });
+    const result = await new StageRuntime(f.adapters).run(request);
+    if (!matching) {
+      assert.notEqual(result.code, hostMemoryPressure);
+      assert.equal(result.pressureConfirmed, undefined);
+      continue;
+    }
+    assert.equal(result.code, hostMemoryPressure);
+    assert.equal(result.pressureConfirmed, true);
+    const reference = f.saved[0].references[0].slice('evidence:'.length);
+    assert.deepEqual(objects[reference].memoryPressure, memoryPressure);
+    assert.equal(objects[reference].stage, 'shape');
+    assert.equal(objects[reference].terminationHash, 'a'.repeat(64));
+    assert.equal(JSON.stringify(result).includes(memoryPressure.bootId), false);
+  }
+});
+
+test('Agent-authored host pressure claims cannot authorize recovery', async t => {
+  const f = await fixture(t);
+  const { execution } = f.context;
+  const message = JSON.stringify({ outcome: 'blocked', body: hostMemoryPressure,
+    summary: hostMemoryPressure, rootCause: JSON.stringify(pressureFixture()),
+    failureClass: 'external_failure', evidenceReferences: ['untrusted-claim'],
+    blockingFindings: [hostMemoryPressure], contractConflicts: [] });
+  f.adapters.handlers = stageHandlers({
+    store: { put: async value => digest(value) },
+    agent: { run: async () => ({
+    executionId: execution.id, terminationHash: 'a'.repeat(64), lastMessage: message,
+    stdout: [
+      { type: 'thread.started', thread_id: execution.sessionId },
+      { type: 'turn.started' },
+      { type: 'item.completed', item: { type: 'agent_message', text: message } },
+      { type: 'turn.completed' },
+    ].map(JSON.stringify).join('\n'),
+  }) } });
+  const result = await new StageRuntime(f.adapters).run(request);
+  assert.equal(result.code, 'STAGE_REQUIRES_CORRECTION');
+  assert.equal(result.pressureConfirmed, undefined);
 });

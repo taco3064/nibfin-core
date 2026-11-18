@@ -1,3 +1,4 @@
+import { observeHostPressure, hostMemoryPressure } from './host-memory-pressure.mjs';
 import { constants } from 'node:fs';
 import { open } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -11,7 +12,7 @@ import { snapshotJobVmWorkspace } from './job-vm-workspace.mjs';
 import { installJobVmWorkspace } from './job-vm-install.mjs';
 import { archiveJobVmTools } from './job-vm-tools.mjs';
 import { deliveryRoleTimeout } from './process.mjs';
-import { digest, requireThat } from './identity.mjs';
+import { digest, isDigest, requireThat } from './identity.mjs';
 import {
   acquireWriterCapacity, noteWriterTimeout, writerInitializeTimeout, writerPressureWait,
 } from './job-vm-pressure.mjs';
@@ -49,7 +50,9 @@ async function transfer(connect, payload, signal) {
   return exchangeJobVmFrame(await connect(workspacePort, deadline), payload, deadline);
 }
 
-export async function runJobVmWriter(config, input, execute) {
+export async function runJobVmWriter(config, input, execute, {
+  runVm = runJobVm, observe = observeHostPressure, capacity = acquireWriterCapacity,
+} = {}) {
   const abort = new AbortController();
   const cancel = () => {
     const code = 'JOB_VM_CANCELLED';
@@ -61,26 +64,51 @@ export async function runJobVmWriter(config, input, execute) {
   const log = await open('/dev/null', constants.O_WRONLY);
   process.on('SIGTERM', cancel);
   process.on('SIGINT', cancel);
-  let releaseCapacity;
+  let releaseCapacity, monitor, retired = false;
+  let agentEntered = false, agentTermination, retireAgentMcp;
+  const executeOwned = async invocation => {
+    agentEntered = true;
+    const result = await execute(invocation);
+    if (['completed', 'interrupted'].includes(result?.status) &&
+      isDigest(result.terminationHash)) {
+      agentTermination = result.terminationHash;
+      retireAgentMcp = result.retireMcp;
+    }
+    return result;
+  };
   try {
-    releaseCapacity = await acquireWriterCapacity(config, signal);
-    const { result, files } = await runJobVm(config, {
+    releaseCapacity = await capacity(config, signal);
+    monitor = await observe(input.pressureBinding);
+    const { result, files } = await runVm(config, {
       signal, log,
+      onProcess: process => process && monitor.own(process.pid, process.startTicks),
+      onRetired: () => { retired = true; },
       prepareTools: input.tools && (directory => archiveJobVmTools(
         input.tools.endpoint, input.tools.image, directory, input.tools.label)),
       async useGuest(connect, directory) {
         const domains = input.plan?.additionalDomains;
         const closeEgress = await openJobVmEgress(directory, domains);
         try {
-          return await runWriter(connect, directory, input, execute, signal);
+          return await runWriter(connect, directory, input, executeOwned, signal);
         } finally { await closeEgress(); }
       },
     });
+    const memoryPressure = await monitor.finish();
+    monitor = undefined;
+    if (memoryPressure && retired && result.status === 'interrupted' &&
+      isDigest(result.terminationHash))
+      return pressureInterruption(input, memoryPressure, result.terminationHash);
     return files ? {
       ...result,
       applyWorkspace: () => installJobVmWorkspace(input.work, files),
     } : result;
   } catch (error) {
+    const memoryPressure = await monitor?.finish();
+    monitor = undefined;
+    if (memoryPressure && retired && (!agentEntered || isDigest(agentTermination))) {
+      await retireAgentMcp?.();
+      return pressureInterruption(input, memoryPressure, agentTermination);
+    }
     // runJobVm rethrows the probe error only after it has retired the guest.
     if (error.code !== writerPressureWait &&
         !jobVmExecutorFailures.includes(error.code)) throw error;
@@ -95,6 +123,7 @@ export async function runJobVmWriter(config, input, execute) {
         ...(error.code === writerPressureWait ? { guestNotStarted: true } :
           { guestRetired: true }) }) };
   } finally {
+    await monitor?.finish();
     process.off('SIGTERM', cancel);
     process.off('SIGINT', cancel);
     try { await releaseCapacity?.(); }
@@ -120,4 +149,13 @@ async function runWriter(connect, directory, input, execute, signal) {
     requireThat(Array.isArray(output?.files), 'JOB_VM_WORKSPACE_TRANSFER_FAILED');
     return { result, files: output.files };
   } finally { await close(); }
+}
+
+function pressureInterruption(input, memoryPressure, agentTermination) {
+  return { status: 'interrupted', executionId: input.executionId,
+    code: hostMemoryPressure, memoryPressure,
+    terminationHash: digest({ executionId: input.executionId, guestRetired: true,
+      ...(agentTermination ? { agentTermination } : {}) }),
+    terminationObservation: { owner: 'vm-adapter',
+      executionId: input.executionId, code: hostMemoryPressure } };
 }

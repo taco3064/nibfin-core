@@ -1,9 +1,10 @@
+import { hostMemoryPressure, confirmedHostPressure } from './host-memory-pressure.mjs';
 import { constants } from 'node:fs';
 import { open } from 'node:fs/promises';
 import { join } from 'node:path';
 import { loadUserMcp } from './mcp-source.mjs';
 import { containsCredentials } from './credential-output.mjs';
-import { requireThat, digest } from './identity.mjs';
+import { requireThat, digest, isDigest } from './identity.mjs';
 
 async function checkPrivateResult(path, secrets) {
   const file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
@@ -55,6 +56,12 @@ export function withUserMcp(isolator, source, readProfile = loadUserMcp, job) {
       let proved = false, deferred = false;
       try {
         const result = await isolator.execute({ ...input, plan, mcp });
+        // An interrupted adapter retires its leases/copies before returning.
+        // Pressure alone cannot establish consumer termination.
+        if (result.status === 'interrupted' && result.code === hostMemoryPressure &&
+          isDigest(result.terminationHash) &&
+          confirmedHostPressure(result.memoryPressure, input.pressureBinding))
+          proved = true;
         if (result.status === 'completed') {
           requireThat(
             !containsCredentials(result.stdout, mcp.secrets) &&

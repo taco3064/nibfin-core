@@ -1,3 +1,6 @@
+import {
+  hostMemoryPressure, confirmedHostPressure, pressureBinding,
+} from './host-memory-pressure.mjs';
 import { digest, requireThat } from './identity.mjs';
 import { decideStage, stageAdmissionFields, stages } from './stages.mjs';
 import { MergeBeforeWrite } from './github-write.mjs';
@@ -254,7 +257,10 @@ export class StageRuntime {
           ...(checkObservationDiff ? { checkObservationDiff } : {}) };
       }
       if (outcome.status !== 'completed') return { schemaVersion: 1, stage, ...outcome };
-      const knownInterruption = result?.code === codexIdle.code ||
+      const pressure = result?.status === 'interrupted' &&
+        result.code === hostMemoryPressure &&
+        confirmedHostPressure(result.memoryPressure, pressureBinding(stage, context));
+      const knownInterruption = pressure || result?.code === codexIdle.code ||
         Object.hasOwn(codexPreflightExits, result?.code) ||
         jobVmExecutorFailures.includes(result?.code) ||
         result?.code === writerPressureWait;
@@ -269,6 +275,7 @@ export class StageRuntime {
             ? 'STAGE_COMPLETED'
             : code,
         receiptHash,
+        ...(pressure ? { pressureConfirmed: true } : {}),
         // The Controller relay preserves the result printed in Actions.
         ...(blockedGuidance ? { blockedGuidance } : {}),
       };

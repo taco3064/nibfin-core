@@ -1,3 +1,5 @@
+import { pressureFixture } from './host-pressure-fixture.mjs';
+import { hostMemoryPressure, pressureStages } from '../src/host-memory-pressure.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { continueStages } from '../src/stage-continuation.mjs';
@@ -310,3 +312,41 @@ test('unchanged rebase retains hooks, Accept and Final Review evidence', async (
   assert.equal((await continueStages(f.options)).stage, 'close');
   assert.deepEqual(f.calls, ['commit-pr', 'merge', 'close']);
 });
+
+test('pressure resumes the first unfinished Agent stage and preserves native writes',
+  async () => {
+    for (const interrupted of pressureStages) {
+      for (const matching of [true, false]) {
+        const f = fixture();
+        const execution = { id: pressureFixture().binding.executionId,
+          runId: 20, attempt: 1, jobId: 30 };
+        const proof = { executionId: execution.id, code: hostMemoryPressure,
+          stage: interrupted, terminationHash: 'a'.repeat(64),
+          memoryPressure: pressureFixture({ stage: interrupted,
+            jobId: matching ? 30 : 31 }) };
+        const hash = digest(proof);
+        f.objects[hash] = proof;
+        const stages = Object.keys(stageSuccess);
+        for (const stage of stages.slice(0, stages.indexOf(interrupted)))
+          f.receipts[stage] = { stage, outcome: stageSuccess[stage] };
+        f.receipts[interrupted] = { stage: interrupted, outcome: 'blocked',
+          execution, references: ['evidence:' + hash] };
+        const prior = structuredClone(f.receipts);
+        const result = await continueStages(f.options);
+        if (!matching) {
+          assert.equal(result.code, 'STAGE_REQUIRES_CORRECTION');
+          assert.deepEqual(f.calls, []);
+          continue;
+        }
+        assert.equal(result.stage, 'close');
+        assert.deepEqual(f.calls, stages.slice(stages.indexOf(interrupted)));
+        for (const stage of stages.slice(0, stages.indexOf(interrupted)))
+          assert.deepEqual(f.receipts[stage], prior[stage]);
+        if (interrupted === 'review-pr') {
+          assert.equal(f.receipts['commit-pr'].outcome, 'published');
+          assert.equal(f.calls.includes('commit-pr'), false);
+          assert.equal(f.calls.includes('deliver'), false);
+        }
+      }
+    }
+  });

@@ -1,3 +1,5 @@
+import { observeHostPressure, hostMemoryPressure } from './host-memory-pressure.mjs';
+import { ownContainerProcesses } from './container-pressure.mjs';
 import { diagnosisToolDenial } from './diagnosis-tool-denial.mjs';
 import { terminationObservation } from './blocker-report.mjs';
 import {
@@ -59,6 +61,7 @@ async function privateJSON(path, limit) {
 // cannot enforce the nested Codex profile must fail the probe; never use --yolo,
 // privileged containers, host networking or an unconfined seccomp fallback.
 export class CodexSandbox {
+  #pressureObserver;
   #config;
   #run;
   #host;
@@ -70,6 +73,7 @@ export class CodexSandbox {
     config,
     {
       run = command,
+      pressureObserver = observeHostPressure,
       backend,
       containerLabel,
       gatewayLabel,
@@ -77,6 +81,7 @@ export class CodexSandbox {
       host = { platform: process.platform, uid: process.getuid?.(), lstat, realpath },
     } = {},
   ) {
+    this.#pressureObserver = pressureObserver;
     this.#backend = dockerBackend(backend);
     requireThat(
       config &&
@@ -115,8 +120,8 @@ export class CodexSandbox {
       },
     );
   }
-  async #inspect(args) {
-    return JSON.parse((await this.#docker(args)).stdout.toString());
+  async #inspect(args, options) {
+    return JSON.parse((await this.#docker(args, options)).stdout.toString());
   }
   async preflight() {
     const c = this.#config;
@@ -212,7 +217,7 @@ export class CodexSandbox {
     };
   }
   async execute({ plan, executionId, work, main, input, output, session, auth,
-    mcp = null, jobVmSocket, onTermination }) {
+    mcp = null, jobVmSocket, onTermination, pressureBinding }) {
     const c = this.#config;
     requireThat(
       plan?.policyHash ===
@@ -373,6 +378,8 @@ export class CodexSandbox {
       c.image,
       '/input/bootstrap.mjs',
     ];
+    let memoryPressure, monitor, ownershipTimer, ownership = Promise.resolve();
+    let samplingOwnership = false, ownershipUnresolved = false;
     let id,
       observed, termination,
       mcpLease, projectLease,
@@ -443,6 +450,22 @@ export class CodexSandbox {
         0, codexIdle.exitCode, ...Object.values(codexPreflightExits),
       ];
       let attached;
+      monitor = await this.#pressureObserver(pressureBinding);
+      const captureOwnership = () => {
+        if (samplingOwnership) return;
+        samplingOwnership = true;
+        ownership = ownContainerProcesses(monitor, args => this.#inspect(args,
+          { timeout: 1000, limit: 65536 }), id).catch(error => {
+          if (['PROCESS_TIMEOUT', 'PROCESS_OUTPUT_LIMIT'].includes(error.code)) {
+            ownershipUnresolved = true;
+            clearInterval(ownershipTimer);
+          }
+        }).finally(() => { samplingOwnership = false; });
+      };
+      if (monitor.active) {
+        ownershipTimer = setInterval(captureOwnership, 100);
+        ownershipTimer.unref();
+      }
       try {
         attached = await this.#docker(['start', '--attach', id], {
           timeout: plan.diagnosis ? 120_000 : deliveryRoleTimeout,
@@ -474,6 +497,14 @@ export class CodexSandbox {
     } catch {
       outcome = { status: 'denied', executionId, code: 'AGENT_EXECUTION_UNVERIFIED' };
     } finally {
+      clearInterval(ownershipTimer);
+      await ownership;
+      memoryPressure = await monitor?.finish();
+      if (ownershipUnresolved)
+        outcome = { status: 'pending', executionId, code: 'WRITER_TERMINATION_UNKNOWN' };
+      if (!ownershipUnresolved && memoryPressure && outcome.status !== 'executed')
+        outcome = { status: 'interrupted', executionId, code: hostMemoryPressure,
+          memoryPressure };
       if (id) {
         try {
           const ended = (await this.#inspect(['inspect', id]))[0];
