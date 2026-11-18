@@ -1,9 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  mkdtemp, readdir, readFile, rm, writeFile, mkdir, chmod,
+  mkdtemp, readdir, readFile, rm, writeFile, mkdir, chmod, lstat,
 } from 'node:fs/promises';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { buildRelease } from '../src/release-build.mjs';
 import {
@@ -43,7 +43,17 @@ async function fixture(t) {
   const commit = 'a'.repeat(40);
   const run = async (exe, args, options) => {
     if (exe === process.execPath) {
-      if (state.failEntry) throw new Error('ENTRY_FAILURE');
+      if (state.failEntry) {
+        state.installed = dirname(dirname(args[0]));
+        state.temporary = dirname(state.installed);
+        t.after(() => rm(state.temporary, { recursive: true, force: true }));
+        assert.equal(args[0], join(state.installed, 'bin/nibfin-core.mjs'));
+        assert.equal((await lstat(args[0])).isFile(), true);
+        assert.equal((await lstat(state.installed)).isDirectory(), true);
+        assert.equal((await lstat(state.temporary)).isDirectory(), true);
+        if (state.onEntryFailure) await state.onEntryFailure();
+        throw new Error('ENTRY_FAILURE');
+      }
       return command(exe, args, options);
     }
     let value;
@@ -116,15 +126,63 @@ test('rejects wrong branch, dirty source, unsafe output and missing tools', asyn
   assert.equal(await readFile(f.output, 'utf8'), 'preserve');
 });
 
-test('verification failure cleans output and temporary installation', async (t) => {
-  const f = await fixture(t);
-  const before = (await readdir(tmpdir())).filter(x => x.startsWith('nibfin-release-'));
+async function assertBuildCleaned(f) {
+  assert.equal(typeof f.state.temporary, 'string');
+  for (const path of [f.output, f.state.temporary]) {
+    await assert.rejects(lstat(path), { code: 'ENOENT' });
+  }
+}
+
+async function failBuild(f) {
   f.state.failEntry = true;
   await assert.rejects(buildRelease(f.source, '1.2.3', f.output, { run: f.run }),
     /ENTRY_FAILURE/);
-  await assert.rejects(readFile(f.output), { code: 'ENOENT' });
-  assert.deepEqual((await readdir(tmpdir())).filter(x => x.startsWith('nibfin-release-')),
-    before);
+}
+
+test('verification failure cleans output and temporary installation', async (t) => {
+  const f = await fixture(t);
+  await failBuild(f);
+  await assertBuildCleaned(f);
+});
+
+for (const change of ['appears', 'disappears']) {
+  test(`cleanup ignores an unrelated temporary directory that ${change}`, async (t) => {
+    const f = await fixture(t);
+    let neighbor;
+    t.after(async () => {
+      if (neighbor) await rm(neighbor, { recursive: true, force: true });
+    });
+    const createNeighbor = async () => {
+      neighbor = await mkdtemp(join(tmpdir(), 'nibfin-release-check-'));
+      assert.equal((await lstat(neighbor)).isDirectory(), true);
+    };
+    if (change === 'disappears') await createNeighbor();
+    f.state.onEntryFailure = async () => {
+      if (change === 'appears') await createNeighbor();
+      else await rm(neighbor, { recursive: true });
+    };
+    await failBuild(f);
+    await assertBuildCleaned(f);
+    assert.notEqual(neighbor, f.state.temporary);
+    if (change === 'appears') {
+      assert.equal((await lstat(neighbor)).isDirectory(), true);
+    } else {
+      await assert.rejects(lstat(neighbor), { code: 'ENOENT' });
+    }
+  });
+}
+
+test('cleanup assertion rejects a retained owning resource', async (t) => {
+  const f = await fixture(t);
+  await failBuild(f);
+  await assertBuildCleaned(f);
+  // Recreate only the observed owned root; production cleanup remains unchanged.
+  await mkdir(f.state.temporary);
+  try {
+    await assert.rejects(assertBuildCleaned(f), { code: 'ERR_ASSERTION' });
+  } finally {
+    await rm(f.state.temporary, { recursive: true, force: true });
+  }
 });
 
 test('CLI failures are noninteractive machine-readable denials', async () => {
