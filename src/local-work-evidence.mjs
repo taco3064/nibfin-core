@@ -1,3 +1,4 @@
+import { localReportReader } from './local-work-reports.mjs';
 import { join } from 'node:path';
 import { lstat } from 'node:fs/promises';
 import { digest, isDigest, isId, requireThat } from './identity.mjs';
@@ -12,6 +13,7 @@ export function localEvidence(host, {
   read = readObservationFile, entries = observationEntries,
   activity = observeInvocation,
 } = {}) {
+  const reports = localReportReader(host, { read, entries });
   let reads = 0;
   const deadline = Date.now() + limits.milliseconds;
   const snapshots = new Map();
@@ -80,6 +82,13 @@ export function localEvidence(host, {
           } catch (error) { result.errors.push(reason(error)); }
         }
       } catch (error) { result.errors.push(reason(error)); }
+      try {
+        result.diagnosis = { status: 'reported', reports:
+          (await reports.reports(issue)).map(item => item.projected),
+          diagnoses: await reports.diagnoses(issue) };
+      } catch (error) {
+        result.diagnosis = { status: 'unavailable', code: reason(error) };
+      }
       return result;
     },
     async phase(candidate) {
@@ -113,6 +122,7 @@ export function localEvidence(host, {
       return { stage, confirm: live.confirm };
     },
     async confirm() {
+      await reports.confirm();
       for (const [path, bytes] of snapshots) {
         requireThat(Date.now() < deadline, 'OBSERVATION_LIMIT');
         requireThat((await read(path, host.uid)).bytes === bytes,

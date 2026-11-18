@@ -89,6 +89,8 @@ export async function runJobVmWriter(config, input, execute) {
         console.error('Nibfin WSL Writer: could not record handshake cooldown');
       });
     return { status: 'interrupted', executionId: input.executionId, code: error.code,
+      terminationObservation: { owner: 'vm-adapter',
+        executionId: input.executionId, code: error.code },
       terminationHash: digest({ executionId: input.executionId,
         ...(error.code === writerPressureWait ? { guestNotStarted: true } :
           { guestRetired: true }) }) };

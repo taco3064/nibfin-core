@@ -1,3 +1,5 @@
+import { makeBlockerReport } from './blocker-report.mjs';
+import { saveBlockerReport } from './blocker-report-store.mjs';
 import { requireModelTermination } from './provider-contract.mjs';
 import { CandidateWorkspace } from './workspace.mjs';
 import { constants } from 'node:fs';
@@ -81,7 +83,12 @@ export class CodexRoleAgent {
       // An unsupported or absent probe cannot be replaced by a config hash.
       const execution = await this.#isolator.execute({ plan,
         executionId: context.execution.id, work: config.work, main: main.directory,
-        input, output, session: session.directory, auth });
+        input, output, session: session.directory, auth,
+        onTermination: config.reportRoot ? async termination => {
+          await saveBlockerReport(config.reportRoot,
+            makeBlockerReport(context, stage, { producer: 'core-native',
+              termination }));
+        } : undefined });
       requireModelTermination(execution, context.execution.id, plan.policyHash);
       if (execution.status === 'interrupted') return execution;
       requireThat(typeof execution.stdout === 'string' &&
@@ -107,6 +114,7 @@ export class CodexRoleAgent {
       await execution.applyWorkspace?.();
       return { executionId: context.execution.id,
         terminationHash: execution.terminationHash,
+        terminationObservation: execution.terminationObservation,
         stdout: execution.stdout, lastMessage, expectedThread: session.threadId,
         threadId: parsed.threadId,
         isolationHash: execution.isolationHash, probeHash: execution.probeHash,

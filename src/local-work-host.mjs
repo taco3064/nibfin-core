@@ -126,5 +126,6 @@ export async function discoverLocalHost(subject, read = readObservationFile) {
   };
   return { bindings: [...bindings.values()], routes: [...new Map(routes.map(item =>
       [item.route.repositoryId, item.route])).values()],
-    stateRoot: primary.stateRoot, uid: primary.uid, errors, confirm };
+    stateRoot: primary.stateRoot, uid: primary.uid, errors, confirm,
+    diagnosisHost: primary };
 }

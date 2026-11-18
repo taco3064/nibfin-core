@@ -1,3 +1,4 @@
+import { saveBlockerReport } from './blocker-report-store.mjs';
 import { StageRuntime } from './stage-runtime.mjs';
 import { nativeObserver } from './native-observer.mjs';
 import { nativeWrites } from './native-writes.mjs';
@@ -104,6 +105,7 @@ export function nativeStageExecutor({
         workspace,
         sandbox,
         store,
+        persistReport: report => saveBlockerReport(pinned.stateRoot, report),
         ...writes,
         deliverBlockedGuidance: (context, references, rebased) => blockedGuidance(
           reader, context.approval.record.issue, references,

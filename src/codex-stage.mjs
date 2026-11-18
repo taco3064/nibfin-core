@@ -93,6 +93,7 @@ export async function codexStageExecutor({
   const roleAgent = new CodexRoleAgent(
     {
       stateRoot: agentStateRoot,
+      reportRoot: config.stateRoot,
       authFile,
       model,
       proposal,

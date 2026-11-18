@@ -1,3 +1,4 @@
+export { requestLocalDiagnosis } from './diagnosis-request.mjs';
 export { observeLocalWork } from './local-work-observation.mjs';
 import { managedPreparationCapability } from './managed-resource-contract.mjs';
 import { managedSharedAdmission } from './shared-admission-policy.mjs';
@@ -33,6 +34,9 @@ export const consumerContract = Object.freeze({
   schemaVersion: interfaceVersion,
   localWorkObservation: Object.freeze({ schemaVersion: 1,
     command: 'observe-local-work', input: 'private-json-stdin' }),
+  localDiagnosis: Object.freeze({ schemaVersion: 1,
+    command: 'request-local-diagnosis', input: 'private-json-stdin',
+    executionAuthority: false }),
   claudeModel: claudeModelComponent,
   managedResourcePreparation: managedPreparationCapability,
   managedPoolReplacement: Object.freeze({
