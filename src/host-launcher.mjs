@@ -1,3 +1,4 @@
+import { retainHostOutcome } from './blocker-native-report.mjs';
 import { requirePoolOpen } from './retirement-admission.mjs';
 import { withManagedAdmission } from './managed-credential-admission.mjs';
 import { ProjectConfigError } from './project-config.mjs';
@@ -29,11 +30,11 @@ import {
 import {
   githubReadWait, observationFailureCode, retryGitHubObservation,
 } from './observation-failure.mjs';
-import { readNotionProposal } from './notion-proposal.mjs';
+import { readHostStageInputs } from './host-stage-inputs.mjs';
 import { prepareHostJobMcp } from './mcp-job-host.mjs';
 
 import {
-  loadHostAdoption, inspectHostAdoption, readGlobalInstructions,
+  loadHostAdoption, inspectHostAdoption,
 } from './host-adoption.mjs';
 import { relayHostCommand } from './host-relay.mjs';
 import { targetContextKey } from './controller-contract.mjs';
@@ -219,15 +220,12 @@ async function launchAdmittedStage(issueNumber, stage, env, runnerUid,
       closeExecution: hostExecution(runner, 'close'),
     });
   }
-  // An adopted Proposal-only Issue uses a controller read in place of MCP.
-  // Complete this read before taking the fence, since it has no write effect.
-  const proposalSource = adopted.notionProposal ?? targetHost?.notionProposal ??
-    host.notionProposal;
-  const proposal = proposalSource === undefined ? undefined :
-    await readNotionProposal(proposalSource);
-  const globalInstructions = await readGlobalInstructions(host);
   const issue = approval.record.issue;
   const root = issueStatePath(host.stateRoot, issue);
+  const inputs = await readHostStageInputs(context, { approval, runner, execution },
+    stage);
+  if (inputs.outcome) return inputs.outcome;
+  const { proposal, globalInstructions } = inputs;
   await mkdir(root, { mode: 0o700 }).catch((error) => {
     if (error.code !== 'EEXIST') throw error;
   });
@@ -240,7 +238,8 @@ async function launchAdmittedStage(issueNumber, stage, env, runnerUid,
     });
   } catch (error) {
     if (error.code === 'HOST_EXECUTION_UNRESOLVED')
-      return { schemaVersion: 1, stage, status: 'pending', code: error.code };
+      return retainHostOutcome(root, { approval, runner, execution }, stage,
+        { schemaVersion: 1, stage, status: 'pending', code: error.code });
     throw error;
   }
   let mcpJob, release, preparation;
@@ -437,8 +436,10 @@ async function launchAdmittedStage(issueNumber, stage, env, runnerUid,
             wait: setTimeout,
           })
         : execute(stage);
-    const result = await settleHostStage(run, release,
+    const settled = await settleHostStage(run, release,
       (phase, code) => console.error(`Nibfin host stage ${phase}: ${code}`));
+    const result = await retainHostOutcome(root, { approval, runner, execution },
+      settled.stage ?? stage, settled);
     return stage === 'continue'
       ? {
           ...result,
@@ -475,6 +476,8 @@ async function launchAdmittedStage(issueNumber, stage, env, runnerUid,
       status: 'pending',
       code: observationFailureCode(error),
     };
-    return preparation ? await preparation.settle(result) : result;
+    const settled = preparation ? await preparation.settle(result) : result;
+    return retainHostOutcome(root, { approval, runner, execution }, stage,
+      settled);
   } finally { mcpJob?.stop(); }
 }

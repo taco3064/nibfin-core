@@ -1,3 +1,5 @@
+import { diagnosisToolDenial } from './diagnosis-tool-denial.mjs';
+import { terminationObservation } from './blocker-report.mjs';
 import {
   readFile,
   writeFile,
@@ -210,7 +212,7 @@ export class CodexSandbox {
     };
   }
   async execute({ plan, executionId, work, main, input, output, session, auth,
-    mcp = null, jobVmSocket }) {
+    mcp = null, jobVmSocket, onTermination }) {
     const c = this.#config;
     requireThat(
       plan?.policyHash ===
@@ -265,6 +267,7 @@ export class CodexSandbox {
         codexVersion: c.codexVersion,
         proxyHost: preflight.proxyHost,
         jobVm: Boolean(jobVmSocket),
+        ...(plan.diagnosis ? { diagnosisToolDenial } : {}),
       }),
       { flag: 'wx', mode: 0o400 },
     );
@@ -371,7 +374,7 @@ export class CodexSandbox {
       '/input/bootstrap.mjs',
     ];
     let id,
-      observed,
+      observed, termination,
       mcpLease, projectLease,
       outcome = { status: 'denied', executionId, code: 'AGENT_ENTRY_DENIED' };
     try {
@@ -442,7 +445,7 @@ export class CodexSandbox {
       let attached;
       try {
         attached = await this.#docker(['start', '--attach', id], {
-          timeout: deliveryRoleTimeout,
+          timeout: plan.diagnosis ? 120_000 : deliveryRoleTimeout,
           allowedExitCodes: entryExitCodes,
         });
       } catch (error) {
@@ -471,6 +474,15 @@ export class CodexSandbox {
     } catch {
       outcome = { status: 'denied', executionId, code: 'AGENT_EXECUTION_UNVERIFIED' };
     } finally {
+      if (id) {
+        try {
+          const ended = (await this.#inspect(['inspect', id]))[0];
+          requireThat(ended?.Id === id, 'AGENT_CONTAINER_UNKNOWN');
+          termination = terminationObservation(ended, executionId,
+            new Date().toISOString());
+          await onTermination?.(termination);
+        } catch { /* Missing inspection remains an explicit report gap. */ }
+      }
       let cleanupStep = 'container removal';
       try {
         const exists = (
@@ -526,7 +538,7 @@ export class CodexSandbox {
           for (const entry of await readdir(session))
             await rm(join(session, entry), { recursive: true, force: true });
         }
-        if (['executed', 'interrupted'].includes(outcome.status))
+        if (['executed', 'interrupted'].includes(outcome.status) || plan.diagnosis)
           outcome.terminationHash = digest({
             executionId,
             containerId: id,
@@ -578,9 +590,11 @@ export class CodexSandbox {
           }),
         };
       } catch {
-        outcome = { status: 'denied', executionId, code: 'AGENT_OUTPUT_UNVERIFIED' };
+        outcome = { status: 'denied', executionId, code: 'AGENT_OUTPUT_UNVERIFIED',
+          ...(plan.diagnosis ? { terminationHash } : {}) };
       }
     }
-    return outcome;
+    return { ...outcome,
+      ...(termination ? { terminationObservation: termination } : {}) };
   }
 }

@@ -217,6 +217,10 @@ export class StageRuntime {
                   verified.outcome === 'blocked'
                 ? { blockedCICorrection: true } : {}),
               outcome: verified.outcome,
+              ...(verified.report ? { report: verified.report } : {}),
+              ...(verified.rootCause !== undefined ? {
+                rootCause: verified.rootCause, failureClass: verified.failureClass,
+              } : {}),
               findings: verified.findings,
               references: verified.references,
             };

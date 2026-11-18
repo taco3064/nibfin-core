@@ -101,6 +101,7 @@ export async function collectLocalWork(token, {
           issue.updated_at, 'VERIFIED_ISSUE'),
         native: null, phase: unknown('core-execution', at, 'PHASE_UNKNOWN'),
         activity: unknown('github-job+core-journal', at, 'ADMISSION_UNKNOWN'),
+        diagnosis: local.diagnosis ?? { status: 'unavailable' },
         ...states };
         issues.push({ identity, local, work });
         result.work.push(work);
@@ -222,6 +223,7 @@ export async function collectLocalWork(token, {
       runner.association = unknown('github-job', at, 'OBSERVATION_CHANGED');
     }
     for (const work of result.work) {
+      work.diagnosis = { status: 'unavailable', code: 'OBSERVATION_CHANGED' };
       for (const key of ['phase', 'activity', 'pause', 'dependencies',
         'executionBlocker', 'waiting']) {
         if (key in work) work[key] = unknown('interval', at, 'OBSERVATION_CHANGED');

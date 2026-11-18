@@ -1,3 +1,4 @@
+import { makeBlockerReport } from './blocker-report.mjs';
 import { digest, isDigest, requireThat } from './identity.mjs';
 import { parseAgentResult } from './agent-result.mjs';
 import { enforcementPaths, sameCandidate } from './candidate-evidence.mjs';
@@ -18,6 +19,7 @@ export function stageHandlers({
   writerFor,
   publishCommit,
   deliverBlockedGuidance,
+  persistReport = async report => store.put(report),
   clock = Date.now,
 }) {
   const pathFindings = paths => paths.map(path =>
@@ -164,7 +166,15 @@ export function stageHandlers({
             code: execution.code,
             ...(execution.lastProgress ? { lastProgress: execution.lastProgress } : {}),
           });
-          return { outcome: 'blocked', findings: [finding],
+          const report = makeBlockerReport(context, stage, {
+            producer: 'core-native', code: execution.code,
+            agentStarted: !Object.hasOwn(codexPreflightExits, execution.code) &&
+              !jobVmExecutorFailures.includes(execution.code) &&
+              execution.code !== writerPressureWait,
+            termination: execution.terminationObservation,
+          });
+          await persistReport(report);
+          return { outcome: 'blocked', findings: [finding], report,
             references: ['evidence:' + proof], artifacts: execution.artifacts };
         }
         const { result } = parseAgentResult(
@@ -174,6 +184,9 @@ export function stageHandlers({
           execution.expectedThread,
         );
         const passed = ['ready', 'approved', 'accepted'].includes(result.outcome);
+        const report = passed ? undefined : makeBlockerReport(context, stage, {
+          result, termination: execution.terminationObservation });
+        if (report) await persistReport(report);
         let artifacts =
           stage === 'shape' ? {} : { shapeHash: context.shape.hash };
         if (passed && stage === 'shape') {
@@ -233,6 +246,7 @@ export function stageHandlers({
             : result.outcome === 'changes_required'
               ? 'changes_required'
               : 'blocked',
+          report, rootCause: result.rootCause, failureClass: result.failureClass,
           findings: result.blockingFindings,
           references: result.evidenceReferences,
           artifacts,

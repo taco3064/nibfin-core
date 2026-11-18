@@ -165,3 +165,8 @@ host or GitHub access. Core CI owns changed-source verification, packaging and a
 integration suites through `npm run verify` and its workflow components. Independent
 Accept chooses Candidate verification; rollout owns installed-host activation. Those
 later results remain Unverified until their owning stages run.
+
+Selected-attempt blocker reports and explicit read-only diagnosis are additive
+interfaces. See [Blocker reports and local diagnosis](blocker-diagnosis.md) for
+the private request format, authorization, capacity and uncertainty contract.
+Observation itself never starts a diagnostic Agent.

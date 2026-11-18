@@ -241,6 +241,14 @@ export async function bootstrap() {
   });
   if (!/logged in using chatgpt/i.test(login.stdout + login.stderr))
     throw new Error('SUBSCRIPTION_LOGIN_UNAVAILABLE');
+  if (plan.diagnosis) {
+    await writeFile('/agent-home/environments.toml', [
+      'default = "diagnosis"', 'include_local = false',
+      '[[environments]]', 'id = "diagnosis"',
+      'program = "/usr/local/bin/node"',
+      'args = ' + JSON.stringify(['-e', invocation.diagnosisToolDenial]),
+    ].join('\n'), { flag: 'wx', mode: 0o400 });
+  }
   const result = await runCodex(
     jobVm ? await jobVmArguments(plan.args) : plan.args, { input: plan.prompt });
   // Core scans these private streams before any result enters an evidence receipt.

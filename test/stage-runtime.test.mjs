@@ -118,12 +118,17 @@ test('blocked Deliver returns guidance through the Controller and keeps its find
     delete context.receipts.merge;
     const evidenceReferences = ['missing-upstream example/core#338'];
     const blockingFindings = ['The installer entry point is missing.'];
+    const reports = [];
     const message = JSON.stringify({
       outcome: 'blocked', body: '', summary: 'Missing upstream capability',
       rootCause: 'The code is absent.', failureClass: 'shape_defect',
       evidenceReferences, blockingFindings, contractConflicts: [],
     });
     adapters.handlers = stageHandlers({
+      store: { put: async report => {
+        reports.push(report);
+        return digest(report);
+      } },
       workspace: { discardWriterGit: async () => {} },
       deliverBlockedGuidance: async (observed, refs, rebased) => {
         assert.deepEqual(observed, context);
@@ -152,6 +157,12 @@ test('blocked Deliver returns guidance through the Controller and keeps its find
     assert.equal(saved[0].outcome, 'blocked');
     assert.deepEqual(saved[0].findings, blockingFindings);
     assert.deepEqual(saved[0].references, evidenceReferences);
+    assert.equal(reports.length, 1);
+    assert.deepEqual(saved[0].report, reports[0]);
+    assert.equal(reports[0].binding.executionId, context.execution.id);
+    assert.equal(reports[0].rootCause, 'The code is absent.');
+    assert.equal(reports[0].failureClass, 'shape_defect');
+    assert.deepEqual(reports[0].agentEvidenceReferences, evidenceReferences);
   });
 
 test('a published Shape is loaded verbatim without starting Author', async t => {
