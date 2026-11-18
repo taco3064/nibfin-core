@@ -60,3 +60,9 @@ Individual Issue pauses are optional and do not establish pool-wide idleness.
 After promotion, verify the installed Core revision, enrollment for the four
 repositories and both Runner registrations. Check that authorized work can
 resume through the normal Issue wake flow.
+
+## Public GitHub communications
+
+Write all public-facing text published on GitHub in English. This includes
+Issue and pull request titles and bodies, comments, reviews, Discussions, and
+release notes. Apply the same rule to text published by automation.
