@@ -1,3 +1,5 @@
+import { pressureFixture } from './host-pressure-fixture.mjs';
+import { hostMemoryPressure } from '../src/host-memory-pressure.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
@@ -17,7 +19,8 @@ import { digest } from '../src/identity.mjs';
 import { dockerBackend, rootfulSocket } from '../src/docker-backend.mjs';
 import { inheritUserMcp } from '../src/mcp-profile.mjs';
 
-async function fixture(t, fault, rootful = false, mcp = false, project = false) {
+async function fixture(t, fault, rootful = false, mcp = false, project = false,
+  pressureObserver) {
   const seccomp = JSON.parse(await readFile('src/security/seccomp.json', 'utf8'));
   const root = await mkdtemp(join(tmpdir(), 'nibfin-agent-isolation-'));
   t.after(() => rm(root, { recursive: true, force: true }));
@@ -219,7 +222,9 @@ async function fixture(t, fault, rootful = false, mcp = false, project = false) 
         container.HostConfig.SecurityOpt.push('seccomp=unconfined');
       if (fault === 'lost-create') throw new Error('Response lost');
       value = container.Id;
-    } else if (cmd[0] === 'inspect')
+    } else if (cmd[0] === 'inspect') {
+      if (fault === 'ownership-timeout' && container.State.Running && !ended)
+        throw Object.assign(new Error('Timed out'), { code: 'PROCESS_TIMEOUT' });
       value = [
         {
           ...container,
@@ -232,7 +237,11 @@ async function fixture(t, fault, rootful = false, mcp = false, project = false) 
             : container.State,
         },
       ];
-    else if (cmd[0] === 'start') {
+    } else if (cmd[0] === 'start') {
+      if (fault === 'ownership-timeout') {
+        container.State = { Running: true };
+        await new Promise(resolve => setTimeout(resolve, 150));
+      }
       if (fault === 'timeout') {
         throw Object.assign(new Error('Timed out'), { code: 'PROCESS_TIMEOUT' });
       }
@@ -296,6 +305,7 @@ async function fixture(t, fault, rootful = false, mcp = false, project = false) 
     : undefined;
   const gatewayImage = `sha256:${'a'.repeat(64)}`;
   return { sandbox: new CodexSandbox(config, { host, run, backend,
+    ...(pressureObserver ? { pressureObserver } : {}),
     ...(fault === 'selected-image' ? { gatewayImage } : {}) }),
     request, calls, config };
 }
@@ -510,3 +520,39 @@ test('prepared Agent image retains the fixed gateway image and environment', asy
   assert.ok(f.calls.some(args => args[0] === 'image' &&
     args[2] === `sha256:${'a'.repeat(64)}`));
 });
+
+test('adapter pressure proof never replaces container and workspace retirement',
+  async t => {
+  for (const failedCleanup of [false, true]) {
+    let finished = false;
+    const memoryPressure = pressureFixture();
+    const f = await fixture(t, failedCleanup ? 'mapped-cleanup' : 'timeout',
+      false, false, false, async () => ({ active: false,
+        finish: async () => { finished = true; return memoryPressure; } }));
+    const result = await f.sandbox.execute(f.request);
+    assert.ok(finished);
+    if (failedCleanup) {
+      assert.equal(result.status, 'pending');
+      assert.equal(result.terminationHash, undefined);
+      assert.equal(result.memoryPressure, undefined);
+    } else {
+      assert.equal(result.status, 'interrupted');
+      assert.equal(result.code, hostMemoryPressure);
+      assert.deepEqual(result.memoryPressure, memoryPressure);
+      assert.match(result.terminationHash, /^[a-f0-9]{64}$/);
+      assert.ok(f.calls.some(call => call[0] === 'rm'));
+    }
+  }
+});
+
+test('an unresolved ownership-reader process remains Pending after container cleanup',
+  async t => {
+    const f = await fixture(t, 'ownership-timeout', false, false, false,
+      async () => ({ active: true, own: async () => {},
+        finish: async () => pressureFixture() }));
+    const result = await f.sandbox.execute(f.request);
+    assert.equal(result.status, 'pending');
+    assert.equal(result.code, 'WRITER_TERMINATION_UNKNOWN');
+    assert.equal(result.terminationHash, undefined);
+    assert.equal(result.memoryPressure, undefined);
+  });

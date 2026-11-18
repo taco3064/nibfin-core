@@ -1,3 +1,4 @@
+import { processIdentityNow } from './host-memory-pressure.mjs';
 import { execFile, spawn } from 'node:child_process';
 import { constants } from 'node:fs';
 import { createConnection } from 'node:net';
@@ -37,6 +38,7 @@ function startGuest(executable, config, directory, log) {
     env: { PATH: '/usr/bin:/bin', LANG: 'C.UTF-8' },
     stdio: ['ignore', log.fd, log.fd],
   });
+  const identity = processIdentityNow(child.pid);
   let exited = false;
   const done = new Promise(resolve => {
     let error;
@@ -48,6 +50,7 @@ function startGuest(executable, config, directory, log) {
   });
   return {
     done,
+    identity,
     get exited() { return exited; },
     stop() { if (!exited) child.kill('SIGKILL'); },
   };
@@ -122,7 +125,7 @@ export async function preflightJobVm(config) {
 // Boot a prepared image with a private writable disk. The caller owns the Job
 // lifetime. The guest can receive connections through its private vsock endpoint.
 export async function runJobVm({ executable, kernel, rootDisk, stateRoot, memoryMiB },
-  { signal, log, useGuest, prepareTools }) {
+  { signal, log, useGuest, prepareTools, onProcess, onRetired }) {
   requireThat(signal, 'INVALID_JOB_VM_CONFIGURATION');
   signal.throwIfAborted();
   await preflightJobVm({ executable, kernel, rootDisk, stateRoot, memoryMiB });
@@ -163,6 +166,7 @@ export async function runJobVm({ executable, kernel, rootDisk, stateRoot, memory
     }), { flag: 'wx', mode: 0o600 });
     signal.throwIfAborted();
     guest = startGuest(executable, config, directory, log);
+    await onProcess?.(guest.identity);
     if (signal.aborted) abort();
     if (useGuest) {
       const startup = AbortSignal.timeout(60_000);
@@ -190,5 +194,6 @@ export async function runJobVm({ executable, kernel, rootDisk, stateRoot, memory
     abort();
     await guest?.done;
     await rm(directory, { recursive: true, force: true });
+    await onRetired?.();
   }
 }

@@ -1,3 +1,4 @@
+import { hostMemoryPressure, pressureStages } from '../src/host-memory-pressure.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { retryDelay, retrySharedRunner } from '../scripts/retry-shared-runner.mjs';
@@ -82,5 +83,34 @@ test('a settled failure retries once and skips an already resumed attempt', asyn
     });
     assert.equal(result, !moved);
     assert.equal(reruns, moved ? 0 : 1);
+  }
+});
+
+test('settled admitted-stage pressure uses the bounded delayed rerun route', async () => {
+  for (const terminalStage of pressureStages) {
+    const result = { schemaVersion: 1, stage: 'continue', terminalStage,
+      code: hostMemoryPressure, pressureConfirmed: true, status: 'denied',
+      retrySettled: true, retryRun: 2, retryAttempt: 1 };
+    const log = JSON.stringify(result);
+    assert.equal(retryDelay(log, 2, 1), 300_000);
+    assert.equal(retryDelay(log, 2, 2), null);
+    assert.equal(retryDelay(log + '\n' + log, 2, 1), null);
+    for (const patch of [{ retrySettled: false }, { pressureConfirmed: false },
+      { terminalStage: 'merge' }, { status: 'pending' }])
+      assert.equal(retryDelay(JSON.stringify({ ...result, ...patch }), 2, 1), null);
+    let current = { ...run }, reruns = 0;
+    const reader = { get: async path => path === '/user' ? run.actor : current,
+      list: async () => [{ id: 4, name: 'shared-stage', conclusion: 'failure',
+        status: 'completed', run_id: 2, run_attempt: 1 }] };
+    const options = { logs: async () => log, wait: async delay => {
+      assert.equal(delay, 300_000);
+    }, rerun: async () => { reruns++; current = { ...run, run_attempt: 2 }; } };
+    assert.equal(await retrySharedRunner(reader, { repository, workflow_run: run },
+      options), true);
+    assert.equal(await retrySharedRunner(reader, { repository, workflow_run: run },
+      options), false);
+    assert.equal(reruns, 1);
+    assert.equal(await retrySharedRunner(reader, { repository,
+      workflow_run: { ...run, run_attempt: 3 } }, options), false);
   }
 });

@@ -1,3 +1,6 @@
+import {
+  hostMemoryPressure, confirmedHostPressure, pressureBinding,
+} from './host-memory-pressure.mjs';
 import { makeBlockerReport } from './blocker-report.mjs';
 import { digest, isDigest, requireThat } from './identity.mjs';
 import { parseAgentResult } from './agent-result.mjs';
@@ -147,7 +150,13 @@ export function stageHandlers({
           }
         }
         if (execution.status === 'interrupted') {
+          const pressure = execution.code === hostMemoryPressure &&
+            confirmedHostPressure(execution.memoryPressure,
+              pressureBinding(stage, context));
+          requireThat(execution.code !== hostMemoryPressure || pressure,
+            'HOST_PRESSURE_EVIDENCE_UNVERIFIED');
           const findings = {
+            [hostMemoryPressure]: 'Host memory pressure interrupted the Agent.',
             PROCESS_TIMEOUT: 'Agent exceeded its execution time limit and was stopped.',
             [codexIdle.code]: 'Agent was stopped after a period without progress.',
             [writerPressureWait]: 'WSL memory pressure prevented Writer VM startup.',
@@ -164,6 +173,7 @@ export function stageHandlers({
             executionId: execution.executionId,
             terminationHash: execution.terminationHash,
             code: execution.code,
+            ...(pressure ? { memoryPressure: execution.memoryPressure, stage } : {}),
             ...(execution.lastProgress ? { lastProgress: execution.lastProgress } : {}),
           });
           const report = makeBlockerReport(context, stage, {

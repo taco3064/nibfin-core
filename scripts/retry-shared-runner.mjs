@@ -1,3 +1,4 @@
+import { retryableHostPressure } from '../src/host-memory-pressure.mjs';
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { setTimeout } from 'node:timers/promises';
@@ -27,7 +28,8 @@ export function retryDelay(log, id, attempt) {
   const wait = result.retryAfterMs;
   const memoryWait = result.status === 'denied' &&
     retryableWriterPressure(result.code) && result.terminalStage === 'deliver';
-  if (memoryWait) return 5 * 60_000;
+  if (memoryWait || retryableHostPressure(result, result.terminalStage))
+    return 5 * 60_000;
   if (result.status !== 'pending') return null;
   const correctiveDeliver = result.code === ciCorrectionWaiting &&
     result.terminalStage === 'deliver';

@@ -1,3 +1,4 @@
+import { hostMemoryPressure, pressureStages } from '../src/host-memory-pressure.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { settleHostStage, hostPreparationSettlement }
@@ -93,4 +94,26 @@ test('preparation settlement binds the original native execution', async () => {
   lifecycle.enterOwnedWork();
   assert.equal(await lifecycle.settle(pending), pending);
   assert.equal(releases, 1);
+});
+
+test('confirmed stage pressure retries only after all effects settle', async () => {
+  for (const stage of pressureStages) {
+    const interrupted = { stage, status: 'denied', code: hostMemoryPressure,
+      pressureConfirmed: true };
+    const settled = await settleHostStage(async () => interrupted, async () => {},
+      () => {});
+    assert.equal(settled.retrySettled, true);
+    for (const code of ['EXTERNAL_EFFECT_UNKNOWN', 'WRITER_NOT_PROVEN_TERMINATED',
+      'PREVIOUS_HOST_PROCESS_UNRESOLVED', 'JOURNAL_CORRUPT']) {
+      const pending = await settleHostStage(async () => interrupted, async () => {
+        throw Object.assign(new Error(code), { code });
+      }, () => {});
+      assert.equal(pending.status, 'pending');
+      assert.equal(pending.code, code);
+      assert.equal(pending.retrySettled, undefined);
+    }
+    const unconfirmed = await settleHostStage(async () => ({ ...interrupted,
+      pressureConfirmed: false }), async () => {}, () => {});
+    assert.equal(unconfirmed.retrySettled, undefined);
+  }
 });

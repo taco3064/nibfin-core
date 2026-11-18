@@ -1,3 +1,4 @@
+import { pressureBinding } from './host-memory-pressure.mjs';
 import { makeBlockerReport } from './blocker-report.mjs';
 import { saveBlockerReport } from './blocker-report-store.mjs';
 import { requireModelTermination } from './provider-contract.mjs';
@@ -82,6 +83,7 @@ export class CodexRoleAgent {
       // authentication/session/output reads, and confirm full container cleanup.
       // An unsupported or absent probe cannot be replaced by a config hash.
       const execution = await this.#isolator.execute({ plan,
+        pressureBinding: pressureBinding(stage, context),
         executionId: context.execution.id, work: config.work, main: main.directory,
         input, output, session: session.directory, auth,
         onTermination: config.reportRoot ? async termination => {

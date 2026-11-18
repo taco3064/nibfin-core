@@ -1,3 +1,6 @@
+import {
+  hostMemoryPressure, pressureMatchesReceipt, pressureStages,
+} from './host-memory-pressure.mjs';
 import { stages, samePublishedRequirements } from './stages.mjs';
 import { stageSuccess } from './stage-runtime.mjs';
 import { digest, isDigest, requireThat } from './identity.mjs';
@@ -10,7 +13,7 @@ import {
   githubReadDelay, githubReadWaiting, retryGitHubObservation,
 } from './observation-failure.mjs';
 
-const agentStages = new Set(['shape', 'validate-shape', 'deliver', 'accept']);
+const agentStages = pressureStages;
 const correctionStages = new Set(['accept', 'review-pr']);
 
 async function stoppedAgentCanRestart(store, stage, receipt) {
@@ -22,7 +25,9 @@ async function stoppedAgentCanRestart(store, stage, receipt) {
   const proof = await store.get(reference.slice('evidence:'.length)).catch(() => null);
   return proof?.executionId === receipt.execution.id &&
     isDigest(proof.terminationHash) &&
-    (proof.code === codexIdle.code ||
+    (proof.code === hostMemoryPressure && proof.stage === stage &&
+      pressureMatchesReceipt(proof.memoryPressure, stage, receipt.execution) ||
+      proof.code === codexIdle.code ||
       stage === 'deliver' && retryableWriterPressure(proof.code));
 }
 
@@ -66,7 +71,8 @@ async function currentReceipts(store, previous, repairDelivery) {
     if (stage === 'deliver' && repairDelivery &&
       (entry?.outcome === 'changes_required' ||
         (entry?.outcome === 'blocked' &&
-          previous['commit-pr']?.outcome === 'published') ||
+          previous['commit-pr']?.outcome === 'published' &&
+          !await stoppedAgentCanRestart(store, stage, entry)) ||
         (snapshot?.paths && enforcementPaths(snapshot.paths).length))) break;
     const artifacts = entry?.artifacts;
     if ((artifacts?.shapeHash && !await sameShape(store, artifacts.shapeHash, shape)) ||
@@ -136,6 +142,13 @@ export async function continueStages({
       // An explicit continuation rechecks external CI evidence for a blocked
       // Review. Content corrections still follow the existing Deliver loop.
       if (stage === 'review-pr' && initial[stage].outcome === 'blocked') {
+        const reference = initial[stage].references?.[0];
+        const proof = /^evidence:[a-f0-9]{64}$/.test(reference ?? '')
+          ? await store.get(reference.slice(9)).catch(() => null) : null;
+        if (proof?.code === hostMemoryPressure &&
+          !await stoppedAgentCanRestart(store, stage, initial[stage]))
+          return { schemaVersion: 1, status: 'denied',
+            code: 'STAGE_REQUIRES_CORRECTION', stage };
         delete initial[stage];
         gap = true;
         continue;
