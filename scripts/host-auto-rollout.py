@@ -216,6 +216,45 @@ def consumer_wait(pr):
     }
 
 
+REFRESH_ATTEMPTS = set()
+
+
+def refresh_consumer(repo, branch, pr):
+    """Refresh only an exact, eligible head; never infer readiness from a write."""
+    key = (repo, pr["number"])
+    if key in REFRESH_ATTEMPTS:
+        return "refresh awaiting read-back/checks"
+    path = f"repos/{repo}/pulls/{pr['number']}"
+    try:
+        current = api(path)
+        eligible = (
+            current["number"] == pr["number"] and current["state"] == "open" and
+            not current["draft"] and current["base"]["ref"] == "main" and
+            current["head"]["ref"] == branch and
+            current["base"]["repo"]["full_name"] == repo and
+            (current["head"]["repo"] or {}).get("full_name") == repo
+        )
+        if not eligible:
+            return "refresh rejected: PR identity or eligibility changed"
+        if current["head"]["sha"] != pr["headRefOid"]:
+            return "refresh rejected: head mismatch; revalidation required"
+        if current.get("mergeable") is False:
+            return "refresh blocked: merge conflict"
+        if current.get("mergeable_state") != "behind":
+            return "refresh awaiting read-back: merge state changed or unknown"
+        REFRESH_ATTEMPTS.add(key)
+        api(f"{path}/update-branch", "--method", "PUT", "-f",
+            f"expected_head_sha={pr['headRefOid']}")
+        return "refresh requested; awaiting read-back/checks"
+    except RateLimited:
+        raise
+    except (RuntimeError, KeyError, TypeError, OSError, ValueError,
+            subprocess.TimeoutExpired):
+        # The next observation rereads main, files and the exact head before
+        # another effect. Within this invocation an ambiguous write is not retried.
+        return "refresh provider uncertainty; reconcile PR before retry"
+
+
 def read_consumer(repo, config, pins, run_id=None):
     base = main_sha(repo)
     workflows = consumer_workflows(repo, base)
@@ -253,6 +292,10 @@ def read_consumer(repo, config, pins, run_id=None):
                 f"{repo}#{pr['number']} rollout PR changed {path} unexpectedly")
     wait = consumer_wait(pr)
     if wait is not None:
+        if pr["mergeStateStatus"] == "BEHIND":
+            wait["refresh"] = refresh_consumer(repo, branch, pr)
+        elif pr["mergeStateStatus"] == "DIRTY":
+            wait["refresh"] = "refresh blocked: merge conflict"
         if run_id is not None:
             message = f"CD {run_id} waiting for {repo}#{pr['number']}"
             print(f"{message} {json.dumps(wait)}", flush=True)
