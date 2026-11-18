@@ -12,6 +12,9 @@ test('Deliver cleans Writer scratch for blocked and interrupted executions', asy
   const context = {
     execution: { id: 'writer' }, shape: { hash: 'shape' },
     issue: { url: 'https://example.com/issues/1' },
+    approval: { record: { issue: {
+      id: 'I_example', number: 1, repositoryId: 1, repository: 'example/core',
+    } } },
   };
   const thread = '29bfaeac-8760-43e8-a443-ac585d1cf667';
   const lastMessage = JSON.stringify({
