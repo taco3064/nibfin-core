@@ -50,7 +50,7 @@ export async function deliverExecutionEvidence(context, fence, run, approval, st
     const executionRoot = join(root, name);
     await snapshots.directory(executionRoot);
     const directory = join(executionRoot, 'input');
-    await snapshots.directory(directory);
+    await snapshots.directory(directory, 'input-directory');
     const value = await snapshots.json(join(directory, 'context.json'));
     const invocation = await snapshots.json(join(directory, 'invocation.json'));
     if (!value) {
