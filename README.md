@@ -136,6 +136,8 @@ The public documentation source is in [`website/`](website/README.md). Root
 `npm run website:check` checks types/content and builds the static site;
 `npm run verify` includes website validation alongside the existing Core checks.
 See the workspace guide for preview commands, routes, base overrides and checks.
+See the [Docs website delivery guidance](docs/website-ui-delivery.md) for UI
+design and visual review.
 This workspace does not deploy GitHub Pages or claim a published site.
 
 For noninteractive local release staging, see [release builds](docs/release-build.md).

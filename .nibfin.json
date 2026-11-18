@@ -1,5 +1,11 @@
 {
   "tools": {
     "python": "3.13.7"
+  },
+  "skills": {
+    "deliver": {
+      "mode": "extend",
+      "path": "docs/website-ui-delivery.md"
+    }
   }
 }
