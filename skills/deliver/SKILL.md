@@ -119,11 +119,25 @@ Do not introduce a hash or fixed version as a condition for starting or
 resuming delivery. If the design genuinely needs an exception, explain the
 concrete need and ask the Owner before adopting it.
 
-Read the latest main and current Issue. Before final acceptance/review/merge,
-Core must rebase this work onto current main (or prove that it already starts
-there). Resolve ordinary code/test conflicts within the approved Scope/Shape;
-this does not require a new Shape. If resolution changes requirements, another
-Issue's contract, a security boundary or an ambiguous semantic choice, report
-that specific blocker instead of overwriting one side. A changed Candidate or
-PR Head requires fresh applicable hooks, independent acceptance, CI and final
-review. Old green results are not transferable to the rebased content.
+Before initial or resumed implementation, trusted Core must establish the workspace
+against a current repository-bound main observation. Core preserves partial changes,
+Candidates and adopted delivery PRs through its controlled rebase flow; the delivery
+PR keeps its identity. Agents neither fetch/rebase nor reconstruct Git metadata.
+The trusted main observation identifies the target; `/main` is the actual workspace
+comparison base, or the target during conflict repair. Reading `/main` alone cannot
+establish a fresh remote observation. If trusted observation is unavailable, retain
+work and report the exact missing observation through a structured blocker.
+
+At handoff, finish the authorized implementation and report its checks. After proven
+Writer termination and scratch cleanup, Core captures actual changes and observes
+main again before recording a ready Candidate. Main movement requires controlled
+alignment. Conflicts or changed content return through normal Deliver admission;
+never start another Writer from read-back. Resolve ordinary code/test conflicts
+within the approved Scope/Shape. If resolution changes requirements, another Issue's
+contract, a security boundary or an ambiguous semantic choice, retain work and
+report that specific blocker instead of overwriting one side.
+
+Core reobserves before integration, including after verification or review. Changed
+content receives affected stage-owned checks; equivalent-content evidence reuse
+follows existing policy. Native integration checks must bind the actual rebased PR
+head and integration state. Old-head CI cannot authorize merge.

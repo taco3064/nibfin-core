@@ -352,7 +352,7 @@ export class CandidateWorkspace {
     }
     return files;
   }
-  async capture(shapeBody, duringRebase = false) {
+  async capture(shapeBody, duringRebase = false, partial = false) {
     await this.#privateRoot();
     if (!duringRebase)
       await lstat(join(this.#root, 'rebase.json')).then(
@@ -397,7 +397,7 @@ export class CandidateWorkspace {
       .split('\0')
       .filter(Boolean);
     requireThat(
-      paths.length > 0 && paths.every(safeCandidatePath),
+      (partial || paths.length > 0) && paths.every(safeCandidatePath),
       'EMPTY_OR_UNSAFE_CANDIDATE',
     );
     const manifest = async (entries) => {
@@ -409,6 +409,7 @@ export class CandidateWorkspace {
       );
       for (const entry of entries) {
         const file = files.find((file) => file.path === entry.path);
+        if (!file && partial) continue;
         requireThat(file, 'REQUIRED_ARTIFACT_MISSING');
         const hash = sha256(file.bytes),
           target = join(this.#root, 'artifacts', hash);
@@ -438,10 +439,10 @@ export class CandidateWorkspace {
       hookSources: await manifest(obligations.hooks),
     };
   }
-  async rebase(candidate, shapeBody, latestMain, timestamp) {
+  async rebase(candidate, shapeBody, latestMain, timestamp, partial = false) {
     requireThat(isSha(latestMain), 'INVALID_REBASE_TARGET');
     requireThat(
-      sameCandidate(await this.capture(shapeBody), candidate),
+      sameCandidate(await this.capture(shapeBody, false, partial), candidate),
       'REBASE_CANDIDATE_CHANGED',
     );
     if (candidate.base === latestMain) return { status: 'unchanged', candidate };
@@ -449,11 +450,12 @@ export class CandidateWorkspace {
     // to discard another writer's state or retry from an assumed clean checkout.
     const state = {
       original: candidate,
+      partial,
       shapeHash: digest(shapeBody),
       latestMain,
       timestamp,
     };
-    const committed = await this.commit(candidate, shapeBody, timestamp);
+    const committed = await this.commit(candidate, shapeBody, timestamp, partial);
     await writeFile(join(this.#root, 'rebase.json'), JSON.stringify(state), {
       flag: 'wx',
       mode: 0o600,
@@ -492,7 +494,8 @@ export class CandidateWorkspace {
     };
     try {
       await this.#command(
-        ['-c', 'core.bare=false', 'rebase', '--onto', latestMain, candidate.base],
+        ['-c', 'core.bare=false', 'rebase', '--keep-empty', '--empty=keep',
+          '--onto', latestMain, candidate.base],
         undefined,
         env,
       );
@@ -513,6 +516,23 @@ export class CandidateWorkspace {
       };
     }
     return this.#finishRebase(state, shapeBody);
+  }
+  async pendingRebase(shapeBody) {
+    await this.#privateRoot();
+    const state = await readFile(join(this.#root, 'rebase.json'), 'utf8')
+      .then(JSON.parse, error => {
+        if (error.code !== 'ENOENT') throw error;
+        return null;
+      });
+    if (!state) return null;
+    requireThat(state.shapeHash === digest(shapeBody) && isSha(state.latestMain),
+      'REBASE_CONTEXT_CHANGED');
+    const paths = (await this.#command([
+      'diff', '--name-only', '--diff-filter=U', '-z',
+    ])).toString().split('\0').filter(Boolean);
+    requireThat(paths.every(safeCandidatePath), 'UNSAFE_REBASE_CONFLICT');
+    return { status: 'changes_required', code: 'DELIVER_REBASE_CONFLICT',
+      paths, latestMain: state.latestMain };
   }
   async continueRebase(shapeBody, latestMain, terminationHash) {
     await this.#privateRoot();
@@ -561,7 +581,7 @@ export class CandidateWorkspace {
       mode: 0o600,
     });
     await rename(join(this.#root, 'base.next'), join(this.#root, 'base'));
-    const candidate = await this.capture(shapeBody, true);
+    const candidate = await this.capture(shapeBody, true, state.partial);
     requireThat(
       candidate.tree ===
         (await this.#command(['rev-parse', `${head}^{tree}`])).toString().trim(),
@@ -659,9 +679,9 @@ export class CandidateWorkspace {
     );
     return { head, branch };
   }
-  async commit(candidate, shapeBody, timestamp) {
+  async commit(candidate, shapeBody, timestamp, partial = false) {
     requireThat(
-      sameCandidate(await this.capture(shapeBody), candidate),
+      sameCandidate(await this.capture(shapeBody, false, partial), candidate),
       'CANDIDATE_CHANGED_AFTER_ACCEPT',
     );
     requireThat(

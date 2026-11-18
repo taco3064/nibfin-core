@@ -1,4 +1,5 @@
 import { saveBlockerReport } from './blocker-report-store.mjs';
+import { readCurrentMain } from './current-main.mjs';
 import { StageRuntime } from './stage-runtime.mjs';
 import { nativeObserver } from './native-observer.mjs';
 import { nativeWrites } from './native-writes.mjs';
@@ -102,6 +103,8 @@ export function nativeStageExecutor({
       const writes = nativeWrites({ reader, observe, token, workspace, fetcher, clock });
       const handlers = stageHandlers({
         agent,
+        observeMain: context => readCurrentMain(reader,
+          context.approval.record.issue, hostMain),
         workspace,
         sandbox,
         store,

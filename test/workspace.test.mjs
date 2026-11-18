@@ -15,6 +15,8 @@ import { join } from 'node:path';
 import { CandidateWorkspace } from '../src/workspace.mjs';
 import { command } from '../src/process.mjs';
 import { digest, sha256 } from '../src/identity.mjs';
+import { stageHandlers } from '../src/stage-handlers.mjs';
+import { stageFixture } from './stage-fixture.mjs';
 import { refreshShapeWorkspace } from '../src/host-shape-workspace.mjs';
 
 const shape =
@@ -413,6 +415,7 @@ test('Git conflicts require repair and new content evidence', async (t) => {
   );
   assert.equal(conflict.status, 'changes_required');
   assert.deepEqual(conflict.paths, ['source.txt']);
+  assert.deepEqual(await f.workspace.pendingRebase(shape), conflict);
   await assert.rejects(
     f.workspace.continueRebase(shape, latest, null),
     /REPAIR_WRITER_TERMINATION_REQUIRED/,
@@ -433,3 +436,71 @@ test('Git conflicts require repair and new content evidence', async (t) => {
     /CANDIDATE_CHANGED_AFTER_ACCEPT/,
   );
 });
+
+
+test('fresh and incomplete work align without requiring final artifacts', async t => {
+  for (const partialChange of [false, true]) {
+    const f = await fixture(t);
+    if (partialChange)
+      await writeFile(join(f.workspace.work, 'source.txt'), 'Partial work\n');
+    const partial = await f.workspace.capture(shape, false, true);
+    await writeFile(join(f.seed, 'parallel.txt'), 'New main\n');
+    await f.git(['add', '.']);
+    await f.git(['commit', '-m', 'Main advances']);
+    const latest = await f.git(['rev-parse', 'HEAD']);
+    const result = await f.workspace.rebase(partial, shape, latest,
+      '2026-11-18T00:00:00Z', true);
+    assert.equal(result.candidate.base, latest);
+    assert.equal(await readFile(join(f.workspace.work, 'source.txt'), 'utf8'),
+      partialChange ? 'Partial work\n' : 'Original\n');
+    assert.equal(await readFile(join(f.workspace.work, 'parallel.txt'), 'utf8'),
+      'New main\n');
+    await assert.rejects(f.workspace.capture(shape),
+      partialChange ? /REQUIRED_ARTIFACT_MISSING/ : /EMPTY_OR_UNSAFE_CANDIDATE/);
+  }
+});
+
+
+for (const missingProof of [false, true])
+  test(`interrupted published delivery resumes with missing proof: ${missingProof}`,
+  async t => {
+    const f = await fixture(t);
+    await writeFile(join(f.workspace.work, 'source.txt'), 'Published change\n');
+    await writeFile(join(f.workspace.work, 'proof.txt'), 'Published proof\n');
+    const published = await f.workspace.capture(shape);
+    await f.workspace.commit(published, shape, '2026-11-18T00:00:00Z');
+    await writeFile(join(f.workspace.work, 'source.txt'), 'Interrupted correction\n');
+    if (missingProof) await rm(join(f.workspace.work, 'proof.txt'));
+    await writeFile(join(f.seed, 'parallel.txt'), 'Main advanced\n');
+    await f.git(['add', '.']);
+    await f.git(['commit', '-m', 'Parallel main advance']);
+    const latest = await f.git(['rev-parse', 'HEAD']);
+    const context = stageFixture('deliver');
+    context.shape = { body: shape, hash: digest(shape) };
+    context.candidate = published;
+    context.main.head = latest;
+    context.receipts.deliver = { outcome: 'blocked', findings: [],
+      artifacts: { shapeHash: context.shape.hash } };
+    const originalPr = structuredClone(context.pr);
+    let writers = 0;
+    const handler = stageHandlers({ workspace: f.workspace,
+      clock: () => Date.parse('2026-11-18T00:00:00Z'),
+      agent: { run: async (_stage, resumed) => {
+        writers++;
+        assert.equal(resumed.rebase.candidate.base, latest);
+        assert.equal(resumed.rebase.contentChanged, true);
+        assert.equal(await readFile(join(f.workspace.work, 'source.txt'), 'utf8'),
+          'Interrupted correction\n');
+        assert.equal(await readFile(join(f.workspace.work, 'parallel.txt'), 'utf8'),
+          'Main advanced\n');
+        assert.deepEqual(resumed.pr, originalPr);
+        if (missingProof)
+          await assert.rejects(f.workspace.capture(shape), /REQUIRED_ARTIFACT_MISSING/);
+        else assert.equal((await f.workspace.capture(shape)).base, latest);
+        return {};
+      } },
+    }).deliver;
+    await handler.perform(context);
+    assert.equal(writers, 1);
+    assert.equal(await f.workspace.comparisonBase(), latest);
+  });

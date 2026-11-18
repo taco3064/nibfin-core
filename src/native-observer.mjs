@@ -98,7 +98,8 @@ export function nativeObserver({
       const body = await store.get(receipts.shape.artifacts.shapeHash);
       context.shape = { body, hash: digest(body) };
     }
-    if (receipts.deliver?.outcome === 'ready')
+    if (receipts.deliver?.artifacts.candidateHash &&
+      receipts.deliver.artifacts.shapeHash === context.shape?.hash)
       context.candidate = await store.get(receipts.deliver.artifacts.candidateHash);
     if (context.candidate) {
       context.equivalentCandidates = [];
@@ -126,11 +127,7 @@ export function nativeObserver({
       context.adoptedCandidate = handoff
         ? { ...handoff, number: pinned.openPr.number } : pinned.openPr;
     }
-    if (stage === 'deliver' && (context.adoptedCandidate ||
-      (context.candidate &&
-        receipts.deliver.artifacts.shapeHash === context.shape?.hash))) {
-      context.rebaseTarget = main.head;
-    }
+    if (stage === 'deliver') context.rebaseTarget = main.head;
     if (stage === 'commit-pr' && pinned.openPr &&
       receipts['commit-pr']?.outcome !== 'published') {
       context.pr = await readAdoptedOpenPr(reader, record.issue, pinned.openPr,
@@ -182,11 +179,12 @@ export function nativeObserver({
         ...(pr.merged ? { mergeCommit: pr.merge_commit_sha } : {}),
       };
       let resumeCICorrection = false;
-      if (stage === 'deliver' && receipts.deliver?.outcome === 'blocked' &&
+      if (stage === 'deliver' && !context.candidate &&
+        receipts.deliver?.outcome === 'blocked' &&
         pr.state === 'open' && pr.head.sha === saved.head &&
         commit.tree.sha === published.tree &&
         saved.shapeHash === context.shape?.hash) {
-        // Resume the published changes only if the stopped Writer left them intact.
+        // The PR still matches publication; Deliver captures any retained local edits.
         context.candidate = published;
         context.rebaseTarget = main.head;
         resumeCICorrection = !pinned.ciFailure && pr.merged === false &&

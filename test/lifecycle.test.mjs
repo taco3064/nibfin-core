@@ -69,6 +69,7 @@ test(
       },
     };
     const handlers = stageHandlers({
+      observeMain: async () => structuredClone(initial.main),
       agent,
       workspace,
       store,

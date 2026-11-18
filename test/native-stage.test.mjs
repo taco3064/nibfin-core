@@ -143,97 +143,109 @@ test('invalid transport inputs never reach the host', async () => {
   assert.equal(JSON.stringify(result).includes('credential'), false);
 });
 
-test('native Deliver and Accept preserve a parallel checkout', async (t) => {
-  const prior = stageFixture('deliver');
-  const f = await nativeFixture(t, prior.approval.record);
-  const publisher = { id: 1, login: 'writer', type: 'User' };
-  f.data['/pulls/7'].merged_by = publisher;
-  f.data['/rulesets/rule-suites/60'].actor_id = 1;
-  f.data['/collaborators/writer/permission'].permission = 'admin';
-  const approved = await f.observe('shape');
-  const binding = evidenceBinding(approved);
-  const store = new EvidenceStore(f.root, binding);
-  await store.put(prior.shape.body);
-  for (const stage of ['shape', 'validate-shape', 'publish-shape'])
-    await store.append({ ...prior.receipts[stage], binding });
-  f.issue.body = prior.shape.body;
-  f.issue.labels.push({ name: 'shaped' });
-  f.data['/git/ref/heads/main'].object.sha = '9'.repeat(40);
-  const actions = [];
-  const workspace = {
-    push: async () => assert.fail('unexpected write'),
-    rebase: async () => assert.fail('unrelated main advance must not rebase'),
-    discardWriterGit: async proof => {
-      assert.equal(proof, 'a'.repeat(64));
-      actions.push('discard-writer-git');
-    },
-    capture: async () => {
-      assert.ok(actions.includes('discard-writer-git'));
-      return prior.candidate;
-    },
-    hookBaseline: async () => '/trusted/baseline',
-  };
-  const sandbox = { execute: async () => assert.fail('no declared hooks') };
-  for (const stage of ['deliver', 'pre-accept-hooks', 'accept']) {
-    const execution = {
-      ...stageFixture(stage).execution,
-      runId: f.runner.expected.runId,
-      attempt: f.runner.expected.attempt,
-      jobId: f.runner.expected.jobId,
-    };
-    const agent = {
-      run: async (role, context) => {
-        actions.push(role);
-        const lastMessage = JSON.stringify({
-          outcome: role === 'accept' ? 'accepted' : 'ready',
-          body: '',
-          summary: 'Verified fixture',
-          rootCause: '',
-          failureClass: 'none',
-          evidenceReferences: ['fixture:role'],
-          blockingFindings: [],
-          contractConflicts: [],
-        });
-        const items = [
-          { type: 'thread.started', thread_id: context.execution.sessionId },
-          { type: 'turn.started' },
-          {
-            type: 'item.completed',
-            item: { type: 'agent_message', text: lastMessage },
-          },
-          { type: 'turn.completed' },
-        ];
-        return {
-          executionId: execution.id,
-          terminationHash: 'a'.repeat(64),
-          lastMessage,
-          stdout: items.map((item) => JSON.stringify(item)).join('\n'),
-        };
+for (const boundary of ['entry', 'handoff'])
+  test(`native Deliver aligns moving main at ${boundary} before Accept`, async t => {
+    const prior = stageFixture('deliver');
+    const f = await nativeFixture(t, prior.approval.record);
+    const publisher = { id: 1, login: 'writer', type: 'User' };
+    f.data['/pulls/7'].merged_by = publisher;
+    f.data['/rulesets/rule-suites/60'].actor_id = 1;
+    f.data['/collaborators/writer/permission'].permission = 'admin';
+    const approved = await f.observe('shape');
+    const binding = evidenceBinding(approved);
+    const store = new EvidenceStore(f.root, binding);
+    await store.put(prior.shape.body);
+    for (const stage of ['shape', 'validate-shape', 'publish-shape'])
+      await store.append({ ...prior.receipts[stage], binding });
+    f.issue.body = prior.shape.body;
+    f.issue.labels.push({ name: 'shaped' });
+    if (boundary === 'entry')
+      f.data['/git/ref/heads/main'].object.sha = '9'.repeat(40);
+    const actions = [];
+    let current = prior.candidate;
+    const workspace = {
+      push: async () => assert.fail('unexpected write'),
+      rebase: async (candidate, _shape, target) => {
+        actions.push('rebase');
+        assert.deepEqual(candidate, prior.candidate);
+        assert.equal(target, '9'.repeat(40));
+        current = { ...candidate, base: target };
+        return { status: 'rebased', candidate: current, contentChanged: false };
       },
+      discardWriterGit: async proof => {
+        assert.equal(proof, 'a'.repeat(64));
+        actions.push('discard-writer-git');
+      },
+      capture: async () => {
+        return current;
+      },
+      hookBaseline: async () => '/trusted/baseline',
     };
-    const executor = nativeStageExecutor({
-      ...f.adapters,
-      execution,
-      workspace,
-      agent,
-      sandbox,
-      token: 'synthetic-token',
-      inspectIsolation: async () => ({
-        ...prior.isolation,
-        executionId: execution.id,
-      }),
-    });
-    const result = await executor.run({ schemaVersion: 1, stage });
-    assert.equal(result.status, 'completed', JSON.stringify(result));
-  }
-  const saved = await store.load();
-  assert.deepEqual(
-    await store.get(saved.deliver.artifacts.candidateHash),
-    prior.candidate,
-  );
-  assert.equal(
-    saved.deliver.artifacts.candidateHash,
-    saved.accept.artifacts.candidateHash,
-  );
-  assert.deepEqual(actions, ['deliver', 'discard-writer-git', 'accept']);
-});
+    const sandbox = { execute: async () => assert.fail('no declared hooks') };
+    for (const stage of ['deliver', 'pre-accept-hooks', 'accept']) {
+      const execution = {
+        ...stageFixture(stage).execution,
+        runId: f.runner.expected.runId,
+        attempt: f.runner.expected.attempt,
+        jobId: f.runner.expected.jobId,
+      };
+      const agent = {
+        run: async (role, context) => {
+          actions.push(role);
+          if (role === 'deliver' && boundary === 'handoff')
+            f.data['/git/ref/heads/main'].object.sha = '9'.repeat(40);
+          const lastMessage = JSON.stringify({
+            outcome: role === 'accept' ? 'accepted' : 'ready',
+            body: '',
+            summary: 'Verified fixture',
+            rootCause: '',
+            failureClass: 'none',
+            evidenceReferences: ['fixture:role'],
+            blockingFindings: [],
+            contractConflicts: [],
+          });
+          const items = [
+            { type: 'thread.started', thread_id: context.execution.sessionId },
+            { type: 'turn.started' },
+            {
+              type: 'item.completed',
+              item: { type: 'agent_message', text: lastMessage },
+            },
+            { type: 'turn.completed' },
+          ];
+          return {
+            executionId: execution.id,
+            terminationHash: 'a'.repeat(64),
+            lastMessage,
+            stdout: items.map((item) => JSON.stringify(item)).join('\n'),
+          };
+        },
+      };
+      const executor = nativeStageExecutor({
+        ...f.adapters,
+        execution,
+        workspace,
+        agent,
+        sandbox,
+        token: 'synthetic-token',
+        inspectIsolation: async () => ({
+          ...prior.isolation,
+          executionId: execution.id,
+        }),
+      });
+      const result = await executor.run({ schemaVersion: 1, stage });
+      assert.equal(result.status, 'completed', JSON.stringify(result));
+    }
+    const saved = await store.load();
+    assert.deepEqual(
+      await store.get(saved.deliver.artifacts.candidateHash),
+      current,
+    );
+    assert.equal(
+      saved.deliver.artifacts.candidateHash,
+      saved.accept.artifacts.candidateHash,
+    );
+    assert.deepEqual(actions, boundary === 'entry'
+      ? ['rebase', 'deliver', 'discard-writer-git', 'accept']
+      : ['deliver', 'discard-writer-git', 'rebase', 'accept']);
+  });

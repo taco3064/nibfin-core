@@ -10,6 +10,7 @@ import { runCandidateHooks } from './hooks.mjs';
 import { codexIdle, codexPreflightExits, idleDiagnostic } from './codex-bootstrap.mjs';
 import { jobVmExecutorFailures } from './job-vm-exec-relay.mjs';
 import { writerPressureWait } from './job-vm-pressure.mjs';
+import { alignDelivery, handoffDelivery } from './deliver-freshness.mjs';
 import { ciCorrectionFindings } from './ci-recovery.mjs';
 
 // Only installed adapters enter this factory; the external stage request cannot
@@ -23,6 +24,7 @@ export function stageHandlers({
   publishCommit,
   deliverBlockedGuidance,
   persistReport = async report => store.put(report),
+  observeMain,
   clock = Date.now,
 }) {
   const pathFindings = paths => paths.map(path =>
@@ -36,8 +38,16 @@ export function stageHandlers({
       return { outcome: 'changes_required', findings, references,
         artifacts: { shapeHash } };
     }
+    const handoff = await handoffDelivery({
+      workspace, context, candidate, observeMain, clock,
+    });
+    if (handoff.outcome)
+      return { outcome: handoff.outcome, findings: handoff.findings, references,
+        artifacts: { shapeHash, ...(handoff.candidate ? {
+          candidateHash: await store.put(handoff.candidate),
+        } : {}) } };
     return { outcome: 'ready', findings: [], references,
-      artifacts: { shapeHash, candidateHash: await store.put(candidate) } };
+      artifacts: { shapeHash, candidateHash: await store.put(handoff.candidate) } };
   };
   const handlers = {};
   for (const stage of [
@@ -59,7 +69,10 @@ export function stageHandlers({
           );
         let candidate = context.candidate;
         let reference;
-        if (stage === 'deliver' && context.adoptedCandidate) {
+        const resumedDelivery = context.receipts.deliver?.artifacts.shapeHash ===
+          context.shape?.hash;
+        if (stage === 'deliver' && context.adoptedCandidate && !resumedDelivery &&
+          !await workspace.pendingRebase?.(context.shape.body)) {
           const pin = context.adoptedCandidate;
           candidate = await workspace.restoreAdoptedCandidate(pin,
             context.shape.body);
@@ -68,15 +81,14 @@ export function stageHandlers({
         let rebase;
         const restricted = stage === 'deliver' && candidate?.paths
           ? enforcementPaths(candidate.paths) : [];
-        if (stage === 'deliver' && candidate && !restricted.length &&
-          context.rebaseTarget &&
-          candidate.base !== context.rebaseTarget) {
-          rebase = await workspace.rebase(
-            candidate,
-            context.shape.body,
-            context.rebaseTarget,
-            new Date(clock()).toISOString(),
-          );
+        if (stage === 'deliver' && !restricted.length) {
+          rebase = await alignDelivery(workspace, context, candidate, clock, true);
+        }
+        const aligned = rebase?.candidate ?? candidate;
+        if (stage === 'deliver' && aligned?.base !== context.main.head) {
+          const protectedPaths = enforcementPaths(aligned?.paths ?? []);
+          if (protectedPaths.length)
+            return { freshnessBlocked: pathFindings(protectedPaths) };
         }
         const correction = stage === 'deliver' && [
           context.receipts['review-pr'], context.receipts.accept,
@@ -93,8 +105,10 @@ export function stageHandlers({
           ? ciCorrectionFindings(context.ciFailure)
           : deliveryFindings ?? (restricted.length
             ? pathFindings(restricted) : correction?.findings);
-        if (!findings && (reference || rebase) &&
-          (!rebase || (rebase.status === 'rebased' && !rebase.contentChanged))) {
+        const retain = reference ||
+          (context.candidate && rebase?.status === 'rebased');
+        if (!findings && retain && rebase &&
+          ['unchanged', 'rebased'].includes(rebase.status) && !rebase.contentChanged) {
           return { retainedCandidate: rebase?.candidate ?? candidate, reference };
         }
         const execution = await agent.run(stage, {
@@ -106,10 +120,15 @@ export function stageHandlers({
           return { ...execution, artifacts: decision.artifacts };
         return {
           ...execution,
-          ...(rebase ? { rebaseStatus: rebase.status } : {}),
+          ...(rebase ? { rebaseStatus: rebase.status,
+            rebaseTarget: rebase.latestMain ?? context.main.head } : {}),
         };
       },
       readBack: async (context, execution) => {
+        if (stage === 'deliver' && execution.freshnessBlocked)
+          return { outcome: 'blocked', findings: execution.freshnessBlocked,
+            references: [context.issue.url],
+            artifacts: { shapeHash: context.shape.hash } };
         if (stage === 'shape' && execution.publishedShape !== undefined) {
           const body = execution.publishedShape;
           return {
@@ -222,7 +241,7 @@ export function stageHandlers({
           if (execution.rebaseStatus === 'changes_required') {
             await workspace.continueRebase(
               context.shape.body,
-              context.rebaseTarget,
+              execution.rebaseTarget,
               execution.terminationHash,
             );
           }
@@ -231,7 +250,8 @@ export function stageHandlers({
         }
         const blockedGuidance = stage === 'deliver' && result.outcome === 'blocked'
           ? await deliverBlockedGuidance?.(
-            context, result.evidenceReferences, Boolean(execution.rebaseStatus),
+            context, result.evidenceReferences,
+            Boolean(execution.rebaseStatus && execution.rebaseStatus !== 'unchanged'),
           ) : undefined;
         if (['accept', 'review-pr'].includes(stage)) {
           requireThat(
