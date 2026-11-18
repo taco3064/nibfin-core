@@ -55,11 +55,14 @@ test('Deliver integrates an adopted PR with current main before Accept', async (
   const old = { base: '1'.repeat(40) };
   const rebased = { base: '2'.repeat(40) };
   context.adoptedCandidate = pin;
+  delete context.receipts.deliver;
   context.rebaseTarget = rebased.base;
+  context.main.head = rebased.base;
   let restored = false;
   const handler = stageHandlers({
     agent: { run: async () => assert.fail('Equivalent rebase needs no Writer') },
     workspace: {
+      capture: async () => { assert.ok(restored); return old; },
       restoreAdoptedCandidate: async (value, shape) => {
         assert.deepEqual(value, pin);
         assert.equal(shape, context.shape.body);
@@ -91,6 +94,7 @@ test('Deliver receives independent Accept findings for its Candidate', async () 
     findings,
   };
   const handler = stageHandlers({
+    workspace: { capture: async () => context.candidate },
     agent: { run: async (stage, input) => {
       assert.equal(stage, 'deliver');
       assert.deepEqual(input.correctionFindings, findings);
@@ -131,7 +135,8 @@ test('blocked Deliver returns guidance through the Controller and keeps its find
         reports.push(report);
         return digest(report);
       } },
-      workspace: { discardWriterGit: async () => {} },
+      workspace: { discardWriterGit: async () => {},
+        capture: async () => context.candidate },
       deliverBlockedGuidance: async (observed, refs, rebased) => {
         assert.deepEqual(observed, context);
         assert.deepEqual(refs, evidenceReferences);
@@ -528,4 +533,29 @@ test('Agent-authored host pressure claims cannot authorize recovery', async t =>
   const result = await new StageRuntime(f.adapters).run(request);
   assert.equal(result.code, 'STAGE_REQUIRES_CORRECTION');
   assert.equal(result.pressureConfirmed, undefined);
+});
+
+test('Deliver uses the admitted main when it moves during entry observation', async t => {
+  const f = await fixture(t, 'deliver');
+  let reads = 0;
+  f.adapters.observe = async () => {
+    const context = structuredClone(f.context);
+    if (++reads > 1) context.main.head = '9'.repeat(40);
+    return context;
+  };
+  f.adapters.handlers = { deliver: {
+    perform: async context => {
+      assert.equal(context.main.head, '9'.repeat(40));
+      assert.equal(context.rebaseTarget, context.main.head);
+    },
+    readBack: async () => ({ outcome: 'ready', findings: [],
+      references: ['fixture:admitted-main'], artifacts: {
+        shapeHash: f.context.shape.hash,
+        candidateHash: digest(f.context.candidate),
+      } }),
+  } };
+  const result = await new StageRuntime(f.adapters).run({
+    schemaVersion: 1, stage: 'deliver',
+  });
+  assert.equal(result.status, 'completed');
 });

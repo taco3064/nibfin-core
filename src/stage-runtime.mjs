@@ -126,7 +126,7 @@ export class StageRuntime {
     if (decision.status !== 'allowed') return decision;
     const frozenContextHash = digest(context);
     let result, receiptHash, receipt, admissionError, freshDenial, changed;
-    let blockedGuidance;
+    let blockedGuidance, admittedMain;
     let checkObservationDiff;
     try {
       const outcome = await this.#journal.run(
@@ -134,9 +134,9 @@ export class StageRuntime {
         {
           localDeliver: stage === 'deliver',
           admit: async () => {
-            let fresh;
+            let fresh, observation;
             try {
-              const observation = await this.#observe(stage);
+              observation = await this.#observe(stage);
               if (digest(observation.pause ?? null) !== digest(context.pause ?? null)) {
                 changed = changedFields('pause.', context.pause, observation.pause,
                   ['status', 'effective', 'visible', 'repair', 'issue',
@@ -166,6 +166,9 @@ export class StageRuntime {
                 'ADMISSION_CHANGED',
               );
             } catch (error) { admissionError = error; throw error; }
+            // Main is observational, not an evidence-version admission gate.
+            // Deliver aligns to the latest admitted observation before Writer.
+            admittedMain = structuredClone(observation.main);
             return fresh.requestHash;
           },
           perform: async () => {
@@ -173,7 +176,9 @@ export class StageRuntime {
             // Handlers never receive the journal, credentials of other adapters,
             // a caller-selected function, or mutable authority configuration.
             result = await handler.perform(
-              structuredClone(context),
+              structuredClone(stage === 'deliver'
+                ? { ...context, main: admittedMain, rebaseTarget: admittedMain.head }
+                : context),
               structuredClone(decision),
             );
           },

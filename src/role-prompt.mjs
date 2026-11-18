@@ -48,7 +48,13 @@ export function rolePrompt(stage, {
     'Use the assigned /work, read-only /main, and read-only /input. ' +
     (stage === 'deliver'
       ? 'Compare your changes against /main, the base Core uses to capture the diff. ' +
-        'During a rebase conflict, /main is the target used for the resolved diff. '
+        'During a rebase conflict, /main is the target used for the resolved diff. ' +
+        'Core establishes freshness before initial/resumed Deliver and observes ' +
+        'main again after Writer termination before Candidate handoff. ' +
+        'The trusted main observation is the target; /main is the comparison base. ' +
+        'Reading /main alone cannot establish a fresh remote observation. ' +
+        'Do not fetch/rebase or reconstruct Git metadata. If trusted observation ' +
+        'is unavailable, retain work and return the exact structured blocker. '
       : '/main contains the observed current main source. ') +
     'Use /tmp only for disposable test copies and scratch output. Keep read-only ' +
     'sources unchanged and remove temporary test files when finished. ' +
