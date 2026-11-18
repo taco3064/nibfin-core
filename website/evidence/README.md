@@ -11,9 +11,11 @@ Command syntax comes from
 maintained component source/help, never a hand-edited availability label.
 
 Run `node website/scripts/docs-check.mjs` from the repository root for a read-only
-comparison. The native website check runs it before Astro. It compares the actual
-Core entry bytes and read-only help with the projection, checks adjacent candidate
-warnings/identity, and rejects unlisted commands and changed article audits.
+comparison. The native website check runs it before Astro. It executes the fixed
+candidate help invocation with the current Node runtime,
+validates its command list and administrative admission qualification, checks
+adjacent candidate warnings/identity, and rejects unlisted commands and changed
+article audits. Execution is bounded; errors and invalid output fail.
 Candidate examples on the CLI, Installation and Agent providers pages share one
 command inventory.
 Each entry lists its allowed pages; per-page order and exact syntax are checked.
@@ -23,8 +25,15 @@ Unlisted commands, misplaced commands and contradictory availability still fail,
 even when an article digest is refreshed.
 No onboarding mutations, credentials or remote writes are involved.
 
-The Core help projection still compares the inspected source and current read-only
-output. The example is candidate-only. The 2026-11-13 GitHub read-back reached the
+`historicalCoreHelp` preserves the previously observed source identity, digest,
+date, provenance and help output. These are historical observations, not candidate
+byte or output prerequisites. The adjacent article source reference identifies
+that historical inspection; it does not identify the current candidate. Candidate
+comments, command ordering and unrelated help additions need no evidence refresh.
+The candidate contract is maintained in the verifier: a nonempty command list and
+the lifecycle requirement for administrator-adopted configuration and live native
+admission. No listed administrative command is executed. The example remains
+candidate-only. The 2026-11-13 GitHub read-back reached the
 three public repositories and their release lists. No formal release was listed.
 The current CLI README and Issues establish candidate interfaces, including the
 local Dashboard and Runner registration. Fresh installation, protected host
