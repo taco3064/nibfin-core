@@ -70,6 +70,14 @@ may resolve production identity and inspect an installed pool before producing
 output, while its shared preview implementation accepts controlled operations.
 Do not assume that a fixture-only Runner provides the production prerequisites.
 
+When a maintained test depends on filesystem ownership, permissions, a mount,
+or another environment property, check the actual test path and identity before
+relying on the result. Trace the fixture through the same checks used by the
+maintained implementation. For example, confirm the temporary directory and
+every relevant ancestor meet the existing path policy. Use an eligible private
+fixture in the assigned environment when the default is unsuitable. Keep the
+production checks and intended positive and negative assertions intact.
+
 When an existing controlled interface exercises the required shared behavior,
 use that interface for positive verification. Establish the equivalence from the
 maintained implementation and caller evidence, including the assertions needed

@@ -21,6 +21,15 @@ appropriate. Check relevant failure paths, compatibility and trust boundaries.
 Explain findings with the affected requirement and source evidence. Keep the
 judgment within the authorized outcome.
 
+Before relying on a test, check any environment property that determines whether
+it reaches the intended assertion. For filesystem fixtures, verify the actual
+test identity, temporary path and relevant ancestors against the same path and
+permission checks used by the implementation. If the default fixture is
+incompatible, use a permitted equivalent fixture or method when available.
+If the maintained Candidate needs a fixture correction, request that specific
+correction within the same Shape. Report a setup failure separately from the
+product behavior it prevented you from verifying.
+
 Use the diff between the working branch and current main as the review scope.
 In an isolated checkout, compare the changed paths in /work with /main using
 the supplied changed-path inventory. Include related interfaces when needed to
