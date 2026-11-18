@@ -30,6 +30,11 @@ and [self-hosted runner routing](https://docs.github.com/en/actions/reference/ru
 Use historical GitHub Issues to check that a Skill change improves decisions
 while preserving the approved development outcome and role boundaries.
 
+Apply this procedure to every Skill change, including follow-up corrections
+and changes to the shared role prompt that affect Skill decisions. Before
+editing, identify the applicable repository instructions and verification
+obligations. Carry those obligations through implementation and handoff.
+
 1. Select a representative failure and a nearby case that should still pass.
    Use the original Issue body, its edit history and timeline, native
    dependencies, linked PRs and Actions jobs, and the corresponding source and
@@ -38,16 +43,45 @@ while preserving the approved development outcome and role boundaries.
    the reconstruction as partial. Keep credentials and private runner data out
    of public evidence.
 2. Write down the expected stage decision and its source before evaluating the
-   revision. Replay the old and revised instructions on the same input in a
-   disposable, read-only exercise. Where possible use a fresh role invocation
-   with the actual prompt and relevant input mounts. Keep the expected answer
-   out of the input. A replay should never edit or dispatch the historical Issue.
+   revision. Have fresh independent sub-agents replay the old and revised
+   instructions on the same input in a disposable, read-only exercise. Use
+   separate fresh invocations for the two versions so one output cannot teach
+   the other. Supply the actual role prompt and relevant input mounts. Keep
+   the expected answer out of the input. A replay should never edit or dispatch
+   the historical Issue.
 3. Compare both outputs against the expected decision. Check for invented public
    interfaces, dependencies, permissions and pre-Deliver verification. Preserve
    the actual product behavior, responsibility and security boundary. Record
    source links, role, runtime, outcome and limitations in the PR. A manual
    walkthrough or deterministic prompt test checks a narrower property than a
    fresh model run. Identify which was used.
+
+For each case, record the historical source and input reconstruction, expected
+decision and its basis, old and revised instructions, actual role and execution
+environment, both outputs, and the comparison result. Use the existing PR or
+verification record. Keep expected decisions and example answers out of the
+replayed Agent's inputs. Identify any unavoidable exposure as a limitation.
+
+When the user requests an actual Runner replay, or the changed behavior depends
+on Runner capabilities, perform a fresh role invocation in the applicable
+Runner environment with the relevant source and input mounts. A model run
+outside that environment establishes only the behavior observed there. Source
+inspection, deterministic prompt tests and ordinary code tests do not establish
+the outcome of a missing Runner replay.
+
+An invocation that fails during setup, isolation checks or Agent startup has
+not exercised the Skill. Diagnose and correct the setup, then replay the case
+again. Preserve the applicable execution boundary. Record any remaining
+environment dependency and the specific behavior still unverified.
+
+Before reporting a Skill adjustment verified, compare every required case
+against its recorded expectation and account for incomplete or failed runs.
+If revised output still reproduces the historical failure, correct the Skill
+and replay the affected cases. Check the nearby passing case for regressions.
+Report the actual method, results and unresolved work in the final handoff.
+Keep later CI and CD evidence with the workflow that owns it. These replay
+instructions do not authorize new evidence gates for the historical Issue or
+require its workflow to be rerun or its metadata to be changed.
 
 Useful cases:
 
