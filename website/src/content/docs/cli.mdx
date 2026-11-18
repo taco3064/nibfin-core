@@ -168,6 +168,22 @@ decision is displayed as Unknown. Press Ctrl+C in the terminal to stop it.
 See [pause and resume](../lifecycle/#pause-and-resume)
 and the [Dashboard guide][dashboard].
 
+### Mobile access
+
+Tailscale is optional. Install and use Nibfin, run your Runners, and open the
+Dashboard on your computer with your existing GitHub CLI login.
+
+Remote Dashboard access via Tailscale Serve is planned. The current Dashboard
+accepts connections from the computer running it. A phone on the same Wi-Fi
+cannot open that local address.
+
+If you want to prepare for remote access, install Tailscale on the computer and
+phone and sign in to the same private Tailscale network. When remote Dashboard
+access is available, Serve requires MagicDNS and HTTPS certificates for that
+network. Tailscale can guide you through HTTPS setup the first time you enable
+Serve. Keep the computer online while using the Dashboard from your phone.
+See [Tailscale setup][tailscale-setup] and [Tailscale Serve][tailscale-serve].
+
 ## Preview an upgrade
 
 ```sh
@@ -199,6 +215,8 @@ not the onboarding CLI and not a released installation instruction.
 [runner]: https://github.com/taco3064/gh-nibfin#manual-repository-runner-management
 [quick]: https://github.com/taco3064/gh-nibfin/blob/main/docs/quick-registration.md
 [dashboard]: https://github.com/taco3064/gh-nibfin/blob/main/docs/dashboard.md
+[tailscale-setup]: https://tailscale.com/docs/how-to/quickstart
+[tailscale-serve]: https://tailscale.com/docs/features/tailscale-serve
 [upgrade]: https://github.com/taco3064/gh-nibfin/blob/main/docs/upgrade.md
 [core-help]:
   https://github.com/taco3064/nibfin-core/commit/9b24bd6cffce802304aa9ae27bc1449b1430aa7b

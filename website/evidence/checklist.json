@@ -54,7 +54,7 @@
       }
     },
     "cli.mdx": {
-      "sha256": "923fc7c9dfd493c580a369c7547c9f946571aceb90f99e41041b85bbb550bfd3",
+      "sha256": "942beeb97db22cc37a34dbd78f75f959dc24d3be9e8409c25023973313d7e4e6",
       "basis": "Issue #343 environment/provider expansion; preserves #335 managed walkthrough. Maintained source interfaces only; no native installation, security or release certification inferred.",
       "requirements": {
         "issue": "https://github.com/taco3064/nibfin-core/issues/343",
