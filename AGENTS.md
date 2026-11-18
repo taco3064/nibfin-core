@@ -1,5 +1,30 @@
 # Core repository instructions
 
+## Follow GitHub's documented mechanisms
+
+Design every GitHub integration around GitHub's documented behavior. Use
+GitHub Actions for job assignment, queueing, concurrency, cancellation and
+reruns. Use GitHub's native state, permissions and branch protection for
+repository operations. Check the current workflow and repository settings
+before making claims about their behavior.
+
+Treat GitHub's documented guarantees as the design baseline. Do not assume
+GitHub has a defect or add a second scheduler, queue, lock, retry policy, or
+approval gate to compensate for a hypothetical gap. Keep any Nibfin-specific
+safeguard tied to a demonstrated responsibility of Nibfin. Explain the
+observed need before proposing a safeguard, and keep its scope limited to
+the affected operation.
+
+If the documented mechanism appears insufficient or observed behavior
+contradicts it, bring the relevant official documentation, effective settings,
+and a minimal reproduction or native run record to a human maintainer.
+Pause the affected design decision until a maintainer agrees on the diagnosis
+and the proposed response. Do not autonomously implement a workaround for
+an alleged GitHub gap.
+
+[GitHub Actions concurrency](https://docs.github.com/en/actions/concepts/workflows-and-actions/concurrency)
+and [self-hosted runner routing](https://docs.github.com/en/actions/reference/runners/self-hosted-runners#routing-precedence-for-self-hosted-runners).
+
 ## Changing Nibfin Skills
 
 Use historical GitHub Issues to check that a Skill change improves decisions
