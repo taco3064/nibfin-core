@@ -159,17 +159,35 @@ permission-checked Pause and Resume requests.
 </Alert>
 
 ```sh
-gh nibfin dashboard --repo OWNER/REPO
+gh nibfin dashboard
 ```
 
-The Dashboard accepts local connections on the computer running it. Open it
+Run this command from any directory with your current GitHub CLI identity.
+It opens your overview in a browser. Use the project picker to select an
+adopted public project you currently have permission to read, including projects
+with no assigned open Issues. Choose **Open project** to inspect its details,
+then **Back to overview** to choose another project. Stale project rows cannot
+authorize detail reads; unavailable observations do not mean there are no projects.
+
+Local adopted Core observations require a compatible supported Linux installation.
+On Windows, they use an existing verified running WSL 2 installation with compatible
+installed components. Multiple eligible guests require explicit target selection;
+see the [Dashboard guide][dashboard] for that interface and detailed prerequisites.
+Unsupported platforms or missing or incompatible installations can show unavailable
+observations. These source-backed capabilities do not certify installed operation,
+Windows/WSL behavior or formal platform support.
+
+The Dashboard accepts localhost-only connections on the computer running it. Open it
 on that same computer; another device cannot use its localhost address.
 Private networking and reverse proxies are user-managed and outside the
 Nibfin workflow.
 
-The Dashboard uses your current GitHub CLI identity and opens in a browser.
-It shows the request result and the observed GitHub label. Core's effective
-decision is displayed as Unknown. Press Ctrl+C in the terminal to stop it.
+Pause and Resume requests are permission-checked. The Dashboard shows the request
+result and the observed GitHub label; neither these results nor observations confer
+Core execution authority. Core's effective decision is displayed as Unknown, and
+missing evidence remains Unknown or unavailable. Keep the command running while
+using the page; closing a browser tab does not stop the service. Press Ctrl+C in
+the terminal to stop it.
 See [pause and resume](../lifecycle/#pause-and-resume)
 and the [Dashboard guide][dashboard].
 
