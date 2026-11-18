@@ -54,10 +54,10 @@
       }
     },
     "cli.mdx": {
-      "sha256": "548525060a8843a120f8217ddf5c8b5ac87b826226de565567a59b4f3be12414",
-      "basis": "Issue #478 localhost Dashboard correction: removes planned Tailscale integration and setup guidance; private networking and reverse proxies remain user-managed. Issue #343 environment/provider expansion; preserves #335 managed walkthrough. Maintained source interfaces only; no native installation, security or release certification inferred.",
+      "sha256": "86710a56ba9b3259e95b8d694bacd70ba7bb38e1b72ca93b0e6ddbc463b5dfe9",
+      "basis": "Issue #479 overview-first Dashboard documentation follows delivered gh-nibfin #230 source, including project navigation and host limitations. Issue #478 localhost Dashboard correction: removes planned Tailscale integration and setup guidance; private networking and reverse proxies remain user-managed. Issue #343 environment/provider expansion; preserves #335 managed walkthrough. Maintained source interfaces only; no native installation, security or release certification inferred.",
       "requirements": {
-        "issue": "https://github.com/taco3064/nibfin-core/issues/478",
+        "issue": "https://github.com/taco3064/nibfin-core/issues/479",
         "sections": [
           "7",
           "8.1",
@@ -66,7 +66,7 @@
           "14.1",
           "14.4"
         ],
-        "basis": "Current requirements and inspected maintained source; not installed support. Issue #478 and current Proposal sections 2 and 9 govern this local Dashboard correction; section references above retain the prior audit context."
+        "basis": "Issue #479 and current Proposal sections 7\u20139 govern the overview-first Dashboard, platform boundaries and truthful availability. Preserves Issue #478 localhost and user-managed networking corrections. Current requirements and inspected maintained source are not installed support; section references above retain the prior audit context."
       }
     },
     "runners.mdx": {
@@ -243,9 +243,9 @@
       "repository": "taco3064/gh-nibfin",
       "status": "Unverified",
       "commit": null,
-      "location": null,
+      "location": "internal/cli/dashboard.go; internal/cli/dashboard_overview.go; docs/dashboard.md",
       "command": null,
-      "basis": "CLI Issues #78\u201380 and current public CLI README confirm source implementation."
+      "basis": "Delivered gh-nibfin #230 producer source: internal/cli/dashboard.go opens the overview from any directory and rejects former repo arguments; internal/cli/dashboard_overview.go rechecks subject and public repository read permission; docs/dashboard.md documents adopted project selection, return navigation, stale/unavailable observations and Linux/Windows WSL 2 prerequisites. Implementation provenance only; release, installed operation and platform certification remain Unverified."
     },
     {
       "id": "registration",
@@ -441,7 +441,7 @@
         "route": "legacy/manual"
       },
       {
-        "command": "gh nibfin dashboard --repo OWNER/REPO",
+        "command": "gh nibfin dashboard",
         "pages": [
           "cli.mdx"
         ],
