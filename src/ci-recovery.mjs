@@ -1,3 +1,7 @@
+import {
+  nodeDiagnosticCollector, nodeCorrectionFindings,
+} from './ci-node-diagnostic.mjs';
+
 export const requiredCheckFailed = 'CI_REQUIRED_CHECK_FAILED';
 export const ciLogsWaiting = 'CI_FAILURE_LOG_WAITING';
 export const ciCorrectionWaiting = 'CI_CORRECTION_RETRY_PENDING';
@@ -23,10 +27,11 @@ function observeGoFailure(failure, message) {
   if (goToolErrors.includes(error)) failure.error = error;
 }
 
-function failureDiagnostic(logs, step) {
+function failureDiagnostic(logs, step, repository) {
   const start = Date.parse(step?.started_at);
   const end = Date.parse(step?.completed_at);
   if (!Number.isFinite(start) || !Number.isFinite(end) || start > end) return null;
+  const node = nodeDiagnosticCollector(repository);
   let error, location;
   const goFailures = new Map();
   let goFailure;
@@ -36,6 +41,7 @@ function failureDiagnostic(logs, step) {
     const time = Date.parse(entry[1]);
     if (!Number.isFinite(time) || time < start || time >= end + 1000) continue;
     const message = entry[2].replace(/\x1b\[[0-9;]*m/g, '').trim();
+    node.observe(message);
     const name = goTestFailure(message);
     if (name) {
       goFailure = goFailures.get(name);
@@ -65,6 +71,9 @@ function failureDiagnostic(logs, step) {
   }
   if (goFailures.size)
     return { kind: 'go-test-failures', tests: [...goFailures.values()] };
+  // Preserve existing format precedence; Node takes priority over a generic code.
+  const nodeDiagnostic = node.diagnostic();
+  if (nodeDiagnostic) return nodeDiagnostic;
   return error ? { kind: 'error-code', error, ...(location ? { location } : {}) } : null;
 }
 
@@ -92,7 +101,7 @@ export function failedCheckError({ repository, number, head, base }, run, job, l
     url: `https://github.com/${repository}/actions/runs/${run.id}/job/${job.id}`,
   };
   // Keep raw CI logs and candidate-controlled text outside Agent input.
-  const diagnostic = logs === null ? null : failureDiagnostic(logs, step);
+  const diagnostic = logs === null ? null : failureDiagnostic(logs, step, repository);
   if (logs === null) failure.logsUnavailable = true;
   if (diagnostic) failure.diagnostic = diagnostic;
   return Object.assign(new Error(requiredCheckFailed), {
@@ -117,6 +126,8 @@ export function ciCorrectionFindings(failure) {
       (test.error ? ` with ${test.error}.` : '.'),
     );
   }
+  if (diagnostic?.kind === 'node-test-failures')
+    findings.push(...nodeCorrectionFindings(diagnostic));
   if (failure.logsUnavailable) findings.push('Core could not retrieve the CI job log.');
   if (diagnostic?.kind === 'playwright-unsupported-target') {
     findings.push(
