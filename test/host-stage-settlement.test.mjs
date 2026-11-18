@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { settleHostStage } from '../src/host-stage-settlement.mjs';
+import { settleHostStage, hostPreparationSettlement }
+  from '../src/host-stage-settlement.mjs';
 import { githubApiWaiting, githubReadWaiting }
   from '../src/observation-failure.mjs';
 import { ciCorrectionWaiting, ciLogsWaiting } from '../src/ci-recovery.mjs';
@@ -67,4 +68,29 @@ test('failure to establish local settlement keeps the run Pending', async () => 
   );
   assert.equal(result.status, 'pending');
   assert.equal(result.code, 'HOST_EXECUTION_UNRESOLVED');
+});
+
+test('generic pending results and forged preparation flags cannot settle', async () => {
+  const result = { status: 'pending', code: 'LIVE_OBSERVATION_UNAVAILABLE',
+    preparationSettled: true, preWorker: true, retrySettled: false };
+  assert.equal(await settleHostStage(async () => result,
+    () => assert.fail('Unclassified failure must retain the fence'), () => {}), result);
+});
+
+
+test('preparation settlement binds the original native execution', async () => {
+  const execution = { id: 'original', runId: 20, attempt: 1, jobId: 30 };
+  let releases = 0;
+  const lifecycle = hostPreparationSettlement(execution,
+    async () => { releases++; }, () => {});
+  execution.runId = 21;
+  const pending = { status: 'pending', code: 'LIVE_OBSERVATION_UNAVAILABLE' };
+  const result = await lifecycle.settle(pending);
+  assert.equal(result.status, 'pending');
+  assert.equal(result.retrySettled, undefined);
+  assert.deepEqual(result.preparationSettlement, { status: 'settled',
+    execution: { id: 'original', runId: 20, attempt: 1, jobId: 30 } });
+  lifecycle.enterOwnedWork();
+  assert.equal(await lifecycle.settle(pending), pending);
+  assert.equal(releases, 1);
 });

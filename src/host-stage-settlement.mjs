@@ -20,6 +20,27 @@ export async function settleHostStage(run, release, report) {
       result.code === ciCorrectionWaiting ||
       pendingCIObservation(result.code));
   if (result.status === 'pending' && !retryableRead) return result;
+  return settleResult(result, release, report, retryableRead);
+}
+
+// This closure belongs to the launcher, never to a Worker result or error.
+// Its release closure captures the acquired fence and initialized journal.
+export function hostPreparationSettlement(execution, release, report) {
+  const original = structuredClone(execution);
+  let entered = false;
+  return {
+    enterOwnedWork() { entered = true; },
+    async settle(result) {
+      if (entered) return result;
+      const settled = await settleResult(result, release, report, false);
+      return { ...settled, preparationSettlement: {
+        execution: original, status: settled === result ? 'settled' : 'pending',
+      } };
+    },
+  };
+}
+
+async function settleResult(result, release, report, retryableRead) {
   try {
     await release(result);
     if (result.status === 'denied' && retryableWriterPressure(result.code))

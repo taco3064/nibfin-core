@@ -8,8 +8,15 @@ import * as hostAdoption from '../src/host-adoption.mjs';
 import * as hostContainers from '../src/host-containers.mjs';
 import * as resources from '../src/managed-resource-admission.mjs';
 import * as retirement from '../src/retirement-admission.mjs';
+import { issueProgress } from '../src/issue-progress.mjs';
+import { OperationJournal } from '../src/operation-journal.mjs';
+import { continueStages } from '../src/stage-continuation.mjs';
+import { runPreparationScenario } from './launcher-preparation-scenarios.mjs';
 
 const scenario = process.argv[2];
+const preparationScenario = scenario.startsWith('prep-');
+let beforeProgress = async () => {};
+const diagnostic = () => new Error('preparation observation unavailable');
 const observations = { adoption: 0, job: 0, approval: 0 };
 function observe(name, value) {
   observations[name]++;
@@ -42,17 +49,26 @@ const reader = {
     return { actor: { id: 4 }, head_sha: runner.sourceCommit };
   },
   repository: async () => assert.fail('Use the already observed repository'),
+  issue: async () => ({ ...issue, body: 'requirements' }),
 };
 const adopted = { runner, approval: {}, isolation: { issue } };
 const host = { stateRoot: root };
 const context = { host, hostBytes: 'host', adopted, reader };
 const moduleMock = (path, namedExports) => mock.module(path, { namedExports });
+moduleMock('../src/issue-progress.mjs', {
+  issueProgress: async (...args) => {
+    await beforeProgress();
+    return issueProgress(...args);
+  },
+});
 moduleMock('../src/notion-proposal.mjs', { readNotionProposal: async () => {} });
 moduleMock('../src/host-relay.mjs', { relayHostCommand: async () => null });
 moduleMock('../src/host-adoption.mjs', {
   ...hostAdoption,
   loadHostAdoption: async () => observe('adoption', context),
-  inspectHostAdoption: async () => {},
+  inspectHostAdoption: async () => {
+    if (scenario === 'prep-inspection') throw diagnostic();
+  },
   readGlobalInstructions: async () => '', rootOwnedPath: async () => {},
 });
 moduleMock('../src/managed-resource-admission.mjs', {
@@ -67,7 +83,8 @@ moduleMock('../src/github-approval.mjs', {
   readProtectedApproval: async () => observe('approval', approval),
   readReviewers: async () => [],
 });
-moduleMock('../src/stage-continuation.mjs', { continueStages: async () => {
+moduleMock('../src/stage-continuation.mjs', { continueStages: preparationScenario
+  ? continueStages : async () => {
   throw Object.assign(new Error('continuation observation unavailable'), {
     status: 429, transientGitHubRead: true,
   });
@@ -76,7 +93,7 @@ let mainReads = 0;
 moduleMock('../src/github-host-read.mjs', { hostMainReader: () => async name => {
   assert.equal(name, issue.repository);
   mainReads++;
-  if (mainReads === 1) {
+  if (mainReads === 1 && !preparationScenario) {
     throw Object.assign(new Error('temporary host read failure'), {
       status: 503, transientGitHubRead: true,
     });
@@ -90,14 +107,23 @@ let failContainerSettlement = false;
 moduleMock('../src/host-containers.mjs', {
   ...hostContainers,
   idleContainers: async () => {
+    if (scenario === 'prep-changed')
+      await writeFile(join(root, 'issue-2-189', 'stage.lock'), 'changed');
+    if (scenario === 'prep-unobserved') throw diagnostic();
     if (unsafeContainers) throw Object.assign(new Error(), {
       code: 'WRITER_NOT_PROVEN_TERMINATED',
     });
     return [];
   },
 });
-moduleMock('../src/operation-journal.mjs', { OperationJournal: class {
+moduleMock('../src/operation-journal.mjs', { OperationJournal: class
+  extends OperationJournal {
+  constructor(...args) {
+    super(...args);
+    if (scenario === 'prep-incomplete') throw diagnostic();
+  }
   async assertIdle() {
+    if (preparationScenario) await super.assertIdle();
     if (failContainerSettlement) unsafeContainers = true;
     if (unsafeJournal) throw Object.assign(new Error(), {
       code: 'EXTERNAL_EFFECT_UNKNOWN',
@@ -106,6 +132,10 @@ moduleMock('../src/operation-journal.mjs', { OperationJournal: class {
 } });
 moduleMock('../src/mcp-job-host.mjs', { prepareHostJobMcp: async () => {
   prepared++;
+  if (scenario === 'prep-mcp') throw diagnostic();
+  if (scenario === 'prep-mcp-read') throw Object.assign(diagnostic(), {
+    githubApiRead: true, status: 429,
+  });
   return {
     async retire(terminated) {
       assert.equal(terminated, true);
@@ -126,14 +156,21 @@ moduleMock('../src/workspace.mjs', { CandidateWorkspace: class {
   async committedProjectConfig() { return null; }
 } });
 moduleMock('../src/installed-provider.mjs', {
-  installedProviderExecutor: () => async options => ({
-  run: async () => {
-    runs++;
-    assert.equal(options.config.hostGitHubReads, true);
-    assert.deepEqual(options.project, { tools: { node: '22.15.0' } });
-    return { schemaVersion: 1, status: 'ready' };
+  installedProviderExecutor: () => async options => {
+    if (scenario === 'prep-compose') throw diagnostic();
+    if (scenario === 'prep-compose-read') throw Object.assign(diagnostic(), {
+      githubApiRead: true, status: 429,
+    });
+    return {
+      run: async request => {
+        runs++;
+        assert.equal(options.config.hostGitHubReads, true);
+        assert.deepEqual(options.project, { tools: { node: '22.15.0' } });
+        return { schemaVersion: 1, stage: request.stage, status: 'ready' };
+      },
+    };
   },
-}) });
+});
 
 const env = { GITHUB_REPOSITORY: runner.repository, GITHUB_RUN_ID: '20',
   GITHUB_RUN_ATTEMPT: '1', GITHUB_EVENT_NAME: 'workflow_dispatch',
@@ -141,60 +178,72 @@ const env = { GITHUB_REPOSITORY: runner.repository, GITHUB_RUN_ID: '20',
 const lock = join(root, 'issue-2-189', 'stage.lock');
 try {
   const { launchStage } = await import('../src/host-launcher.mjs');
-  const invalid = await launchStage('189', 'deliver', env);
-  assert.equal(mainReads, 2, 'Workspace observation retries transient failure');
-  assert.equal(invalid.status, 'denied');
-  assert.equal(invalid.code, 'PROJECT_CONFIG_INVALID');
-  assert.match(invalid.configurationError, /\.nibfin\.json: root: invalid JSON/);
-  assert.equal(runs, 0);
-  assert.equal(prepared, 0);
-  assert.equal(retired, 0);
-  assert.equal(stopped, 0);
-  await assert.rejects(access(lock), { code: 'ENOENT' });
-  await writeFile(join(work, '.nibfin.json'), '{"tools":{"node":"22.15.0"}}');
-  assert.equal((await launchStage('189', 'deliver', env)).status, 'ready');
-  assert.equal(runs, 1);
-  assert.equal(mainReads, 3, 'Each Job reads current main for its backend');
-  assert.equal(retired, 1);
-  assert.equal(stopped, 1);
-  await assert.rejects(access(lock), { code: 'ENOENT' });
-
-  if (scenario === 'retry') {
-    assert.deepEqual(observations, { adoption: 5, job: 4, approval: 3 });
-    const pending = await launchStage('189', 'continue', env);
-    assert.equal(pending.status, 'pending');
-    assert.equal(pending.code, 'GITHUB_READ_RETRY_PENDING');
-    assert.equal(pending.retrySettled, true);
-    assert.equal(pending.stage, 'continue');
-    assert.equal(pending.retryRun, 20);
-    assert.equal(pending.retryAttempt, 1);
-    assert.equal(retryDelay(JSON.stringify(pending), 20, 1), 60000);
-    assert.equal(retryDelay(JSON.stringify(pending), 21, 1), null);
-    assert.equal(retryDelay(JSON.stringify(pending), 20, 2), null);
-    assert.equal(retired, 2);
-    assert.equal(stopped, 2);
-    await assert.rejects(access(lock), { code: 'ENOENT' });
+  if (preparationScenario) {
+    await runPreparationScenario({
+      scenario, root, issue, approval, env, launchStage, diagnostic,
+      issueProgress, OperationJournal,
+      setBeforeProgress: callback => { beforeProgress = callback; },
+      setUnsafe: () => {
+        unsafeContainers = scenario === 'prep-containers';
+      },
+      counters: () => ({ runs, prepared, retired, stopped }),
+    });
   } else {
-    // Failed settlement must preserve the durable fence and deny another entry.
-    await writeFile(join(work, '.nibfin.json'), '{invalid');
-    unsafeJournal = scenario === 'journal';
-    unsafeMcp = scenario === 'mcp';
-    if (unsafeMcp)
-      await writeFile(join(work, '.nibfin.json'), '{"tools":{"node":"22.15.0"}}');
-    // Initial inspection succeeds; journal settlement makes containers uncertain.
-    failContainerSettlement = scenario === 'containers';
-    const unresolved = await launchStage('189', 'deliver', env);
-    assert.equal(unresolved.status, 'pending');
-    assert.equal(unresolved.code, scenario === 'journal' ? 'EXTERNAL_EFFECT_UNKNOWN'
-      : scenario === 'containers' ? 'WRITER_NOT_PROVEN_TERMINATED'
-        : 'HOST_EXECUTION_UNRESOLVED');
-    await access(lock);
-    assert.equal(runs, unsafeMcp ? 2 : 1);
+    const invalid = await launchStage('189', 'deliver', env);
+    assert.equal(mainReads, 2, 'Workspace observation retries transient failure');
+    assert.equal(invalid.status, 'denied');
+    assert.equal(invalid.code, 'PROJECT_CONFIG_INVALID');
+    assert.match(invalid.configurationError, /\.nibfin\.json: root: invalid JSON/);
+    assert.equal(runs, 0);
+    assert.equal(prepared, 0);
+    assert.equal(retired, 0);
+    assert.equal(stopped, 0);
+    await assert.rejects(access(lock), { code: 'ENOENT' });
+    await writeFile(join(work, '.nibfin.json'), '{"tools":{"node":"22.15.0"}}');
+    assert.equal((await launchStage('189', 'deliver', env)).status, 'ready');
+    assert.equal(runs, 1);
+    assert.equal(mainReads, 3, 'Each Job reads current main for its backend');
     assert.equal(retired, 1);
-    assert.equal(stopped, unsafeMcp ? 2 : 1);
-    const retry = await launchStage('189', 'deliver', env);
-    assert.equal(retry.code, 'HOST_EXECUTION_UNRESOLVED');
-    assert.equal(prepared, unsafeMcp ? 2 : 1);
+    assert.equal(stopped, 1);
+    await assert.rejects(access(lock), { code: 'ENOENT' });
+
+    if (scenario === 'retry') {
+      assert.deepEqual(observations, { adoption: 5, job: 4, approval: 3 });
+      const pending = await launchStage('189', 'continue', env);
+      assert.equal(pending.status, 'pending');
+      assert.equal(pending.code, 'GITHUB_READ_RETRY_PENDING');
+      assert.equal(pending.retrySettled, true);
+      assert.equal(pending.stage, 'continue');
+      assert.equal(pending.retryRun, 20);
+      assert.equal(pending.retryAttempt, 1);
+      assert.equal(retryDelay(JSON.stringify(pending), 20, 1), 60000);
+      assert.equal(retryDelay(JSON.stringify(pending), 21, 1), null);
+      assert.equal(retryDelay(JSON.stringify(pending), 20, 2), null);
+      assert.equal(retired, 2);
+      assert.equal(stopped, 2);
+      await assert.rejects(access(lock), { code: 'ENOENT' });
+    } else {
+      // Failed settlement must preserve the durable fence and deny another entry.
+      await writeFile(join(work, '.nibfin.json'), '{invalid');
+      unsafeJournal = scenario === 'journal';
+      unsafeMcp = scenario === 'mcp';
+      if (unsafeMcp)
+        await writeFile(join(work, '.nibfin.json'), '{"tools":{"node":"22.15.0"}}');
+      // Initial inspection succeeds; journal settlement makes containers uncertain.
+      failContainerSettlement = scenario === 'containers';
+      const unresolved = await launchStage('189', 'deliver', env);
+      assert.equal(unresolved.status, 'pending');
+      assert.equal(unresolved.code, scenario === 'journal' ? 'EXTERNAL_EFFECT_UNKNOWN'
+        : scenario === 'containers' ? 'WRITER_NOT_PROVEN_TERMINATED'
+          : 'HOST_EXECUTION_UNRESOLVED');
+      await access(lock);
+      assert.equal(runs, unsafeMcp ? 2 : 1);
+      assert.equal(retired, 1);
+      assert.equal(stopped, unsafeMcp ? 2 : 1);
+      const retry = await launchStage('189', 'deliver', env);
+      assert.equal(retry.code, 'HOST_EXECUTION_UNRESOLVED');
+      assert.equal(prepared, unsafeMcp ? 2 : 1);
+    }
   }
 } finally {
   // All mocked resources are stopped; retain no disposable recovery fixture.
