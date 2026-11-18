@@ -27,8 +27,9 @@ export async function recoverDeliverFence(issueNumber) {
     isId(Number(issueNumber)), 'INVALID_RECOVERY_REQUEST');
   await rootOwnedPath(coreRoot);
   const installed = await import('/opt/nibfin/core/src/host-adoption.mjs');
-  const load = coreRoot === '/opt/nibfin/core' ? loadHostAdoption :
-    installed.loadHostAdoption;
+  const adoption = coreRoot === '/opt/nibfin/core' ?
+    { loadHostAdoption, inspectHostAdoption } : installed;
+  const load = adoption.loadHostAdoption;
   return withManagedAdmission(async () => {
     const target = process.env[targetContextKey];
     let context = await load(issueNumber, target, undefined, true);
@@ -55,7 +56,9 @@ export async function recoverDeliverFence(issueNumber) {
         context = await load(issueNumber, target, additional.uid, true);
       }
     }
-    return recoverAdoptedDeliverFence(context);
+    return recoverAdoptedDeliverFence(context, {
+      inspectAdoption: adoption.inspectHostAdoption,
+    });
   }, { reconcile: true }).catch(pendingRecovery);
 }
 
