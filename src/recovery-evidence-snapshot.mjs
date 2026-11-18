@@ -11,7 +11,6 @@ export class RecoveryEvidenceSnapshot {
   #entries = [];
   #bytes = 0;
   #names = 0;
-  #deadline = Date.now() + 15000;
   async #observe(path, kind, limit) {
     try { return await this.#read(path, kind, limit); }
     catch (error) {
@@ -23,7 +22,6 @@ export class RecoveryEvidenceSnapshot {
     }
   }
   async #read(path, kind, limit) {
-    requireThat(Date.now() < this.#deadline, 'RECOVERY_EVIDENCE_LIMIT');
     const stat = await lstat(path).catch(error => {
       if (error.code === 'ENOENT') return null;
       throw error;
@@ -72,8 +70,6 @@ export class RecoveryEvidenceSnapshot {
   }
   get hash() { return digest(this.#entries); }
   async confirm() {
-    // Limit each filesystem scan independently of intervening native reads.
-    this.#deadline = Date.now() + 15000;
     this.#bytes = 0;
     this.#names = 0;
     for (const { path, kind, limit, value } of this.#entries) {
