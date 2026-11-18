@@ -72,6 +72,8 @@ export class RecoveryEvidenceSnapshot {
   }
   get hash() { return digest(this.#entries); }
   async confirm() {
+    // Limit each filesystem scan independently of intervening native reads.
+    this.#deadline = Date.now() + 15000;
     this.#bytes = 0;
     this.#names = 0;
     for (const { path, kind, limit, value } of this.#entries) {

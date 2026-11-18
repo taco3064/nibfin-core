@@ -310,3 +310,11 @@ test('new interrupted local Deliver leaves no remote write intent', async t => {
   assert.equal(result.code, 'LOCAL_DELIVER_INTERRUPTED');
   await f.journal.assertIdle();
 });
+
+test('a slow native response does not consume the next evidence scan', async t => {
+  const f = await deliverRecoveryFixture(t, 'shape');
+  await unlink(f.invocationPath);
+  t.mock.timers.enable({ apis: ['Date'] });
+  f.options.afterRecord = async () => { t.mock.timers.tick(16000); };
+  assert.equal((await f.recover()).status, 'completed');
+});
