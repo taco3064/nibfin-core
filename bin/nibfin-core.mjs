@@ -21,11 +21,15 @@ import { adoptSharedPeer, refreshManagedIssueCaller }
   from '../src/shared-peer-adoption.mjs';
 import { adoptSharedHost } from '../src/shared-host-adopt.mjs';
 
+import { readLocalWorkInput } from '../src/local-work-input.mjs';
+
 import { credentialAdministrator } from '../src/managed-credentials.mjs';
 
 // This entry point never imports a caller-selected adapter or runs candidate code.
 async function main(args) {
   const [command, ...values] = args;
+  if (command === 'observe-local-work' && values.length === 0)
+    return readLocalWorkInput(process.stdin);
   if (command === 'managed-credentials' && values.length === 1)
     return credentialAdministrator(values[0]);
   if (command === 'resolve-event' && values.length === 0) return runIssueWake();
@@ -79,6 +83,7 @@ async function main(args) {
         'contract',
         'managed-credentials <intake|replace|status|disconnect> (local admin)',
         'inspect-shared-host',
+        'observe-local-work (private JSON stdin, no arguments)',
         'retire-shared-host (local administrator, no arguments)',
         'activate-shared-replacement (local administrator, no arguments)',
         'install-shared-service-template',

@@ -64,6 +64,11 @@ export class OperationJournal {
         record.payload.completed.every(isDigest) &&
         new Set(record.payload.completed).size === record.payload.completed.length &&
         (record.payload.pending === null || isDigest(record.payload.pending)) &&
+        (record.payload.wakeReceipts === undefined ||
+          Array.isArray(record.payload.wakeReceipts) &&
+          record.payload.wakeReceipts.every(receipt =>
+            isId(receipt?.runId) &&
+            record.payload.completed.includes(receipt.decisionId))) &&
         (record.payload.wakeRunId === undefined ||
           isDigest(record.payload.pending) && isId(record.payload.wakeRunId)),
       'JOURNAL_CORRUPT');
@@ -202,7 +207,9 @@ export class OperationJournal {
     try {
       requireThat(await readBack(runId) === request.bindingHash,
         'READBACK_BINDING_MISMATCH');
-      await this.#complete(state, decision);
+      await this.#complete({ ...state, wakeReceipts: [
+        ...(state.wakeReceipts ?? []), { decisionId: decision, runId },
+      ] }, decision);
       return { status: 'completed', decisionId: decision, runId };
     } catch {
       return { status: 'pending', code: 'EXTERNAL_EFFECT_UNKNOWN', runId };

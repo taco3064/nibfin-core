@@ -1,3 +1,4 @@
+export { observeLocalWork } from './local-work-observation.mjs';
 import { managedPreparationCapability } from './managed-resource-contract.mjs';
 import { managedSharedAdmission } from './shared-admission-policy.mjs';
 import { claudeModelComponent } from './claude-model-runner.mjs';
@@ -30,6 +31,8 @@ export { sharedDispatchWorkflow, sharedRepository } from './shared-runner.mjs';
 export const interfaceVersion = 1;
 export const consumerContract = Object.freeze({
   schemaVersion: interfaceVersion,
+  localWorkObservation: Object.freeze({ schemaVersion: 1,
+    command: 'observe-local-work', input: 'private-json-stdin' }),
   claudeModel: claudeModelComponent,
   managedResourcePreparation: managedPreparationCapability,
   managedPoolReplacement: Object.freeze({
