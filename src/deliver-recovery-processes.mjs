@@ -37,12 +37,10 @@ export async function recoveryProcessCensus(controllerPid) {
   requireThat(proc.length > 0 && proc.every(line => line.includes(' - proc ') &&
     !/(?:^|[ ,])hidepid=(?!0(?:,| |$))/.test(line)),
   'RECOVERY_PROCESS_VIEW_UNAVAILABLE');
-  const deadline = Date.now() + 15000;
   const names = (await readdir('/proc')).filter(name => /^[1-9][0-9]*$/.test(name));
   requireThat(names.length <= 32768, 'RECOVERY_PROCESS_LIMIT');
   const result = [];
   for (const name of names) {
-    requireThat(Date.now() < deadline, 'RECOVERY_PROCESS_LIMIT');
     const pid = Number(name);
     try {
       const owner = await stat(`/proc/${pid}`);
