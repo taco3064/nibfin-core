@@ -1,6 +1,7 @@
 import { lstat, opendir } from 'node:fs/promises';
+import { dirname } from 'node:path';
 import { privateHostDirectory } from './host-fence.mjs';
-import { readObservationFile } from './local-work-files.mjs';
+import { readObservationFile, safePath } from './local-work-files.mjs';
 import { digest, requireThat } from './identity.mjs';
 
 // Absence is observed with lstat: dangling links and unreadable paths are not
@@ -30,8 +31,14 @@ export class RecoveryEvidenceSnapshot {
     if (!stat) return null;
     requireThat(!stat.isSymbolicLink(), 'UNTRUSTED_EVIDENCE');
     const identity = { ino: stat.ino, dev: stat.dev, ctimeMs: stat.ctimeMs };
-    if (kind === 'directory') {
-      await privateHostDirectory(path);
+    if (kind === 'directory' || kind === 'input-directory') {
+      if (kind === 'input-directory') {
+        // Historical input mounts were readable below a private execution root.
+        await privateHostDirectory(dirname(path));
+        requireThat(stat.isDirectory() && stat.uid === process.getuid() &&
+          (stat.mode & 0o022) === 0, 'UNTRUSTED_HOST_STATE');
+        await safePath(path, process.getuid());
+      } else await privateHostDirectory(path);
       const names = [];
       for await (const entry of await opendir(path)) {
         requireThat(names.length < 4096 && ++this.#names <= 65536,
@@ -45,9 +52,11 @@ export class RecoveryEvidenceSnapshot {
     requireThat(this.#bytes <= 64 * 1024 * 1024, 'RECOVERY_EVIDENCE_LIMIT');
     return { ...file, ...identity };
   }
-  async directory(path) {
-    const value = await this.#observe(path, 'directory');
-    this.#entries.push({ path, kind: 'directory', value });
+  async directory(path, kind = 'directory') {
+    requireThat(kind === 'directory' || kind === 'input-directory',
+      'UNTRUSTED_EVIDENCE');
+    const value = await this.#observe(path, kind);
+    this.#entries.push({ path, kind, value });
     return value?.names ?? [];
   }
   async json(path, limit = 8 * 1024 * 1024) {

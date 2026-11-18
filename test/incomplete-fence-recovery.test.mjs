@@ -88,6 +88,22 @@ for (const kind of ['absent', 'incomplete']) {
   }
 }
 
+test('readable legacy input below private execution root settles', async t => {
+  const f = await deliverRecoveryFixture(t, 'shape');
+  await unlink(f.invocationPath);
+  await chmod(dirname(f.inputPath), 0o755);
+  assert.equal((await f.recover()).status, 'completed');
+});
+
+for (const [folder, mode] of [['input', 0o775], ['execution', 0o755]]) {
+  test(`untrusted legacy ${folder} preserves the fence`, async t => {
+    const f = await deliverRecoveryFixture(t, 'shape');
+    const input = dirname(f.inputPath);
+    await chmod(folder === 'input' ? input : dirname(input), mode);
+    await retains(f, 'UNTRUSTED_HOST_STATE');
+  });
+}
+
 for (const stage of ['accept', 'review-pr', 'commit-pr', 'merge']) {
   test(`same-native ${stage} evidence and correction iterations are covered`, async t => {
     const f = await deliverRecoveryFixture(t, 'shape');
