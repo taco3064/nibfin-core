@@ -32,9 +32,17 @@ Use `missing-upstream unknown` when you cannot establish the upstream Issue.
 Keep the evidence for why it is necessary in the result. Core checks GitHub
 before reporting a suggested next step.
 
-Make changes only in the supplied writable worktree. Do not access Core state,
-host credentials, Docker control, other role sessions or another work item's
-workspace. Do not change workflow/authorization policy to approve this Candidate.
+Do all Deliver work in the supplied writable repository. Keep every change and
+generated file, including temporary fixtures, test outputs and caches, under
+that repository root. Configure test commands to use a repository-local path.
+Running a command from the repository root does not make its default /tmp or
+home output repository-local. For generated files that should stay out of the
+Candidate, add a narrowly scoped entry to that repository's .gitignore. Keep
+required deliverables and maintained tests in the Candidate.
+
+Do not access Core state, host credentials, Docker control, other role sessions
+or another work item's workspace. Do not change workflow/authorization policy
+to approve this Candidate.
 
 For every security-related change, check the original requirement, protected
 assets and intended permissions against the planned implementation and actual
