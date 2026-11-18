@@ -2,7 +2,7 @@ import { pendingCIObservation } from './github-ci.mjs';
 import { ciCorrectionWaiting } from './ci-recovery.mjs';
 import { retryableWriterPressure } from './job-vm-pressure.mjs';
 import {
-  githubReadWaiting, githubReadWait, observationFailureCode,
+  githubReadRejectedWaiting, githubReadWaiting, githubReadWait, observationFailureCode,
 } from './observation-failure.mjs';
 
 export async function settleHostStage(run, release, report) {
@@ -16,7 +16,8 @@ export async function settleHostStage(run, release, report) {
     result = { schemaVersion: 1, ...(waiting ?? { status: 'denied', code }) };
   }
   const retryableRead = result.status === 'pending' &&
-    (result.code === githubReadWaiting || result.code === ciCorrectionWaiting ||
+    (result.code === githubReadWaiting || result.code === githubReadRejectedWaiting ||
+      result.code === ciCorrectionWaiting ||
       pendingCIObservation(result.code));
   if (result.status === 'pending' && !retryableRead) return result;
   try {

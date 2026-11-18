@@ -107,6 +107,8 @@ export class StageRuntime {
     try {
       context = structuredClone(await this.#observe(stage));
     } catch (error) {
+      const waiting = githubReadWait(error, this.#clock(), { stage: true });
+      if (waiting) return { schemaVersion: 1, stage, ...waiting };
       return ciFailureResult(error, stage) ?? {
         schemaVersion: 1,
         status: pendingObservation(error.code) ? 'pending' : 'denied',
@@ -227,7 +229,7 @@ export class StageRuntime {
       );
       const ciFailure = ciFailureResult(admissionError, stage);
       if (ciFailure) return ciFailure;
-      const waiting = githubReadWait(admissionError, this.#clock());
+      const waiting = githubReadWait(admissionError, this.#clock(), { stage: true });
       if (waiting && outcome.code === 'ADMISSION_FAILED')
         return { schemaVersion: 1, stage, ...waiting };
       if (outcome.code === 'ADMISSION_FAILED' && freshDenial) return freshDenial;

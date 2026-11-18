@@ -4,6 +4,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { StageRuntime } from '../src/stage-runtime.mjs';
+import { GitHubReader } from '../src/github-read.mjs';
 import { decideStage } from '../src/stages.mjs';
 import { stageHandlers } from '../src/stage-handlers.mjs';
 import { OperationJournal } from '../src/operation-journal.mjs';
@@ -421,6 +422,25 @@ test('Review admission ignores changes to diagnostic checks', async () => {
   const result = await runtime.run({ schemaVersion: 1, stage: 'review-pr' });
   assert.equal(result.status, 'completed');
   assert.equal(performed, true);
+});
+
+test('a rejected GitHub observation can resume before the stage has effects', async t => {
+  for (const rejectOn of [1, 2]) {
+    const f = await fixture(t);
+    const reader = new GitHubReader('fixture-token',
+      async () => new Response(null, { status: 422 }));
+    let reads = 0;
+    f.adapters.observe = async () => {
+      if (++reads === rejectOn) await reader.get('/repos/demo/project/issues/1');
+      return structuredClone(f.context);
+    };
+    const result = await new StageRuntime(f.adapters).run(request);
+    assert.equal(result.status, 'pending');
+    assert.equal(result.code, 'GITHUB_READ_422_RETRY_PENDING');
+    assert.equal(result.retryAfterMs, 60000);
+    assert.equal(f.performed(), 0);
+    assert.equal(f.saved.length, 0);
+  }
 });
 
 test('a rate-limited second admission waits before starting the role', async t => {
