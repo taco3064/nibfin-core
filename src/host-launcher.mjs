@@ -1,6 +1,7 @@
 import { requirePoolOpen } from './retirement-admission.mjs';
 import { withManagedAdmission } from './managed-credential-admission.mjs';
 import { ProjectConfigError } from './project-config.mjs';
+import { reconcileDelivery } from './stage-reconciliation.mjs';
 import { projectJob } from './project-job.mjs';
 import { lstat, mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -22,7 +23,7 @@ import { digest, isId, requireThat } from './identity.mjs';
 import { acquireHostFence, issueStatePath, privateHostDirectory } from './host-fence.mjs';
 import { idleContainers } from './host-containers.mjs';
 import { OperationJournal } from './operation-journal.mjs';
-import { settleHostStage } from './host-stage-settlement.mjs';
+import { settleHostStage, assertHostSettlement } from './host-stage-settlement.mjs';
 import {
   githubReadWait, observationFailureCode, retryGitHubObservation,
 } from './observation-failure.mjs';
@@ -147,7 +148,7 @@ function nativeExecution(runner, stage, role, iteration = 0) {
 
 // Fixed CLI path: no config flag, environment override, adapter module, shell
 // command, credential or execution identity can be provided by a request.
-export async function launchStage(issueNumber, stage, env = process.env, runnerUid) {
+function requireStageRequest(issueNumber, stage) {
   requireThat(
     /^[1-9][0-9]*$/.test(issueNumber) &&
       isId(Number(issueNumber)) &&
@@ -155,13 +156,24 @@ export async function launchStage(issueNumber, stage, env = process.env, runnerU
       (stage === 'continue' || Object.hasOwn(stages, stage)),
     'INVALID_STAGE_REQUEST',
   );
+}
+
+export async function launchStage(issueNumber, stage, env = process.env, runnerUid) {
+  requireStageRequest(issueNumber, stage);
   const relayed = await relayHostCommand('stage', [issueNumber, stage], env);
   if (relayed !== null) return relayed;
   return withManagedAdmission(() => launchAdmittedStage(
     issueNumber, stage, env, runnerUid), { pool: true });
 }
 
-async function launchAdmittedStage(issueNumber, stage, env, runnerUid) {
+export async function reconcileStage(issueNumber, stage, env, runnerUid) {
+  requireStageRequest(issueNumber, stage);
+  return withManagedAdmission(() => launchAdmittedStage(
+    issueNumber, stage, env, runnerUid, true), { pool: true });
+}
+
+async function launchAdmittedStage(issueNumber, stage, env, runnerUid,
+  reconcile = false) {
   let initial;
   try {
     initial = await retryGitHubObservation(async () => {
@@ -176,7 +188,7 @@ async function launchAdmittedStage(issueNumber, stage, env, runnerUid) {
     const waiting = githubReadWait(error, undefined, { stage: true });
     if (!waiting) throw error;
     return { schemaVersion: 1, stage, ...waiting,
-      ...(stage === 'continue' && env[targetContextKey] ? {
+      ...(!reconcile && stage === 'continue' && env[targetContextKey] ? {
         retrySettled: true,
         retryRun: Number(env.GITHUB_RUN_ID),
         retryAttempt: Number(env.GITHUB_RUN_ATTEMPT),
@@ -199,6 +211,12 @@ async function launchAdmittedStage(issueNumber, stage, env, runnerUid) {
       approval.record.roles[execution.role] === runner.memberId,
     'HOST_APPROVAL_MISMATCH',
   );
+  if (reconcile) {
+    return reconcileDelivery({
+      context, runner, approval, stage, execution,
+      closeExecution: hostExecution(runner, 'close'),
+    });
+  }
   // An adopted Proposal-only Issue uses a controller read in place of MCP.
   // Complete this read before taking the fence, since it has no write effect.
   const proposalSource = adopted.notionProposal ?? targetHost?.notionProposal ??
@@ -250,8 +268,8 @@ async function launchAdmittedStage(issueNumber, stage, env, runnerUid) {
     const journal = new OperationJournal(join(root, 'receipts'), approval.record.issue);
     release = async (result) => {
       // Release only after local termination and external writes are settled.
-      await journal.assertIdle();
-      await idleContainers(adopted.isolation, issue);
+      await assertHostSettlement(journal, () =>
+        idleContainers(adopted.isolation, issue));
       await mcpJob?.retire(true);
       if (progress && ((result.stage === 'close' && result.status === 'completed') ||
           result.code === 'DELIVERY_ALREADY_RECORDED')) {

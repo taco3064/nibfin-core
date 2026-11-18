@@ -5,8 +5,7 @@ import {
   controllerRoute, controllerRunnerUids, readControllerInput,
   targetContextKey,
 } from '../src/controller-contract.mjs';
-import { launchStage } from '../src/host-launcher.mjs';
-import { launchIssueWake } from '../src/host-issue-wake.mjs';
+import { dispatchControllerRequest } from '../src/controller-dispatch.mjs';
 import { requireThat } from '../src/identity.mjs';
 import { observationFailureCode } from '../src/observation-failure.mjs';
 
@@ -28,10 +27,7 @@ async function main() {
     runnerUid === host.runnerUid || request.context[targetContextKey] !== undefined,
     'UNTRUSTED_CONTROLLER_CALLER',
   );
-  if (request.command === 'stage') {
-    return launchStage(request.issue, request.stage, request.context, runnerUid);
-  }
-  return launchIssueWake(request.issue, request.context, request.event, runnerUid);
+  return dispatchControllerRequest(request, runnerUid);
 }
 
 main()
