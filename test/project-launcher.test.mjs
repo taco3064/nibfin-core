@@ -20,3 +20,15 @@ test('launcher retries setup reads and authenticates settled continuation retry'
   ], { encoding: 'utf8' });
   assert.equal(result.status, 0, result.stdout + result.stderr);
 });
+
+for (const scenario of ['initial', 'success', 'journal', 'containers',
+  'unobserved', 'changed', 'mcp', 'mcp-read', 'compose', 'compose-read',
+  'incomplete', 'active', 'inspection']) {
+  test(`preparation settlement: ${scenario}`, () => {
+    const result = spawnSync(process.execPath, [
+      '--experimental-test-module-mocks', 'test/project-launcher-fixture.mjs',
+      `prep-${scenario}`,
+    ], { encoding: 'utf8' });
+    assert.equal(result.status, 0, result.stdout + result.stderr);
+  });
+}

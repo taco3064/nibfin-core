@@ -23,7 +23,9 @@ import { digest, isId, requireThat } from './identity.mjs';
 import { acquireHostFence, issueStatePath, privateHostDirectory } from './host-fence.mjs';
 import { idleContainers } from './host-containers.mjs';
 import { OperationJournal } from './operation-journal.mjs';
-import { settleHostStage, assertHostSettlement } from './host-stage-settlement.mjs';
+import {
+  settleHostStage, assertHostSettlement, hostPreparationSettlement,
+} from './host-stage-settlement.mjs';
 import {
   githubReadWait, observationFailureCode, retryGitHubObservation,
 } from './observation-failure.mjs';
@@ -241,7 +243,8 @@ async function launchAdmittedStage(issueNumber, stage, env, runnerUid,
       return { schemaVersion: 1, stage, status: 'pending', code: error.code };
     throw error;
   }
-  let mcpJob, release;
+  let mcpJob, release, preparation;
+  let mcpEntered = false, executorEntered = false;
   let progress;
   try {
     const inspectWriter = async (_stage, observed) => {
@@ -258,12 +261,10 @@ async function launchAdmittedStage(issueNumber, stage, env, runnerUid,
         }),
       };
     };
-    for (const name of ['receipts', 'agent']) {
-      await mkdir(join(root, name), { mode: 0o700 }).catch((error) => {
-        if (error.code !== 'EEXIST') throw error;
-      });
-      await privateHostDirectory(join(root, name));
-    }
+    await mkdir(join(root, 'receipts'), { mode: 0o700 }).catch(error => {
+      if (error.code !== 'EEXIST') throw error;
+    });
+    await privateHostDirectory(join(root, 'receipts'));
     const openPr = (context.targetHost ?? host).openPrHandoffs?.[issueNumber];
     const journal = new OperationJournal(join(root, 'receipts'), approval.record.issue);
     release = async (result) => {
@@ -279,9 +280,22 @@ async function launchAdmittedStage(issueNumber, stage, env, runnerUid,
       }
       await fence.release();
     };
+    const report = (phase, code) =>
+      console.error(`Nibfin host stage ${phase}: ${code}`);
+    preparation = hostPreparationSettlement(execution, release, report);
+    // Only filesystem preparation and receipt reads precede this boundary.
+    // Establish all settlement dependencies before admitting these failures.
+    await mkdir(join(root, 'agent'), { mode: 0o700 }).catch(error => {
+      if (error.code !== 'EEXIST') throw error;
+    });
+    await privateHostDirectory(join(root, 'agent'));
+    progress = await issueProgress(root, approval);
+    // Adoption/container inspection itself can launch host commands. A failed
+    // observation does not prove those processes stopped. Everything beyond
+    // this checkpoint stays unclassified without its normal lifecycle proof.
+    preparation.enterOwnedWork();
     await retryGitHubObservation(inspectWriter);
     if (openPr) await journal.assertIdle();
-    progress = await issueProgress(root, approval);
     const { workspaceRoot, binding, store, marker: workspaceBinding } = progress;
     const workspace = new CandidateWorkspace(workspaceRoot, issue);
     let observedMain;
@@ -343,16 +357,19 @@ async function launchAdmittedStage(issueNumber, stage, env, runnerUid,
         ...host.jobVm, stateRoot: root, pressureRoot: host.stateRoot,
       },
     }, installedProviderExecutor(host));
-    if (!proposal) mcpJob = await prepareHostJobMcp({
-      host: { ...host, mcp: mcpSource }, runner, reader, approval,
-    }, {
-      authorize: async () => {
-        const fresh = await retryGitHubObservation(() =>
-          readProtectedApproval(reader, adopted.approval));
-        requireThat(fresh.approvalHash === approval.approvalHash,
-          'HOST_APPROVAL_MISMATCH');
-      },
-    });
+    if (!proposal) {
+      mcpEntered = true;
+      mcpJob = await prepareHostJobMcp({
+        host: { ...host, mcp: mcpSource }, runner, reader, approval,
+      }, {
+        authorize: async () => {
+          const fresh = await retryGitHubObservation(() =>
+            readProtectedApproval(reader, adopted.approval));
+          requireThat(fresh.approvalHash === approval.approvalHash,
+            'HOST_APPROVAL_MISMATCH');
+        },
+      });
+    }
     const invocations = new Map();
     const execute = async (current, ciFailure) => {
       await requirePoolOpen();
@@ -363,35 +380,44 @@ async function launchAdmittedStage(issueNumber, stage, env, runnerUid,
         approval.record.roles[execution.role] === runner.memberId,
         'HOST_APPROVAL_MISMATCH',
       );
-      const executor = await composeStage({
-        installation: host.installation,
-        caller,
-        config: {
-          approval: adopted.approval,
-          runner,
-          stateRoot: join(root, 'receipts'),
-          stateBinding: binding,
-          hostGitHubReads: true,
-          pauseJournalRoot: join(host.stateRoot, 'wake'),
-          ciWorkflows: adopted.ciWorkflows,
-          ...(ciFailure ? { ciFailure } : {}),
-          reviewers: adopted.reviewers,
-          ...(openPr ? { openPr } : {}),
-        },
-        execution,
-        workspaceRoot,
-        workflowNodeId: binding.workflowNodeId,
-        agentStateRoot: join(root, 'agent'),
-        authFile: host.authFile,
-        mcpSource: proposal ? undefined : mcpSource,
-        proposal,
-        globalInstructions,
-        mcpJob,
-        model: host.model,
-        isolation: adopted.isolation,
-        inspectWriter,
-        token,
-      });
+      executorEntered = true;
+      let executor;
+      try {
+        executor = await composeStage({
+          installation: host.installation,
+          caller,
+          config: {
+            approval: adopted.approval,
+            runner,
+            stateRoot: join(root, 'receipts'),
+            stateBinding: binding,
+            hostGitHubReads: true,
+            pauseJournalRoot: join(host.stateRoot, 'wake'),
+            ciWorkflows: adopted.ciWorkflows,
+            ...(ciFailure ? { ciFailure } : {}),
+            reviewers: adopted.reviewers,
+            ...(openPr ? { openPr } : {}),
+          },
+          execution,
+          workspaceRoot,
+          workflowNodeId: binding.workflowNodeId,
+          agentStateRoot: join(root, 'agent'),
+          authFile: host.authFile,
+          mcpSource: proposal ? undefined : mcpSource,
+          proposal,
+          globalInstructions,
+          mcpJob,
+          model: host.model,
+          isolation: adopted.isolation,
+          inspectWriter,
+          token,
+        });
+      } catch (error) {
+        // Composition may have started tools without returning their handle.
+        // A transport error or a read-wait diagnostic cannot prove retirement.
+        return { schemaVersion: 1, stage: current, status: 'pending',
+          code: observationFailureCode(error) };
+      }
       return executor.run({ schemaVersion: 1, stage: current });
     };
     const run = () =>
@@ -425,7 +451,7 @@ async function launchAdmittedStage(issueNumber, stage, env, runnerUid,
       : result;
   } catch (error) {
     const waiting = githubReadWait(error, undefined, { stage: true });
-    if (waiting && release && !mcpJob) {
+    if (waiting && release && !mcpEntered && !executorEntered) {
       const result = await settleHostStage(async () => ({
         schemaVersion: 1, stage, ...waiting,
       }), release, (phase, code) => console.error(`Nibfin host stage ${phase}: ${code}`));
@@ -433,7 +459,7 @@ async function launchAdmittedStage(issueNumber, stage, env, runnerUid,
         retryRun: runner.runId, retryAttempt: runner.attempt,
       } : {}) };
     }
-    if (error instanceof ProjectConfigError) {
+    if (error instanceof ProjectConfigError && !mcpEntered && !executorEntered) {
       // No role has started. Still prove prior writes and containers settled
       // before retiring prepared MCP resources and allowing a corrected retry.
       return await settleHostStage(async () => ({
@@ -443,11 +469,12 @@ async function launchAdmittedStage(issueNumber, stage, env, runnerUid,
       (phase, code) => console.error(`Nibfin host stage ${phase}: ${code}`));
     }
     // Do not turn partial preparation or an unknown container/write into a retry.
-    return {
+    const result = {
       schemaVersion: 1,
       stage,
       status: 'pending',
       code: observationFailureCode(error),
     };
+    return preparation ? await preparation.settle(result) : result;
   } finally { mcpJob?.stop(); }
 }
