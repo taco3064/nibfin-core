@@ -424,11 +424,13 @@ test('Review admission ignores changes to diagnostic checks', async () => {
   assert.equal(performed, true);
 });
 
-test('a rejected GitHub observation can resume before the stage has effects', async t => {
-  for (const rejectOn of [1, 2]) {
+test('GitHub API failures can resume before the stage has effects', async t => {
+  for (const [rejectOn, status] of [[1, 401], [1, 404], [2, 403], [2, 422], [2, null]]) {
     const f = await fixture(t);
-    const reader = new GitHubReader('fixture-token',
-      async () => new Response(null, { status: 422 }));
+    const reader = new GitHubReader('fixture-token', async () => {
+      if (status === null) throw new TypeError('Connection failed');
+      return new Response(null, { status });
+    });
     let reads = 0;
     f.adapters.observe = async () => {
       if (++reads === rejectOn) await reader.get('/repos/demo/project/issues/1');
@@ -436,7 +438,7 @@ test('a rejected GitHub observation can resume before the stage has effects', as
     };
     const result = await new StageRuntime(f.adapters).run(request);
     assert.equal(result.status, 'pending');
-    assert.equal(result.code, 'GITHUB_READ_422_RETRY_PENDING');
+    assert.equal(result.code, 'GITHUB_API_RETRY_PENDING');
     assert.equal(result.retryAfterMs, 60000);
     assert.equal(f.performed(), 0);
     assert.equal(f.saved.length, 0);

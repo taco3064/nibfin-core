@@ -173,7 +173,7 @@ async function launchAdmittedStage(issueNumber, stage, env, runnerUid) {
       return { context, job, approval };
     });
   } catch (error) {
-    const waiting = githubReadWait(error);
+    const waiting = githubReadWait(error, undefined, { stage: true });
     if (!waiting) throw error;
     return { schemaVersion: 1, stage, ...waiting,
       ...(stage === 'continue' && env[targetContextKey] ? {
@@ -406,7 +406,7 @@ async function launchAdmittedStage(issueNumber, stage, env, runnerUid) {
         }
       : result;
   } catch (error) {
-    const waiting = githubReadWait(error);
+    const waiting = githubReadWait(error, undefined, { stage: true });
     if (waiting && release && !mcpJob) {
       const result = await settleHostStage(async () => ({
         schemaVersion: 1, stage, ...waiting,
