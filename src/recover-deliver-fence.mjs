@@ -147,7 +147,7 @@ async function reconcile(context, approval, root, path, snapshot, observers) {
     approval, store);
   const journal = new OperationJournal(join(root, 'receipts'), subject);
   let journalEvidence;
-  const observe = async () => {
+  const proveLocalTermination = async () => {
     await privateHostDirectory(host.stateRoot);
     await privateHostDirectory(root);
     await observers.inspectAdoption(context);
@@ -164,8 +164,16 @@ async function reconcile(context, approval, root, path, snapshot, observers) {
       { installation: host.installation?.directory, subject,
         stateRoot: host.stateRoot });
     const containerHash = await observers.containers(adopted.isolation, subject);
-    // No resetting locks, replaying writes or operation-specific reconciliation.
-    // Such uncertainty must first settle through its owning recovery route.
+    await inspectRecoveryFile(path, snapshot);
+    return { native: current.hash, processes: processHash, containers: containerHash };
+  };
+  // Old Core treated local Deliver as a possible remote write. Clear only an
+  // exact old admission match after rechecking the native Job and local state.
+  if (evidence.localDeliverDecisions.length)
+    await journal.settleInterruptedLocalDeliver(evidence.localDeliverDecisions,
+      proveLocalTermination);
+  const observe = async () => {
+    const local = await proveLocalTermination();
     await journal.assertIdle();
     if (!journalEvidence) {
       journalEvidence = new RecoveryEvidenceSnapshot();
@@ -174,8 +182,8 @@ async function reconcile(context, approval, root, path, snapshot, observers) {
       await journalEvidence.json(join(directory, 'receipts.json'));
     } else await journalEvidence.confirm();
     await inspectRecoveryFile(path, snapshot);
-    return { native: current.hash, processes: processHash, containers: containerHash,
-      journal: journalEvidence.hash, evidence: evidence.hash, bootId: fence.bootId };
+    return { ...local, journal: journalEvidence.hash,
+      evidence: evidence.hash, bootId: fence.bootId };
   };
   await observe();
   const observations = await observe();

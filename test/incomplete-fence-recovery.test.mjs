@@ -5,7 +5,8 @@ import { chmod, mkdir, readFile, readdir, rm, symlink, unlink, writeFile }
 import { dirname, join } from 'node:path';
 import { deliverRecoveryFixture } from './deliver-recovery-fixture.mjs';
 import { hostExecution } from '../src/host-launcher.mjs';
-import { stages } from '../src/stages.mjs';
+import { evidenceBinding, stageAdmissionFields, stages } from '../src/stages.mjs';
+import { digest } from '../src/identity.mjs';
 import { makeBlockerReport } from '../src/blocker-report.mjs';
 import { saveBlockerReport } from '../src/blocker-report-store.mjs';
 
@@ -267,4 +268,45 @@ test('new Agent evidence after recording invalidates observed root absence', asy
     await writeFile(f.inputPath, JSON.stringify(f.retained), { mode: 0o400 });
   };
   await retains(f, 'RECOVERY_EVIDENCE_CHANGED');
+});
+
+test('exact legacy local Deliver intent clears after termination proof', async t => {
+  const f = await deliverRecoveryFixture(t, 'shape');
+  await unlink(f.invocationPath);
+  const context = { ...f.retained,
+    issue: { body: f.issue.body, labels: f.issue.labels },
+    shape: { hash: f.artifacts.shapeHash },
+  };
+  await writeFile(f.inputPath, JSON.stringify(context));
+  const bindingHash = digest(stageAdmissionFields(context, { stage: 'deliver',
+    binding: evidenceBinding(context), artifacts: f.artifacts }));
+  const stop = { code: 'RECOVERY_CONTROLLER_UNRESOLVED' };
+  const processes = f.options.processes;
+  f.options.processes = async () => { throw Object.assign(new Error('active'), stop); };
+  const outcome = await f.journal.run({ operation: 'deliver', bindingHash }, {
+    admit: async () => bindingHash,
+    perform: async () => { throw new Error('interrupted'); },
+    readBack: async () => bindingHash,
+  });
+  assert.equal(outcome.code, 'EXTERNAL_EFFECT_UNKNOWN');
+  const receipts = await f.store.load();
+  await retains(f, stop.code);
+  await assert.rejects(f.journal.assertIdle(), { code: 'EXTERNAL_EFFECT_UNKNOWN' });
+  f.options.processes = processes;
+  assert.equal((await f.recover()).status, 'completed');
+  await f.journal.assertIdle();
+  assert.deepEqual(await f.store.load(), receipts);
+});
+
+test('new interrupted local Deliver leaves no remote write intent', async t => {
+  const f = await deliverRecoveryFixture(t);
+  const bindingHash = 'e'.repeat(64);
+  const result = await f.journal.run({ operation: 'deliver', bindingHash }, {
+    localDeliver: true,
+    admit: async () => bindingHash,
+    perform: async () => { throw new Error('interrupted'); },
+    readBack: async () => bindingHash,
+  });
+  assert.equal(result.code, 'LOCAL_DELIVER_INTERRUPTED');
+  await f.journal.assertIdle();
 });
