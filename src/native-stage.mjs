@@ -73,7 +73,7 @@ export function nativeStageExecutor({
       try {
         initial = await observeNative(stage);
       } catch (error) {
-        const waiting = githubReadWait(error, clock());
+        const waiting = githubReadWait(error, clock(), { stage: true });
         if (waiting) return { schemaVersion: 1, stage, ...waiting };
         return ciFailureResult(error, stage) ?? {
           schemaVersion: 1,

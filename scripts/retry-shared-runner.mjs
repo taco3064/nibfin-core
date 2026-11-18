@@ -5,7 +5,7 @@ import { command } from '../src/process.mjs';
 import { GitHubReader, repoPath } from '../src/github-read.mjs';
 import { isId, requireThat } from '../src/identity.mjs';
 import {
-  githubReadWaiting, retryGitHubObservation,
+  githubReadRejectedWaiting, githubReadWaiting, retryGitHubObservation,
 } from '../src/observation-failure.mjs';
 import { sharedWorkflowPath } from '../src/shared-runner.mjs';
 import { retryableWriterPressure } from '../src/job-vm-pressure.mjs';
@@ -32,7 +32,7 @@ export function retryDelay(log, id, attempt) {
   const correctiveDeliver = result.code === ciCorrectionWaiting &&
     result.terminalStage === 'deliver';
   if (pendingCIObservation(result.code) || correctiveDeliver) return 60_000;
-  return result.code === githubReadWaiting &&
+  return [githubReadWaiting, githubReadRejectedWaiting].includes(result.code) &&
     Number.isSafeInteger(wait) && wait >= 0 && wait <= maxDelay
     ? Math.max(30000, wait) : null;
 }

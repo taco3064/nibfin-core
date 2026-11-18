@@ -22,14 +22,18 @@ const hostPreflightCodes = new Set([
 ]);
 
 export const githubReadWaiting = 'GITHUB_READ_RETRY_PENDING';
+export const githubReadRejectedWaiting = 'GITHUB_READ_422_RETRY_PENDING';
 export const githubReadDelay = (retryAfterMs, attempt) =>
   Math.max(retryAfterMs ?? 0, Math.min(60000, 5000 * 2 ** attempt));
 
-export function githubReadWait(error, now = Date.now()) {
-  if (!transientGitHubRead(error)) return null;
+export function githubReadWait(error, now = Date.now(), { stage = false } = {}) {
+  // The stage caller is still observing or admitting. Writes are journaled
+  // separately, and a status from a write or untyped error is insufficient.
+  const rejected = stage && error?.status === 422 && error.githubReadRejected === true;
+  if (!rejected && !transientGitHubRead(error)) return null;
   const digits = value => /^\d{1,12}$/.test(value ?? '') ? Number(value) : 0;
   const retryAfterMs = Math.max(
-    [403, 429].includes(error.status) ? 60000 : 0,
+    rejected || [403, 429].includes(error.status) ? 60000 : 0,
     digits(error.retryAfter) * 1000,
     digits(error.rateLimitReset) * 1000 - now + 1000,
   );
@@ -39,7 +43,8 @@ export function githubReadWait(error, now = Date.now()) {
     ? ` (request ${error.requestId})` : '';
   const status = Number.isInteger(error.status) ? error.status : 'network';
   console.error(`GitHub read waiting: ${resource} ${status}${request}`);
-  return { status: 'pending', code: githubReadWaiting, retryAfterMs };
+  const code = rejected ? githubReadRejectedWaiting : githubReadWaiting;
+  return { status: 'pending', code, retryAfterMs };
 }
 
 // Use only for observations whose callback cannot perform an external write.

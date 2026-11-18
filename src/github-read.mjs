@@ -42,6 +42,7 @@ export class GitHubReader {
       const status = response.status;
       throw Object.assign(new Error(`GitHub read failed: HTTP ${status}`), {
         status,
+        githubReadRejected: status === 422,
         transientGitHubRead: retryableGitHubStatus(response),
         retryAfter: response.headers?.get('retry-after'),
         rateLimitReset: response.headers?.get('x-ratelimit-remaining') === '0'
