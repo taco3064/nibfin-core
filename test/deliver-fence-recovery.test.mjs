@@ -102,10 +102,10 @@ const failures = [
     throw Object.assign(new Error('credentials'),
       { code: 'RECOVERY_PROCESS_UNAVAILABLE' });
   }; }, 'RECOVERY_PROCESS_UNAVAILABLE'],
-  ['missing Deliver invocation', async f => {
+  ['contradictory invocation stage', async f => {
     await writeFile(f.invocationPath,
       JSON.stringify({ plan: { contract: { stage: 'accept' } } }));
-  }, 'RECOVERY_NOT_ABANDONED_DELIVER'],
+  }, 'INVALID_ROLE_EXECUTION'],
   ['mismatched execution context', async f => {
     f.retained.runner.runnerId++;
     await writeFile(f.inputPath, JSON.stringify(f.retained));
@@ -269,12 +269,19 @@ test('continuation can use a trusted native Deliver report before Agent entry',
     assert.equal((await f.recover()).status, 'completed');
   });
 
-test('continuation without actual stage evidence stays Pending', async t => {
-  const f = await deliverRecoveryFixture(t, 'shape');
-  const { rm } = await import('node:fs/promises');
-  await rm(join(f.issueRoot, 'agent'), { recursive: true });
-  await pending(f, 'RECOVERY_DELIVER_EVIDENCE_UNAVAILABLE');
-});
+test('continuation without retained context covers the entire native attempt',
+  async t => {
+    const f = await deliverRecoveryFixture(t, 'shape');
+    const { rm } = await import('node:fs/promises');
+    await rm(join(f.issueRoot, 'agent'), { recursive: true });
+    assert.equal((await f.recover()).status, 'completed');
+    const names = (await readdir(f.issueRoot)).filter(n => n.startsWith('settled-'));
+    const record = JSON.parse(await readFile(join(f.issueRoot, names[0]), 'utf8'));
+    assert.equal(record.execution.id, JSON.parse(f.fenceBytes).binding.execution.id);
+    assert.equal(record.coverage.kind, 'native-continuation');
+    assert.equal(record.coverage.iterations, 'all');
+    assert.deepEqual(record.coverage.retained, []);
+  });
 
 test('native and journal observations are repeated after recording', async t => {
   for (const changed of ['native', 'journal', 'containers', 'authority']) {
