@@ -47,13 +47,6 @@ test('real projection rejects contradicted labels and unlisted examples', async 
     await change(original);
     await checkDocs(directory);
     await writeFile(checklistPath, audit);
-    const stale = JSON.parse(audit);
-    stale.help.commands = stale.help.commands.filter((command) =>
-      !command.startsWith('recover-review ') && !command.startsWith('promote-host '));
-    await writeFile(checklistPath, JSON.stringify(stale));
-    await assert.rejects(checkDocs(directory), /Help projection changed/);
-    await writeFile(checklistPath, audit);
-    await checkDocs(directory);
     const landing = join(directory, 'src/content/docs/index.mdx');
     const home = await readFile(landing, 'utf8');
     for (const [text, message] of [
@@ -160,8 +153,37 @@ test('real projection rejects contradicted labels and unlisted examples', async 
     }
     await checkDocs(directory);
     const entry = join(root, 'bin/nibfin-core.mjs');
-    await writeFile(entry, (await readFile(entry, 'utf8')) + '\n// changed\n');
-    await assert.rejects(checkDocs(directory), /source comparison failed/);
+    const source = await readFile(entry, 'utf8');
+    await writeFile(entry, source + '\n// changed\n');
+    await checkDocs(directory);
+    const additive = source.replace("        'contract',",
+      "        'unrelated-admin',\n        'contract',");
+    assert.notEqual(additive, source);
+    await writeFile(entry, additive);
+    await checkDocs(directory);
+    assert.equal(await readFile(checklistPath, 'utf8'), audit,
+      'Compatible candidate edits must not refresh evidence');
+    for (const [text, message] of [
+      [source.replace("command === 'help'", "command === 'broken-help'"),
+        /Read-only help failed/],
+      ["console.log('not JSON');", /Unexpected token/],
+      ['process.exit(2);', /Read-only help failed/],
+      ['process.kill(process.pid, \'SIGTERM\');', /Read-only help failed/],
+      ...[null, [], {}, { commands: [] },
+        { commands: [''] }, { commands: ['  '] }, { commands: [42] },
+        { commands: ['admin'], lifecycle: '' },
+        { commands: ['admin'], lifecycle: 'No admission required.' },
+      ].map(value => [
+        `console.log(${JSON.stringify(JSON.stringify(value))});`, /Invalid help/,
+      ]),
+    ]) {
+      await writeFile(entry, text);
+      await assert.rejects(checkDocs(directory), message);
+    }
+    await rm(entry);
+    await assert.rejects(checkDocs(directory), /Read-only help failed/);
+    await writeFile(entry, source);
+    await checkDocs(directory);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

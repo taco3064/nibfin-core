@@ -54,7 +54,7 @@
       }
     },
     "cli.mdx": {
-      "sha256": "942beeb97db22cc37a34dbd78f75f959dc24d3be9e8409c25023973313d7e4e6",
+      "sha256": "c696b505a9914fe0df207bf76e6c98813bba5127ed106780c07beee004369dd8",
       "basis": "Issue #343 environment/provider expansion; preserves #335 managed walkthrough. Maintained source interfaces only; no native installation, security or release certification inferred.",
       "requirements": {
         "issue": "https://github.com/taco3064/nibfin-core/issues/343",
@@ -360,44 +360,6 @@
       ]
     }
   ],
-  "sources": {
-    "core": {
-      "repository": "taco3064/nibfin-core",
-      "commit": "9b24bd6cffce802304aa9ae27bc1449b1430aa7b",
-      "path": "bin/nibfin-core.mjs",
-      "sha256": "edaf2a1c75ee38c4df892a49141de76680738587ae48a356352e3c606bc4bdcd",
-      "provenance": "Maintained Candidate help read back locally; commit names the prior audited baseline, not a new publication.",
-      "release": null,
-      "observed": "2026-11-16"
-    }
-  },
-  "help": {
-    "commands": [
-      "contract",
-      "managed-credentials <intake|replace|status|disconnect> (local admin)",
-      "inspect-shared-host",
-      "retire-shared-host (local administrator, no arguments)",
-      "activate-shared-replacement (local administrator, no arguments)",
-      "install-shared-service-template",
-      "start-shared-services",
-      "adopt-shared-host (administrator-only, root-owned profile and source pin)",
-      "adopt-shared-peer <repository> <repository-id> <action-commit>",
-      "refresh-managed-issue-caller <repository> <repository-id> (administrator-only)",
-      "pack <repository> <commit> <new-output-directory>",
-      "verify <installation> <approved-pin.json>",
-      "install <archive> <new-directory> <approved-pin.json>",
-      "stage <adopted-issue-number> <stage|continue>",
-      "recover-commit-pr <adopted-issue-number> <observed-pr-head>",
-      "recover-review <adopted-issue-number> <observed-pr-head>",
-      "promote-host (administrator-only, root-owned rollout plan)",
-      "resolve-wake",
-      "resolve-event",
-      "dispatch-event <adopted-issue-number>",
-      "export-mcp <codex> <settings-home> <auth-home> <member-id> <new-private-file>",
-      "import-mcp <member-id> <new-private-file> (private stdin only)"
-    ],
-    "lifecycle": "Stage execution requires administrator-adopted host configuration and live native admission."
-  },
   "unavailable": [
     {
       "repository": "taco3064/nibfin-core",
@@ -556,6 +518,44 @@
     "providers": {
       "codex": "Unverified",
       "claude": "Planned"
+    }
+  },
+  "historicalCoreHelp": {
+    "source": {
+      "repository": "taco3064/nibfin-core",
+      "commit": "9b24bd6cffce802304aa9ae27bc1449b1430aa7b",
+      "path": "bin/nibfin-core.mjs",
+      "sha256": "edaf2a1c75ee38c4df892a49141de76680738587ae48a356352e3c606bc4bdcd",
+      "provenance": "Maintained Candidate help read back locally; commit names the prior audited baseline, not a new publication.",
+      "release": null,
+      "observed": "2026-11-16"
+    },
+    "help": {
+      "commands": [
+        "contract",
+        "managed-credentials <intake|replace|status|disconnect> (local admin)",
+        "inspect-shared-host",
+        "retire-shared-host (local administrator, no arguments)",
+        "activate-shared-replacement (local administrator, no arguments)",
+        "install-shared-service-template",
+        "start-shared-services",
+        "adopt-shared-host (administrator-only, root-owned profile and source pin)",
+        "adopt-shared-peer <repository> <repository-id> <action-commit>",
+        "refresh-managed-issue-caller <repository> <repository-id> (administrator-only)",
+        "pack <repository> <commit> <new-output-directory>",
+        "verify <installation> <approved-pin.json>",
+        "install <archive> <new-directory> <approved-pin.json>",
+        "stage <adopted-issue-number> <stage|continue>",
+        "recover-commit-pr <adopted-issue-number> <observed-pr-head>",
+        "recover-review <adopted-issue-number> <observed-pr-head>",
+        "promote-host (administrator-only, root-owned rollout plan)",
+        "resolve-wake",
+        "resolve-event",
+        "dispatch-event <adopted-issue-number>",
+        "export-mcp <codex> <settings-home> <auth-home> <member-id> <new-private-file>",
+        "import-mcp <member-id> <new-private-file> (private stdin only)"
+      ],
+      "lifecycle": "Stage execution requires administrator-adopted host configuration and live native admission."
     }
   }
 }
