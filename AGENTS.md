@@ -40,3 +40,23 @@ Useful cases:
   maintained documentation changes while allowing handoff before the owning
   workflow result exists. In a separate case with an actual role-owned check,
   preserve that check.
+
+## Shared Runner upgrades
+
+The Nibfin Dashboard exposes Pause/Resume for selected Issues through
+`gh nibfin dashboard --repo OWNER/REPO`. Use it when an operator needs a
+particular Issue to wait at a stage boundary. Existing admitted work can
+settle. Record which Issues were paused for maintenance and resume only those
+after verification. Preserve pauses already set by their owners.
+
+For a Core or Runner upgrade affecting the shared pool, use Core CD and the
+authorized [host rollout](scripts/host-auto-rollout.py). The host rollout checks
+native Jobs, Runner registrations and execution fences, then stops the shared
+Runner services when safe. It rechecks the pool before promoting the verified
+package and restarting the services. If an execution or external effect is
+unresolved, let the existing recovery path settle it before promotion.
+Individual Issue pauses are optional and do not establish pool-wide idleness.
+
+After promotion, verify the installed Core revision, enrollment for the four
+repositories and both Runner registrations. Check that authorized work can
+resume through the normal Issue wake flow.
