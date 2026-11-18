@@ -40,7 +40,9 @@ test('trusted boot identity is durable before launch and observation fails close
     const bootId = '11111111-1111-4111-8111-111111111111';
     const fence = await acquireHostFence(root, { job: 1 }, async () => bootId);
     const path = join(root, 'stage.lock');
-    assert.equal(JSON.parse(await readFile(path, 'utf8')).bootId, bootId);
+    const retained = JSON.parse(await readFile(path, 'utf8'));
+    assert.equal(retained.bootId, bootId);
+    assert.match(retained.startTicks, /^[1-9][0-9]*$/);
     await fence.release();
     for (const observe of [async () => 'malformed', async () => {
       throw new Error('kernel boot interface unavailable');

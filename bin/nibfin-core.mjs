@@ -13,6 +13,7 @@ import { runWakeEntry } from '../src/wake-entry.mjs';
 import { runIssueWake } from '../src/issue-wake.mjs';
 import { launchIssueWake } from '../src/host-issue-wake.mjs';
 import { exportUserMcp, importUserMcp } from '../src/mcp-transfer.mjs';
+import { recoverDeliverFence } from '../src/recover-deliver-fence.mjs';
 import { recoverCommitPr, recoverReview } from '../src/recover-commit-pr.mjs';
 import { promoteHost } from '../src/host-rollout.mjs';
 import { inspectSharedHost } from '../src/shared-host-inspect.mjs';
@@ -41,6 +42,8 @@ async function main(args) {
   if (command === 'resolve-wake' && values.length === 0) return runWakeEntry();
   if (command === 'stage' && values.length === 2)
     return launchStage(values[0], values[1]);
+  if (command === 'recover-deliver-fence' && values.length === 1)
+    return recoverDeliverFence(values[0]);
   if (command === 'recover-commit-pr' && values.length === 2)
     return recoverCommitPr(values[0], values[1]);
   if (command === 'recover-review' && values.length === 2)
@@ -99,6 +102,7 @@ async function main(args) {
         'verify <installation> <approved-pin.json>',
         'install <archive> <new-directory> <approved-pin.json>',
         'stage <adopted-issue-number> <stage|continue>',
+        'recover-deliver-fence <adopted-issue-number> (local administrator)',
         'recover-commit-pr <adopted-issue-number> <observed-pr-head>',
         'recover-review <adopted-issue-number> <observed-pr-head>',
         'promote-host (administrator-only, root-owned rollout plan)',

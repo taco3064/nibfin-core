@@ -3,6 +3,7 @@ import { lstat, open, realpath, unlink } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { digest, isId, requireThat } from './identity.mjs';
+import { processIdentityNow } from './host-memory-pressure.mjs';
 import { isBootId, linuxBootId } from './linux-boot.mjs';
 import { syncRecoveryDirectory } from './recovery-lock.mjs';
 
@@ -24,6 +25,8 @@ export async function acquireHostFence(root, binding, observeBoot = linuxBootId)
   await privateHostDirectory(root);
   const bootId = await observeBoot();
   requireThat(isBootId(bootId), 'INVALID_BOOT_OBSERVATION');
+  const identity = processIdentityNow(process.pid);
+  requireThat(identity, 'HOST_PROCESS_IDENTITY_UNAVAILABLE');
   const path = join(root, 'stage.lock'), nonce = randomUUID();
   let handle;
   const flags = constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY |
@@ -35,7 +38,7 @@ export async function acquireHostFence(root, binding, observeBoot = linuxBootId)
     }
     throw error;
   }
-  const bytes = JSON.stringify({ nonce, binding, pid: process.pid, bootId });
+  const bytes = JSON.stringify({ nonce, binding, ...identity, bootId });
   const sync = () => syncRecoveryDirectory(root);
   try {
     await handle.writeFile(bytes);
