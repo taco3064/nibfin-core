@@ -50,11 +50,11 @@ export function validateControllerRequest(value) {
   requireThat(
     value &&
       value.schemaVersion === 1 &&
-      ['stage', 'dispatch-event'].includes(value.command) &&
+      ['stage', 'reconcile-stage', 'dispatch-event'].includes(value.command) &&
       /^[1-9][0-9]*$/.test(value.issue) &&
       isId(Number(value.issue)) &&
       Object.keys(value).sort().join(',') ===
-        (value.command === 'stage'
+        (value.command !== 'dispatch-event'
           ? 'command,context,issue,schemaVersion,stage'
           : 'command,context,event,issue,schemaVersion'),
     'INVALID_CONTROLLER_REQUEST',
@@ -76,7 +76,7 @@ export function validateControllerRequest(value) {
     'INVALID_CONTROLLER_CONTEXT',
   );
   requireThat(
-    value.command === 'stage'
+    value.command !== 'dispatch-event'
       ? typeof value.stage === 'string' && /^[a-z][a-z-]{0,39}$/.test(value.stage)
       : typeof value.event === 'string' && Buffer.byteLength(value.event) <= 1048576,
     'INVALID_CONTROLLER_REQUEST',

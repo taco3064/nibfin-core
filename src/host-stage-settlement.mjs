@@ -36,3 +36,8 @@ export async function settleHostStage(run, release, report) {
     return { schemaVersion: 1, status: 'pending', code };
   }
 }
+
+export async function assertHostSettlement(journal, inspectContainers) {
+  await journal.assertIdle();
+  await inspectContainers();
+}

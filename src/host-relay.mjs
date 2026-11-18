@@ -52,30 +52,50 @@ export async function relayHostCommand(operation, values, env = process.env) {
 // After handoff, transport failure cannot prove that the privileged writer
 // stopped. Never downgrade an unknown external effect to a retryable denial.
 export async function relayControllerRequest(request, uid, run = command) {
-  try {
-    const result = await run(
-      controllerRelayProgram,
-      controllerRelayArguments(uid),
-      {
+  const invoke = async value => {
+    let result;
+    try {
+      result = await run(controllerRelayProgram, controllerRelayArguments(uid), {
         cwd: coreRoot,
         env: { PATH: '/usr/bin:/bin', LANG: 'C.UTF-8' },
-        input: JSON.stringify(request),
-        timeout: deliveryTransportTimeout,
+        input: JSON.stringify(value),
+        timeout: value.command === 'reconcile-stage'
+          ? 15 * 60000 : deliveryTransportTimeout,
         limit: 1048576,
-      },
-    );
-    const value = JSON.parse(result.stdout.toString());
-    requireThat(
-      ['completed', 'denied', 'pending', 'scheduled', 'skipped'].includes(value.status),
-      'CONTROLLER_RESPONSE_UNPROVEN',
-    );
-    return value;
-  } catch {
-    return {
-      schemaVersion: 1,
-      status: 'pending',
-      code: 'CONTROLLER_HANDOFF_UNRESOLVED',
-      ...(request.command === 'stage' ? { stage: request.stage } : {}),
-    };
+      });
+    } catch {
+      throw new Error('TRANSPORT_FAILED');
+    }
+    try {
+      const parsed = JSON.parse(result.stdout.toString());
+      requireThat(parsed && typeof parsed === 'object' &&
+        ['completed', 'denied', 'pending', 'scheduled', 'skipped']
+          .includes(parsed.status), 'CONTROLLER_RESPONSE_UNPROVEN');
+      return parsed;
+    } catch {
+      throw new Error('RESPONSE_INVALID');
+    }
+  };
+  let initialFailure;
+  try { return await invoke(request); }
+  catch (error) { initialFailure = error.message; }
+  let reconciliationFailure;
+  if (request.command === 'stage') {
+    try {
+      const observed = await invoke({ ...request, command: 'reconcile-stage' });
+      if (observed.schemaVersion === 1 && observed.status === 'completed' &&
+          request.stage === 'continue' && observed.stage === 'continue' &&
+          observed.terminalStage === 'close' &&
+          /^[a-f0-9]{64}$/.test(observed.receiptHash ?? '')) return observed;
+      reconciliationFailure = 'COMPLETION_UNPROVEN';
+    } catch (error) { reconciliationFailure = error.message; }
   }
+  return {
+    schemaVersion: 1,
+    status: 'pending',
+    code: 'CONTROLLER_HANDOFF_UNRESOLVED',
+    ...(request.command === 'stage' ? { initialFailure } : {}),
+    ...(reconciliationFailure ? { reconciliationFailure } : {}),
+    ...(request.command === 'stage' ? { stage: request.stage } : {}),
+  };
 }
