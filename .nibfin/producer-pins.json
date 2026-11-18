@@ -1,16 +1,16 @@
 {
   "core": {
     "repository": "taco3064/nibfin-core",
-    "commit": "68c8f1435c4cac4fcf8c58ac7312e8f65a935252",
-    "archiveHash": "a46a743145620aa4476d60bb3d2e0fbaa5fa218a34b51ead540331bb87f7bf8f",
-    "manifestHash": "5f33e37a42194902f4109f39ebe2c9eeb8e1c5aeebef81769bf1b5db1cd89838"
+    "commit": "a922ca89887e8ec86359f618df4e270291ab7452",
+    "archiveHash": "302811c8c0ec1d2953dde5c045872ac57e34ec3091979a15732e5e8097c58bf3",
+    "manifestHash": "8568d229f3560da799bebe83bdc4b836125c5d29464710d517cf9d656ffc9e83"
   },
   "artifact": {
-    "id": 14406797282,
-    "digest": "sha256:e9c4e8802ea54b31a9d12866844ca18e0c2511a4a2b811b75f23059f2c3b9fce"
+    "id": 14417429147,
+    "digest": "sha256:9a15c279eff12e4bd4ed9b9844067bc6edab9355c06dd77a65278cb12b001ebe"
   },
   "action": {
     "repository": "taco3064/nibfin-act",
-    "commit": "0ff263c9c405eb6bc39c6217c25b1015faa175d4"
+    "commit": "aa30037348a5bd1529bfebe5efa9dff61deb4337"
   }
 }
