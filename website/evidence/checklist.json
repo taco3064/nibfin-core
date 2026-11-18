@@ -54,10 +54,10 @@
       }
     },
     "cli.mdx": {
-      "sha256": "c696b505a9914fe0df207bf76e6c98813bba5127ed106780c07beee004369dd8",
-      "basis": "Issue #343 environment/provider expansion; preserves #335 managed walkthrough. Maintained source interfaces only; no native installation, security or release certification inferred.",
+      "sha256": "548525060a8843a120f8217ddf5c8b5ac87b826226de565567a59b4f3be12414",
+      "basis": "Issue #478 localhost Dashboard correction: removes planned Tailscale integration and setup guidance; private networking and reverse proxies remain user-managed. Issue #343 environment/provider expansion; preserves #335 managed walkthrough. Maintained source interfaces only; no native installation, security or release certification inferred.",
       "requirements": {
-        "issue": "https://github.com/taco3064/nibfin-core/issues/343",
+        "issue": "https://github.com/taco3064/nibfin-core/issues/478",
         "sections": [
           "7",
           "8.1",
@@ -66,7 +66,7 @@
           "14.1",
           "14.4"
         ],
-        "basis": "Current requirements and inspected maintained source; not installed support."
+        "basis": "Current requirements and inspected maintained source; not installed support. Issue #478 and current Proposal sections 2 and 9 govern this local Dashboard correction; section references above retain the prior audit context."
       }
     },
     "runners.mdx": {
