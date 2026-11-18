@@ -1,115 +1,143 @@
-import { readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { hostExecution } from './host-launcher.mjs';
-import { privateHostDirectory } from './host-fence.mjs';
-import { readObservationFile, safePath } from './local-work-files.mjs';
-import { digest, isSha, requireThat } from './identity.mjs';
+import { digest, isId, isSha, requireThat } from './identity.mjs';
 import { repoPath } from './github-read.mjs';
-import { samePublishedRequirements } from './stages.mjs';
+import { executionIdentity, samePublishedRequirements, stages } from './stages.mjs';
+import { issueProgress } from './issue-progress.mjs';
+import { RecoveryEvidenceSnapshot } from './recovery-evidence-snapshot.mjs';
 
 const sameNative = (left, right) => ['runId', 'jobId', 'attempt', 'actorId']
   .every(key => left?.[key] === right?.[key]);
 
-// Retained inputs are written by Core outside every Writer mount. Neither an
-// Agent result nor an Issue's requested stage is proof of the abandoned role.
+function retainedNative(execution, prior) {
+  const matches = sameNative(execution, prior);
+  requireThat(execution?.jobId !== prior.jobId || matches,
+    'RECOVERY_EXECUTION_MISMATCH');
+  return matches;
+}
+
+// Inputs from correction attempts have distinct deterministic identities. Bound
+// the search like the retained scan; exceeding it is Pending, never permission
+// to discard an attempt. A missing invocation supplies no stage or iteration.
+function requireRetainedExecution(execution, native, stage) {
+  const candidates = stage ? [stage] : Object.keys(stages).filter(name =>
+    stages[name].role === execution.role);
+  const expected = digest(execution);
+  for (let iteration = 0; iteration < 4096; iteration++) {
+    if (candidates.some(name => digest(hostExecution(native, name, iteration)) ===
+      expected)) return;
+  }
+  requireThat(false, 'RECOVERY_EXECUTION_MISMATCH');
+}
+
+// A stage input proves entry, never the end of a shared continuation. Settlement
+// covers every maintained stage and every correction iteration under this Job.
 export async function deliverExecutionEvidence(context, fence, run, approval, store) {
   const { host, adopted } = context;
   const subject = adopted.isolation.issue;
-  const root = join(host.stateRoot, `issue-${subject.repositoryId}-${subject.number}`,
-    'agent');
-  const names = await privateEntries(root);
-  requireThat(names.length <= 4096, 'RECOVERY_EVIDENCE_LIMIT');
-  const snapshots = [];
-  let bytes = 0;
-  const deadline = Date.now() + 15000;
-  const read = async (path, limit) => {
-    requireThat(Date.now() < deadline, 'RECOVERY_EVIDENCE_LIMIT');
-    const file = await readObservationFile(path, process.getuid(), limit);
-    bytes += Buffer.byteLength(file.bytes);
-    requireThat(bytes <= 64 * 1024 * 1024, 'RECOVERY_EVIDENCE_LIMIT');
-    return file;
-  };
-  const matches = [];
+  const issueRoot = join(host.stateRoot,
+    `issue-${subject.repositoryId}-${subject.number}`);
+  const root = join(issueRoot, 'agent');
+  const snapshots = new RecoveryEvidenceSnapshot();
+  const names = await snapshots.directory(root);
+  const retained = [];
   const native = { ...adopted.runner, sourceCommit: run.head_sha,
     ...fence.binding.execution };
-  // The launcher initially binds continuation to its Shape execution. Prove
-  // Deliver was actually entered using the corresponding Core invocation.
   const outer = ['shape', 'deliver'].some(stage =>
     digest(hostExecution(native, stage)) === digest(fence.binding.execution));
   requireThat(outer, 'RECOVERY_EXECUTION_MISMATCH');
   for (const name of names.filter(value => /^execution-[a-f0-9-]{36}$/.test(value))) {
-    const directory = join(root, name, 'input');
-    await privateHostDirectory(join(root, name));
-    await safePath(directory, process.getuid());
-    const path = join(directory, 'context.json');
-    const snapshot = await read(path, 8 * 1024 * 1024);
-    const value = JSON.parse(snapshot.bytes);
-    if (!sameNative(value.execution, fence.binding.execution)) continue;
-    snapshots.push({ path, snapshot });
-    const invocationPath = join(directory, 'invocation.json');
-    const invocation = await read(invocationPath, 8 * 1024 * 1024);
-    snapshots.push({ path: invocationPath, snapshot: invocation });
-    const stage = JSON.parse(invocation.bytes).plan?.contract?.stage;
-    requireThat(['shape', 'validate-shape', 'deliver'].includes(stage),
-      'RECOVERY_NOT_ABANDONED_DELIVER');
-    if (stage !== 'deliver') continue;
+    const executionRoot = join(root, name);
+    await snapshots.directory(executionRoot);
+    const directory = join(executionRoot, 'input');
+    await snapshots.directory(directory);
+    const value = await snapshots.json(join(directory, 'context.json'));
+    const invocation = await snapshots.json(join(directory, 'invocation.json'));
+    if (!value) {
+      // An orphan invocation cannot supply its missing native/Issue binding.
+      requireThat(invocation === null, 'RECOVERY_CONTEXT_UNAVAILABLE');
+      retained.push({ classification: 'absent-context', directory: name });
+      continue;
+    }
+    requireThat(value.execution && value.runner, 'RECOVERY_EVIDENCE_INVALID');
     requireThat(name === `execution-${value.execution.id}` &&
-      digest(value.execution) === digest(hostExecution(native, 'deliver')) &&
       digest(value.approval?.record?.issue) === digest(approval.record.issue) &&
-      value.runner?.runnerId === adopted.runner.runnerId &&
+      sameNative({ ...value.runner, actorId: value.runner.memberId },
+        value.execution), 'RECOVERY_EXECUTION_MISMATCH');
+    const stage = invocation?.plan?.contract?.stage;
+    if (invocation !== null) {
+      requireThat(Object.hasOwn(stages, stage), 'RECOVERY_EVIDENCE_INVALID');
+      executionIdentity(value.execution, stages[stage].role, value.runner.memberId);
+    } else {
+      // Context precedes invocation. Its identity is retained, but no stage or
+      // correction iteration is inferred from the missing input.
+      requireThat(Object.values(stages).some(definition =>
+        definition.role === value.execution.role), 'RECOVERY_EXECUTION_MISMATCH');
+      executionIdentity(value.execution, value.execution.role, value.runner.memberId);
+    }
+    if (!retainedNative(value.execution, fence.binding.execution)) continue;
+    requireThat(
+      value.runner.runnerId === adopted.runner.runnerId &&
       value.runner.repositoryId === adopted.runner.repositoryId &&
       value.runner.sourceCommit === run.head_sha &&
       value.isolation?.profile === adopted.isolation.kind,
     'RECOVERY_EXECUTION_MISMATCH');
-    matches.push(value.execution);
+    requireRetainedExecution(value.execution, native, stage);
+    retained.push({ classification: invocation === null ? 'incomplete-input' :
+      'complete-stage', execution: value.execution, ...(stage ? { stage } : {}) });
   }
-  const reportRoot = join(host.stateRoot,
-    `issue-${subject.repositoryId}-${subject.number}`, 'receipts', 'reports');
-  const reports = await privateEntries(reportRoot);
-  requireThat(reports.length <= 4096, 'RECOVERY_EVIDENCE_LIMIT');
-  let reported = false;
+  const reportRoot = join(issueRoot, 'receipts', 'reports');
+  const reports = await snapshots.directory(reportRoot);
   for (const name of reports) {
     requireThat(/^[a-f0-9]{64}\.json$/.test(name), 'RECOVERY_REPORT_INVALID');
-    const path = join(reportRoot, name);
-    const snapshot = await read(path, 2 * 1024 * 1024);
-    const { id, ...report } = JSON.parse(snapshot.bytes);
+    const value = await snapshots.json(join(reportRoot, name), 2 * 1024 * 1024);
+    requireThat(value !== null, 'RECOVERY_EVIDENCE_CHANGED');
+    const { id, ...report } = value;
     requireThat(digest(report) === id && name === `${id}.json`,
       'RECOVERY_REPORT_INVALID');
     const binding = report.binding;
-    if (!sameNative({ ...binding?.native, actorId: binding?.subjectId },
+    requireThat(report.schemaVersion === 1 && report.kind === 'blocker-report' &&
+      digest(binding?.issue) === digest(subject) &&
+      isId(binding?.subjectId) && isId(binding?.native?.runId) &&
+      isId(binding.native.jobId) && isId(binding.native.attempt),
+    'RECOVERY_REPORT_INVALID');
+    if (!retainedNative({ ...binding?.native, actorId: binding?.subjectId },
       fence.binding.execution)) continue;
-    snapshots.push({ path, snapshot });
     requireThat(digest(binding.issue) === digest(subject) &&
       binding.native.runnerId === adopted.runner.runnerId &&
       binding.native.repositoryId === adopted.runner.repositoryId &&
-      binding.native.sourceCommit === run.head_sha, 'RECOVERY_EXECUTION_MISMATCH');
-    requireThat(['shape', 'validate-shape', 'deliver'].includes(binding.stage),
-      'RECOVERY_NOT_ABANDONED_DELIVER');
-    if (binding.stage === 'deliver' && report.producer === 'core-native' &&
-        binding.admissionId === hostExecution(native, 'deliver').id) reported = true;
+      binding.native.sourceCommit === run.head_sha &&
+      (Object.hasOwn(stages, binding.stage) || binding.stage === 'continue'),
+    'RECOVERY_EXECUTION_MISMATCH');
+    retained.push({ classification: 'native-report', stage: binding.stage,
+      admissionId: binding.admissionId });
   }
-  // A direct launch's private fence already binds its actual Deliver execution.
-  // Continuation's Shape fence needs independent evidence that Deliver started.
-  requireThat(matches.length <= 1 && (matches.length === 1 || reported ||
-    digest(hostExecution(native, 'deliver')) === digest(fence.binding.execution)),
-  'RECOVERY_DELIVER_EVIDENCE_UNAVAILABLE');
   const receipts = await store.load();
-  const afterDeliver = ['pre-accept-hooks', 'accept', 'post-accept-hooks',
-    'commit-pr', 'review-pr', 'merge', 'close'];
-  requireThat(!afterDeliver.some(stage => sameNative(receipts[stage]?.execution,
-    fence.binding.execution)), 'RECOVERY_NOT_ABANDONED_DELIVER');
+  for (const [stage, receipt] of Object.entries(receipts)) {
+    if (!retainedNative(receipt.execution, fence.binding.execution)) continue;
+    executionIdentity(receipt.execution, stages[stage].role, native.memberId);
+    requireRetainedExecution(receipt.execution, native, stage);
+    const input = retained.find(entry => entry.execution?.id === receipt.execution.id);
+    requireThat(!input?.stage || input.stage === stage, 'RECOVERY_EXECUTION_MISMATCH');
+  }
   requireThat(receipts['publish-shape']?.outcome === 'published',
     'RECOVERY_RECEIPTS_MISSING');
   const shape = await store.get(receipts['publish-shape'].artifacts.shapeHash);
+  const progress = await issueProgress(issueRoot, approval);
+  const selection = digest({ binding: progress.binding,
+    workspaceRoot: progress.workspaceRoot });
+  const coverage = { kind: 'native-continuation', native: {
+    repositoryId: native.repositoryId, runnerId: native.runnerId,
+    runId: native.runId, attempt: native.attempt, jobId: native.jobId,
+    actorId: native.actorId, sourceCommit: run.head_sha,
+  }, stages: Object.keys(stages), iterations: 'all', retained };
   const confirm = async () => {
-    requireThat(Date.now() < deadline, 'RECOVERY_EVIDENCE_LIMIT');
-    for (const { path, snapshot } of snapshots) {
-      const current = await readObservationFile(path, process.getuid(),
-        8 * 1024 * 1024);
-      requireThat(digest(current) === digest(snapshot), 'RECOVERY_EVIDENCE_CHANGED');
-    }
-    requireThat(digest(await store.load()) === digest(receipts),
-      'RECOVERY_PROGRESS_CHANGED');
+    await snapshots.confirm();
+    const selected = await issueProgress(issueRoot, approval);
+    requireThat(digest({ binding: selected.binding,
+      workspaceRoot: selected.workspaceRoot }) === selection &&
+      digest(await selected.store.load()) === digest(receipts),
+    'RECOVERY_PROGRESS_CHANGED');
     const issue = await context.reader.issue(subject);
     requireThat(issue.node_id === subject.id && issue.state === 'open' &&
       issue.labels?.some(label => label.name === 'scope') &&
@@ -118,8 +146,13 @@ export async function deliverExecutionEvidence(context, fence, run, approval, st
       samePublishedRequirements(issue.body, shape), 'RECOVERY_ISSUE_CHANGED');
   };
   await confirm();
-  return { execution: matches[0] ?? hostExecution(native, 'deliver'),
-    confirm, hash: digest(snapshots) };
+  // Preserve the complete Deliver route's recorded identity where it is proven.
+  // Otherwise retain the original outer identity, never mint a Deliver entry.
+  const delivery = retained.find(entry => entry.stage === 'deliver' &&
+    entry.execution && digest(entry.execution) === digest(hostExecution(native,
+      'deliver')));
+  return { execution: delivery?.execution ?? fence.binding.execution, coverage,
+    confirm, hash: digest({ snapshots: snapshots.hash, receipts, selection, coverage }) };
 }
 
 export async function terminalDeliverJob(context, fence, approval) {
@@ -159,14 +192,4 @@ export async function terminalDeliverJob(context, fence, approval) {
       'runner_id', 'runner_name', 'name']),
     repository: pick(repository, ['id', 'full_name', 'private']) }) };
 
-}
-
-async function privateEntries(directory) {
-  try {
-    await privateHostDirectory(directory);
-    return await readdir(directory);
-  } catch (error) {
-    if (error.code === 'ENOENT') return [];
-    throw error;
-  }
 }

@@ -13,6 +13,7 @@ import { digest, isId, requireThat } from './identity.mjs';
 import { readProtectedApproval } from './github-approval.mjs';
 import { issueProgress } from './issue-progress.mjs';
 import { OperationJournal } from './operation-journal.mjs';
+import { RecoveryEvidenceSnapshot } from './recovery-evidence-snapshot.mjs';
 import { idleContainers } from './host-containers.mjs';
 import { proveDeliverProcesses } from './deliver-recovery-processes.mjs';
 import { deliverExecutionEvidence, terminalDeliverJob }
@@ -63,7 +64,13 @@ export async function recoverDeliverFence(issueNumber) {
 }
 
 const prefix = 'settled-deliver-fence-';
+const recordLimit = 8 * 1024 * 1024;
 const recordName = name => /^settled-deliver-fence-[a-f0-9]{64}\.json$/.test(name);
+const recordIdentity = record => digest({ fence: record.fence,
+  execution: record.execution, ...(record.coverage ? {
+    coverage: record.coverage, evidence: record.observations.evidence,
+    journal: record.observations.journal,
+  } : {}) });
 const completed = record => ({ status: 'completed', code: 'DELIVER_FENCE_RECOVERED',
   executionId: record.execution.id, recovery: record.id });
 
@@ -106,11 +113,11 @@ export async function recoverAdoptedDeliverFence(context, {
         const records = [];
         for (const name of names) {
           const record = JSON.parse((await recoveryFile(join(root, name),
-            65536)).bytes);
+            recordLimit)).bytes);
           requireThat(record.id === name.slice(prefix.length, -5) &&
             record.issueId === adopted.isolation.issue.id &&
             record.disposition === 'settled' &&
-            digest({ fence: record.fence, execution: record.execution }) === record.id,
+            recordIdentity(record) === record.id,
           'RECOVERY_RECORD_CHANGED');
           records.push(record);
         }
@@ -139,6 +146,7 @@ async function reconcile(context, approval, root, path, snapshot, observers) {
   const evidence = await deliverExecutionEvidence(context, fence, native.run,
     approval, store);
   const journal = new OperationJournal(join(root, 'receipts'), subject);
+  let journalEvidence;
   const observe = async () => {
     await privateHostDirectory(host.stateRoot);
     await privateHostDirectory(root);
@@ -159,38 +167,52 @@ async function reconcile(context, approval, root, path, snapshot, observers) {
     // No resetting locks, replaying writes or operation-specific reconciliation.
     // Such uncertainty must first settle through its owning recovery route.
     await journal.assertIdle();
+    if (!journalEvidence) {
+      journalEvidence = new RecoveryEvidenceSnapshot();
+      const directory = join(root, 'receipts', digest({ issueId: subject.id,
+        repositoryId: subject.repositoryId }));
+      await journalEvidence.json(join(directory, 'receipts.json'));
+    } else await journalEvidence.confirm();
     await inspectRecoveryFile(path, snapshot);
     return { native: current.hash, processes: processHash, containers: containerHash,
-      journal: 'idle', evidence: evidence.hash, bootId: fence.bootId };
+      journal: journalEvidence.hash, evidence: evidence.hash, bootId: fence.bootId };
   };
   await observe();
   const observations = await observe();
-  const id = digest({ fence: snapshot, execution: evidence.execution });
+  const id = recordIdentity({ fence: snapshot, execution: evidence.execution,
+    coverage: evidence.coverage, observations });
   const archive = join(root, `${prefix}${id}.json`);
   const record = { schemaVersion: 1, id, issueId: subject.id,
-    fence: snapshot, execution: evidence.execution, observations,
+    fence: snapshot, execution: evidence.execution, coverage: evidence.coverage,
+    observations,
     disposition: 'settled', recordedAt: Date.now() };
+  const content = JSON.stringify(record);
+  requireThat(Buffer.byteLength(content) <= recordLimit, 'RECOVERY_EVIDENCE_LIMIT');
   let file;
   try {
     file = await open(archive, constants.O_WRONLY | constants.O_CREAT |
       constants.O_EXCL | constants.O_NOFOLLOW, 0o600);
   } catch (error) { if (error.code !== 'EEXIST') throw error; }
   if (file) {
-    try { await file.writeFile(JSON.stringify(record)); await file.sync(); }
+    try { await file.writeFile(content); await file.sync(); }
     finally { await file.close(); }
   }
-  const saved = await recoveryFile(archive, 65536);
+  const saved = await recoveryFile(archive, recordLimit);
   const previous = JSON.parse(saved.bytes);
   requireThat(previous.id === id && previous.disposition === 'settled' &&
     previous.issueId === subject.id &&
     digest(previous.fence) === digest(snapshot) &&
-    digest(previous.execution) === digest(evidence.execution), 'RECOVERY_RECORD_CHANGED');
+    digest(previous.execution) === digest(evidence.execution) &&
+    digest(previous.coverage) === digest(evidence.coverage) &&
+    previous.observations.evidence === evidence.hash &&
+    previous.observations.journal === observations.journal,
+  'RECOVERY_RECORD_CHANGED');
   await syncRecoveryDirectory(root);
   await observers.afterRecord();
   // Repeat all consequential observations after durable recording. Even a
   // byte-identical replacement fence must not be retired by this recovery.
   await observe();
-  await inspectRecoveryFile(archive, saved, 65536);
+  await inspectRecoveryFile(archive, saved, recordLimit);
   await inspectRecoveryFile(path, snapshot);
   await unlink(path);
   await syncRecoveryDirectory(dirname(path));

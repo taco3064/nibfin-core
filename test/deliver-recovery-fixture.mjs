@@ -41,12 +41,13 @@ export async function deliverRecoveryFixture(t, outer = 'deliver') {
   for (const [stage, outcome] of [
     ['shape', 'ready'], ['validate-shape', 'approved'], ['publish-shape', 'published'],
   ]) await store.append({ schemaVersion: 1, stage, binding,
-    execution: hostExecution({ ...runner, runId: 19 }, stage), artifacts, outcome,
+    execution: hostExecution({ ...runner, runId: 19, jobId: 29 }, stage),
+    artifacts, outcome,
     requirementsBody: shape, findings: [], references: [] });
   const input = join(issueRoot, 'agent', `execution-${execution.id}`, 'input');
   await mkdir(input, { recursive: true, mode: 0o700 });
-  const retained = { approval, execution, runner,
-    isolation: { profile: context.adopted.isolation.kind } };
+  const retained = structuredClone({ approval, execution, runner,
+    isolation: { profile: context.adopted.isolation.kind } });
   const inputPath = join(input, 'context.json');
   await writeFile(inputPath, JSON.stringify(retained), { mode: 0o644 });
   const invocationPath = join(input, 'invocation.json');
