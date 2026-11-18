@@ -56,6 +56,42 @@ Report exact commands, observed outcomes and unrun evidence honestly.
 Identify simulated tests as such. Provider and host claims require evidence
 from the corresponding environment.
 
+## Choose feasible engineering checks
+
+Before selecting each consequential check, trace the proposed command from its
+public wrapper through the implementation and the dependencies of its successful
+path. Inspect maintained source and actual callers, not just the command name or
+help text. A preview flag, read-only mode or non-mutating intent does not prove
+that the assigned Runner can execute that path.
+
+Compare the required identity, installed state, tools, inputs and privileges with
+the trusted Job environment and maintained fixtures. For example, a public preview
+may resolve production identity and inspect an installed pool before producing
+output, while its shared preview implementation accepts controlled operations.
+Do not assume that a fixture-only Runner provides the production prerequisites.
+
+When an existing controlled interface exercises the required shared behavior,
+use that interface for positive verification. Establish the equivalence from the
+maintained implementation and caller evidence, including the assertions needed
+for the authorized outcome. Keep separately required public argument parsing or
+refusal assertions at the public boundary; a controlled success does not cover
+those assertions or establish public success. Do not invent a public testing API,
+installed host state or new infrastructure to make a proposed check feasible.
+
+If the authorized requirement genuinely requires public success and a necessary
+capability is unavailable, preserve that requirement and return the specific
+conflict through the existing structured correction/blocker route. Identify the
+missing capability, the conflicting requirement and the source/environment
+evidence in the result. Do not weaken the asserted behavior, broaden access or
+report an unrelated missing upstream dependency. Continue independent work that
+is feasible within the authorized boundary.
+
+This choice does not transfer check ownership: role-owned runnable checks remain
+required, while workflow-owned checks stay with CI/CD. Report unavailable or
+future evidence accurately. Independent Accept chooses its own verification
+methods; deterministic prompt assertions prove instruction delivery, not model
+decision quality or successful execution of the illustrated command.
+
 Honor the published machine-readable Candidate inventory without rewriting it.
 Produce each required artifact at its approved path. Required artifacts remain
 obligations even when ignored by Git. Do not claim the trusted hook runner,
