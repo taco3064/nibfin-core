@@ -250,6 +250,15 @@ authorizing a route that could expose users or their data.
 
 ### Implementation plan
 
+Keep implementation instructions within the assigned repository root. Use
+repository-relative paths for source changes, tests, temporary fixtures, caches,
+and generated outputs. Do not tell Deliver to write outside the repository or
+use a tool default that writes there. Identify generated files that should be
+excluded using the repository's .gitignore. Keep required deliverables and
+maintained tests in the Candidate. If the authorized work needs an out-of-repo
+write, report that requirement for a separate owner decision.
+
+
 Name the modules and interfaces to change and the steps needed to make the result
 work. For each consequential reuse decision, state what to reuse, extend,
 extract or keep separate and why. When sharing changes existing code, name the
@@ -315,6 +324,8 @@ Independently verify:
 - Verified repository/Issue identity, **current authorized requirements**, historical Scope binding where actually required, current product authority and any applicable trusted grant/policy identity.
 - The proposed Shape preserves **all current authorized outcomes and exclusions**, correct normative repository ownership, current dependency boundaries and binding product/security constraints; it does not resurrect historical conditions superseded by a lawful Issue correction. Check whether any changed original boundary actually needs protected Scope reapproval.
 - Check that the implementation plan is feasible, stays within Scope and covers the authorized behavior. Verify the necessary source, interfaces and dependencies. Approve the implementation plan and expected behavior. Accept owns the verification methods.
+- Return a targeted correction if the plan directs Deliver to write outside
+  the assigned repository root.
 - Verify consequential reuse decisions against the maintained code and actual
   callers. Check that a shared change preserves each affected contract and that
   any new implementation has a concrete reason where an existing path appears
