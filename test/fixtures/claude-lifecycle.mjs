@@ -3,6 +3,7 @@ import { mkdtemp, mkdir, readFile, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { ClaudeWorkWorker } from '../../src/claude-work-launcher.mjs';
+import { agentScratchOptions } from '../../src/agent-scratch.mjs';
 const executionId = '00000000-0000-4000-8000-000000000001';
 const image = `sha256:${'a'.repeat(64)}`;
 const id = 'b'.repeat(64), gatewayId = 'c'.repeat(64);
@@ -88,7 +89,7 @@ export async function fixture(stage = 'deliver') {
           Memory: 4294967296, MemorySwap: 8589934592, NanoCpus: 2000000000,
           PidsLimit: 256, CapDrop: ['ALL'],
           SecurityOpt: ['no-new-privileges', 'apparmor=codex-security-container'],
-          Tmpfs: { '/tmp': 'rw,nosuid,nodev,size=2g,mode=1777' },
+          Tmpfs: { '/tmp': agentScratchOptions },
         }, Mounts: mounts, NetworkSettings: { Networks: { [egress.network]: {} } },
       };
       controls.mutate?.(container);

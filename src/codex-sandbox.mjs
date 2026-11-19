@@ -1,6 +1,7 @@
 import { observeHostPressure, hostMemoryPressure } from './host-memory-pressure.mjs';
 import { ownContainerProcesses } from './container-pressure.mjs';
 import { diagnosisToolDenial } from './diagnosis-tool-denial.mjs';
+import { agentScratchMount, agentScratchOptions } from './agent-scratch.mjs';
 import { terminationObservation } from './blocker-report.mjs';
 import {
   readFile,
@@ -361,7 +362,7 @@ export class CodexSandbox {
       '--user',
       '1000:1000',
       '--tmpfs',
-      '/tmp:rw,exec,nosuid,nodev,size=2g,mode=1777',
+      agentScratchMount,
       '--workdir',
       '/session',
       ...mounts.flatMap((m) => [
@@ -419,6 +420,7 @@ export class CodexSandbox {
           host.Privileged === false &&
           (this.#backend.mode !== 'rootful' || !host.UsernsMode) &&
           host.ReadonlyRootfs === true &&
+          host.Tmpfs?.['/tmp'] === agentScratchOptions &&
           host.Init === true &&
           host.NetworkMode === c.network &&
           host.IpcMode === 'none' &&

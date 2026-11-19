@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import '../src/controller-console.mjs';
 import { rootOwnedPath } from '../src/host-paths.mjs';
 import { hostFile, coreRoot, boundedHostFile } from '../src/host-adoption.mjs';
 import {

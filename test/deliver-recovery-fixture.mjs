@@ -1,6 +1,6 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { acquireHostFence, issueStatePath } from '../src/host-fence.mjs';
 import { digest } from '../src/identity.mjs';
 import { hostExecution } from '../src/host-launcher.mjs';
@@ -13,7 +13,8 @@ import { proveDeliverProcesses } from '../src/deliver-recovery-processes.mjs';
 export const boot = '11111111-1111-4111-8111-111111111111';
 
 export async function deliverRecoveryFixture(t, outer = 'deliver') {
-  const root = await mkdtemp(join(tmpdir(), 'nibfin-deliver-recovery-'));
+  const prefix = fileURLToPath(new URL('../.deliver-recovery-', import.meta.url));
+  const root = await mkdtemp(prefix);
   t.after(() => rm(root, { recursive: true, force: true }));
   const subject = { id: 'I_target', repository: 'example/core',
     repositoryId: 10, number: 2 };
