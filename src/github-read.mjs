@@ -39,7 +39,8 @@ export class GitHubReader {
         'X-GitHub-Api-Version': '2022-11-28',
       },
     }, { retryNotFound }).catch(error => {
-      throw Object.assign(error, { githubApiRead: true, resource });
+      throw Object.assign(error, { githubApiRead: true,
+        githubReadFailure: 'network', resource });
     });
     if (!response.ok) {
       const status = response.status;
@@ -59,7 +60,8 @@ export class GitHubReader {
       requestIds.push(/^[0-9a-f:]{1,80}$/i.test(requestId ?? '') ? requestId : null);
     }
     return response.json().catch(error => {
-      throw Object.assign(error, { githubApiRead: true, resource });
+      throw Object.assign(error, { githubApiRead: true,
+        githubReadFailure: 'invalid-response', resource });
     });
   }
   async list(path, key, { requestIds } = {}) {

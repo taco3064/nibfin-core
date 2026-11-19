@@ -2,6 +2,8 @@ import { integrationRepairRequired } from './github-ci.mjs';
 import { actionsTimeErrors } from './actions-time.mjs';
 import { transientGitHubRead } from './github-read-retry.mjs';
 import { setTimeout } from 'node:timers/promises';
+import { safeGitHubReadCause, githubApiWaiting } from './github-read-cause.mjs';
+export { githubApiWaiting } from './github-read-cause.mjs';
 
 const hostPreflightCodes = new Set([
   'AGENT_IMAGE_UNAVAILABLE',
@@ -24,14 +26,14 @@ const hostPreflightCodes = new Set([
 ]);
 
 export const githubReadWaiting = 'GITHUB_READ_RETRY_PENDING';
-export const githubApiWaiting = 'GITHUB_API_RETRY_PENDING';
 export const githubReadDelay = (retryAfterMs, attempt) =>
   Math.max(retryAfterMs ?? 0, Math.min(60000, 5000 * 2 ** attempt));
 
 export function githubReadWait(error, now = Date.now(), { stage = false } = {}) {
   // The stage caller is still observing or admitting. Writes are journaled
   // separately, and a status from a write or untyped error is insufficient.
-  const apiRead = stage && error?.githubApiRead === true;
+  const apiCause = stage ? safeGitHubReadCause(error) : null;
+  const apiRead = apiCause !== null;
   if (!apiRead && !transientGitHubRead(error)) return null;
   const digits = value => /^\d{1,12}$/.test(value ?? '') ? Number(value) : 0;
   const retryAfterMs = Math.max(
@@ -43,7 +45,8 @@ export function githubReadWait(error, now = Date.now(), { stage = false } = {}) 
     ? error.resource : 'GitHub';
   const request = /^[A-Fa-f0-9:]{1,80}$/.test(error.requestId ?? '')
     ? ` (request ${error.requestId})` : '';
-  const status = Number.isInteger(error.status) ? error.status : 'network';
+  const status = Number.isInteger(error.status) ? error.status :
+    apiCause?.kind ?? 'network';
   console.error(`GitHub read waiting: ${resource} ${status}${request}`);
   const code = apiRead ? githubApiWaiting : githubReadWaiting;
   return { status: 'pending', code, retryAfterMs };
