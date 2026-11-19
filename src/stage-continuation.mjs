@@ -114,8 +114,10 @@ export async function continueStages({
     { wait, clock, timeout: ciTimeout });
   const changed = await retryGitHubObservation(() => refreshRequirements(previous),
     { wait, clock, timeout: ciTimeout });
-  const initial = changed ? {} :
+  let initial = changed ? {} :
     await currentReceipts(store, previous, correctionRepairs > 0);
+  // A saved rejection returns to its author, including after process restart.
+  if (initial['validate-shape']?.outcome === 'changes_required') initial = {};
   const repairCandidate = async (rejected, ciFailure) => {
     await inspectCurrent();
     const repaired = await execute('deliver', ciFailure);
@@ -177,6 +179,22 @@ export async function continueStages({
     let ciPolls = 0;
     for (;;) {
       result = await execute(stage);
+      if (stage === 'validate-shape' && result.status === 'denied' &&
+        result.code === 'STAGE_REQUIRES_CORRECTION') {
+        const rejected = await reportedReceipt(store, stage, result);
+        if (rejected?.outcome === 'changes_required') {
+          await inspectCurrent();
+          const rewritten = await execute('shape');
+          if (rewritten.status !== 'completed') return rewritten;
+          const author = await store.get(rewritten.receiptHash);
+          if (await sameShape(store, rejected.artifacts.shapeHash,
+            author.artifacts.shapeHash))
+            return { schemaVersion: 1, stage: 'shape', status: 'denied',
+              code: 'CORRECTION_DID_NOT_CHANGE_SHAPE' };
+          await inspectCurrent();
+          continue;
+        }
+      }
       if (stage === 'deliver' && correctionRepairs > 0 &&
         result.code === 'STAGE_REQUIRES_CORRECTION' &&
         (await reportedReceipt(store, stage, result))?.outcome === 'changes_required') {

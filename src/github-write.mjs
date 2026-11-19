@@ -183,15 +183,16 @@ export class GitHubWriter {
     const names = labels(current);
     requireThat(
       names.includes('scope') &&
-        !names.includes('shaped') &&
         !names.includes('delivered'),
       'INVALID_SHAPE_TRANSITION',
     );
-    const desired = [...names, 'shaped'].sort();
-    await this.#addLifecycleLabel(
-      'publish-shape', issue, current, 'shaped', 'SHAPE_READBACK_UNKNOWN',
-    );
-    await this.#write('publish-shape', 'PATCH', issuePath(issue), { body }, 'shaped');
+    const desired = [...new Set([...names, 'shaped'])].sort();
+    if (!names.includes('shaped'))
+      await this.#addLifecycleLabel(
+        'publish-shape', issue, current, 'shaped', 'SHAPE_READBACK_UNKNOWN',
+      );
+    await this.#write('publish-shape', 'PATCH', issuePath(issue), { body },
+      names.includes('shaped') ? undefined : 'shaped');
     const actual = await this.#reader.issue(issue);
     issueMatches(actual, issue);
     requireThat(
