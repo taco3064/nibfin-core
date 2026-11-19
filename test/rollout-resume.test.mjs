@@ -5,6 +5,8 @@ import { gitBlob } from '../src/identity.mjs';
 import { resumeRolloutWork } from '../src/rollout-resume.mjs';
 import { currentRelayOrigins, bindRelayOrigin } from '../src/relay-host.mjs';
 import { providerHost } from './provider-fixture.mjs';
+import { GitHubReader } from '../src/github-read.mjs';
+import { sharedDispatchWorkflow } from '../src/shared-runner.mjs';
 
 async function fixture() {
   const source = await readFile(new URL('../.github/workflows/shared-runner.yml',
@@ -59,6 +61,36 @@ async function fixture() {
   };
   return f;
 }
+
+test('native destination verification accepts the observed large GitHub comparison',
+  async () => {
+    const f = await fixture();
+    const oldReader = f.context.reader;
+    const current = 'b'.repeat(40);
+    const runner = f.context.configuration.runner;
+    const comparison = { status: 'ahead',
+      merge_base_commit: { sha: runner.sourceCommit },
+      files: [{ patch: 'x'.repeat(1600688) }] };
+    const reader = new GitHubReader('fixture-token', async url => {
+      const path = new URL(url).pathname;
+      let value;
+      if (path === '/repos/taco3064/nibfin-core')
+        value = await oldReader.repository();
+      else if (path.endsWith('/branches/main'))
+        value = { protected: true, commit: { sha: current } };
+      else if (path.includes('/compare/')) value = comparison;
+      else if (path.endsWith('/commits')) value = [{ sha: 'c'.repeat(40) }];
+      else value = await oldReader.get(path);
+      const body = JSON.stringify(value);
+      return new Response(body, { headers: {
+        'Content-Type': 'application/json',
+        'Content-Length': String(Buffer.byteLength(body)),
+      } });
+    });
+    const destination = await sharedDispatchWorkflow(reader, runner);
+    assert.equal(destination.commit, current);
+    assert.equal(destination.ref, 'main');
+  });
 
 test('rollout discovers fresh origins from adoption without old relay source pins',
   async () => {
