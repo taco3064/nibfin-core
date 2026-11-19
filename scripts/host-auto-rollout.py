@@ -433,7 +433,8 @@ def configure(repo, config, base, pins, source, issue_blob):
         config["providerBinding"]["components"]["source"] = pins["core"]
     settings["approval"]["source"] = source
     runner_keys = {WAKE: "runner", ISSUE: "eventRunner"}
-    for path in consumer_workflows(repo, base):
+    workflows = consumer_workflows(repo, base)
+    for path in workflows:
         key = runner_keys[path]
         runner = settings[key]
         runner.update(sourceCommit=base, workflowBlob=content(repo, path, base)[1])
@@ -441,6 +442,12 @@ def configure(repo, config, base, pins, source, issue_blob):
     ref = f"{CORE}/.github/workflows/issue.yml@{core}"
     settings["eventRunner"]["reusable"].update(commit=core, ref=ref, blob=issue_blob)
     settings["eventCaller"]["reusable"].update(commit=core, ref=ref)
+    if WAKE not in workflows:
+        settings["runner"] = {
+            **settings["eventRunner"], "actionCommit": action,
+            "actionCoreCommit": core,
+        }
+        settings["runner"].pop("reusable", None)
     return config
 
 
