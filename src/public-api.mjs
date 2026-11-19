@@ -31,6 +31,15 @@ export { sharedDispatchWorkflow, sharedRepository } from './shared-runner.mjs';
 
 export const interfaceVersion = 1;
 export const consumerContract = Object.freeze({
+  officialRunnerRefresh: Object.freeze({
+    schemaVersion: 1, command: 'refresh-runner-runtime',
+    modes: Object.freeze(['preview', 'apply', 'resume']),
+    statuses: Object.freeze(['preview', 'current', 'refreshed', 'pending']),
+    exitStatuses: Object.freeze({ pending: 2, denied: 1, success: 0 }),
+    authority: 'external local administrator on the adopted installed host',
+    preserves: 'Core, credentials, registrations, Owner pause and stopped services',
+    continuation: 'complete-installed-lifecycle after operation admission release',
+  }),
   schemaVersion: interfaceVersion,
   localWorkObservation: Object.freeze({ schemaVersion: 1,
     command: 'observe-local-work', input: 'private-json-stdin' }),

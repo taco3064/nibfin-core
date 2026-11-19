@@ -1,5 +1,6 @@
 import { GitHubReader, repoPath } from './github-read.mjs';
 import { requireThat, isId } from './identity.mjs';
+import { preserveGitHubReadCause } from './github-read-cause.mjs';
 
 // Never propagate provider exceptions, response bodies, logins or token bytes.
 export async function verifyManagedAuthority(
@@ -35,6 +36,8 @@ export async function verifyManagedAuthority(
     ]);
     const code = known.has(error.code) ? error.code : error.status === 401
       ? 'MANAGED_CREDENTIAL_UNAUTHORIZED' : 'MANAGED_CREDENTIAL_PROVIDER_UNAVAILABLE';
-    throw Object.assign(new Error(code), { code });
+    throw Object.assign(new Error(code), { code,
+      ...(code === 'MANAGED_CREDENTIAL_PROVIDER_UNAVAILABLE'
+        ? preserveGitHubReadCause(error) : {}) });
   }
 }

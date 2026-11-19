@@ -5,6 +5,7 @@ import { loadAdoptedHost } from './adopted-host.mjs';
 import { withManagedAdmission } from './managed-credential-admission.mjs';
 import { safeRelayCode } from './notification-relay.mjs';
 import { pendingInstalledContinuation } from './rollout-resume.mjs';
+import { githubReadDiagnostic } from './github-read-cause.mjs';
 
 // No caller-selected inputs: local admission failures use the denied convention.
 // Remote observations and continuation failures remain retryable after admission.
@@ -20,6 +21,8 @@ export async function completeInstalledLifecycle() {
   } catch (error) {
     // Failed observations cannot establish either admission or an empty scan.
     // Explicit trust/admission refusals still follow the denied-command path.
+    const diagnostic = githubReadDiagnostic(error);
+    if (diagnostic) return { status: 'pending', results: [], ...diagnostic };
     if (error instanceof SyntaxError || ['ENOENT', 'EIO', 'ESTALE',
       'HOST_ADOPTION_CHANGED', 'MANAGED_CREDENTIAL_PROVIDER_UNAVAILABLE',
       'MANAGED_CREDENTIAL_CONSUMER_PENDING'].includes(error.code))

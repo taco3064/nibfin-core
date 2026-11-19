@@ -1,9 +1,11 @@
 #!/usr/bin/env node
 import { completeInstalledLifecycle } from '../src/installed-lifecycle.mjs';
+import { writeCommandResult } from '../src/command-result.mjs';
 import { retireInstalledNotificationRelay }
   from '../src/notification-retirement-host.mjs';
 import { installCoreRolloutManager, runCoreRollout }
   from '../src/core-rollout-manager.mjs';
+import { refreshInstalledRunnerRuntime } from '../src/runner-refresh-host.mjs';
 import { readDiagnosisInput } from '../src/diagnosis-input.mjs';
 import { retireSharedHost } from '../src/retirement-host.mjs';
 import { activateSharedReplacement } from '../src/retirement-activate.mjs';
@@ -65,6 +67,8 @@ async function main(args) {
     return completeInstalledLifecycle();
   if (command === 'retire-notification-relay' && values.length === 0)
     return retireInstalledNotificationRelay();
+  if (command === 'refresh-runner-runtime' && values.length === 1)
+    return refreshInstalledRunnerRuntime(values[0]);
   if (command === 'promote-host' && values.length === 0) return promoteHost();
   if (command === 'contract' && values.length === 0) return consumerContract;
   if (command === 'inspect-shared-host' && values.length === 0)
@@ -107,6 +111,7 @@ async function main(args) {
         'request-local-diagnosis (private JSON stdin, no arguments)',
         'retire-shared-host (local administrator, no arguments)',
         'retire-notification-relay (local administrator, no arguments)',
+        'refresh-runner-runtime preview|apply|resume (external local administrator)',
         'activate-shared-replacement (local administrator, no arguments)',
         'install-shared-service-template',
         'start-shared-services',
@@ -168,11 +173,7 @@ async function main(args) {
   requireThat(false, 'INVALID_COMMAND');
 }
 main(process.argv.slice(2))
-  .then((result) => {
-    process.stdout.write(JSON.stringify(result) + '\n');
-    if (result.status === 'denied') process.exitCode = 1;
-    if (result.status === 'pending') process.exitCode = 2;
-  })
+  .then(writeCommandResult)
   .catch((error) => {
     const code =
       typeof error.code === 'string' && /^[A-Z][A-Z0-9_]+$/.test(error.code)

@@ -7,6 +7,7 @@ import { replacementPool } from './retirement-rebind.mjs';
 import { readPrivateState, writePrivateState, withPrivateStateGate } from
   './private-observation-state.mjs';
 import { privateHostDirectory } from './host-fence.mjs';
+import { safeGitHubReadCause } from './github-read-cause.mjs';
 
 function confirmedDispatch(item) {
   return isId(item?.repositoryId) && isId(item.number) &&
@@ -123,7 +124,10 @@ export async function resumeLifecycle({ lifecycle, state, inspect, resume,
     } catch (error) {
       // Confirmed responses survive an observation failure later in the scan.
       record.status = 'pending';
-      await state.write(record);
+      try { await state.write(record); }
+      catch (saveError) {
+        if (!safeGitHubReadCause(error)) throw saveError;
+      }
       throw error;
     }
   });

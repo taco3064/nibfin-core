@@ -1,9 +1,5 @@
 import { setTimeout } from 'node:timers/promises';
-
-const networkErrors = new Set([
-  'ECONNRESET', 'ECONNREFUSED', 'ETIMEDOUT', 'EAI_AGAIN',
-  'UND_ERR_CONNECT_TIMEOUT', 'UND_ERR_HEADERS_TIMEOUT', 'UND_ERR_SOCKET',
-]);
+import { networkGitHubRead } from './github-read-cause.mjs';
 
 export function transientGitHubRead(error) {
   return error?.transientGitHubRead === true;
@@ -49,8 +45,7 @@ export async function fetchGitHubRead(fetcher, url, options, {
       delay = retryDelay(result, retryNotFound, attempt);
       if (delay === null || attempt === 2 || delay > waitBudget) return result;
     } catch (error) {
-      const transient = error.name === 'TimeoutError' ||
-        networkErrors.has(error.cause?.code ?? error.code);
+      const transient = networkGitHubRead(error);
       if (!transient) throw error;
       if (attempt === 2) {
         throw Object.assign(error, { transientGitHubRead: true });

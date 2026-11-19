@@ -65,6 +65,11 @@ archive and publish them after installing the matching bytes. It need not edit
 `shared-platform.json`. Keep registration, private credentials, external
 maintenance mode, dispatcher, and admission protections unchanged.
 
+The installed administrator's `refresh-runner-runtime` operation now consumes
+these facts for preview, refresh and interrupted-operation recovery. See
+[official Runner software maintenance](runner-runtime-refresh.md) for the external
+invocation boundary, service-state preservation and continuation results.
+
 If metadata from a newer install is lost or stale, re-enter that install with its
 verified archive and republish the facts. The bootstrap compatibility path cannot
 attest arbitrary newer bytes. Observation errors retain their original error and

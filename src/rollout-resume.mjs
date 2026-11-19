@@ -4,6 +4,7 @@ import { isId, requireThat } from './identity.mjs';
 import { resolveSharedContinuation } from './issue-wake.mjs';
 import { loadAdoptedHost } from './adopted-host.mjs';
 import { safeRelayCode } from './notification-relay.mjs';
+import { githubReadDiagnostic } from './github-read-cause.mjs';
 import { sharedDispatchWorkflow } from './shared-runner.mjs';
 import { targetTitleInput } from './dispatch-presentation.mjs';
 import { continuationLifecycle, ContinuationState, resumeLifecycle,
@@ -25,7 +26,8 @@ export async function resumeRolloutWork({ reader, configuration, inspect, journa
   let failed = false;
   const pending = (issue, stage, error) => {
     failed = true;
-    results.push({ ...issue, status: 'pending', stage, code: safeRelayCode(error),
+    results.push({ ...issue, status: 'pending', stage,
+      ...(githubReadDiagnostic(error) ?? { code: safeRelayCode(error) }),
       ...(Number.isInteger(error.status) ? { httpStatus: error.status } : {}) });
   };
   for (const origin of configuration.origins) {
@@ -133,6 +135,7 @@ export async function resumeInstalledWork({ onDispatched = async () => {},
 export async function pendingInstalledContinuation(options) {
   try { return continuationOutcome(await resumeInstalledWork(options)); }
   catch (error) {
-    return { status: 'pending', results: [], code: safeRelayCode(error) };
+    return { status: 'pending', results: [],
+      ...(githubReadDiagnostic(error) ?? { code: safeRelayCode(error) }) };
   }
 }

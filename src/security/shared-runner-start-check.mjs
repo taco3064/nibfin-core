@@ -116,7 +116,7 @@ export function checkRegistrationEndpoints(settings, credential) {
   'UNTRUSTED_SHARED_RUNNER_PROVIDER_ENDPOINT');
 }
 
-async function verifyProgramTree(directory, root = directory) {
+export async function verifyProgramTree(directory, root = directory) {
   await rootOwnedPath(directory);
   for (const name of await readdir(directory)) {
     const path = join(directory, name);
