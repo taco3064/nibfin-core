@@ -239,6 +239,20 @@ test('closed delivery removes only the recorded working files', async t => {
     'Passed\n');
 });
 
+test('closed delivery removes ignored dependencies and generated build output', async t => {
+  const { workspace } = await fixture(t);
+  await writeFile(join(workspace.work, '.gitignore'), 'node_modules/\ndist/\n');
+  await writeFile(join(workspace.work, 'source.txt'), 'Delivered\n');
+  await writeFile(join(workspace.work, 'proof.txt'), 'Passed\n');
+  const candidate = await workspace.capture(shape);
+  for (const name of ['node_modules', 'dist']) {
+    await mkdir(join(workspace.work, name));
+    await writeFile(join(workspace.work, name, 'generated'), 'disposable');
+  }
+  assert.equal(await workspace.cleanDeliveredWork(candidate, shape), true);
+  await assert.rejects(readFile(join(workspace.work, 'source.txt')), { code: 'ENOENT' });
+});
+
 test('adopted delivery reuses an unpublished trusted Candidate', async t => {
   const f = await fixture(t);
   await writeFile(join(f.workspace.work, 'source.txt'), 'Changed\n');
