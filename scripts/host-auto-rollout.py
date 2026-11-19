@@ -2,11 +2,11 @@
 """Apply completed Nibfin CD rollouts from the trusted Linux host."""
 
 import base64
+import fcntl
 import hashlib
 import io
 import json
 import os
-import pwd
 import re
 import shutil
 import subprocess
@@ -32,7 +32,6 @@ E2E_HOST = "host.nibfin-e2e.json"
 PIN_PATH = ".nibfin/producer-pins.json"
 ISSUE = ".github/workflows/nibfin-issue.yml"
 WAKE = ".github/workflows/nibfin-wake.yml"
-SHARED = ".github/workflows/shared-runner.yml"
 RATE_WAIT = Path("/run/nibfin-rollout-rate-limit")
 LAST_PR_CLEANUP = Path("/run/nibfin-rollout-pr-cleanup")
 ENV = {"PATH": "/usr/local/bin:/usr/bin:/bin", "LANG": "C", "GH_PROMPT_DISABLED": "1"}
@@ -126,13 +125,28 @@ def has_main_ci(commit):
     )
 
 
-def next_rollout(current, target=None):
-    runs = api(f"repos/{CORE}/actions/workflows/cd.yml/runs"
-               "?branch=main&event=workflow_run&status=success&per_page=15")
-    for record in runs["workflow_runs"]:
+def next_rollout(current, target=None, candidate_run=None):
+    if candidate_run is not None:
+        # Resume the durable target independently of the discovery window.
+        record = api(f"repos/{CORE}/actions/runs/{candidate_run}")
+        if not (record.get("id") == candidate_run and
+                record.get("path") == ".github/workflows/cd.yml" and
+                record.get("head_branch") == "main" and
+                record.get("event") == "workflow_run" and
+                record.get("status") == "completed" and
+                record.get("conclusion") == "success"):
+            return None
+        records = [record]
+    else:
+        records = api(f"repos/{CORE}/actions/workflows/cd.yml/runs"
+                      "?branch=main&event=workflow_run&status=success&per_page=15"
+                      )["workflow_runs"]
+    for record in records:
         if record["head_repository"]["full_name"] != CORE:
             continue
         run_id = record["id"]
+        if candidate_run is not None and run_id != candidate_run:
+            continue
         artifacts = api(f"repos/{CORE}/actions/runs/{run_id}/artifacts")["artifacts"]
         for item in artifacts:
             match = re.fullmatch(r"nibfin-activate-([a-f0-9]{40})", item["name"])
@@ -141,10 +155,10 @@ def next_rollout(current, target=None):
             commit = match[1]
             if target and commit != target:
                 continue
-            if commit == current:
+            if commit == current and not target:
                 return None
             comparison = api(f"repos/{CORE}/compare/{current}...{commit}")["status"]
-            if comparison != "ahead":
+            if comparison != "ahead" and not (target and comparison == "identical"):
                 continue
             data = artifact(artifacts, item["name"], ["activation.json"])
             pins = json.loads(data["activation.json"])
@@ -385,78 +399,30 @@ def pin_only_change(file, allowed):
             all(re.fullmatch(pin, line) for line in changed))
 
 
-def host_fenced(hosts):
-    roots = {Path(config["stateRoot"]) for config in hosts.values()}
-    return any((path / "stage.lock").exists() or any(path.glob("issue-*/stage.lock"))
-               for path in roots)
-
-
 def runner_services(hosts):
-    additional = hosts[CORE].get("sharedRunner", {}).get("additionalRunner", {})
-    if additional.get("isolation") is not None:
-        return ["nibfin-shared-runner@1.service", "nibfin-shared-runner@2.service"]
-    return [f"{repo.split('/')[1]}-runner.service" for repo in hosts]
+    return ["nibfin-shared-runner@1.service", "nibfin-shared-runner@2.service"]
 
 
-def has_queued_jobs(repository, workflow_runs_path):
-    queued = api(workflow_runs_path + "?status=queued&per_page=100")
-    records = queued["workflow_runs"]
-    # A truncated queue cannot establish that the Runners can stop safely.
-    if queued["total_count"] != len(records):
-        return True
-    for record in records:
-        jobs = api(f"repos/{repository}/actions/runs/{record['id']}/jobs?per_page=1")
-        if jobs["total_count"] != 0 or jobs["jobs"]:
-            return True
-    # GitHub can retain a queued run before creating any Job. It has no
-    # work to drain. Recheck active runs and host fences after stopping dispatch.
-    return False
+def coordinator_cli(plan=None):
+    # An interrupted rename can leave core absent. Only the two exact paths
+    # already verified and recorded before apply are recovery executables.
+    if plan and plan.get("apply"):
+        target = plan["pin"]["commit"]
+        require(re.fullmatch("[a-f0-9]{40}", target), "Invalid recovery target")
+        for directory in (INSTALL / "core", INSTALL / f"core-staged-{target}",
+                          INSTALL / f"core-before-{target}"):
+            if (directory / "bin/nibfin-core.mjs").is_file():
+                return directory / "bin/nibfin-core.mjs"
+        raise RuntimeError("Verified rollout recovery package is missing")
+    return CLI
 
 
-def idle(hosts, include_queued=True):
-    if host_fenced(hosts):
-        return False
-    registrations = {}
-    checked_workflows = set()
-    execution_pool = hosts[CORE].get("sharedRunner", {})
-    for repo, config in hosts.items():
-        pool = config.get("sharedRunner", {})
-        repository_id = config["repository"]["approval"]["repositoryId"]
-        if repository_id in execution_pool.get("repositories", []):
-            pool = execution_pool
-        shared = pool.get("runner")
-        runner_repo = shared["repository"] if shared else repo
-        runner_id = shared["runnerId"] if shared else config["runnerId"]
-        if runner_repo not in registrations:
-            registrations[runner_repo] = api(f"repos/{runner_repo}/actions/runners")
-        runners = registrations[runner_repo]["runners"]
-        runner = next((r for r in runners if r["id"] == runner_id), None)
-        require(runner is not None, f"{repo} adopted Runner is missing")
-        if runner["busy"]:
-            return False
-        additional = pool.get("additionalRunner")
-        if additional:
-            match = next((r for r in runners if r["id"] == additional["id"]), None)
-            require(match and match["name"] == additional["name"],
-                    "Additional shared Runner is missing")
-            if match["busy"]:
-                return False
-        workflows = [(repo, path) for path in consumer_workflows(repo, "main")]
-        if repo == CORE:
-            # E2E shares the Core registrations and has its own Issue event queue.
-            workflows.extend((E2E, path) for path in consumer_workflows(E2E, "main"))
-        if shared:
-            workflows.append((runner_repo, SHARED))
-        for workflow_repo, workflow in workflows:
-            if (workflow_repo, workflow) in checked_workflows:
-                continue
-            checked_workflows.add((workflow_repo, workflow))
-            filename = Path(workflow).name
-            path = f"repos/{workflow_repo}/actions/workflows/{filename}/runs"
-            active = api(path + "?status=in_progress&per_page=1")["total_count"]
-            if active or (include_queued and has_queued_jobs(workflow_repo, path)):
-                return False
-    return not host_fenced(hosts)
+def pool_step(operation):
+    plan = json.loads((CONFIG / "rollout-plan.json").read_text())
+    script = coordinator_cli(plan).parent.parent / "src/rollout-pool-entry.mjs"
+    result = json.loads(run("node", script, operation))
+    require(result["status"] != "pending", "Pool gate is busy; retry next timer")
+    return result
 
 
 def configure(repo, config, base, pins, source, issue_blob):
@@ -478,13 +444,25 @@ def configure(repo, config, base, pins, source, issue_blob):
     return config
 
 
+def sync_directory(path):
+    handle = os.open(path, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        os.fsync(handle)
+    finally:
+        os.close(handle)
+
+
 def write_config(path, value):
     with tempfile.NamedTemporaryFile(dir=path.parent, mode="w", delete=False) as file:
         temp = Path(file.name)
         try:
             json.dump(value, file)
+            if path == CONFIG / "rollout-plan.json":
+                os.fchmod(file.fileno(), 0o644)
             file.flush()
+            os.fsync(file.fileno())
             temp.replace(path)
+            sync_directory(path.parent)
         finally:
             temp.unlink(missing_ok=True)
 
@@ -511,14 +489,14 @@ def stage_package(pins, artifacts):
         return result["source"]
 
 
-def configure_e2e(host, base, pins, source, issue_blob):
+def configure_e2e(host, base, pins, source, issue_blob, preflight=False):
     """Bind the Issue caller to the shared pool through the verified rollout."""
     repo = api(f"repos/{E2E}")
     require(repo["full_name"] == E2E and not repo["private"] and
             repo["default_branch"] == "main", "Unexpected E2E repository")
     repository_id = repo["id"]
     branch = api(f"repos/{E2E}/branches/main")
-    require(branch["protected"] and branch["commit"]["sha"] == base,
+    require(branch["protected"] and (preflight or branch["commit"]["sha"] == base),
             "E2E main changed or is unprotected")
     protection = api(f"repos/{E2E}/branches/main/protection/required_status_checks")
     require({"context": "verify", "app_id": 15368} in protection["checks"],
@@ -563,16 +541,31 @@ def configure_e2e(host, base, pins, source, issue_blob):
     return config
 
 
+def stage_bindings(hosts, consumers, pins, source, preflight=False):
+    staged = CONFIG / "rollout"
+    staged.mkdir(mode=0o700, exist_ok=True)
+    core = pins["core"]["commit"]
+    _, issue_blob = content(CORE, ".github/workflows/issue.yml", core)
+    for repo, original in hosts.items():
+        base, pr = consumers[repo]
+        if pr:
+            require(preflight, f"{repo} rollout did not land on main")
+            base = pr["headRefOid"]
+        config = json.loads(json.dumps(original))
+        next_config = configure(repo, config, base, pins, source, issue_blob)
+        write_config(staged / HOSTS[repo], next_config)
+    base, pr = consumers[E2E]
+    if pr:
+        require(preflight, "E2E rollout did not land on main")
+        base = pr["headRefOid"]
+    primary = json.loads((staged / HOSTS[CORE]).read_text())
+    e2e = configure_e2e(primary, base, pins, source, issue_blob, preflight)
+    write_config(staged / E2E_HOST, e2e)
+
+
 def rollout(hosts, selected):
     run_id, pins, artifacts = selected
-    plan = CONFIG / "rollout-plan.json"
-    cleanup_done = LAST_PR_CLEANUP.exists() and json.loads(
-        LAST_PR_CLEANUP.read_text()
-    ) == run_id
-    waiting = f"CD {run_id} waiting for Runners, queued Jobs or unresolved executions"
-    if cleanup_done and not plan.exists() and not idle(hosts):
-        print(waiting)
-        return
+    path = CONFIG / "rollout-plan.json"
     core, action = pins["core"]["commit"], pins["action"]["commit"]
     action_main = main_sha(ACTION)
     comparison = api(f"repos/{ACTION}/compare/{action}...{action_main}")["status"]
@@ -584,58 +577,59 @@ def rollout(hosts, selected):
     consumers[E2E] = read_consumer(E2E, None, pins, run_id)
     if any(pr is False for _, pr in consumers.values()):
         return
-    if not plan.exists() and not cleanup_done:
-        try:
-            close_superseded_rollouts(core)
-        except RateLimited:
-            raise
-        except (RuntimeError, KeyError, OSError, ValueError,
-                subprocess.TimeoutExpired) as error:
-            print(f"CD {run_id} rollout PR cleanup failed: {error}", file=sys.stderr)
-        write_config(LAST_PR_CLEANUP, run_id)
-        if not idle(hosts):
-            print(waiting)
-            return
+    for repo in (*hosts, E2E):
+        permissions = api(f"repos/{repo}").get("permissions", {})
+        require(permissions.get("push") is True,
+                f"{repo} consumer promotion permission is unavailable")
     source = stage_package(pins, artifacts)
-    services = runner_services(hosts)
-    wanted = {"pin": pins["core"], "actionCommit": action}
-    stopped = plan.exists() and json.loads(plan.read_text()) == wanted and all(
-        run("systemctl", "show", "-p", "ActiveState", "--value", service).strip()
-        == b"inactive" for service in services
-    )
-    if not stopped and not idle(hosts):
-        print(waiting)
-        return
-    if not stopped:
-        write_config(plan, wanted)
-    run("systemctl", "stop", *services)
-    require(idle(hosts, include_queued=False),
-            "Runner or execution became active during the safe stop")
-    # New-version Jobs may queue while the Runners are stopped. The host
-    # promoter independently checks containers and the existing execution fences.
+    previous = json.loads(path.read_text()) if path.exists() else None
+    # Minimal legacy plans may already have stopped services. Never treat their
+    # target commit as completion. Rebind and observe before any further effect.
+    if not previous or previous.get("schemaVersion") != 2:
+        wanted = {"schemaVersion": 2, "pin": pins["core"], "actionCommit": action,
+                  "candidate": pins, "runId": run_id, "phase": "prepared",
+                  "pending": "ROLLOUT_PREFLIGHT_REQUIRED", "mergeIntents": {}}
+        write_config(path, wanted)
+    plan = json.loads(path.read_text())
+    require(plan["candidate"] == pins and plan["runId"] == run_id,
+            "Rollout target changed after drain began")
+    if plan["phase"] == "prepared":
+        # Validate prospective bindings and permissions before closing admission.
+        stage_bindings(hosts, consumers, pins, source, preflight=True)
+        if (not LAST_PR_CLEANUP.exists() or
+                json.loads(LAST_PR_CLEANUP.read_text()) != run_id):
+            close_superseded_rollouts(core)
+            write_config(LAST_PR_CLEANUP, run_id)
+        pool_step("prepare")
+        prepared = json.loads(path.read_text())
+        if prepared.get("apply", {}).get("completed"):
+            finish(runner_services(hosts))
+            return
+        pool_step("close")
+    pool_step("stop")
+    plan = json.loads(path.read_text())
     for repo, (_, pr) in consumers.items():
-        if pr:
-            gh("pr", "merge", "-R", repo, str(pr["number"]), "--rebase",
-               "--match-head-commit", pr["headRefOid"])
-    staged_configs = CONFIG / "rollout"
-    staged_configs.mkdir(mode=0o700, exist_ok=True)
-    _, issue_blob = content(CORE, ".github/workflows/issue.yml", core)
-    for repo, config in hosts.items():
-        base, remaining = read_consumer(repo, config, pins)
-        require(remaining is None, f"{repo} rollout did not land on main")
-        next_config = configure(repo, config, base, pins, source, issue_blob)
-        write_config(staged_configs / HOSTS[repo], next_config)
-    base, remaining = read_consumer(E2E, None, pins)
-    require(remaining is None, "E2E rollout did not land on main")
-    primary = json.loads((staged_configs / HOSTS[CORE]).read_text())
-    e2e = configure_e2e(primary, base, pins, source, issue_blob)
-    write_config(staged_configs / E2E_HOST, e2e)
+        if not pr:
+            continue
+        require(repo not in plan["mergeIntents"],
+                f"{repo} merge response unresolved; retaining exact PR intent")
+        # The validated PR is read again immediately before the effect.
+        _, fresh = read_consumer(repo, hosts.get(repo), pins, run_id)
+        require(fresh and fresh["headRefOid"] == pr["headRefOid"],
+                f"{repo} rollout head or checks changed")
+        plan["mergeIntents"][repo] = {"number": pr["number"], "head": pr["headRefOid"]}
+        write_config(path, plan)
+        gh("pr", "merge", "-R", repo, str(pr["number"]), "--rebase",
+           "--match-head-commit", pr["headRefOid"])
+    current_consumers = {repo: read_consumer(repo, hosts.get(repo), pins)
+                         for repo in (*hosts, E2E)}
+    require(all(pr is None for _, pr in current_consumers.values()),
+            "Consumer merge has not been read back")
+    stage_bindings(hosts, current_consumers, pins, source)
     result = json.loads(run("node", CLI, "promote-host"))
     require(result["status"] == "installed", "Host promotion failed")
     print(f"CD {run_id} installed Core {core} with Action {action}", flush=True)
-    print(f"CD {run_id} promoted repositories: {', '.join(result['repositories'])}",
-          flush=True)
-    finish(services)
+    finish(runner_services(hosts))
 
 
 def start_enabled(services):
@@ -699,28 +693,32 @@ def refresh_rollout_service(host):
             os.fchmod(script.fileno(), 0o755)
             os.fsync(script.fileno())
             temp.replace(SERVICE_SCRIPT)
+            sync_directory(SERVICE_SCRIPT.parent)
         finally:
             temp.unlink(missing_ok=True)
 
 
 def finish(services):
-    names = [*HOSTS.values(), E2E_HOST]
+    path = CONFIG / "rollout-plan.json"
+    plan = json.loads(path.read_text())
+    require(plan.get("apply", {}).get("completed"),
+            "Installed commit alone does not establish rollout completion")
+    if plan["phase"] != "complete":
+        start_enabled(services)
+    pool_step("release")
+    staged = CONFIG / "rollout"
+    names = {*HOSTS.values(), E2E_HOST}
+    names.update(Path(target["path"]).name for target in plan["apply"]["targets"])
     for name in names:
-        path = CONFIG / name
-        if name == E2E_HOST and not path.exists():
-            continue
-        uid = json.loads(path.read_text())["uid"]
-        user = pwd.getpwuid(uid).pw_name
-        run("/usr/sbin/runuser", "-u", user, "--", "/usr/bin/test", "-r", path)
-    start_enabled(services)
-    staged_configs = CONFIG / "rollout"
-    for name in names:
-        (staged_configs / name).unlink(missing_ok=True)
-    if staged_configs.exists():
-        staged_configs.rmdir()
+        (staged / name).unlink(missing_ok=True)
     current = json.loads((CONFIG / HOSTS[CORE]).read_text())
     refresh_rollout_service(current)
-    (CONFIG / "rollout-plan.json").unlink()
+    path.unlink()
+    sync_directory(CONFIG)
+    # The apply backup is retained as the verified recovery package. Package
+    # cleanup must not mistake the persistent kernel lock for a live operation.
+    if staged.exists():
+        staged.rmdir()
     clean_superseded_staged_packages(current["installation"]["pin"]["commit"])
 
 
@@ -784,6 +782,12 @@ def read_manual_credential(host):
         lock.unlink()
 
 
+def recover_legacy_wakes():
+    script = INSTALL / "core/src/rollout-pool-entry.mjs"
+    result = json.loads(run("node", script, "recover-wakes"))
+    print(json.dumps({"legacyWakeRecovery": result}), flush=True)
+
+
 def main():
     global github_token
     require(os.getuid() == 0, "Rollout must run as host administrator")
@@ -797,13 +801,20 @@ def main():
     require(bool(github_token), "Host GitHub credential is missing")
     current = hosts[CORE]["installation"]["pin"]["commit"]
     plan_path = CONFIG / "rollout-plan.json"
-    target = None
-    if plan_path.exists():
-        target = json.loads(plan_path.read_text())["pin"]["commit"]
-        if target == current:
-            finish(runner_services(hosts))
-            target = None
-    selected = next_rollout(current, target)
+    plan = json.loads(plan_path.read_text()) if plan_path.exists() else None
+    if plan and plan.get("schemaVersion") != 2:
+        pool_step("legacy")
+    if plan and plan.get("apply"):
+        if not plan["apply"].get("completed"):
+            result = json.loads(run("node", coordinator_cli(plan), "promote-host"))
+            require(result["status"] == "installed", "Interrupted promotion pending")
+        finish(runner_services(hosts))
+        return
+    # Wake recovery verifies the installed package against the host pin. Resume
+    # durable apply first: either may be absent or out of sync after a crash.
+    recover_legacy_wakes()
+    target = plan["pin"]["commit"] if plan else None
+    selected = next_rollout(current, target, plan.get("runId") if plan else None)
     if selected:
         rollout(hosts, selected)
     elif target:
@@ -812,13 +823,41 @@ def main():
         clean_superseded_staged_packages(current)
     resume_installed_work()
 
+def serialized_main():
+    require(os.getuid() == 0, "Rollout must run as host administrator")
+    # Lock a stable root-owned directory inode. No stale PID or unlink-based
+    # lock stealing after a timer interruption, and no disposable lock file.
+    handle = os.open(CONFIG, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        try:
+            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return
+        main()
+    finally:
+        os.close(handle)
+
+
+def record_pending(code):
+    path = CONFIG / "rollout-plan.json"
+    if os.getuid() == 0 and path.is_file():
+        plan = json.loads(path.read_text())
+        if plan.get("schemaVersion") == 2:
+            pending = plan.get("pending")
+            if (code == "ROLLOUT_COORDINATOR_PENDING" and pending and
+                    not pending.endswith("_REQUIRED")):
+                return
+            write_config(path, {**plan, "pending": code})
+
 
 if __name__ == "__main__":
     try:
-        main()
+        serialized_main()
     except RateLimited as error:
+        record_pending("ROLLOUT_RATE_LIMITED")
         print(f"Nibfin rollout: {error}", file=sys.stderr)
     except (RuntimeError, KeyError, OSError, ValueError,
             subprocess.TimeoutExpired) as error:
+        record_pending("ROLLOUT_COORDINATOR_PENDING")
         print(f"Nibfin rollout: {error}", file=sys.stderr)
         sys.exit(1)

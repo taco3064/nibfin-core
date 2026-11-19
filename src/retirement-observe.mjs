@@ -106,9 +106,13 @@ export async function assertRetirementJobs(reader, repositories, pool) {
 
 export async function settleRetirementWork(host, reader, binding, state) {
   await new RelayJournal(relayStateRoot).requireSettled();
+  await settlePoolWork(host, reader, binding, state);
+}
+
+export async function settlePoolWork(host, reader, binding, state, options) {
   await requirePoolConsumersSettled(host);
   await assertNoCredentialConsumers(host);
-  await managedSettlement(host);
+  await managedSettlement(host, options);
   const uids = [host.runnerUid, host.sharedRunner.additionalRunner.uid];
   for (const [index, uid] of uids.entries()) {
     const allowMissingGateway = Boolean(state?.effects[`gateway-remove-${index + 1}`]);

@@ -1,3 +1,4 @@
+import { requireNoRollout } from './rollout-admission.mjs';
 import { isDeepStrictEqual } from 'node:util';
 import { readRetirementFile } from './retirement-files.mjs';
 import { lstat, readdir, unlink } from 'node:fs/promises';
@@ -14,6 +15,7 @@ export const retirementPath = '/etc/nibfin/managed-retirement.json';
 export const drainPath = '/etc/nibfin/managed-pool-drain.json';
 
 export async function requirePoolOpen(path = drainPath) {
+  if (path === drainPath) await requireNoRollout();
   try {
     await lstat(path);
     requireThat(false, 'MANAGED_POOL_RETIRING');
@@ -59,8 +61,12 @@ export async function requirePoolConsumersSettled(host) {
     name.startsWith('pool-consumer-')), 'RETIREMENT_CONSUMER_PENDING');
 }
 
-export async function requireNoRetirement() {
-  await requirePoolOpen();
+export async function requireNoRetirement({ rollout = false } = {}) {
+  if (!rollout) await requireNoRollout();
+  try {
+    await lstat(drainPath);
+    requireThat(false, 'MANAGED_POOL_RETIRING');
+  } catch (error) { if (error.code !== 'ENOENT') throw error; }
   const state = await readRetirementFile(retirementPath);
   if (!state) return;
   const host = JSON.parse(await boundedHostFile(hostFile, 262144));

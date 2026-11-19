@@ -134,16 +134,39 @@ settle. Record which Issues were paused for maintenance and resume only those
 after verification. Preserve pauses already set by their owners.
 
 For a Core or Runner upgrade affecting the shared pool, use Core CD and the
-authorized [host rollout](scripts/host-auto-rollout.py). The host rollout checks
-native Jobs, Runner registrations and execution fences, then stops the shared
-Runner services when safe. It rechecks the pool before promoting the verified
-package and restarting the services. If an execution or external effect is
+authorized [host rollout](scripts/host-auto-rollout.py). The timer preflights
+the package and consumer bindings,
+then records its exact target and phase in `/etc/nibfin/rollout-plan.json`.
+Its separate `/etc/nibfin/rollout-admission.json` closes both slots and new local
+relay dispatch. Admitted leases and prior effect readback may settle; unrelated
+queued Jobs do not block drain. The timer stops only the matched shared services,
+rechecks native Jobs, registrations, fences and cgroups, and promotes the package
+and bindings through a durable apply intent. It restarts both listeners under
+closure and verifies source, all four enrollments and original registrations
+before reopening admission. The operator's relay pause remains unchanged. If an
+execution or external effect is
 unresolved, let the existing recovery path settle it before promotion.
 Individual Issue pauses are optional and do not establish pool-wide idleness.
 
 After promotion, verify the installed Core revision, enrollment for the four
-repositories and both Runner registrations. Check that authorized work can
-resume through the normal Issue wake flow.
+repositories and both Runner registrations. The timer retains the previous
+verified package for recovery.
+A pending phase/code identifies the unresolved observation or effect. Do not
+remove the plan, closure, journals or backup to force progress: the next timer
+reads back the same target and partial effects. Unknown installed bindings stay
+closed; an installed commit alone is insufficient. The legacy Python credential
+adapter continues to refuse imported managed credentials.
+
+Compatible pending Jobs use normal admission. The rollout timer also polls
+legacy wake receipts in bounded rotating batches, including without a local relay.
+Known stale relay and legacy wake origins are
+reconciled by exact Run/attempt before current Issue eligibility, pause and
+source are rechecked. A replacement uses a separate effect journal associated
+with that origin. Ambiguous POSTs remain pending, with no title-based attribution,
+blind retry or bulk queue cancellation. Authorized work resumes through the
+normal Issue wake flow. Legacy receipts retain their original source observation
+and exact run ID; receipts from older installations without that observation
+report `LEGACY_WAKE_ORIGIN_EVIDENCE_MISSING` and remain unchanged.
 
 ## English for public-facing text
 

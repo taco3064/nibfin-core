@@ -1,0 +1,248 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
+import { resolve } from 'node:path';
+
+// Controlled Python coordinator, not a live systemd/GitHub rollout. All effects
+// use the same maintained coordinator functions called by the installed timer.
+test('timer closes admission, pins its target and reconciles unknown merges', () => {
+  const result = spawnSync('python3', ['-B', '-c', `
+import json, runpy, sys, tempfile
+from pathlib import Path
+module = runpy.run_path(sys.argv[1])
+rollout = module["rollout"]
+g = rollout.__globals__
+core, action, e2e = g["CORE"], g["ACTION"], g["E2E"]
+pins = {"core": {"repository": core, "commit": "a" * 40},
+        "action": {"repository": action, "commit": "b" * 40}, "artifact": {}}
+pr = {"number": 1, "headRefOid": "c" * 40}
+hosts = {core: {}, action: {}, "taco3064/gh-nibfin": {}}
+effects, state = [], dict(busy=True, merged=False, posts=0)
+g["main_sha"] = lambda repo: "d" * 40
+g["content"] = lambda *args: (json.dumps(pins["core"]).encode(), "blob")
+g["stage_package"] = lambda *args: {}
+g["close_superseded_rollouts"] = lambda *args: None
+g["stage_bindings"] = lambda *args, **kwargs: effects.append("bindings")
+g["api"] = lambda path: ({"status": "ahead"} if "/compare/" in path else
+                         {"permissions": {"push": True}})
+g["read_consumer"] = lambda *args: ("base", None if state["merged"] else pr)
+
+def pool_step(step):
+    path = g["CONFIG"] / "rollout-plan.json"
+    plan = json.loads(path.read_text())
+    effects.append(step)
+    if step == "close":
+        plan.update(phase="draining", binding={"pool": "original"})
+    if step == "stop":
+        assert "close" in effects
+        if state["busy"]:
+            raise RuntimeError("active lease")
+        plan["phase"] = "applying"
+    g["write_config"](path, plan)
+
+def gh(*args):
+    state["posts"] += 1
+    raise RuntimeError("lost merge response")
+
+g["pool_step"], g["gh"] = pool_step, gh
+g["run"] = lambda *args: b'{"status":"installed"}'
+g["finish"] = lambda *args: effects.append("finish")
+with tempfile.TemporaryDirectory() as directory:
+    g["CONFIG"] = Path(directory)
+    g["LAST_PR_CLEANUP"] = Path(directory) / "cleanup"
+    selected = (10, pins, [])
+    try:
+        rollout(hosts, selected)
+        raise AssertionError("active work must hold drain")
+    except RuntimeError as error:
+        assert str(error) == "active lease"
+    path = g["CONFIG"] / "rollout-plan.json"
+    saved = json.loads(path.read_text())
+    assert saved["phase"] == "draining" and saved["candidate"] == pins
+    assert state["posts"] == 0
+    state["busy"] = False
+    try:
+        rollout(hosts, selected)
+        raise AssertionError("lost response must be pending")
+    except RuntimeError as error:
+        assert str(error) == "lost merge response"
+    assert state["posts"] == 1
+    try:
+        rollout(hosts, selected)
+        raise AssertionError("unknown merge must not retry")
+    except RuntimeError as error:
+        assert "unresolved" in str(error)
+    assert state["posts"] == 1
+    state["merged"] = True
+    rollout(hosts, selected)
+    assert effects[-1] == "finish"
+    assert state["posts"] == 1
+`, resolve('scripts/host-auto-rollout.py')], { encoding: 'utf8', timeout: 5000 });
+  assert.ifError(result.error);
+  assert.equal(result.status, 0, result.stderr);
+});
+
+// The exact saved run remains authoritative after newer CD runs fill discovery.
+test('timer resumes an older CD run and revalidates its origin and artifacts', () => {
+  const result = spawnSync('python3', ['-B', '-c', `
+import json, runpy, sys
+module = runpy.run_path(sys.argv[1])
+select = module["next_rollout"]
+g = select.__globals__
+core, action = g["CORE"], g["ACTION"]
+current, target = "a" * 40, "b" * 40
+pins = {"core": {"repository": core, "commit": target},
+        "action": {"repository": action, "commit": "c" * 40}}
+saved = dict(id=100, path=".github/workflows/cd.yml", head_branch="main",
+             event="workflow_run", status="completed", conclusion="success",
+             head_repository={"full_name": core})
+record = dict(saved)
+artifacts = [{"name": "nibfin-activate-" + target, "expired": False}]
+requests, checked = [], []
+
+def api(path):
+    requests.append(path)
+    if path == f"repos/{core}/actions/runs/100":
+        return record
+    if "/workflows/cd.yml/runs?" in path:
+        return {"workflow_runs": [{**saved, "id": n} for n in range(115, 100, -1)]}
+    if path == f"repos/{core}/actions/runs/100/artifacts":
+        return {"artifacts": artifacts}
+    if path == f"repos/{core}/compare/{current}...{target}":
+        return {"status": "ahead"}
+    raise AssertionError(path)
+
+def artifact(items, name, files):
+    checked.append(name)
+    assert items == artifacts and files == ["activation.json"]
+    return {"activation.json": json.dumps(pins).encode()}
+
+g.update(api=api, artifact=artifact, has_main_ci=lambda commit: commit == target)
+assert select(current, target, 100) == (100, pins, artifacts)
+assert requests[0] == f"repos/{core}/actions/runs/100"
+assert not any("/workflows/" in path for path in requests)
+assert checked == ["nibfin-activate-" + target]
+for key, value in (("id", 101), ("path", ".github/workflows/ci.yml"),
+                   ("head_branch", "other"), ("event", "workflow_dispatch"),
+                   ("status", "in_progress"), ("conclusion", "failure"),
+                   ("head_repository", {"full_name": "someone/fork"})):
+    record = {**saved, key: value}
+    requests.clear()
+    assert select(current, target, 100) is None, key
+    assert requests == [f"repos/{core}/actions/runs/100"], key
+record = dict(saved)
+artifacts[0]["expired"] = True
+assert select(current, target, 100) is None
+artifacts[0]["expired"] = False
+assert select(current, "d" * 40, 100) is None
+g["has_main_ci"] = lambda commit: False
+try:
+    select(current, target, 100)
+    raise AssertionError("main CI must still be required")
+except RuntimeError as error:
+    assert "main CI" in str(error)
+`, resolve('scripts/host-auto-rollout.py')], { encoding: 'utf8', timeout: 5000 });
+  assert.ifError(result.error);
+  assert.equal(result.status, 0, result.stderr);
+});
+
+test('installed timer polls legacy recovery even without a rollout plan', () => {
+  const result = spawnSync('python3', ['-B', '-c', `
+import json, runpy, sys, tempfile
+from pathlib import Path
+module = runpy.run_path(sys.argv[1])
+main = module["main"]
+g = main.__globals__
+effects = []
+g["os"].getuid = lambda: 0
+g["read_manual_credential"] = lambda host: "fixture-only"
+g["next_rollout"] = lambda *args: None
+g["clean_superseded_staged_packages"] = lambda *args: effects.append("cleanup")
+def run(*args):
+    assert args[0] == "node" and args[-1] == "recover-wakes"
+    assert str(args[1]).endswith("core/src/rollout-pool-entry.mjs")
+    effects.append("recovery")
+    return b'{"status":"observed","results":[]}'
+g["run"] = run
+with tempfile.TemporaryDirectory() as directory:
+    g["CONFIG"] = Path(directory)
+    g["RATE_WAIT"] = Path(directory) / "absent-rate-wait"
+    for name in g["HOSTS"].values():
+        (Path(directory) / name).write_text(json.dumps({
+            "installation": {"pin": {"commit": "a" * 40}}}))
+    main()
+    assert effects == ["recovery", "cleanup"]
+`, resolve('scripts/host-auto-rollout.py')], { encoding: 'utf8', timeout: 5000 });
+  assert.ifError(result.error);
+  assert.equal(result.status, 0, result.stderr);
+});
+
+for (const interrupted of ['absent-core', 'new-core-old-pin']) {
+  test(`timer resumes apply before wake recovery: ${interrupted}`, () => {
+    const result = spawnSync('python3', ['-B', '-c', `
+import json, runpy, sys, tempfile
+from pathlib import Path
+module = runpy.run_path(sys.argv[1])
+main = module["main"]
+g = main.__globals__
+effects = []
+g["os"].getuid = lambda: 0
+g["read_manual_credential"] = lambda host: "fixture-only"
+old, target = "a" * 40, "b" * 40
+with tempfile.TemporaryDirectory() as directory:
+    root = Path(directory)
+    g["CONFIG"] = root / "config"
+    g["INSTALL"] = root / "install"
+    g["CONFIG"].mkdir()
+    g["RATE_WAIT"] = root / "absent-rate-wait"
+    live = g["INSTALL"] / "core"
+    staged = g["INSTALL"] / ("core-staged-" + target)
+    package = staged if sys.argv[2] == "absent-core" else live
+    (package / "bin").mkdir(parents=True)
+    (package / "bin/nibfin-core.mjs").touch()
+    for name in g["HOSTS"].values():
+        (g["CONFIG"] / name).write_text(json.dumps({
+            "installation": {"pin": {"commit": old}}}))
+    path = g["CONFIG"] / "rollout-plan.json"
+    g["write_config"](path, {"schemaVersion": 2, "phase": "applying",
+        "pin": {"commit": target}, "apply": {"completed": False}})
+
+    def run(*args):
+        if args[-1] == "recover-wakes":
+            assert live.is_dir(), "wake recovery requires installed Core"
+            host = json.loads((g["CONFIG"] / g["HOSTS"][g["CORE"]]).read_text())
+            assert host["installation"]["pin"]["commit"] == target, "pin mismatch"
+            effects.append("wakes")
+            return b'{"status":"observed","results":[]}'
+        assert args == ("node", package / "bin/nibfin-core.mjs", "promote-host")
+        effects.append("promote")
+        if package == staged:
+            staged.rename(live)
+        for name in g["HOSTS"].values():
+            (g["CONFIG"] / name).write_text(json.dumps({
+                "installation": {"pin": {"commit": target}}}))
+        plan = json.loads(path.read_text())
+        plan["apply"]["completed"] = True
+        g["write_config"](path, plan)
+        return b'{"status":"installed"}'
+
+    def finish(services):
+        assert json.loads(path.read_text())["apply"]["completed"]
+        assert services == ["nibfin-shared-runner@1.service",
+                            "nibfin-shared-runner@2.service"]
+        effects.append("finish")
+        path.unlink()
+
+    g.update(run=run, finish=finish, next_rollout=lambda *args: None,
+             clean_superseded_staged_packages=lambda *args: None)
+    main()
+    assert effects == ["promote", "finish"]
+    main()
+    assert effects == ["promote", "finish", "wakes"]
+`, resolve('scripts/host-auto-rollout.py'), interrupted], {
+      encoding: 'utf8', timeout: 5000,
+    });
+    assert.ifError(result.error);
+    assert.equal(result.status, 0, result.stderr);
+  });
+}

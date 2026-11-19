@@ -1,4 +1,6 @@
 import { verifySharedSlotIdentity } from '../shared-slot-identity.mjs';
+import { rolloutListenerReady } from '../rollout-admission.mjs';
+import { requireNoRetirement } from '../retirement-admission.mjs';
 import { requirePoolOpen } from '../retirement-admission.mjs';
 import { pendingReplacement } from '../retirement-rebind.mjs';
 import { installedProvider } from '../provider-binding.mjs';
@@ -18,7 +20,9 @@ async function check() {
   const host = JSON.parse(await boundedHostFile(hostFile, 256 * 1024));
   // The listener can prove readiness during replacement. Worker and Controller
   // admission still use the drain marker and cannot execute a Job.
-  if (!await pendingReplacement(host)) await requirePoolOpen();
+  if (await rolloutListenerReady(host))
+    await requireNoRetirement({ rollout: true });
+  else if (!await pendingReplacement(host)) await requirePoolOpen();
   installedProvider(host);
   const second = host.sharedRunner?.additionalRunner;
   const primary = host.sharedRunner?.runner;

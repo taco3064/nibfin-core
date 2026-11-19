@@ -1,3 +1,4 @@
+import { recoverRolloutOrigins } from './rollout-recovery.mjs';
 import { link, lstat, mkdir, open, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -138,5 +139,9 @@ export async function controlNotificationRelay(paused) {
 export async function pollNotificationRelay() {
   const context = await loadRelayHost({ verifyRemote: false });
   await context.journal.control();
-  return new NotificationRelay({ ...context, requireAdmission: requirePoolOpen }).poll();
+  const result = await new NotificationRelay({ ...context,
+    requireAdmission: requirePoolOpen }).poll();
+  try { result.recovery = await recoverRolloutOrigins(context); }
+  catch (error) { result.recovery = [{ status: 'pending', code: safeRelayCode(error) }]; }
+  return result;
 }

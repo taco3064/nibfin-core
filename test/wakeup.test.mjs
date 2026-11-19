@@ -4,6 +4,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { WakeDispatcher, observeWake, fanout } from '../src/wakeup.mjs';
+import { recoverStaleOrigin } from '../src/rollout-recovery.mjs';
 import { OperationJournal } from '../src/operation-journal.mjs';
 import { approvalProviderFixture } from './github-approval-fixture.mjs';
 import { now, approvalRecord } from './approval-fixture.mjs';
@@ -104,6 +105,7 @@ async function dispatchFixture(t, failure, shared = false) {
     },
   };
   return {
+    observed, options,
     dispatcher: new WakeDispatcher(options),
     restart: () =>
       new WakeDispatcher({
@@ -397,3 +399,58 @@ test('fanout skips known ineligible targets and stops on unknown effects', async
     assert.equal(results[0].result.status, status);
   }
 });
+
+test('wake readback settles under closed admission without repeating a POST', async t => {
+  const f = await dispatchFixture(t, 'readback', true);
+  assert.equal((await f.dispatcher.dispatch()).status, 'pending');
+  let admissions = 0;
+  const restarted = new WakeDispatcher({ ...f.options, observe: async () => {
+    admissions++;
+    throw new Error('MANAGED_POOL_ROLLOUT_PENDING');
+  } });
+  assert.equal((await restarted.reconcile(f.observed)).runId, 9);
+  // Covers a crash after journal completion but before association publication.
+  assert.equal((await restarted.reconcile(f.observed)).runId, 9);
+  assert.equal(admissions, 0);
+  assert.equal(f.writes(), 1);
+});
+
+test('wake readback preserves lost responses and never creates a new effect', async t => {
+  for (const failure of ['disconnect', 'source', undefined]) {
+    const f = await dispatchFixture(t, failure);
+    if (failure) await f.dispatcher.dispatch();
+    assert.equal((await f.dispatcher.reconcile(f.observed)).status, 'pending');
+    assert.equal(f.writes(), failure ? 1 : 0);
+  }
+});
+
+test('replacement interrupted after POST settles while rollout and relay are paused',
+  async t => {
+    const f = await dispatchFixture(t, 'readback', true);
+    const record = { status: 'consumed', runId: 10,
+      origin: { repositoryId: 10, runId: 2, attempt: 1 },
+      intent: { source: { coreCommit: 'a'.repeat(40) } } };
+    const before = structuredClone(record);
+    let saved, closed = false;
+    const ports = {
+      reconcile: async () => {},
+      attempt: async () => ({ id: 10, run_attempt: 1,
+        status: 'completed', conclusion: 'failure' }),
+      read: async () => saved,
+      write: async (unused, value) => { saved = value; },
+      admit: async () => { assert.equal(closed, false); },
+      settle: async () => { assert.equal(closed, false); },
+      dispatch: () => f.dispatcher.dispatch(),
+      recover: () => new WakeDispatcher({ ...f.options,
+        observe: async () => { throw new Error('RELAY_PAUSED'); } })
+        .reconcile(f.observed),
+    };
+    const current = 'b'.repeat(40);
+    assert.equal((await recoverStaleOrigin(record, current, ports)).status, 'pending');
+    assert.equal(saved.status, 'pending');
+    closed = true;
+    assert.equal((await recoverStaleOrigin(record, current, ports)).runId, 9);
+    assert.equal(saved.status, 'scheduled');
+    assert.equal(f.writes(), 1);
+    assert.deepEqual(record, before);
+  });
