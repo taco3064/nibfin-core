@@ -17,6 +17,10 @@ async function fixture(t, status) {
   const stateRoot = join(root, 'state');
   const work = join(root, 'work');
   const authFile = join(root, 'auth.json');
+  const coreRoot = join(root, 'core');
+  const skill = await readFile('skills/shape/SKILL.md', 'utf8');
+  await mkdir(join(coreRoot, 'skills', 'shape'), { recursive: true });
+  await writeFile(join(coreRoot, 'skills', 'shape', 'SKILL.md'), skill);
   await mkdir(stateRoot, { mode: 0o700 });
   await mkdir(work, { mode: 0o700 });
   await writeFile(join(work, 'implementation.txt'), 'preserve implementation');
@@ -50,8 +54,8 @@ async function fixture(t, status) {
       ].map(JSON.stringify).join('\n') };
   } };
   const agent = new CodexRoleAgent({ stateRoot, work, authFile,
-    coreRoot: resolve('.'), model: 'configured-model', skills: {
-      shape: digest(await readFile('skills/shape/SKILL.md', 'utf8')),
+    coreRoot, model: 'configured-model', skills: {
+      shape: digest(skill),
     } }, isolator, {
     prepareMain: async (path, _issue, base) => {
       await mkdir(path);
