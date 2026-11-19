@@ -73,8 +73,9 @@ test('managed caller conversion keeps the same workflow identity', async () => {
   const updated = managedIssueBinding(event, managed, source.commit);
   assert.deepEqual(updated, { ...event, workflowBlob: file.sha, sourceCommit: head });
   assert.equal(managedIssueBinding(updated, managed, source.commit), updated);
-  assert.throws(() => managedIssueBinding(updated, legacy, source.commit),
-    { code: 'MANAGED_ISSUE_TRANSITION_CONFLICT' });
+  const native = managedIssueBinding(updated, legacy, source.commit);
+  assert.deepEqual(native, { ...event, sourceCommit: head });
+  assert.equal(managedIssueBinding(native, legacy, source.commit), native);
   for (const mismatch of [{ workflowId: 99 }, { workflowBlob: 'e'.repeat(40) }]) {
     const changed = { ...event, ...mismatch };
     assert.throws(() => managedIssueBinding(changed, managed, source.commit),
