@@ -58,6 +58,25 @@ for (const kind of ['issue', 'issue-managed']) {
     });
 }
 
+test('shared targets verify their live Issue caller without retired wake adapters',
+  async () => {
+    const f = fixture('issue');
+    const reader = { ...f.reader, get: async path => {
+      if (path.endsWith('/actions/workflows/21'))
+        return { id: 21, path: '.github/workflows/nibfin-wake.yml',
+          state: 'disabled_manually' };
+      return f.reader.get(path);
+    } };
+    const host = { memberId: 4, sharedRunner: { repositories: [1] } };
+    await verifyRolloutEnrollments(reader, host, [f.target], { commit: coreCommit });
+    await assert.rejects(verifyRolloutEnrollments(reader,
+      { ...host, sharedRunner: { repositories: [2] } }, [f.target],
+      { commit: coreCommit }), { code: 'ROLLOUT_WORKFLOW_REVOKED' });
+    f.revoke();
+    await assert.rejects(verifyRolloutEnrollments(reader, host, [f.target],
+      { commit: coreCommit }), { code: 'ROLLOUT_WORKFLOW_REVOKED' });
+  });
+
 test('historical managed origins validate their original recipe and source ancestry',
   async t => {
     const f = await relayFixture(t);
