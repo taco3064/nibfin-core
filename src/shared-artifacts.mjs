@@ -1,8 +1,8 @@
 import { requireThat } from './identity.mjs';
 import { sharedPlatforms, sharedTarget, verifySharedFile, verifySharedExecutable }
   from './shared-platform.mjs';
-import { rootOwnedPath } from './host-paths.mjs';
-import { command } from './process.mjs';
+import { sharedArchiveMembers } from './shared-archive-members.mjs';
+export { sharedArchiveMember } from './shared-archive-members.mjs';
 
 export function runnerReleaseArtifact(release, arch) {
   const target = sharedTarget(arch);
@@ -33,34 +33,19 @@ export function nodeManifestArtifact(manifest, arch) {
   return { ...matches[0], url: base + target.nodeArchive };
 }
 
-export function sharedArchiveMember(listing, member) {
-  const matches = listing.split('\n').filter(name =>
-    name.replace(/^\.\//, '') === member);
-  requireThat(matches.length === 1, 'INVALID_SHARED_ARCHIVE_MEMBERS');
-  return matches[0];
-}
-
 // Call for every archive use, including a previously populated cache.
 export async function verifySharedArchive(path, kind, arch) {
   const target = sharedTarget(arch);
   requireThat(kind === 'runner' || kind === 'node', 'INVALID_SHARED_ARTIFACT');
   await verifySharedFile(path, kind === 'runner' ? target.runnerArchiveSha256 :
     target.nodeArchiveSha256, target, false);
-  await rootOwnedPath('/usr/bin/tar');
-  const options = { env: { PATH: '/usr/bin:/bin', LANG: 'C' },
-    limit: 256 * 1024 * 1024 };
-  const { stdout: listing } = await command('/usr/bin/tar',
-    ['--list', '--file', path], options);
   const members = kind === 'runner' ? [
     ['bin/Runner.Listener', target.listenerSha256],
     ['bin/Runner.Worker', target.workerSha256],
   ] : [[target.nodeMember, target.nodeSha256]];
-  for (const [member, digest] of members) {
-    const { stdout } = await command('/usr/bin/tar', [
-      '--extract', '--to-stdout', '--file', path, '--',
-      sharedArchiveMember(listing.toString(), member),
-    ], options);
-    verifySharedExecutable(stdout, digest, target);
+  const digests = new Map(members);
+  for await (const { member, bytes } of sharedArchiveMembers(path, digests.keys())) {
+    verifySharedExecutable(bytes, digests.get(member), target);
   }
   return target;
 }

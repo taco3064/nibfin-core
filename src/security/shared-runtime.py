@@ -90,10 +90,66 @@ def verify_executable(path, target, digest):
 
 def verify_worker(directory):
     node, target = runtime_selection()
+    identity = installed_runner_identity(directory.parent, target)
     verify_executable(directory / 'Runner.Worker.official',
-                      target, target['workerSha256'])
-    verify_executable(directory / 'Runner.Listener', target, target['listenerSha256'])
+                      target, identity['workerSha256'])
+    verify_executable(directory / 'Runner.Listener', target, identity['listenerSha256'])
     return node
+
+
+def read_identity_json(path):
+    owned(path)
+    with open(path, 'rb') as source:
+        info = os.fstat(source.fileno())
+        require(stat.S_ISREG(info.st_mode) and info.st_nlink == 1
+                and info.st_size <= 65536)
+        data = source.read(65537)
+        require(len(data) <= 65536)
+    return json.loads(data.decode('utf-8-sig'))
+
+
+def runner_identity_contract(value, local, target):
+    require(isinstance(value, dict) and set(value) == {
+        'schemaVersion', 'arch', 'release', 'artifact', 'registration',
+        'listenerSha256', 'workerSha256'})
+    arch = 'amd64' if target['artifactArch'] == 'x64' else target['artifactArch']
+    require(type(value['schemaVersion']) is int and value['schemaVersion'] == 1
+            and value['arch'] == arch and isinstance(value['release'], str)
+            and re.fullmatch(r'v[0-9]+\.[0-9]+\.[0-9]+', value['release']))
+    artifact, registration = value['artifact'], value['registration']
+    require(isinstance(artifact, dict) and set(artifact) == {'name', 'url', 'sha256'}
+            and isinstance(registration, dict)
+            and set(registration) == {'id', 'name', 'url'})
+    for digest in (artifact['sha256'], value['listenerSha256'], value['workerSha256']):
+        require(isinstance(digest, str) and re.fullmatch(r'[a-f0-9]{64}', digest))
+    name = ('actions-runner-linux-' + target['artifactArch'] + '-'
+            + value['release'][1:] + '.tar.gz')
+    url = ('https://github.com/actions/runner/releases/download/'
+           + value['release'] + '/' + name)
+    require(artifact['name'] == name and artifact['url'] == url
+            and type(registration['id']) is int and registration['id'] > 0
+            and isinstance(registration['name'], str) and registration['name']
+            and isinstance(registration['url'], str)
+            and re.fullmatch(r'https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+',
+                             registration['url'])
+            and type(local.get('agentId')) is int
+            and registration['id'] == local.get('agentId')
+            and registration['name'] == local.get('agentName')
+            and registration['url'] == local.get('gitHubUrl')
+            and local.get('workFolder') == '_work')
+    return value
+
+
+def installed_runner_identity(directory, target):
+    local = read_identity_json(directory / '.runner')
+    require(isinstance(local, dict))
+    try:
+        value = read_identity_json(directory / '.nibfin-runner-identity.json')
+    except FileNotFoundError:
+        # Legacy compatibility is verified against the trusted bundled package.
+        # An unknown root-owned executable is never enrolled by calculating it.
+        return target
+    return runner_identity_contract(value, local, target)
 
 
 def runtime():

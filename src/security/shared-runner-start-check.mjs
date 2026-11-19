@@ -11,7 +11,8 @@ import { boundedHostFile, hostFile } from '../host-adoption.mjs';
 import { rootOwnedPath } from '../host-paths.mjs';
 import { controllerRoute } from '../controller-contract.mjs';
 import { requireThat } from '../identity.mjs';
-import { installedSharedRuntime, verifySharedFile } from '../shared-platform.mjs';
+import { installedSharedRuntime } from '../shared-platform.mjs';
+import { readInstalledRunnerIdentity } from '../installed-runner-state.mjs';
 
 async function check() {
   const slot = process.argv[2];
@@ -62,10 +63,7 @@ export async function checkSharedRunnerSlot(
   requireThat(/^\/usr\/bin\/python3\.\d+$/.test(python),
     'SHARED_RUNNER_WORKER_ADMISSION_REQUIRED');
   await rootOwnedPath(python);
-  await verifySharedFile(join(directory, 'bin', 'Runner.Listener'),
-    target.listenerSha256, target);
-  await verifySharedFile(join(directory, 'bin', 'Runner.Worker.official'),
-    target.workerSha256, target);
+  await readInstalledRunnerIdentity(directory, local, target);
   await verifyProgramTree(join(directory, 'bin'));
   await verifyProgramTree(join(directory, 'externals'));
   for (const name of ['.credentials', '.credentials_rsaparams']) {

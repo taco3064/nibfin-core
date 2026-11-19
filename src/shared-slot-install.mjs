@@ -9,6 +9,9 @@ import { syncRecoveryDirectory } from './recovery-lock.mjs';
 import { checkSharedRunnerSlot } from './security/shared-runner-start-check.mjs';
 import { installedSharedRuntime } from './shared-platform.mjs';
 import { verifySharedArchive } from './shared-artifacts.mjs';
+import { verifySharedSlotIdentity } from './shared-slot-identity.mjs';
+import { ensureInstalledRunnerIdentity }
+  from './installed-runner-state.mjs';
 
 const dispatcher = new URL('./security/shared-worker-dispatcher.sh', import.meta.url);
 const registrationFiles = ['.runner', '.credentials', '.credentials_rsaparams'];
@@ -77,6 +80,8 @@ export async function installSharedSlot(source, slot, owner, runner, repository,
     if (error.code !== 'ENOENT') throw error;
   });
   if (existing) {
+    const local = await verifySharedSlotIdentity(destination, runner, repository);
+    await ensureInstalledRunnerIdentity(destination, local, target);
     await inspect(destination);
     return;
   }
@@ -117,6 +122,8 @@ export async function installSharedSlot(source, slot, owner, runner, repository,
     await rootOwnedPath(entry);
     requireThat(((await lstat(entry)).mode & 0o111) !== 0,
       'SHARED_RUNNER_SERVICE_ENTRY_UNAVAILABLE');
+    const local = await verifySharedSlotIdentity(staged, runner, repository);
+    await ensureInstalledRunnerIdentity(staged, local, target);
     await inspect(staged);
     await rename(staged, destination);
     await syncRecoveryDirectory(parent);
