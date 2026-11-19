@@ -38,7 +38,6 @@ import { sameContainerEnvironment } from './container-environment.mjs';
 import { containerLabelArgs, matchesContainerLabel } from './host-containers.mjs';
 import {
   acquireMcpEgress, acquireProjectEgress, verifyMcpPolicyDirectory,
-  retireIdleEgressPolicies,
   mcpPolicyEnvironment, mcpPolicyMount,
 } from './mcp-egress.mjs';
 import { projectDomains } from './egress-proxy.mjs';
@@ -204,7 +203,6 @@ export class CodexSandbox {
         Object.keys(network.Containers ?? {}).every((id) => id === c.gatewayId),
       'AGENT_EGRESS_NOT_ISOLATED',
     );
-    if (c.mcpPolicyDirectory) await retireIdleEgressPolicies(c.mcpPolicyDirectory);
     return {
       proxyHost: ip,
       proxyUrl: `http://${ip}:3128`,

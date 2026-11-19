@@ -47,15 +47,7 @@ async function openJobVmEgress(directory, domains) {
 async function transfer(connect, payload, signal) {
   const timeout = AbortSignal.timeout(60_000);
   const deadline = AbortSignal.any([signal, timeout]);
-  try {
-    return await exchangeJobVmFrame(
-      await connect(workspacePort, deadline), payload, deadline);
-  } catch (error) {
-    // Report the failed boundary without exposing candidate bytes or credentials.
-    console.error(`Nibfin VM ${payload.operation} ${payload.name ?? 'work'}: ` +
-      (error.code ?? error.name));
-    throw error;
-  }
+  return exchangeJobVmFrame(await connect(workspacePort, deadline), payload, deadline);
 }
 
 export async function runJobVmWriter(config, input, execute, {
@@ -142,9 +134,7 @@ export async function runJobVmWriter(config, input, execute, {
 async function runWriter(connect, directory, input, execute, signal) {
   const request = payload => transfer(connect, payload, signal);
   for (const name of ['work', 'main', 'input']) {
-    const temporary = input.plan.config['shell_environment_policy.set'].TMPDIR;
-    const files = await snapshotJobVmWorkspace(input[name], name === 'work'
-      ? { temporaryDirectory: temporary.slice('/work/'.length) } : {});
+    const files = await snapshotJobVmWorkspace(input[name]);
     const setup = await request({ operation: 'prepare', name, files });
     requireThat(setup?.ready === true, 'JOB_VM_WORKSPACE_TRANSFER_FAILED');
   }

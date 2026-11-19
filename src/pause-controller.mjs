@@ -6,7 +6,6 @@ import {
   interpretPause,
   pauseEvent,
   qualifyPauseEvent,
-  pauseDecisionsForEvent,
 } from './pause.mjs';
 
 export function pauseTrigger(event) {
@@ -61,19 +60,18 @@ export async function reconcilePause({
         native.created_at === event.issue?.updated_at,
       'PAUSE_EVENT_NOT_CURRENT',
     );
-    const recorded = pauseDecisionsForEvent(evidence.decisions, native)[0];
+    const recorded = evidence.decisions.find(
+      (proof) => proof.eventHash === digest(native),
+    );
     if (!recorded) {
-      // Qualify the authenticated current command before consulting old local
-      // receipts. An allowed command needs no historical state to override.
+      // Qualify only an authenticated, coherent current event. Older native
+      // events without a journal receipt remain Unknown, including after moves
+      // to a host lacking that journal. Never requalify a recorded operation.
       requireThat(
         digest(snapshot(event.issue)) === digest(snapshot(observed.current)),
         'PAUSE_EVENT_SNAPSHOT_CHANGED',
       );
-      const qualification = await qualifyPauseEvent(
-        reader, observed, native, event.issue,
-      );
-      requireThat(qualification !== 'unknown', 'PAUSE_QUALIFICATION_UNKNOWN');
-      const prefix = qualification === 'allowed' ? null : interpretPause({
+      const prefix = interpretPause({
         issue: {
           labels:
             events.length > 1 && events.at(-2).event === 'labeled'
@@ -83,10 +81,15 @@ export async function reconcilePause({
         events: observed.events.filter((item) => item.id < native.id),
         decisions: evidence.decisions,
       });
-      requireThat(qualification === 'allowed' ||
-        typeof prefix?.effective === 'boolean', 'PAUSE_HISTORY_UNKNOWN');
+      requireThat(typeof prefix.effective === 'boolean', 'PAUSE_HISTORY_UNKNOWN');
+      const qualification = await qualifyPauseEvent(
+        reader,
+        observed,
+        native,
+        event.issue,
+      );
+      requireThat(qualification !== 'unknown', 'PAUSE_QUALIFICATION_UNKNOWN');
       const proof = {
-        eventId: native.id,
         eventHash: digest(native),
         observationHash: observed.observationHash,
         qualification,
@@ -168,7 +171,6 @@ export async function reconcilePause({
             'PAUSE_REPAIR_EVENT_UNKNOWN',
           );
           const proof = {
-            eventId: added[0].id,
             eventHash: digest(added[0]),
             qualification: 'repair',
             observationHash: bindingHash,

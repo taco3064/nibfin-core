@@ -71,11 +71,8 @@ For qualified Issues, `pause`, `dependencies`, `executionBlocker` and `waiting` 
 separate observations. Dependencies report the number of incomplete native upstreams;
 a completed upstream follows Core's existing closed/delivered qualification. Edges
 outside adopted routes remain unknown. Pause uses native events and existing trusted
-qualification receipts through `interpretPause`. A qualified current command establishes
-the requested state even when earlier local receipts are missing. It does not qualify
-unknown historical actors. Later unqualified changes still need qualification or repair;
-label absence alone does not prove Resume. New receipts use stable native event IDs,
-with legacy hash receipts supported. Confirmed pause does not imply admitted work stopped.
+qualification receipts through `interpretPause`; current permissions or a label alone
+do not qualify historical events. Confirmed pause does not imply admitted work stopped.
 An existing pending journal effect reports `EXTERNAL_EFFECT_UNKNOWN`; this endpoint
 does not diagnose an Agent or claim that every possible runtime failure is observable.
 

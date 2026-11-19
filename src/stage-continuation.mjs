@@ -6,7 +6,7 @@ import { stageSuccess } from './stage-runtime.mjs';
 import { digest, isDigest, requireThat } from './identity.mjs';
 import { enforcementPaths, equivalentCandidate } from './candidate-evidence.mjs';
 import { integrationRepairRequired, pendingCIObservation } from './github-ci.mjs';
-import { codexIdle, codexPreflightExits } from './codex-bootstrap.mjs';
+import { codexIdle } from './codex-bootstrap.mjs';
 import { retryableWriterPressure } from './job-vm-pressure.mjs';
 import { ciCorrectionWaiting, requiredCheckFailed } from './ci-recovery.mjs';
 import { candidateCorrectionRequired } from './candidate-correction.mjs';
@@ -18,16 +18,6 @@ const agentStages = pressureStages;
 const correctionStages = new Set(['accept', 'review-pr']);
 
 async function stoppedAgentCanRestart(store, stage, receipt) {
-  const report = receipt.report;
-  const termination = report?.termination;
-  // A fresh continuation rechecks an unfinished, file-only Deliver after its
-  // environment was repaired. This is not a retry loop or successful delivery.
-  if (stage === 'deliver' && receipt.outcome === 'blocked' &&
-    typeof receipt.execution?.id === 'string' && report?.producer === 'agent' &&
-    report.failureClass === 'external_failure' &&
-    report.binding?.executionId === receipt.execution.id &&
-    termination?.executionId === receipt.execution.id &&
-    termination.running === false && termination.exitCode === 0) return true;
   if (!agentStages.has(stage) || receipt.outcome !== 'blocked' ||
     typeof receipt.execution?.id !== 'string' || receipt.references?.length !== 1)
     return false;
@@ -39,7 +29,6 @@ async function stoppedAgentCanRestart(store, stage, receipt) {
     (proof.code === hostMemoryPressure && proof.stage === stage &&
       pressureMatchesReceipt(proof.memoryPressure, stage, receipt.execution) ||
       proof.code === codexIdle.code ||
-      Object.hasOwn(codexPreflightExits, proof.code) ||
       stage === 'deliver' && retryableWriterPressure(proof.code));
 }
 
