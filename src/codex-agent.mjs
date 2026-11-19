@@ -13,6 +13,7 @@ import { RoleSessions } from './role-sessions.mjs';
 import { subscriptionSecrets, containsCredentials } from './credential-output.mjs';
 import { digest, requireThat } from './identity.mjs';
 import { prepareRoleUpstream } from './role-upstream.mjs';
+import { discardRoleSources } from './role-source-cleanup.mjs';
 
 // A role adapter, not a sandbox implementation. Only the installed launcher may
 // supply the code-owned isolator. No external request may load an adapter/module.
@@ -92,7 +93,10 @@ export class CodexRoleAgent {
               termination }));
         } : undefined });
       requireModelTermination(execution, context.execution.id, plan.policyHash);
-      if (execution.status === 'interrupted') return execution;
+      if (execution.status === 'interrupted') {
+        await discardRoleSources(io);
+        return execution;
+      }
       requireThat(typeof execution.stdout === 'string' &&
         typeof execution.stderr === 'string' &&
         !containsCredentials(execution.stdout, secrets) &&
@@ -114,6 +118,7 @@ export class CodexRoleAgent {
       // Both MCP and model credential scans precede Job-copy retirement.
       await execution.retireMcp?.();
       await execution.applyWorkspace?.();
+      await discardRoleSources(io);
       return { executionId: context.execution.id,
         terminationHash: execution.terminationHash,
         terminationObservation: execution.terminationObservation,
