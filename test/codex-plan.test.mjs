@@ -115,6 +115,22 @@ test('Accept probes the configured Python under the read-only tool policy', () =
   assert.deepEqual(args.slice(-4), ['8', 'local', '3.13.7', path]);
 });
 
+test('VM preflight uses local control scratch without changing Writer policy', () => {
+  const plan = codexPlan('deliver', {
+    model: 'configured-model', skill: skill('deliver'), context: {},
+  });
+  const original = structuredClone(plan);
+  const override = 'shell_environment_policy.set.TMPDIR="/tmp/tool-home"';
+  const args = sandboxProbeArguments(plan, '192.0.2.1', 8, true);
+  assert.equal(args[args.indexOf('sandbox') - 1], override);
+  assert.equal(args[args.indexOf('sandbox') - 2], '-c');
+  assert(!sandboxProbeArguments(plan, '192.0.2.1', 8).includes(override));
+  assert(!plan.args.includes(override));
+  assert.equal(plan.config['shell_environment_policy.set'].TMPDIR, '/work');
+  assert.equal(plan.config['permissions.nibfin.filesystem']['/tmp'], 'read');
+  assert.deepEqual(plan, original);
+});
+
 test('unknown roles, skill substitution and argument injection reject', () => {
   for (const [stage, options] of [
     ['merge', { model: 'configured-model', skill: skill('shape') }],
