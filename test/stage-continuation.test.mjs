@@ -7,6 +7,7 @@ import { stageSuccess } from '../src/stage-runtime.mjs';
 import { digest } from '../src/identity.mjs';
 import { issueRequirementsChanged } from '../src/stages.mjs';
 import { githubReadWaiting } from '../src/observation-failure.mjs';
+import { codexIdle, codexPreflightExits } from '../src/codex-bootstrap.mjs';
 
 function fixture() {
   const receipts = {},
@@ -348,5 +349,72 @@ test('pressure resumes the first unfinished Agent stage and preserves native wri
           assert.equal(f.calls.includes('deliver'), false);
         }
       }
+    }
+  });
+
+function preflightFixture(stage, proof) {
+  const f = fixture();
+  const order = Object.keys(stageSuccess);
+  for (const prior of order.slice(0, order.indexOf(stage)))
+    f.receipts[prior] = { stage: prior, outcome: stageSuccess[prior] };
+  const hash = digest(proof);
+  f.objects[hash] = proof;
+  f.receipts[stage] = { stage, outcome: 'blocked',
+    execution: { id: 'stopped-native-execution' }, references: [`evidence:${hash}`] };
+  return f;
+}
+
+test('Core preflight failure re-enters Deliver through normal continuation',
+  async () => {
+    for (const code of Object.keys(codexPreflightExits)) {
+      for (const terminationRecorded of [true, false]) {
+        const proof = { executionId: 'stopped-native-execution', code,
+          ...(terminationRecorded ? { terminationHash: 'a'.repeat(64) } : {}) };
+        const f = preflightFixture('deliver', proof);
+        const previous = structuredClone(f.receipts);
+        let inspections = 0;
+        f.options.inspect = async () => { inspections++; };
+        f.options.execute = async stage => {
+          f.calls.push(stage);
+          return { stage, status: 'denied', code };
+        };
+        assert.equal((await continueStages(f.options)).code, code);
+        assert.deepEqual(f.calls, ['deliver']);
+        assert.equal(inspections, 1);
+        assert.deepEqual(f.receipts, previous);
+        // A returned failure is not an internal retry loop. Another explicit
+        // continuation can re-enter the same normal stage admission once again.
+        await continueStages(f.options);
+        assert.deepEqual(f.calls, ['deliver', 'deliver']);
+        assert.deepEqual(f.receipts, previous);
+      }
+    }
+  });
+
+test('native preflight proof does not bypass missing or mismatched evidence',
+  async () => {
+    const valid = { executionId: 'stopped-native-execution',
+      terminationHash: 'a'.repeat(64), code: 'SANDBOX_PROBE_FAILED' };
+    const { terminationHash, ...unterminated } = valid;
+    for (const variant of ['missing', 'mismatch', 'idle-unterminated', 'content',
+      'multiple-references']) {
+      const proof = variant === 'mismatch' ? { ...valid, executionId: 'different' } :
+        variant === 'idle-unterminated' ? { ...unterminated, code: codexIdle.code } :
+          variant === 'content' ? { ...valid, code: 'CONTENT_REJECTED' } : valid;
+      const f = preflightFixture('deliver', proof);
+      if (variant === 'missing') f.objects[digest(proof)] = undefined;
+      if (variant === 'multiple-references')
+        f.receipts.deliver.references.push(f.receipts.deliver.references[0]);
+      const previous = structuredClone(f.receipts);
+      assert.deepEqual(await continueStages(f.options), { schemaVersion: 1,
+        status: 'denied', code: 'STAGE_REQUIRES_CORRECTION', stage: 'deliver' });
+      assert.deepEqual(f.calls, []);
+      assert.deepEqual(f.receipts, previous);
+    }
+    for (const stage of ['shape', 'validate-shape', 'accept']) {
+      const f = preflightFixture(stage, valid);
+      assert.equal((await continueStages(f.options)).code,
+        'STAGE_REQUIRES_CORRECTION');
+      assert.deepEqual(f.calls, []);
     }
   });
