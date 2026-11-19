@@ -1,7 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, readFile, writeFile, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { CodexRoleAgent } from '../src/codex-agent.mjs';
@@ -15,7 +14,9 @@ const stages = ['shape', 'validate-shape', 'review-pr', 'deliver', 'accept'];
 const identity = stage => ['validate-shape', 'review-pr'].includes(stage)
   ? 'shape' : stage;
 async function fixture(t) {
-  const root = await mkdtemp(join(tmpdir(), 'nibfin-custom-agent-'));
+  const parent = join(coreRoot, '.nibfin-cache');
+  await mkdir(parent, { recursive: true });
+  const root = await mkdtemp(join(parent, 'custom-agent-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   const stateRoot = join(root, 'state'), work = join(root, 'target');
   await mkdir(stateRoot, { mode: 0o700 });
@@ -26,13 +27,18 @@ async function fixture(t) {
     id_token: 'synthetic-identity-token-with-no-authority',
     account_id: 'synthetic-account',
   } }), { mode: 0o600 });
+  const isolatedCoreRoot = join(root, 'core');
   const skills = {}, builtins = {};
   for (const name of ['shape', 'deliver', 'accept']) {
     builtins[name] = await readFile(join(coreRoot, 'skills', name, 'SKILL.md'),
       'utf8');
+    const directory = join(isolatedCoreRoot, 'skills', name);
+    await mkdir(directory, { recursive: true });
+    await writeFile(join(directory, 'SKILL.md'), builtins[name], { mode: 0o400 });
     skills[name] = digest(builtins[name]);
   }
-  const config = { stateRoot, work, projectRoot: work, authFile, coreRoot,
+  const config = { stateRoot, work, projectRoot: work, authFile,
+    coreRoot: isolatedCoreRoot,
     skills, model: 'configured-model' };
   const adapters = { prepareMain: async (directory, _issue, base) => {
     await mkdir(directory);
@@ -79,7 +85,7 @@ test('all execution roles stage and prompt defaults, extend and override', async
         assert.ok(input.plan.prompt.includes('Core execution role: ' + stage));
         const baseline = codexPlan(stage, { model: f.config.model,
           skill: { identity: name, content: builtin, hash: digest(builtin) },
-          context: {} });
+          context: { execution: { id: input.executionId } } });
         for (const key of ['config', 'schema', 'environment', 'requirements',
           'policyHash', 'args', 'writable']) {
           assert.deepEqual(input.plan[key], baseline[key], key);
