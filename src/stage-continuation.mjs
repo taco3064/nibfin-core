@@ -18,6 +18,16 @@ const agentStages = pressureStages;
 const correctionStages = new Set(['accept', 'review-pr']);
 
 async function stoppedAgentCanRestart(store, stage, receipt) {
+  const report = receipt.report;
+  const termination = report?.termination;
+  // A fresh continuation rechecks an unfinished, file-only Deliver after its
+  // environment was repaired. This is not a retry loop or successful delivery.
+  if (stage === 'deliver' && receipt.outcome === 'blocked' &&
+    typeof receipt.execution?.id === 'string' && report?.producer === 'agent' &&
+    report.failureClass === 'external_failure' &&
+    report.binding?.executionId === receipt.execution.id &&
+    termination?.executionId === receipt.execution.id &&
+    termination.running === false && termination.exitCode === 0) return true;
   if (!agentStages.has(stage) || receipt.outcome !== 'blocked' ||
     typeof receipt.execution?.id !== 'string' || receipt.references?.length !== 1)
     return false;

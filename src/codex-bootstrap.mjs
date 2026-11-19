@@ -206,6 +206,9 @@ export async function bootstrap() {
   if (!match || Number(match[1]) === 0 && Number(match[2]) < 138)
     throw new Error('MANAGED_PROFILE_UNSUPPORTED');
   await mkdir('/tmp/tool-home', { recursive: true, mode: 0o700 });
+  if (plan.writable && !jobVm)
+    await mkdir(plan.config['shell_environment_policy.set'].TMPDIR,
+      { recursive: true, mode: 0o700 });
   await copyFile('/auth/auth.json', '/agent-home/auth.json');
   if (plan.mcpPolicyHash) {
     await copyFile('/auth/mcp.toml', '/agent-home/config.toml');

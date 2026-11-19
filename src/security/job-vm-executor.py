@@ -108,6 +108,8 @@ def workspace(client):
                 shutil.rmtree(root)
             root.mkdir()
             restore(root, request["files"])
+            if name == "work":
+                (root / ".nibfin-cache/tmp").mkdir(parents=True, exist_ok=True)
             Path(ENV["HOME"]).mkdir(parents=True, exist_ok=True)
             result = {"ready": True}
         elif request["operation"] == "collect":

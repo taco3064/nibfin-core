@@ -41,7 +41,8 @@ export function codexPlan(stage, {
       LANG: 'C.UTF-8',
       GOMAXPROCS: '2', GOFLAGS: '-p=1',
       ...(writable && {
-        TMPDIR: '/work', TMP: '/work', TEMP: '/work',
+        TMPDIR: '/work/.nibfin-cache/tmp',
+        TMP: '/work/.nibfin-cache/tmp', TEMP: '/work/.nibfin-cache/tmp',
         XDG_CACHE_HOME: '/work/.nibfin-cache',
         XDG_CONFIG_HOME: '/work/.nibfin-cache/config',
         GOCACHE: '/work/.nibfin-cache/go-build', GOPATH: '/work/.nibfin-cache/go',
