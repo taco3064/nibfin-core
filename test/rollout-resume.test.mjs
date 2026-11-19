@@ -9,9 +9,10 @@ import { providerHost } from './provider-fixture.mjs';
 import { GitHubReader } from '../src/github-read.mjs';
 import { sharedDispatchWorkflow } from '../src/shared-runner.mjs';
 
-async function fixture() {
-  const source = await readFile(new URL('../.github/workflows/shared-runner.yml',
+async function fixture(legacy = false) {
+  let source = await readFile(new URL('../.github/workflows/shared-runner.yml',
     import.meta.url), 'utf8');
+  if (legacy) source = source.replace(/^.*target_repository: \{.*\}\r?\n/m, '');
   const commit = 'a'.repeat(40);
   const actor = { id: 4, login: 'owner', type: 'User' };
   const repository = 'taco3064/nibfin-core';
@@ -118,7 +119,7 @@ test('rollout continues eligible work through the native workflow', async () => 
   assert.deepEqual(result.results.map(item => item.number), [1]);
   assert.equal(f.calls[0].destination.ref, 'main');
   assert.deepEqual(f.calls[0].inputs, { repository_id: '1', issue_number: '1',
-    issue_id: 'I_1', stage: 'continue' });
+    issue_id: 'I_1', stage: 'continue', target_repository: 'taco3064/nibfin-core' });
 });
 
 test('operator pause prevents all rollout continuation dispatches', async () => {
@@ -126,6 +127,14 @@ test('operator pause prevents all rollout continuation dispatches', async () => 
   f.paused = true;
   assert.equal((await resumeRolloutWork(f.context)).status, 'paused');
   assert.deepEqual(f.calls, []);
+});
+
+test('older shared receivers keep their original dispatch inputs', async () => {
+  const f = await fixture(true);
+  const result = await resumeRolloutWork(f.context);
+  assert.equal(result.status, 'dispatched');
+  assert.deepEqual(f.calls[0].inputs, { repository_id: '1', issue_number: '1',
+    issue_id: 'I_1', stage: 'continue' });
 });
 
 test('a failed authoritative read does not dispatch that Issue', async () => {

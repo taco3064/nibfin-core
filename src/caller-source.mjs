@@ -31,9 +31,13 @@ export async function readCallerSource(reader, repository, workflow, current, re
 }
 // Revocation check for the current default branch. This does not authorize code
 // from that branch to run in an already authenticated, pinned older Actions job.
-export async function readCallerContinuity(reader, repository, workflow, current) {
+export async function readCallerContinuity(
+  reader, repository, workflow, current, observeSource = () => {},
+) {
   requireThat(isSha(workflow.commit) && isSha(current), 'INVALID_CALLER_SOURCE');
-  await readPinnedFile(reader, repository, workflow.path, workflow.commit, workflow.blob);
+  let source = await readPinnedFile(
+    reader, repository, workflow.path, workflow.commit, workflow.blob,
+  );
   if (current !== workflow.commit) {
     const ancestry = await reader.get(
       `${repoPath(repository)}/compare/${workflow.commit}...${current}`,
@@ -42,7 +46,9 @@ export async function readCallerContinuity(reader, repository, workflow, current
       ancestry.status === 'ahead' && ancestry.merge_base_commit?.sha === workflow.commit,
       'CALLER_SOURCE_NOT_DESCENDANT',
     );
-    await readPinnedFile(reader, repository, workflow.path, current, workflow.blob);
+    source = await readPinnedFile(
+      reader, repository, workflow.path, current, workflow.blob,
+    );
     const change = async (ref) => {
       const root = repoPath(repository),
         path = encodeURIComponent(workflow.path);
@@ -60,5 +66,6 @@ export async function readCallerContinuity(reader, repository, workflow, current
       'CALLER_REVOKED_OR_SUPERSEDED',
     );
   }
+  observeSource(source);
   return current;
 }

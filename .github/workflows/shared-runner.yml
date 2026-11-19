@@ -1,9 +1,27 @@
 name: Nibfin shared Runner
-run-name: Nibfin ${{ inputs.repository_id }} #${{ inputs.issue_number }} ${{ inputs.stage }}
+run-name: >-
+  ${{ inputs.stage == 'wake' && 'Wake' ||
+      inputs.stage == 'shape' && 'Shape' ||
+      inputs.stage == 'validate-shape' && 'Validate Shape' ||
+      inputs.stage == 'publish-shape' && 'Publish Shape' ||
+      inputs.stage == 'deliver' && 'Deliver' ||
+      inputs.stage == 'pre-accept-hooks' && 'Pre-accept hooks' ||
+      inputs.stage == 'accept' && 'Accept' ||
+      inputs.stage == 'post-accept-hooks' && 'Post-accept hooks' ||
+      inputs.stage == 'review-pr' && 'Review' ||
+      inputs.stage == 'commit-pr' && 'Publish PR' ||
+      inputs.stage == 'merge' && 'Merge' ||
+      inputs.stage == 'close' && 'Close' ||
+      inputs.stage == 'continue' && 'Auto' || inputs.stage || 'Auto' }} ·
+  ${{ inputs.target_repository ||
+      (inputs.stage == 'wake' && inputs.wake_event &&
+       fromJSON(inputs.wake_event).event.repository.full_name) ||
+      format('repository ID {0}', inputs.repository_id) }}#${{ inputs.issue_number }}
 on:
   workflow_dispatch:
     inputs:
       repository_id: { required: true, type: string }
+      target_repository: { required: false, type: string }
       issue_number: { required: true, type: string }
       issue_id: { required: false, type: string }
       stage: { required: false, type: string, default: continue }
@@ -36,7 +54,10 @@ jobs:
           fi
           version=$(/bin/cat .node-version)
           [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
-          exec /usr/bin/env -i PATH=/usr/bin:/bin LANG=C.UTF-8 \
+          result=$(mktemp "$RUNNER_TEMP/nibfin-result.XXXXXX")
+          trap 'rm -f -- "$result"' EXIT
+          set +e
+          /usr/bin/env -i PATH=/usr/bin:/bin LANG=C.UTF-8 \
             GITHUB_REPOSITORY="$GITHUB_REPOSITORY" \
             GITHUB_RUN_ID="$GITHUB_RUN_ID" \
             GITHUB_RUN_ATTEMPT="$GITHUB_RUN_ATTEMPT" \
@@ -47,4 +68,13 @@ jobs:
             ACTIONS_ID_TOKEN_REQUEST_TOKEN="$ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
             NIBFIN_TARGET_REPOSITORY_ID="$NIBFIN_TARGET_REPOSITORY_ID" \
             "/opt/nibfin/tools/node-v${version}-linux-x64/bin/node" \
-            /opt/nibfin/core/bin/nibfin-core.mjs "$@"
+            /opt/nibfin/core/bin/nibfin-core.mjs "$@" | tee "$result"
+          status=${PIPESTATUS[0]}
+          set -e
+          summary=/opt/nibfin/core/scripts/actions-summary.mjs
+          if [[ -f "$summary" ]]; then
+            "/opt/nibfin/tools/node-v${version}-linux-x64/bin/node" \
+              "$summary" "$result" "$GITHUB_STEP_SUMMARY" ||
+              echo '::warning::Could not write the task summary'
+          fi
+          exit "$status"

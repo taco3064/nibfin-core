@@ -10,6 +10,7 @@ import { bindRawScope } from './approval-record.mjs';
 import { digest, isId, isSha, requireThat } from './identity.mjs';
 import { readCallerSource } from './caller-source.mjs';
 import { wakeRecipe } from './caller-recipes.mjs';
+import { targetTitleInput } from './dispatch-presentation.mjs';
 
 function wakeObservationCode(error, fallback) {
   if (Number.isInteger(error?.status) && error.status >= 400 && error.status <= 599)
@@ -124,6 +125,14 @@ function pauseBinding(pause) {
   return { status, effective, visible, repair, events: events.filter(pauseEvent) };
 }
 
+// Keep the journal's observation and its operation binding identical. Display
+// capability is not authority and must also stay out of readback/recovery identity.
+function wakeObservationBinding(initial) {
+  const binding = { ...initial, workflow: { ...initial.workflow } };
+  delete binding.workflow.targetTitle;
+  return binding;
+}
+
 function assertWakeRun(run, initial, workflow, runId) {
   const destinationId = () => workflow.repositoryId ?? initial.issue.repositoryId;
   requireThat(
@@ -174,7 +183,7 @@ export class WakeDispatcher {
   }
   async #readBack(initial, workflow, runId) {
     const { issue } = initial;
-    const bindingHash = digest(initial);
+    const bindingHash = digest(wakeObservationBinding(initial));
     const destination = () => workflow.repository ?? issue.repository;
     const run = await this.#reader.get(
       `${repoPath(destination())}/actions/runs/${runId}`,
@@ -185,7 +194,7 @@ export class WakeDispatcher {
   }
   // Reconcile only a durable known effect; never observe admission or POST here.
   async reconcile(initial) {
-    const bindingHash = digest(initial);
+    const bindingHash = digest(wakeObservationBinding(initial));
     const result = await this.#journal.recoverWake(bindingHash,
       runId => this.#readBack(initial, initial.workflow, runId));
     return result.status === 'completed'
@@ -200,13 +209,14 @@ export class WakeDispatcher {
       return { status: 'denied',
         code: wakeObservationCode(error, 'WAKE_OBSERVATION_UNAVAILABLE') };
     }
-    const bindingHash = digest(initial);
+    const binding = wakeObservationBinding(initial);
+    const bindingHash = digest(binding);
     const { issue } = initial;
     let workflow = initial.workflow;
     const destination = () => workflow.repository ?? issue.repository;
     let admissionCode;
     const result = await this.#journal.run(
-      { operation: 'wake', bindingHash, observation: initial },
+      { operation: 'wake', bindingHash, observation: binding },
       {
         admit: async () => {
           try {
@@ -254,6 +264,7 @@ export class WakeDispatcher {
                   issue_number: String(issue.number),
                   issue_id: issue.id,
                   repository_id: String(issue.repositoryId),
+                  ...targetTitleInput(workflow, issue.repository),
                 },
               }),
             },

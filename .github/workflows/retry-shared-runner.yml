@@ -1,4 +1,6 @@
 name: Nibfin · Retry Transient Reads
+run-name: >-
+  Retry check · ${{ github.event.workflow_run.display_title }}
 on:
   workflow_run:
     workflows: [Nibfin shared Runner]

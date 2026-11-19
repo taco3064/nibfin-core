@@ -19,6 +19,7 @@ import { issueProgress } from './issue-progress.mjs';
 import { refreshShapeWorkspace } from './host-shape-workspace.mjs';
 import { cleanClosedWorkspace } from './closed-workspace.mjs';
 import { continueStages } from './stage-continuation.mjs';
+import { observeStageProgress } from './stage-presentation.mjs';
 import { setTimeout } from 'node:timers/promises';
 import { digest, isId, requireThat } from './identity.mjs';
 import { acquireHostFence, issueStatePath, privateHostDirectory } from './host-fence.mjs';
@@ -370,7 +371,7 @@ async function launchAdmittedStage(issueNumber, stage, env, runnerUid,
       });
     }
     const invocations = new Map();
-    const execute = async (current, ciFailure) => {
+    const presentation = observeStageProgress(async (current, ciFailure) => {
       await requirePoolOpen();
       const iteration = invocations.get(current) ?? 0;
       invocations.set(current, iteration + 1);
@@ -418,7 +419,8 @@ async function launchAdmittedStage(issueNumber, stage, env, runnerUid,
           code: observationFailureCode(error) };
       }
       return executor.run({ schemaVersion: 1, stage: current });
-    };
+    });
+    const { execute } = presentation;
     const run = () =>
       stage === 'continue'
         ? continueStages({
@@ -443,13 +445,14 @@ async function launchAdmittedStage(issueNumber, stage, env, runnerUid,
     return stage === 'continue'
       ? {
           ...result,
+          stageProgress: presentation.progress,
           stage: 'continue',
           terminalStage: result.stage,
           ...(result.retrySettled && runner.target ? {
             retryRun: runner.runId, retryAttempt: runner.attempt,
           } : {}),
         }
-      : result;
+      : { ...result, stageProgress: presentation.progress };
   } catch (error) {
     const waiting = githubReadWait(error, undefined, { stage: true });
     if (waiting && release && !mcpEntered && !executorEntered) {

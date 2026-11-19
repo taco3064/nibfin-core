@@ -5,6 +5,7 @@ import { resolveSharedContinuation } from './issue-wake.mjs';
 import { loadAdoptedHost } from './adopted-host.mjs';
 import { safeRelayCode } from './notification-relay.mjs';
 import { sharedDispatchWorkflow } from './shared-runner.mjs';
+import { targetTitleInput } from './dispatch-presentation.mjs';
 import { continuationLifecycle, ContinuationState, resumeLifecycle,
   continuationOutcome } from './continuation-state.mjs';
 import { retirementPath, drainPath, requireNoRetirement } from
@@ -60,6 +61,7 @@ export async function resumeRolloutWork({ reader, configuration, inspect, journa
         const run = await dispatch(destination, {
           repository_id: String(issue.repositoryId), issue_number: String(issue.number),
           issue_id: issue.id, stage: 'continue',
+          ...targetTitleInput(destination, issue.repository),
         });
         const dispatched = { repository: issue.repository,
           repositoryId: issue.repositoryId, id: issue.id, number: issue.number, ...run };
