@@ -18,7 +18,9 @@ export async function cleanClosedWorkspace({ progress, approval, reader }) {
       !live.labels?.some(label => label.name === 'delivered'))
     return;
   await store.get(digest(marker));
-  const shape = receipts['publish-shape']?.requirementsBody;
+  const published = receipts['publish-shape'];
+  const shape = published?.requirementsBody ?? (published?.artifacts?.shapeHash
+    ? await store.get(published.artifacts.shapeHash) : undefined);
   if (typeof shape !== 'string') return;
   let workExists = true;
   try { await lstat(join(workspaceRoot, 'work')); }

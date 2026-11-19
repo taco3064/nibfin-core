@@ -43,6 +43,17 @@ test('settled closure removes Git/artifacts/agent data and tolerates a cleanup r
     assert.equal(await readFile(f.receipt, 'utf8'), 'native closure reference');
   });
 
+test('legacy published Shape content remains usable for completed cleanup', linux,
+  async t => {
+    const f = await fixture(t);
+    f.receipts['publish-shape'] = { artifacts: { shapeHash: 'legacy-shape' } };
+    f.config.progress.store.get = async reference => reference === 'legacy-shape'
+      ? 'Delivered Shape' : {};
+    await cleanClosedWorkspace(f.config);
+    await assert.rejects(access(f.workspaceRoot), { code: 'ENOENT' });
+    await assert.rejects(access(f.agent), { code: 'ENOENT' });
+  });
+
 for (const state of ['open', 'not-delivered', 'unsettled']) {
   test(`closure cleanup preserves ${state} work`, linux, async t => {
     const f = await fixture(t);
