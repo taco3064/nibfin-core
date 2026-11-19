@@ -5,10 +5,12 @@ import { privateHostDirectory } from './host-fence.mjs';
 import { digest, requireThat } from './identity.mjs';
 import { readObservationFile } from './local-work-files.mjs';
 
+export const blockerReportsName = 'reports';
+
 // Immutable, independently named reports survive replacement of stage pointers.
 export async function saveBlockerReport(receiptsRoot, report) {
   await privateHostDirectory(receiptsRoot);
-  const root = join(receiptsRoot, 'reports');
+  const root = join(receiptsRoot, blockerReportsName);
   await mkdir(root, { mode: 0o700 }).catch(error => {
     if (error.code !== 'EEXIST') throw error;
   });
