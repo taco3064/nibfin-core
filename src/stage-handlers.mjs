@@ -102,13 +102,12 @@ export function stageHandlers({
           if (protectedPaths.length)
             return { freshnessBlocked: pathFindings(protectedPaths) };
         }
-        const correction = stage === 'deliver' && [
-          context.receipts['review-pr'], context.receipts.accept,
-        ].find(receipt =>
-          candidateCorrectionRequired(receipt) &&
+        const correction = stage === 'deliver' && ['review-pr', 'accept']
+          .map(name => [name, context.receipts[name]])
+          .find(([name, receipt]) => candidateCorrectionRequired(receipt, name) &&
           receipt.artifacts.shapeHash === context.shape.hash &&
           receipt.artifacts.candidateHash ===
-            context.receipts.deliver?.artifacts.candidateHash);
+            context.receipts.deliver?.artifacts.candidateHash)?.[1];
         const previousDelivery = context.receipts.deliver;
         const deliveryFindings = previousDelivery?.outcome === 'changes_required' &&
           previousDelivery.artifacts.shapeHash === context.shape.hash
