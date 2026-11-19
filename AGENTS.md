@@ -100,6 +100,31 @@ Useful cases:
   workflow result exists. In a separate case with an actual role-owned check,
   preserve that check.
 
+## Use events instead of periodic repair machinery
+
+Do not introduce timers, cron jobs, scheduled workflows, polling services or
+external monitors to keep dispatch, continuation, recovery, installation or
+upgrade control flow moving. Use documented GitHub events, explicit lifecycle
+completion and the existing operation's normal retry path. Do not replace a
+rejected timer with another periodic mechanism.
+
+Scheduled work requires an actual time-based product requirement and explicit
+Owner approval. Automatic or reliable operation alone is not such approval.
+Explain any genuine platform gap with current source, effective configuration
+and official documentation before proposing an exception.
+
+Do not invent a restriction and then add infrastructure to satisfy it. The
+requirement that users must not manually handle credentials means automating
+supported setup from their existing GitHub CLI login; it does not require
+credentials to remain only on the local host. Verify actual permissions and
+preserve confidential handling without requiring manual token creation,
+copying or pasting.
+
+The Owner has rejected the notification-relay.timer design. Do not extend that
+timer or its artifact-polling route, or make it a prerequisite for installation,
+Runner replacement or continuation. Use the authorized migration path to remove
+its dependencies while preserving active work and existing native event routing.
+
 ## Shared Runner upgrades
 
 The Nibfin Dashboard exposes Pause/Resume for selected Issues through
