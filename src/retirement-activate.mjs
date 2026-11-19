@@ -4,11 +4,11 @@ import { rootOwnedPath } from './host-paths.mjs';
 import { requireThat } from './identity.mjs';
 import { repoPath } from './github-read.mjs';
 import { verifyInstalledSource } from './source-package.mjs';
+import { inspectNotificationRelay } from './relay-service.mjs';
 import { inspectSharedHost } from './shared-host-inspect.mjs';
-import { sharedRepository } from './shared-runner.mjs';
-import {
-  adoptionReader, observePeer, verifyAdoptionAction,
-} from './shared-peer-adoption.mjs';
+import { adoptionReader } from './shared-peer-adoption.mjs';
+import { observeLifecycleConsumers, verifyLifecycleActivation }
+  from './lifecycle-route.mjs';
 import { verifyRunningSharedServices } from './shared-service-start.mjs';
 import { retirementPath } from './retirement-admission.mjs';
 import { readRetirementFile } from './retirement-files.mjs';
@@ -26,26 +26,6 @@ export function verifyReplacementRunners(pool, old, registrations) {
       runner.os === 'Linux' && runner.status === 'online' && runner.busy === false &&
       runner.labels.some(label => label.name === `nibfin-user-${pool.memberId}`))),
   'RETIREMENT_REPLACEMENT_RUNNERS_UNVERIFIED');
-}
-
-async function verifyRepository(reader, host, target, source) {
-  const adopted = await sharedRepository(host, target.repositoryId, async path => {
-    await rootOwnedPath(path);
-    return JSON.parse(await boundedHostFile(path, 262144));
-  });
-  const { approval, runner, eventRunner } = adopted.repository;
-  requireThat(approval.repository === target.repository &&
-    approval.memberId === host.memberId && runner.runnerId === host.runnerId &&
-    runner.runnerName === host.sharedRunner.runner.runnerName &&
-    eventRunner.runnerId === runner.runnerId &&
-    eventRunner.runnerName === runner.runnerName,
-  'RETIREMENT_REPOSITORY_CHANGED');
-  await verifyAdoptionAction(reader, runner.actionCommit, host.installation.pin);
-  const observed = await observePeer(reader, target.repository,
-    target.repositoryId, host.memberId, source, runner.actionCommit);
-  requireThat([[runner, observed.action], [eventRunner, observed.issue]].every(
-    ([recorded, current]) => ['workflowId', 'workflowPath', 'workflowBlob'].every(
-      field => recorded[field] === current[field])), 'RETIREMENT_WAKE_BINDING_CHANGED');
 }
 
 export async function activateSharedReplacement() {
@@ -69,13 +49,26 @@ async function verifyAndReleaseReplacement() {
     'RETIREMENT_REPOSITORIES_UNVERIFIED');
     const source = await verifyInstalledSource(coreRoot, host.installation.pin);
     const reader = await adoptionReader(host);
-    for (const target of targets) await verifyRepository(reader, host, target, source);
+    const snapshots = new Map([[hostFile, bytes]]);
+    const routes = await observeLifecycleConsumers(reader, host, source, async path => {
+      await rootOwnedPath(path);
+      const observed = await boundedHostFile(path, 262144);
+      snapshots.set(path, observed);
+      return JSON.parse(observed);
+    });
+    requireThat(routes.every(route => targets.some(target =>
+      target.repositoryId === route.repositoryId &&
+      target.repository === route.repository)), 'RETIREMENT_REPOSITORY_CHANGED');
+    await verifyLifecycleActivation(routes, inspectNotificationRelay);
     await verifyRunningSharedServices();
     const registrations = await reader.list(
       repoPath(pool.repository) + '/actions/runners', 'runners');
     verifyReplacementRunners(pool, state.binding.pool, registrations);
-    requireThat(await boundedHostFile(hostFile, 262144) === bytes,
-      'RETIREMENT_ADOPTION_CHANGED');
+    for (const [path, observed] of snapshots) {
+      await rootOwnedPath(path);
+      requireThat(await boundedHostFile(path, 262144) === observed,
+        'RETIREMENT_ADOPTION_CHANGED');
+    }
   });
   return { status: 'active', retirementId: state.id, ...pool };
 }

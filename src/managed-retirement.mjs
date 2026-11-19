@@ -55,7 +55,7 @@ export async function retireManagedPool(binding, ports) {
     if (state.phase === 'retired' && state.pending === null) return result();
     if (state.phase === 'retired') await save({ phase: 'cleanup' });
     if (state.phase === 'draining') {
-      for (const name of ['close-admission', 'relay-pause']) {
+      for (const name of ports.drainEffects ?? ['close-admission', 'relay-pause']) {
         if (!await effect(name)) {
           await save({ pending: 'DRAIN_EFFECT_UNKNOWN' });
           return result();

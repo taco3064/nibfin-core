@@ -148,3 +148,20 @@ test('release needs retirement and fresh IDs independently of replacement', asyn
     { code: 'RETIREMENT_RELEASE_REQUIRED' });
   assert.equal((await f.run()).status, 'retired');
 });
+
+
+test('native drain ignores old relay-pause intent and keeps pool safety', async () => {
+  const f = fixture();
+  f.controls.failBefore = 'relay-pause';
+  const first = await f.run();
+  assert.equal(first.code, 'DRAIN_EFFECT_UNKNOWN');
+  f.ports.drainEffects = ['close-admission'];
+  f.controls.busy = true;
+  assert.equal((await f.run()).code, 'RETIREMENT_CONSUMER_PENDING');
+  f.controls.busy = false;
+  const next = await f.run();
+  assert.equal(next.phase, 'removal');
+  assert.equal(next.retirementId, first.retirementId);
+  assert.equal(f.state().effects['relay-pause'], 'intent');
+  assert.equal(f.effects.filter(name => name === 'relay-pause').length, 1);
+});

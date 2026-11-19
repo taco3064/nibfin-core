@@ -32,7 +32,7 @@ function fixture() {
     const bytes = Buffer.from(recipe);
     replies.set(root + '/actions/workflows/' + file, { id, path, state: 'active' });
     replies.set(root + '/contents/' + path + '?ref=' + head, {
-      type: 'file', path, encoding: 'base64', sha: gitBlob(bytes),
+      type: 'file', path, encoding: 'base64', sha: gitBlob(bytes), size: bytes.length,
       content: bytes.toString('base64'),
     });
   }
@@ -160,3 +160,50 @@ test('peer observation accepts only exact historical and titled recipe variants'
       }
     }
   });
+test('lifecycle observes native caller continuity and source/destination', async () => {
+  const { observeLifecycleConsumers } = await import('../src/lifecycle-route.mjs');
+  const { providerHost } = await import('./provider-fixture.mjs');
+  const reader = fixture();
+  const host = providerHost();
+  host.runnerId = host.sharedRunner.runner.runnerId;
+  host.sharedRunner.repositories = [123];
+  host.installation.pin.commit = source.commit;
+  const observed = await observePeer(reader, name, 123, memberId, source, actionCommit);
+  host.memberId = memberId;
+  host.sharedRunner.runner.memberId = memberId;
+  const peer = peerConfiguration(host, name, 123, source, actionCommit, observed, head);
+  host.repository = peer.repository;
+  reader.replies.set(`/repos/taco3064/nibfin-act/contents/core-source.json?ref=` +
+    actionCommit, { type: 'file', encoding: 'base64',
+    content: Buffer.from(JSON.stringify(host.installation.pin)).toString('base64') });
+  const destination = host.sharedRunner.runner;
+  destination.sourceCommit = head;
+  const path = destination.workflowPath;
+  const body = Buffer.from('maintained shared destination');
+  destination.workflowBlob = gitBlob(body);
+  const root = '/repos/' + destination.repository;
+  reader.repository = async repository => {
+    assert.equal(repository, destination.repository);
+    return { id: destination.repositoryId, full_name: repository,
+      private: false, archived: false, disabled: false, default_branch: 'main' };
+  };
+  reader.replies.set(root + '/branches/main', { protected: true, commit: { sha: head } });
+  reader.replies.set(root + '/actions/workflows/' + destination.workflowId,
+    { id: destination.workflowId, path, state: 'active' });
+  reader.replies.set(root + '/contents/' + path + '?ref=' + head,
+    { type: 'file', path, sha: destination.workflowBlob, size: body.length,
+      encoding: 'base64',
+      content: body.toString('base64') });
+  const variables = [{ name: 'NIBFIN_SHARED_RUNNER_POOL', value: 'true' },
+    { name: 'NIBFIN_SHARED_RUNNER_DESTINATION', value: JSON.stringify(destination) }];
+  reader.list = async (_path, key) => key === 'variables' ? variables
+    : [{ name: 'NIBFIN_WAKE_TOKEN' }];
+  const observe = () => observeLifecycleConsumers(reader, host, source, assert.fail);
+  assert.equal((await observe())[0].route, 'native');
+  host.repository.eventRunner.sourceCommit = 'e'.repeat(40);
+  // Missing historical caller source must fail at its actual continuity boundary.
+  await assert.rejects(observe());
+  host.repository.eventRunner.sourceCommit = head;
+  host.repository.eventRunner.workflowId = 999;
+  await assert.rejects(observe(), { code: 'RETIREMENT_WAKE_BINDING_CHANGED' });
+});

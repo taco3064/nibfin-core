@@ -1,5 +1,4 @@
-import { RelayJournal } from './relay-state.mjs';
-import { relayStateRoot } from './relay-host.mjs';
+import { settleLifecycleNotifications } from './lifecycle-settlement.mjs';
 import { assertNoCredentialConsumers } from './managed-credentials.mjs';
 import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -45,6 +44,10 @@ export async function observeRetirementUnit(
 export async function assertRetirementCgroups(
   root = '/sys/fs/cgroup', slots = [1, 2],
 ) {
+  return assertEmptyUnitCgroups(slots.map(slotUnit), root);
+}
+
+export async function assertEmptyUnitCgroups(units, root = '/sys/fs/cgroup') {
   await readFile(join(root, 'cgroup.controllers'));
   let count = 0;
   const walk = async (directory, matched = false) => {
@@ -52,7 +55,7 @@ export async function assertRetirementCgroups(
     for (const entry of await readdir(directory, { withFileTypes: true })) {
       if (!entry.isDirectory()) continue;
       const path = join(directory, entry.name);
-      const selected = matched || slots.some(slot => entry.name === slotUnit(slot));
+      const selected = matched || units.includes(entry.name);
       if (selected) {
         const processes = await readFile(join(path, 'cgroup.procs'), 'utf8');
         requireThat(processes.trim() === '', 'RETIREMENT_CGROUP_PENDING');
@@ -104,8 +107,10 @@ export async function assertRetirementJobs(reader, repositories, pool) {
   }
 }
 
-export async function settleRetirementWork(host, reader, binding, state) {
-  await new RelayJournal(relayStateRoot).requireSettled();
+export async function settleRetirementWork(
+  host, reader, binding, state, artifactNotifications = true,
+) {
+  await settleLifecycleNotifications(binding, artifactNotifications);
   await settlePoolWork(host, reader, binding, state);
 }
 
@@ -123,8 +128,10 @@ export async function settlePoolWork(host, reader, binding, state, options) {
   await observeRetirementRegistrations(reader, binding.pool, { allowOnline: true });
 }
 
-export async function settleRetirement(host, reader, binding, state) {
-  await settleRetirementWork(host, reader, binding, state);
+export async function settleRetirement(
+  host, reader, binding, state, artifactNotifications = true,
+) {
+  await settleRetirementWork(host, reader, binding, state, artifactNotifications);
   await observeRetirementRegistrations(reader, binding.pool);
   for (const slot of [1, 2]) await observeRetirementUnit(slot);
   await assertRetirementCgroups();

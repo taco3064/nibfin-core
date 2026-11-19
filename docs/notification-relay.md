@@ -3,7 +3,8 @@
 This page describes the retained historical artifact route. Native Issue forwarding
 and caller refresh do not require this configuration or its receipts; see
 [the native caller-refresh contract](managed-issue-wake.md). Removing historical
-notification resources is a separate migration responsibility.
+notification resources uses the installed cleanup interface below; CLI owns
+credential setup and migration orchestration.
 
 The Controller polls adopted public GitHub repositories and forwards bounded
 Issue notification artifacts to its installed shared workflow. Notifications
@@ -217,11 +218,77 @@ Explicit lifecycle completion and the operation's normal retry initiate recovery
 Notification polling does not invoke lifecycle continuation. No timer, cron job,
 scheduled workflow, polling service or external watcher is required. Existing
 notification processing and its stricter immutable-intent/unknown-effect recovery
-remain separate; this change does not remove notification resources or migrate
-native caller credentials. Current Issue pauses, dependencies and managed
-admission remain authoritative.
+remain separate; lifecycle completion does not migrate native caller credentials.
+The separate cleanup command below removes verified obsolete resources. Current
+Issue pauses, dependencies and managed admission remain authoritative.
 
 If GitHub accepts a request but its response is lost, retry can submit another
 ordinary native continuation after current-state checks. Exactly-once dispatch is
 not promised. GitHub's native concurrency and Core's stage/effect protections
 remain authoritative; the resulting job establishes actual Issue progress.
+
+## Native migration cleanup
+
+`nibfin-core cleanup-notifications` is a fixed, argument-free installed
+administrator command. It accepts no path, token, adapter or readiness assertion.
+The public `managedNotificationLifecycle` capability advertises it. Source support
+does not establish that any host has migrated or that a release is available.
+
+Before changing resources, Core enumerates current adopted repositories and
+verifies their caller/source continuity, effective native route configuration,
+destination workflow and pool readiness. A legitimately retired pool instead
+requires its exact closed adoption, current registration absence and terminated
+services/cgroups. A stale retirement phase or missing Runner alone is insufficient.
+The existing admission/adoption serialization protects these observations; Core
+rechecks bindings and consumers before removing shared resources.
+
+A remaining artifact consumer returns `retained / NOTIFICATION_CONSUMERS_REMAIN`
+and preserves the shared route. A repository already using native forwarding can
+activate independently while another consumer still uses artifact notifications.
+Unknown configuration, unexpected references, unowned files or service drop-ins
+produce incomplete cleanup and preserve the affected resources. They never
+permit guessing that a repository migrated. Native caller preparation does not
+need functioning old notification resources.
+
+For verified owned obsolete resources, cleanup stops and disables the timer
+before the service, observes inactive state and empty cgroups, removes exact
+owned unit files and reloads systemd. The oneshot service's `static` state is
+already non-enabled. Only validated notification configuration, settled origin
+records, confirmed replacement evidence, control and cache files are disposable.
+Unrelated Controller transport,
+credentials, original logins and user data are outside this inventory.
+
+Results contain `schemaVersion`, `status`, `code`, `removed`, `retained` and
+`stageAdmitted: false`. `cleaned` reports observed removals, `retained` identifies
+still-dependent repositories, and `incomplete` reports bounded observation,
+ownership or unresolved-evidence diagnostics. CLI exits 2 for `incomplete` and 1
+for refused administrator or argument checks; `retained` and `cleaned` exit 0.
+Every retained item has a concrete
+remaining purpose. The stable relay lock inode and private directory remain for
+cleanup/recovery serialization; cleanup never unlinks a lock held by a consumer.
+Unknown files are preserved for ownership investigation.
+
+Pending original dispatch intents remain with their exact source/destination and
+run identity. Cleanup reuses the existing exact-run reconciliation for records
+with returned run IDs, without dispatching again. Failed readback and lost-response
+records without run IDs retain their original evidence. Settled records and cache
+can be disposed after all actual consumers have transitioned or retired. A consumed
+origin remains while its replacement association or operation journal is retained:
+recovery and pool-specific settlement still need its source/destination attribution.
+Cleanup checks replacement associations and authoritative operation journals
+through the existing settlement interface. Pending associations still need their
+normal recovery, even after effect readback completes. Unknown effects, retained
+execution/recovery locks and unexpected directory contents preserve the evidence.
+After confirmed settlement, cleanup removes verified receipt files, then empty
+operation directories and associations, and finally their consumed origin. A lost
+association alone does not retain a settled journal forever. Interrupted removal
+keeps source attribution until the supporting evidence is gone; retry observes
+what remains. Old artifacts cannot be replayed through the verified native caller.
+
+Retry the same command after an incomplete effect. It observes actual state before
+stopping, disabling or removing anything, so a successful effect with a lost
+response is reused. A positively incomplete effect follows its normal retry path;
+an unavailable observation remains incomplete. No notification resources are
+recreated on retry. Cleanup problems and retained evidence do not block unrelated
+native lifecycle work. Real host migration and later CI/release results require
+their own environment evidence.

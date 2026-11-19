@@ -13,15 +13,18 @@ the same operation. No token, model authentication, or exception text is returne
 1. Core records the exact adoption, provider, repository/member identity, both
    registration IDs and their managed service-slot directory identities.
 2. Under the Controller admission gate, Core writes a root-owned drain marker.
-   It durably pauses the notification relay through its control interface.
+   For an adopted artifact route it also pauses notification dispatch. Native
+   routes do not load obsolete notification configuration or control files.
    New Controller admissions and pre-Worker admission refuse the draining pool.
    Continuation checks the drain boundary before beginning another stage.
 3. Existing admitted work settles. Core checks admission and credential leases,
    all adopted repositories' native Jobs, journals, Writer/session fences,
-   containers and both service cgroups. Under the relay gate it also requires
-   paused control and no pending dispatch receipts, including lost-response
-   effects without a native run ID. Relay recovery retains and reconciles these
-   receipts; retirement never clears or reposts them. Busy, unavailable or unknown observations
+   containers and both service cgroups. Artifact routes additionally require
+   paused relay control. Native routes inspect existing dispatch evidence only
+   for effects affecting this pool or its repositories; absent obsolete state
+   is allowed. Unrelated records do not block native retirement. Lost-response
+   effects affecting the pool remain protected even without a native run ID.
+   Retirement never clears or reposts them. Busy, unavailable or unknown observations
    retain Pending evidence. A retained consumer or Writer lock is not removed
    based on process age, Runner status, cancellation or registration absence.
 4. Core can stop an idle service only after workload settlement and inspection
@@ -52,17 +55,22 @@ rollout guard is preserved. A later retirement archives the previous completed
 record as `retirement-history-<retirementId>.json` in the same directory.
 
 The verified Core contract advertises `managedPoolReplacement`. After preparing
-the primary adoption, re-adopt the historical peers with `adopt-shared-peer`
-and start the two new listeners. While the drain marker exists, the listeners
-can be observed online,
+the primary adoption, re-adopt the historical peers with `adopt-shared-peer`,
+start the two new listeners, and verify current route configuration. Native
+callers need no notification relay. Artifact callers retain their existing relay
+readiness requirement. While the drain marker exists, the listeners can be
+observed online,
 but both Worker execution and new relay dispatches remain closed.
 
 The fixed, argument-free `activate-shared-replacement` operation is local
 administrator only. It verifies both new registrations, absence of the old IDs,
-the local services, installed source, private credential identity and all
-historical repository and caller bindings. Notification artifacts and relay
-service or timer readiness are not activation prerequisites. Then Core durably
-records the release and removes the drain marker. A verification failure leaves admission closed. If publication is
+the local services, private credential identity, all historical repository and
+caller bindings, installed source, current caller continuity and destination workflow. Native readiness also
+observes `NIBFIN_SHARED_RUNNER_POOL=true`, the effective destination variable
+(including the official fallback), and `NIBFIN_WAKE_TOKEN` secret metadata. These
+observations establish configuration, not live dispatch success. Only artifact
+routes require relay configuration and timer readiness. Core then durably records
+the release and removes the drain marker. A verification failure leaves admission closed. If publication is
 interrupted before the marker is removed, retrying activation revalidates the
 replacement before completing the release.
 
@@ -93,3 +101,24 @@ and gateways, the real relay control interface and admission kernel gate. They
 include process death after an effect. They establish maintained behavior, not
 live provider switching, host installation certification or authenticated
 GitHub removal. Native host/provider integration remains Unverified here.
+
+## Native migration and notification cleanup
+
+The public `managedNotificationLifecycle` capability advertises route-aware
+activation/retirement, `refresh-native-issue-caller` and `cleanup-notifications`.
+CLI owns credential setup and installation orchestration. After publishing the
+exact native caller and preparing its effective configuration, CLI can invoke
+`refresh-native-issue-caller OWNER/REPO REPOSITORY_ID` as the installed administrator.
+Core observes the current caller, destination and configured secret metadata,
+then uses the existing admission/adoption locks and atomic readback to update
+its binding. Failure preserves adoption and existing notification resources.
+The compatibility `refresh-managed-issue-caller` still refreshes either recipe.
+Neither command loads the old relay, so a missing or broken relay does not block
+native preparation.
+
+After native activation, run the fixed argument-free `cleanup-notifications`.
+See [notification cleanup and recovery](notification-relay.md#native-migration-cleanup)
+for its bounded results and resource-specific retention. Cleanup is independent
+of activation: retained shared resources or unresolved cleanup do not become a
+native activation or deployment gate. Core's existing rollout continuation
+interface and engine remain separate.

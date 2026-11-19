@@ -23,6 +23,7 @@ import { sharedRepository } from './shared-runner.mjs';
 import { withRetirementLock } from './retirement-lock.mjs';
 import { verifyInstalledSource } from './source-package.mjs';
 import { GitHubReader } from './github-read.mjs';
+import { observeLifecycleConsumers } from './lifecycle-route.mjs';
 import { readPrivate } from './managed-credential-files.mjs';
 import { controlNotificationRelay } from './relay-service.mjs';
 import { RelayJournal } from './relay-state.mjs';
@@ -100,11 +101,13 @@ function marker(state) {
   return { schemaVersion: 1, retirementId: state.id, pool: state.binding.pool };
 }
 
-async function assertClosed(state) {
+async function assertClosed(state, artifactNotifications) {
   requireThat(same(await readRetirementFile(drainPath), marker(state)),
     'RETIREMENT_ADMISSION_NOT_CLOSED');
-  requireThat((await new RelayJournal(relayStateRoot).control()).paused === true,
-    'RETIREMENT_RELAY_NOT_PAUSED');
+  if (artifactNotifications) {
+    const control = await new RelayJournal(relayStateRoot).control();
+    requireThat(control.paused === true, 'RETIREMENT_RELAY_NOT_PAUSED');
+  }
 }
 
 // This command has no path, adapter, token, removal assertion or provider input.
@@ -118,7 +121,7 @@ export async function retireSharedHost() {
     await rootOwnedPath(hostFile);
     const bytes = await boundedHostFile(hostFile, 262144);
     const host = JSON.parse(bytes);
-    await verifyInstalledSource(coreRoot, host.installation.pin);
+    const source = await verifyInstalledSource(coreRoot, host.installation.pin);
     await inspectSharedHost();
     let previous = await readRetirementFile(retirementPath);
     const archive = previous?.replacement?.phase === 'released' ? previous : null;
@@ -138,6 +141,13 @@ export async function retireSharedHost() {
     let reader;
     const nativeReader = async () => reader ??= new GitHubReader(
       (await readPrivate(host.tokenFile, host, 16384)).trim());
+    const routes = await observeLifecycleConsumers(await nativeReader(), host, source,
+      async path => {
+        await rootOwnedPath(path);
+        return JSON.parse(await boundedHostFile(path, 262144));
+      });
+    const artifactNotifications = routes.some(route => route.route === 'artifact');
+    const assertBoundary = state => assertClosed(state, artifactNotifications);
     const resources = new RetirementSlotResources();
     const gateways = new RetirementGateways();
     const services = new RetirementServices();
@@ -145,19 +155,23 @@ export async function retireSharedHost() {
       read: () => archive ? null : readRetirementFile(retirementPath),
       write: state => writeRetirementFile(retirementPath, state),
       inspectBinding: () => inspectAdoptions(binding),
-      assertClosed,
+      assertClosed: assertBoundary,
+      drainEffects: ['close-admission',
+        ...(artifactNotifications ? ['relay-pause'] : [])],
       settleWork: async state => {
         await verifyManagedAuthority({ ...host,
           credentialRepositories: binding.repositories }, '', await nativeReader());
         await inspectRetirementSessions(host);
-        await settleRetirementWork(host, await nativeReader(), binding, state);
+        await settleRetirementWork(host, await nativeReader(), binding, state,
+          artifactNotifications);
       },
       settlementEffects: retirementServiceEffects,
       settle: async state => {
         await verifyManagedAuthority({ ...host,
           credentialRepositories: binding.repositories }, '', await nativeReader());
         await inspectRetirementSessions(host);
-        await settleRetirement(host, await nativeReader(), binding, state);
+        await settleRetirement(host, await nativeReader(), binding, state,
+          artifactNotifications);
       },
       registrations: async () =>
         observeRetirementRegistrations(await nativeReader(), binding.pool),
@@ -191,14 +205,16 @@ export async function retireSharedHost() {
           requireThat(result?.status !== 'pending', 'RETIREMENT_ADMISSION_BUSY');
           return;
         }
-        await assertClosed(state);
+        await assertBoundary(state);
         await inspectAdoptions(binding);
         await inspectRetirementSessions(host);
         if (retirementServiceEffects.includes(name)) {
-          await settleRetirementWork(host, await nativeReader(), binding, state);
+          await settleRetirementWork(host, await nativeReader(), binding, state,
+            artifactNotifications);
           return services.perform(name, state);
         }
-        await settleRetirement(host, await nativeReader(), binding, state);
+        await settleRetirement(host, await nativeReader(), binding, state,
+          artifactNotifications);
         const registrations = await observeRetirementRegistrations(
           await nativeReader(), binding.pool);
         requireThat(registrations.every(value => value === 'absent'),

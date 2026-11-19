@@ -1,3 +1,5 @@
+import { observeNativeConfiguration } from './lifecycle-route.mjs';
+import { sharedRunner, sharedDispatchWorkflow } from './shared-runner.mjs';
 import { pendingReplacement, retiredPeerReplaceable } from './retirement-rebind.mjs';
 import { withReplacementAwareAdoptionLock } from './retirement-lock.mjs';
 import { requireNoRetirement } from './retirement-admission.mjs';
@@ -145,7 +147,15 @@ export function managedIssueBinding(event, observed, commit) {
     { ...event, ...observed.issue, sourceCommit: observed.head };
 }
 
-export async function refreshManagedIssueCaller(name, id) {
+export function refreshManagedIssueCaller(name, id) {
+  return refreshIssueCaller(name, id, false);
+}
+
+export function refreshNativeIssueCaller(name, id) {
+  return refreshIssueCaller(name, id, true);
+}
+
+async function refreshIssueCaller(name, id, nativeOnly) {
   requireThat(process.platform === 'linux' && process.getuid() === 0 &&
     coreRoot === '/opt/nibfin/core', 'PEER_INSTALLATION_REQUIRES_HOST_ADMIN');
   return withManagedAdmission(() => withReplacementAwareAdoptionLock(async () => {
@@ -185,6 +195,13 @@ export async function refreshManagedIssueCaller(name, id) {
     requireThat(adopted.runner.workflowId === observed.action.workflowId &&
       adopted.runner.workflowBlob === observed.action.workflowBlob,
     'MANAGED_ISSUE_TRANSITION_CONFLICT');
+    if (nativeOnly) {
+      requireThat(recipeBlobs('issue', source.commit)
+        .includes(observed.issue.workflowBlob), 'LIFECYCLE_NATIVE_CALLER_REQUIRED');
+      const destination = await sharedDispatchWorkflow(reader,
+        sharedRunner(host, adopted.approval).runner);
+      await observeNativeConfiguration(reader, name, destination);
+    }
     return refreshObservedIssueCaller(primary, target, pool, observed, source.commit, {
       read,
       readBytes: path => boundedHostFile(path, 262144),
