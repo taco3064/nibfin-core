@@ -6,7 +6,7 @@ import { stageSuccess } from './stage-runtime.mjs';
 import { digest, isDigest, requireThat } from './identity.mjs';
 import { enforcementPaths, equivalentCandidate } from './candidate-evidence.mjs';
 import { integrationRepairRequired, pendingCIObservation } from './github-ci.mjs';
-import { codexIdle } from './codex-bootstrap.mjs';
+import { codexIdle, codexPreflightExits } from './codex-bootstrap.mjs';
 import { retryableWriterPressure } from './job-vm-pressure.mjs';
 import { ciCorrectionWaiting, requiredCheckFailed } from './ci-recovery.mjs';
 import {
@@ -23,8 +23,12 @@ async function stoppedAgentCanRestart(store, stage, receipt) {
   const reference = receipt.references[0];
   if (!/^evidence:[a-f0-9]{64}$/.test(reference)) return false;
   const proof = await store.get(reference.slice('evidence:'.length)).catch(() => null);
-  return proof?.executionId === receipt.execution.id &&
-    isDigest(proof.terminationHash) &&
+  if (proof?.executionId !== receipt.execution.id) return false;
+  // Core preflight exits precede the role. A later invocation still performs
+  // current inspection and admission; an old termination digest is not a gate.
+  if (stage === 'deliver' && Object.hasOwn(codexPreflightExits, proof.code))
+    return true;
+  return isDigest(proof.terminationHash) &&
     (proof.code === hostMemoryPressure && proof.stage === stage &&
       pressureMatchesReceipt(proof.memoryPressure, stage, receipt.execution) ||
       proof.code === codexIdle.code ||
