@@ -54,6 +54,17 @@ test('legacy published Shape content remains usable for completed cleanup', linu
     await assert.rejects(access(f.agent), { code: 'ENOENT' });
   });
 
+test('settled cleanup does not depend on an obsolete local workspace marker', linux,
+  async t => {
+    const f = await fixture(t);
+    f.config.progress.store.get = async () => {
+      throw Object.assign(new Error('missing historical marker'), { code: 'ENOENT' });
+    };
+    await cleanClosedWorkspace(f.config);
+    await assert.rejects(access(f.workspaceRoot), { code: 'ENOENT' });
+    await assert.rejects(access(f.agent), { code: 'ENOENT' });
+  });
+
 for (const state of ['open', 'not-delivered', 'unsettled']) {
   test(`closure cleanup preserves ${state} work`, linux, async t => {
     const f = await fixture(t);

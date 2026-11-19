@@ -1,13 +1,12 @@
 import { lstat, rm } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { CandidateWorkspace } from './workspace.mjs';
-import { digest } from './identity.mjs';
 import { privateHostDirectory } from './host-fence.mjs';
 
 // Called while the Issue fence is still held and the writer is gone.
 export async function cleanClosedWorkspace({ progress, approval, reader }) {
   const issue = approval.record.issue;
-  const { store, workspaceRoot, marker } = progress;
+  const { store, workspaceRoot } = progress;
   const receipts = await store.load();
   if (receipts.close?.outcome !== 'closed' || receipts.merge?.outcome !== 'merged') {
     return;
@@ -17,7 +16,6 @@ export async function cleanClosedWorkspace({ progress, approval, reader }) {
       live.number !== issue.number ||
       !live.labels?.some(label => label.name === 'delivered'))
     return;
-  await store.get(digest(marker));
   const published = receipts['publish-shape'];
   const shape = published?.requirementsBody ?? (published?.artifacts?.shapeHash
     ? await store.get(published.artifacts.shapeHash) : undefined);
