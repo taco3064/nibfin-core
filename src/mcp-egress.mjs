@@ -18,6 +18,31 @@ export async function verifyMcpPolicyDirectory(path) {
   'UNTRUSTED_MCP_EGRESS_DIRECTORY');
 }
 
+// Call only after the adopted network observation proves it contains its
+// gateway and no Agent. These routes then have no consumer; a crashed model's
+// policy must not become a persistent admission lock for the next native Job.
+export async function retireIdleEgressPolicies(directory) {
+  await verifyMcpPolicyDirectory(directory);
+  for (const name of ['project.json', 'current.json']) {
+    const path = join(directory, name);
+    let file;
+    try { file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW); }
+    catch (error) {
+      if (error.code === 'ENOENT') continue;
+      throw error;
+    }
+    try {
+      const stat = await file.stat();
+      requireThat(stat.isFile() && stat.uid === process.getuid() &&
+        stat.nlink === 1 && (stat.mode & 0o777) === 0o444,
+      'MCP_EGRESS_POLICY_CHANGED');
+      await unlink(path);
+    } finally { await file.close(); }
+  }
+  const handle = await open(directory, constants.O_RDONLY | constants.O_DIRECTORY);
+  try { await handle.sync(); } finally { await handle.close(); }
+}
+
 export async function acquireMcpEgress(directory, executionId, hosts) {
   return acquirePolicy(directory, executionId, hosts, 'current.json', validMcpEgress);
 }
