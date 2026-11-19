@@ -42,6 +42,18 @@ function fixture() {
     state: () => structuredClone(state) };
 }
 
+test('native pool retirement has no obsolete relay effect prerequisite', async () => {
+  const f = fixture();
+  f.ports.drainEffects = ['close-admission'];
+  f.controls.unknown = 'relay-pause';
+  const removal = await f.run();
+  assert.equal(removal.removal.permitted, true);
+  assert.deepEqual(f.effects, ['close-admission']);
+  f.controls.native = ['absent', 'absent'];
+  assert.equal((await f.run()).status, 'retired');
+  assert(!f.effects.includes('relay-pause'));
+});
+
 test('two slots hand off matched IDs, observe absence and retire once', async () => {
   const f = fixture();
   const removal = await f.run();

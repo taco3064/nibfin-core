@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 import { completeInstalledLifecycle } from '../src/installed-lifecycle.mjs';
+import { retireInstalledNotificationRelay }
+  from '../src/notification-retirement-host.mjs';
 import { readDiagnosisInput } from '../src/diagnosis-input.mjs';
 import { retireSharedHost } from '../src/retirement-host.mjs';
 import { activateSharedReplacement } from '../src/retirement-activate.mjs';
@@ -55,6 +57,8 @@ async function main(args) {
     return activateSharedReplacement();
   if (command === 'complete-installed-lifecycle' && values.length === 0)
     return completeInstalledLifecycle();
+  if (command === 'retire-notification-relay' && values.length === 0)
+    return retireInstalledNotificationRelay();
   if (command === 'promote-host' && values.length === 0) return promoteHost();
   if (command === 'contract' && values.length === 0) return consumerContract;
   if (command === 'inspect-shared-host' && values.length === 0)
@@ -96,6 +100,7 @@ async function main(args) {
         'observe-local-work (private JSON stdin, no arguments)',
         'request-local-diagnosis (private JSON stdin, no arguments)',
         'retire-shared-host (local administrator, no arguments)',
+        'retire-notification-relay (local administrator, no arguments)',
         'activate-shared-replacement (local administrator, no arguments)',
         'install-shared-service-template',
         'start-shared-services',
