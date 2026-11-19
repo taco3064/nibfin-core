@@ -60,6 +60,9 @@ def pool_step(step):
             raise RuntimeError("active lease")
         plan["phase"] = "applying"
     g["write_config"](path, plan)
+    return {"status": {"prepare": "prepared", "close": "closed",
+                       "stop": "stopped", "verify": "verified",
+                       "release": "complete"}[step]}
 
 def gh(*args):
     state["posts"] += 1

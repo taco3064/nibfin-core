@@ -12,6 +12,7 @@ import { syncRecoveryDirectory } from './recovery-lock.mjs';
 import { writeRetirementFile } from './retirement-files.mjs';
 import { installedSharedRuntime } from './shared-platform.mjs';
 import { verifyOwnedSourcePackage } from './owned-source-package.mjs';
+import { readRolloutProcessResult, rolloutFailure } from './core-rollout-result.mjs';
 
 async function preparedLayout(path, source, prefix = '') {
   await rootOwnedPath(path);
@@ -121,7 +122,7 @@ export async function runCoreRollout(run, artifact, { coreOnly = false } = {}) {
 }
 
 function runManagerProcess(args) {
-  return new Promise((resolve, reject) => {
+  return new Promise(resolve => {
     const child = spawn('/usr/bin/python3',
       [join(managerRoot, 'scripts/core-rollout-admin.py'), ...args], {
         cwd: dirname(managerRoot), shell: false,
@@ -131,15 +132,9 @@ function runManagerProcess(args) {
       });
     const chunks = [];
     child.stdout.on('data', bytes => chunks.push(bytes));
-    child.once('error', reject);
+    child.once('error', error => resolve(rolloutFailure(error)));
     child.once('close', code => {
-      try {
-        const result = JSON.parse(Buffer.concat(chunks).toString());
-        requireThat([0, 2].includes(code) ||
-          code === 1 && result.status === 'unsupported',
-          'CORE_ROLLOUT_OPERATION_FAILED');
-        resolve(result);
-      } catch (error) { reject(error); }
+      resolve(readRolloutProcessResult(Buffer.concat(chunks), '', code));
     });
   });
 }

@@ -1,7 +1,9 @@
+import contract from './core-rollout-result.json' with { type: 'json' };
+
 // Shared result publication for the fixed Core administrator entry. It grants
 // no command, source or credential selection to its caller.
 export function writeCommandResult(result) {
   process.stdout.write(JSON.stringify(result) + '\n');
-  if (['denied', 'unsupported'].includes(result.status)) process.exitCode = 1;
-  if (result.status === 'pending') process.exitCode = 2;
+  if (Object.hasOwn(contract.failureExitCodes, result.status))
+    process.exitCode = contract.failureExitCodes[result.status];
 }

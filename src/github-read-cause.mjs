@@ -1,3 +1,5 @@
+import contract from './core-rollout-result.json' with { type: 'json' };
+
 const networkErrors = new Set([
   'ECONNRESET', 'ECONNREFUSED', 'ETIMEDOUT', 'EAI_AGAIN',
   'UND_ERR_CONNECT_TIMEOUT', 'UND_ERR_HEADERS_TIMEOUT', 'UND_ERR_SOCKET',
@@ -17,7 +19,7 @@ export function safeGitHubReadCause(error) {
   const saved = error.githubApiCause;
   if (saved?.kind === 'http' && Number.isInteger(saved.httpStatus))
     return { kind: 'http', httpStatus: saved.httpStatus };
-  if (['network', 'invalid-response', 'read'].includes(saved?.kind))
+  if (saved?.kind !== 'http' && contract.githubCauseKinds.includes(saved?.kind))
     return { kind: saved.kind };
   if (error.githubReadFailure === 'invalid-response' || error instanceof SyntaxError)
     return { kind: 'invalid-response' };
