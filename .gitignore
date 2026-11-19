@@ -10,3 +10,4 @@ website/dist/
 .nibfin-rollout-resume-*/
 /.deliver-test-tmp/
 /.deliver-recovery-*/
+/.nibfin-cache/

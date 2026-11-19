@@ -35,7 +35,7 @@ test('candidate text cannot change command, configuration or role boundaries', (
   });
   assert.equal(plan.cwd, '/session');
   assert.equal(plan.config['permissions.nibfin.filesystem']['/session'], 'read');
-  assert.equal(plan.config['permissions.nibfin.filesystem']['/tmp/.git'], 'write');
+  assert.equal(plan.config['permissions.nibfin.filesystem']['/tmp/.git'], 'read');
   assert.equal(plan.config['permissions.nibfin.filesystem']['/work/.git'], undefined);
   assert.equal(plan.config['projects."/work".trust_level'], 'untrusted');
   assert.equal(plan.config['shell_environment_policy.inherit'], 'none');
@@ -43,8 +43,8 @@ test('candidate text cannot change command, configuration or role boundaries', (
   assert.equal(filesystem['/usr/bin'], 'read');
   assert.equal(filesystem['/work'], 'write');
   const shell = plan.config['shell_environment_policy.set'];
-  assert.equal(shell.npm_config_cache, '/tmp/tool-home/.cache/npm');
-  assert.equal(shell.GOCACHE, '/tmp/tool-home/.cache/go-build');
+  assert.equal(shell.npm_config_cache, '/work/.nibfin-cache/npm');
+  assert.equal(shell.GOCACHE, '/work/.nibfin-cache/go-build');
   assert.match(plan.settings.join('\n'), /"\/proc" = "read"/);
   for (const path of ['/auth', '/agent-home', '/io']) {
     assert.equal(plan.config['permissions.nibfin.filesystem'][path], 'deny');
@@ -83,6 +83,22 @@ test('independent roles are read-only and cannot resume another conversation', (
   assert.equal(review.args.includes('resume'), false);
   assert.equal(review.expectedThread, null);
 });
+
+test('Deliver tool writes and default generated paths stay inside its repository',
+  () => {
+    const plan = codexPlan('deliver', {
+      model: 'configured-model', skill: skill('deliver'), context: {},
+    });
+    const files = plan.config['permissions.nibfin.filesystem'];
+    assert.equal(files['/work'], 'write');
+    assert.equal(files['/tmp'], 'read');
+    assert.equal(files['/tmp/.git'], 'read');
+    const env = plan.config['shell_environment_policy.set'];
+    for (const name of ['HOME', 'TMPDIR', 'TMP', 'TEMP'])
+      assert.equal(env[name], '/work');
+    for (const name of ['XDG_CACHE_HOME', 'XDG_CONFIG_HOME', 'GOCACHE', 'GOPATH',
+      'PIP_CACHE_DIR', 'npm_config_cache']) assert.match(env[name], /^\/work\//);
+  });
 
 test('Accept probes the configured Python under the read-only tool policy', () => {
   const plan = codexPlan('accept', {

@@ -59,7 +59,9 @@ export function rolePrompt(stage, {
     (stage === 'deliver'
       ? 'Keep implementation, fixtures, caches and generated files under /work. ' +
         'Configure repository-local scratch paths and narrowly scoped gitignore ' +
-        'entries where needed. Remove disposable output when finished. '
+        'entries where needed, including /.nibfin-cache/ for tool caches. ' +
+        'Tool HOME and TMPDIR are /work; writes to /tmp are denied. ' +
+        'Remove disposable output when finished. '
       : 'Use /tmp for disposable verification copies and scratch output only. ' +
         'Keep read-only sources unchanged and clean temporary files when finished. ') +
     'Run verification commands one at a time within the Runner capacity. ' +
