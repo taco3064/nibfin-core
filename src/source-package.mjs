@@ -19,6 +19,7 @@ export const includesPackagePath = (path) =>
     'scripts/host-auto-rollout.py',
     'scripts/core_rollout_coordinator.py',
     'scripts/core-rollout-admin.py',
+    'scripts/core_rollout_result.py',
     'scripts/nibfin-rollout.service',
     'scripts/nibfin-rollout.timer',
     'package.json',

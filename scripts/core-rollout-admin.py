@@ -1,4 +1,7 @@
 """One explicit administrator rollout; no discovery, timer or background worker."""
+import sys
+sys.dont_write_bytecode = True
+
 import base64
 import contextlib
 import errno
@@ -10,12 +13,15 @@ from pathlib import Path
 import re
 import stat
 import subprocess
-import sys
 
 
 ROOT = Path(__file__).resolve().parent.parent
 ENTRY = ROOT / "src/core-rollout-manager-entry.mjs"
 LIVE_CLI = Path("/opt/nibfin/core/bin/nibfin-core.mjs")
+RESULT_SPEC = importlib.util.spec_from_file_location("core_rollout_result",
+    ROOT / "scripts/core_rollout_result.py")
+RESULTS = importlib.util.module_from_spec(RESULT_SPEC)
+RESULT_SPEC.loader.exec_module(RESULTS)
 
 
 def node_path():
@@ -32,12 +38,15 @@ def node_path():
 
 
 def execute(*args, timeout=None, env=None):
-    if args and args[0] == "node":
+    is_node = bool(args and args[0] == "node")
+    if is_node:
         args = (node_path(), *args[1:])
     result = subprocess.run([str(value) for value in args], env=env,
                             capture_output=True)
-    if result.returncode:
-        raise RuntimeError("Core rollout subprocess requires normal retry")
+    if is_node or result.returncode:
+        value = RESULTS.read_result(result)
+        if value["status"] in ("denied", "pending", "unsupported"):
+            raise RESULTS.CoreRolloutFailure(value)
     return result.stdout
 
 
@@ -49,9 +58,9 @@ def bridge(*args, request=None):
                             input=json.dumps(request).encode() if request else None,
                             capture_output=True,
                             env=environment)
-    value = json.loads(result.stdout)
-    if result.returncode or value.get("status") == "pending":
-        raise RuntimeError(value.get("code", "CORE_ROLLOUT_OBSERVATION_UNAVAILABLE"))
+    value = RESULTS.read_result(result)
+    if value["status"] in ("denied", "pending"):
+        raise RESULTS.CoreRolloutFailure(value)
     return value
 
 
@@ -122,7 +131,9 @@ def continuation():
     result = subprocess.run([runtime, str(LIVE_CLI),
                              "complete-installed-lifecycle"], capture_output=True,
                             env={"PATH": "/usr/bin:/bin", "LANG": "C"})
-    value = json.loads(result.stdout)
+    value = RESULTS.read_result(result)
+    if value["status"] in ("denied", "pending"):
+        raise RESULTS.CoreRolloutFailure(value)
     if value.get("status") not in ("dispatched", "paused", "pending"):
         raise RuntimeError("Installed lifecycle returned an invalid result")
     if not isinstance(value.get("results"), list):
@@ -139,8 +150,9 @@ def operation(runtime, target, core_only=False, provenance=None,
     hosts = {repo: json.loads((runtime.CONFIG / name).read_text())
              for repo, name in runtime.HOSTS.items()}
     plan = json.loads(path.read_text()) if path.exists() else None
-    runtime.require(not plan or plan.get("administratorTarget") == target,
-                    "Another rollout target has not completed")
+    if plan and plan.get("administratorTarget") != target:
+        raise RESULTS.CoreRolloutFailure({"status": "denied",
+            "code": "CORE_MAINTENANCE_TARGET_CHANGED"})
     runtime.require(not plan or (plan.get("mode") == "core-only") == core_only,
                     "Another rollout mode owns the current operation")
     closure = runtime.CONFIG / "rollout-admission.json"
@@ -211,15 +223,13 @@ def operation(runtime, target, core_only=False, provenance=None,
             if observed.get("status") != "observed":
                 raise RuntimeError("Installed observation is incomplete")
             result["completion"] = observed
-        except (OSError, ValueError, RuntimeError):
-            result["continuation"]["code"] = \
-                "INSTALLED_CONTINUATION_OBSERVATION_UNAVAILABLE"
+        except (OSError, ValueError, RuntimeError) as error:
+            result["continuation"] = RESULTS.failure_result(error, continuation=True)
         return result
     try:
         result = continuation()
-    except (OSError, ValueError, RuntimeError):
-        result = {"status": "pending", "results": [],
-                  "code": "INSTALLED_CONTINUATION_OBSERVATION_UNAVAILABLE"}
+    except (OSError, ValueError, RuntimeError) as error:
+        result = RESULTS.failure_result(error, continuation=True)
     return {"status": "installed", "installation": "complete",
             "continuation": result}
 
@@ -251,9 +261,8 @@ def continue_after_gate(result, handle):
     try:
         fcntl.flock(handle, fcntl.LOCK_SH | fcntl.LOCK_NB)
         completed["continuation"] = continuation()
-    except (OSError, ValueError, RuntimeError):
-        completed["continuation"] = {"status": "pending", "results": [],
-            "code": "INSTALLED_CONTINUATION_OBSERVATION_UNAVAILABLE"}
+    except (OSError, ValueError, RuntimeError) as error:
+        completed["continuation"] = RESULTS.failure_result(error, continuation=True)
     return completed
 
 
@@ -274,13 +283,15 @@ def main():
     if request:
         supplied = json.loads(request)
         if supplied.get("target") != target:
-            raise RuntimeError("Maintenance request target changed")
+            raise RESULTS.CoreRolloutFailure({"status": "denied",
+                "code": "CORE_MAINTENANCE_TARGET_CHANGED"})
         authorization = bridge("authorize-core-only", request=supplied)
         if authorization.get("status") != "authorized":
             raise RuntimeError("Native maintenance authorization is unavailable")
         provenance = authorization["provenance"]
     if in_pool and not (core_only and provenance):
-        raise RuntimeError("Out-of-pool rollout cannot stop its own Runner job or hook")
+        raise RESULTS.CoreRolloutFailure({"status": "denied",
+            "code": "CORE_MAINTENANCE_IDENTITY_REQUIRED"})
     runtime = load_runtime()
     handle, inherited = operation_gate(runtime.CONFIG)
     try:
@@ -291,8 +302,7 @@ def main():
             if result.get("installation") == "complete" and not inherited:
                 result = continue_after_gate(result, handle)
         print(json.dumps(result))
-        if result.get("status") == "unsupported":
-            sys.exit(1)
+        sys.exit(RESULTS.result_exit(result))
     finally:
         os.close(handle)
 
@@ -301,7 +311,6 @@ if __name__ == "__main__":
     try:
         main()
     except (RuntimeError, OSError, ValueError, KeyError) as error:
-        print(json.dumps({"status": "pending", "installation": "pending",
-                          "code": "CORE_ROLLOUT_OPERATION_RETRY",
-                          "detail": str(error)}))
-        sys.exit(2)
+        result = {**RESULTS.failure_result(error), "installation": "pending"}
+        print(json.dumps(result))
+        sys.exit(RESULTS.result_exit(result))

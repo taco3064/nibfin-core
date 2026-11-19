@@ -7,6 +7,7 @@ import { pathToFileURL } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { digest, sha256 } from '../src/identity.mjs';
 import { checkInstalledObservation } from './rollout-manager-observation-fixture.mjs';
+import { checkAdmissionAndFootprint } from './core-rollout-admission-native-fixture.mjs';
 
 const source = resolve('.');
 const nodeBytes = await readFile(process.execPath);
@@ -44,7 +45,7 @@ await mkdir(resolve(poolNode, '..'), { recursive: true });
 await writeFile(poolNode, nodeBytes, { mode: 0o755 });
 await mkdir(join(manager, 'scripts'));
 for (const file of ['host-auto-rollout.py', 'core-rollout-admin.py',
-  'core_rollout_coordinator.py'])
+  'core_rollout_coordinator.py', 'core_rollout_result.py'])
   await cp(join(source, 'scripts', file), join(manager, 'scripts', file));
 
 async function seal(root) {
@@ -90,6 +91,10 @@ const { applyRolloutTransaction, resumeHostApply } =
   await import(url('rollout-apply.mjs'));
 const { verifyInstalledSource } = await import(url('source-package.mjs'));
 const { sharedTarget } = await import(url('shared-platform.mjs'));
+if (process.argv[3] === 'admission-only') {
+  await checkAdmissionAndFootprint(manager, oldPin, poolNode);
+  process.exit(0);
+}
 const runtimePath = '/usr/local/libexec/nibfin/core-rollout/runtime.json';
 const expectedNode = sharedTarget(process.arch === 'x64' ? 'amd64' : 'arm64').nodePath;
 const runtimeProbe = 'import runpy; m=runpy.run_path(' +

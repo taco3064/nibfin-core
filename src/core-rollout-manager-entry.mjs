@@ -7,13 +7,15 @@ import { advanceRolloutPool, observeInstalledManager } from './rollout-pool.mjs'
 import { promoteHost } from './host-rollout.mjs';
 import { verifyInstalledSource } from './source-package.mjs';
 import { installSource } from './source-install.mjs';
-import { command } from './process.mjs';
 import { requireThat } from './identity.mjs';
 import { installedSharedRuntime } from './shared-platform.mjs';
 import { admitCoreMaintenance, coreMaintenanceProvenance }
   from './core-maintenance-identity.mjs';
 import { privateCredentialPipe } from './managed-credential-input.mjs';
 import { GitHubReader } from './github-read.mjs';
+import { rolloutFailure, projectRolloutResult } from './core-rollout-result.mjs';
+import { writeCommandResult } from './command-result.mjs';
+import { coreRolloutProvider } from './core-rollout-provider.mjs';
 
 async function main(args) {
   await installedSharedRuntime();
@@ -61,18 +63,11 @@ async function main(args) {
     const parts = [];
     for await (const part of process.stdin) parts.push(part);
     const request = JSON.parse(Buffer.concat(parts).toString());
-    requireThat(Array.isArray(request) && request.every(value =>
-      typeof value === 'string' && !value.includes('\0')) &&
-      (request[0] === 'api' || request.slice(0, 2).join(' ') === 'pr merge'),
-    'INVALID_ROLLOUT_PROVIDER_REQUEST');
     return withManagerAdmission(context, async () => {
       const host = await hasManagedHost() ? await managerCredentialHost(context) :
         JSON.parse(await readFile('/etc/nibfin/host.json', 'utf8'));
       const token = (await readPrivate(host.tokenFile, host, 16384)).trim();
-      const result = await command('/usr/bin/gh', request,
-        { env: { PATH: '/usr/bin:/bin', LANG: 'C', GH_PROMPT_DISABLED: '1',
-          GH_TOKEN: token } });
-      return { status: 'observed', bytes: result.stdout.toString('base64') };
+      return coreRolloutProvider(request, token);
     });
   }
   requireThat(false, 'INVALID_ROLLOUT_MANAGER_OPERATION');
@@ -80,11 +75,7 @@ async function main(args) {
 
 try {
   const result = await main(process.argv.slice(2));
-  process.stdout.write(JSON.stringify(result) + '\n');
-  if (result.status === 'pending') process.exitCode = 2;
+  writeCommandResult(projectRolloutResult(result));
 } catch (error) {
-  const code = /^[A-Z][A-Z0-9_]*$/.test(error.code ?? '') ? error.code :
-    'CORE_ROLLOUT_OBSERVATION_UNAVAILABLE';
-  process.stdout.write(JSON.stringify({ status: 'pending', code }) + '\n');
-  process.exitCode = 2;
+  writeCommandResult(rolloutFailure(error));
 }

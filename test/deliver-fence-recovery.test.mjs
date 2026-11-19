@@ -187,16 +187,23 @@ test('concurrent recovery is exclusive; unrelated Issue state is preserved', asy
 });
 
 async function unrelatedRelay(f) {
+  const original = JSON.parse(f.fenceBytes);
+  const reserved = new Set([process.pid, original.pid, ...f.processes.map(p => p.pid)]);
+  const synthetic = [];
+  for (let candidate = process.pid + 1; synthetic.length < 2; candidate++) {
+    if (!reserved.has(candidate)) synthetic.push(candidate);
+  }
+  const [relayPid, helperPid] = synthetic;
   const directory = join(f.root, 'issue-10-3');
   await mkdir(directory, { mode: 0o700 });
   const path = join(directory, 'stage.lock');
   const fence = await writeSyntheticRecoveryFence(directory, {
     host: digest(f.context.hostBytes),
     issueId: 'I_other', execution: { jobId: 31 } },
-  { bootId: JSON.parse(f.fenceBytes).bootId, pid: 7001, startTicks: '1' });
-  f.processes.push({ pid: 7001, state: 'S', startTicks: '1', parent: 1,
+  { bootId: original.bootId, pid: relayPid, startTicks: '1' });
+  f.processes.push({ pid: relayPid, state: 'S', startTicks: '1', parent: 1,
     command: ['node', '/opt/nibfin/core/bin/nibfin-controller.mjs'] },
-  { pid: 7002, state: 'S', startTicks: '2', parent: 7001, command: ['helper'] });
+  { pid: helperPid, state: 'S', startTicks: '2', parent: relayPid, command: ['helper'] });
   return { path, fence };
 }
 
