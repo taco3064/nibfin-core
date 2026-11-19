@@ -194,11 +194,15 @@ async function unrelatedRelay(f) {
     issueId: 'I_other', execution: { jobId: 31 } },
   async () => JSON.parse(f.fenceBytes).bootId);
   const fence = JSON.parse(await readFile(path, 'utf8'));
-  Object.assign(fence, { pid: 7001, startTicks: '1' });
+  // The recovery process is excluded from the census. Synthetic unrelated
+  // Controllers must not accidentally reuse its real PID or the target owner.
+  const pid = Math.max(process.pid, JSON.parse(f.fenceBytes).pid,
+    ...f.processes.map(item => item.pid)) + 1;
+  Object.assign(fence, { pid, startTicks: '1' });
   await writeFile(path, JSON.stringify(fence));
-  f.processes.push({ pid: 7001, state: 'S', startTicks: '1', parent: 1,
+  f.processes.push({ pid, state: 'S', startTicks: '1', parent: 1,
     command: ['node', '/opt/nibfin/core/bin/nibfin-controller.mjs'] },
-  { pid: 7002, state: 'S', startTicks: '2', parent: 7001, command: ['helper'] });
+  { pid: pid + 1, state: 'S', startTicks: '2', parent: pid, command: ['helper'] });
   return { path, fence };
 }
 
