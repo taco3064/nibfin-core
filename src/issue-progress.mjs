@@ -44,7 +44,8 @@ async function readLegacyProgress(root, directory, approval) {
     approval.record.roles[stages[entry.stage].role])) return null;
   requireThat(values.every(entry => isId(entry.execution.runId)),
     'INVALID_LEGACY_EXECUTION');
-  await privateHostDirectory(progress.workspaceRoot);
+  try { await privateHostDirectory(progress.workspaceRoot); }
+  catch (error) { if (error.code === 'ENOENT') return null; throw error; }
   const marker = await progress.store.get(digest(progress.marker));
   requireThat(digest(marker) === digest(progress.marker),
     'WORKSPACE_ADOPTION_UNRESOLVED');

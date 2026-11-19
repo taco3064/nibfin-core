@@ -247,15 +247,8 @@ export class CandidateWorkspace {
     await this.#privateRoot();
     if (await realpath(this.work) !== this.work) return false;
     if (!sameCandidate(await this.capture(shapeBody), candidate)) return false;
-    const ignored = await this.#command([
-      'ls-files', '--others', '--ignored', '--exclude-standard', '-z',
-    ]);
-    const recorded = new Set([...candidate.artifacts, ...candidate.hookSources]
-      .map(file => file.path));
-    if (ignored.toString().split('\0').some(path => path && !recorded.has(path))) {
-      return false;
-    }
-    // Keep the Git objects and saved artifacts for audit and recovery.
+    // Ignored dependencies and generated output belong to this disposable tree.
+    // Unpublished source changes are still protected by the capture comparison.
     await rm(this.work, { recursive: true });
     return true;
   }
