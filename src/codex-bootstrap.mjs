@@ -82,7 +82,13 @@ setTimeout(() => { socket.destroy(); passed(); }, 1500);
 // Both bootstrap and real CLI diagnostics use these exact argument recipes.
 export function sandboxProbeArguments(plan, proxyHost, controllerPid, jobVm = false) {
   return [
-    ...plan.settings, 'sandbox', '--permissions-profile', 'nibfin',
+    ...plan.settings,
+    // This probe runs in the model container, where /work is read-only in VM
+    // mode. Codex creates its mount registry before entering the tool sandbox.
+    // The real Writer command retains its repository-local temporary path.
+    ...(jobVm ? ['-c',
+      'shell_environment_policy.set.TMPDIR="/tmp/tool-home"'] : []),
+    'sandbox', '--permissions-profile', 'nibfin',
     '--include-managed-config', '--cd', '/tmp/tool-home', '--',
     '/usr/local/bin/node', '-e', denialProbe, proxyHost,
     ...(controllerPid === undefined ? [] : [String(controllerPid)]),
