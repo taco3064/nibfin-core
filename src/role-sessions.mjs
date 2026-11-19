@@ -5,6 +5,7 @@ import { digest, isDigest, requireThat } from './identity.mjs';
 import { evidenceBinding, executionIdentity, stages } from './stages.mjs';
 import { recoveryFile, inspectRecoveryFile, syncRecoveryDirectory }
   from './recovery-lock.mjs';
+import { reportStorageReclamation } from './storage-reclamation.mjs';
 
 const uuidPattern = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
 const uuid = value => typeof value === 'string' && uuidPattern.test(value);
@@ -12,7 +13,7 @@ const uuid = value => typeof value === 'string' && uuidPattern.test(value);
 // Recovery has already proved these exact executions terminated. Complete the
 // same private-home retirement as normal RoleSessions completion, including
 // records created by older recovery versions that retired only stage.lock.
-export async function retireRecoveredRoleSessions(root, executions) {
+export async function retireRecoveredRoleSessions(root, executions, reclaim) {
   const covered = new Set(executions.map(execution => execution?.id));
   let names;
   try { names = await readdir(root); }
@@ -32,13 +33,18 @@ export async function retireRecoveredRoleSessions(root, executions) {
     await unlink(path);
     await syncRecoveryDirectory(directory);
   }
+  await reportStorageReclamation(reclaim);
 }
 
 // Private per-execution directories fence an in-flight invocation. Fresh Shaper
 // review reads current sources; historical conversations are never required.
 export class RoleSessions {
   #root;
-  constructor(root) { this.#root = resolve(root); }
+  #reclaim;
+  constructor(root, reclaim) {
+    this.#root = resolve(root);
+    this.#reclaim = reclaim;
+  }
   async run(stage, context, execute) {
     const agentStages = ['shape', 'validate-shape', 'deliver', 'accept', 'review-pr'];
     requireThat(agentStages.includes(stage) && typeof execute === 'function',
@@ -92,6 +98,8 @@ export class RoleSessions {
     // termination. The small execution directory fences replay; unknown runs
     // retain their lock and are never reclaimed merely because a job ended.
     await rm(home, { recursive: true });
-    await unlink(lockPath); await sync(); return result;
+    await unlink(lockPath); await sync();
+    await reportStorageReclamation(this.#reclaim);
+    return result;
   }
 }

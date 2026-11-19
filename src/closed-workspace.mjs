@@ -2,9 +2,10 @@ import { lstat, rm } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { CandidateWorkspace } from './workspace.mjs';
 import { privateHostDirectory } from './host-fence.mjs';
+import { reportStorageReclamation } from './storage-reclamation.mjs';
 
 // Called while the Issue fence is still held and the writer is gone.
-export async function cleanClosedWorkspace({ progress, approval, reader }) {
+export async function cleanClosedWorkspace({ progress, approval, reader }, reclaim) {
   const issue = approval.record.issue;
   const { store, workspaceRoot } = progress;
   const receipts = await store.load();
@@ -38,4 +39,5 @@ export async function cleanClosedWorkspace({ progress, approval, reader }) {
     catch (error) { if (error.code === 'ENOENT') continue; throw error; }
     await rm(path, { recursive: true });
   }
+  await reportStorageReclamation(reclaim);
 }

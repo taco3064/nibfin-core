@@ -10,6 +10,7 @@ import { digest } from '../src/identity.mjs';
 const linux = { skip: process.platform !== 'linux' };
 
 async function fixture(t, status) {
+  let requests = 0;
   const scratch = resolve('.npm');
   await mkdir(scratch, { recursive: true });
   const root = await mkdtemp(join(scratch, 'role-cleanup-'));
@@ -57,19 +58,26 @@ async function fixture(t, status) {
     coreRoot, model: 'configured-model', skills: {
       shape: digest(skill),
     } }, isolator, {
+    reclaim: async () => {
+      requests++;
+      return { status: 'unavailable', platform: 'linux', attempted: false,
+        filesystems: [] };
+    },
     prepareMain: async (path, _issue, base) => {
       await mkdir(path);
       await writeFile(join(path, 'source.txt'), 're-fetchable main');
       return { base, directory: path };
     },
   });
-  return { agent, context, sources, upstream, resultPath, work };
+  return { agent, context, sources, upstream, resultPath, work,
+    requests: () => requests };
 }
 
 for (const status of ['completed', 'interrupted']) {
   test(`confirmed ${status} execution discards only source copies`, linux, async t => {
     const f = await fixture(t, status);
     await f.agent.run('shape', f.context);
+    assert.equal(f.requests(), 1);
     for (const path of [f.sources, f.upstream])
       await assert.rejects(access(path), { code: 'ENOENT' });
     assert.ok(await readFile(f.resultPath, 'utf8'));
@@ -82,6 +90,7 @@ test('unknown termination preserves sources and recovery input', linux, async t 
   const f = await fixture(t, 'pending');
   await assert.rejects(f.agent.run('shape', f.context),
     /AGENT_ISOLATION_OR_TERMINATION_UNPROVEN/);
+  assert.equal(f.requests(), 0);
   await access(f.sources);
   await access(f.upstream);
   await access(f.resultPath);
@@ -98,8 +107,15 @@ test('source cleanup is repeatable and preserves unrelated execution files', asy
   await writeFile(join(main, 'source.txt'), 'downloaded copy');
   await writeFile(join(upstream, 'source.txt'), 'upstream copy');
   await writeFile(join(io, 'input', 'context.json'), '{}');
-  await discardRoleSources(io);
-  await discardRoleSources(io);
+  let requests = 0;
+  const reclaim = async () => {
+    requests++;
+    await assert.rejects(access(main), { code: 'ENOENT' });
+    throw Error('unavailable discard does not change cleanup');
+  };
+  await discardRoleSources(io, reclaim);
+  await discardRoleSources(io, reclaim);
+  assert.equal(requests, 2);
   for (const path of [main, upstream])
     await assert.rejects(access(path), { code: 'ENOENT' });
   assert.equal(await readFile(join(io, 'input', 'context.json'), 'utf8'), '{}');

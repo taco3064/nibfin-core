@@ -30,6 +30,7 @@ import { command } from './process.mjs';
 import { rolloutPlanPath, rolloutClosurePath, rolloutMarker,
   requireRolloutClosure, publishRolloutClosure, removeRolloutClosure,
 } from './rollout-admission.mjs';
+import { installStorageReclamation } from './storage-reclamation-install.mjs';
 
 const root = '/etc/nibfin';
 export const rolloutHostNames = ['host.json', 'host.nibfin-act.json',
@@ -225,6 +226,7 @@ export async function advanceRolloutPool(operation) {
           'ROLLOUT_LEGACY_BINDINGS_UNRESOLVED');
         item.next = item.current;
       }
+      await installStorageReclamation();
       await save({ phase: 'verifying', apply: { oldPin: plan.pin, source,
         completed: true, targets, resources }, pending: 'ROLLOUT_RESTART_REQUIRED' });
     }
@@ -284,6 +286,9 @@ export async function advanceRolloutPool(operation) {
 
 async function verifyInstalledRollout(plan, host) {
   await verifyInstalledSource('/opt/nibfin/core', plan.pin);
+  // Also covers promotion performed by an older coordinator: replacing the
+  // package alone never establishes the new permission before release.
+  await installStorageReclamation();
   for (const target of [...plan.apply.targets, ...(plan.apply.resources ?? [])]) {
     await rootOwnedPath(target.path);
     requireThat(await boundedHostFile(target.path, 262144) === target.next,

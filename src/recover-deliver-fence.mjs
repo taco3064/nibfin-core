@@ -16,6 +16,7 @@ import { OperationJournal } from './operation-journal.mjs';
 import { RecoveryEvidenceSnapshot } from './recovery-evidence-snapshot.mjs';
 import { idleContainers } from './host-containers.mjs';
 import { retireRecoveredRoleSessions } from './role-sessions.mjs';
+import { reportStorageReclamation } from './storage-reclamation.mjs';
 import { proveDeliverProcesses } from './deliver-recovery-processes.mjs';
 import { deliverExecutionEvidence, terminalDeliverJob }
   from './deliver-recovery-evidence.mjs';
@@ -84,13 +85,15 @@ const completed = record => ({ status: 'completed', code: 'DELIVER_FENCE_RECOVER
 
 const retireSessions = (root, record) => retireRecoveredRoleSessions(
   join(root, 'agent'), [record.execution,
-    ...(record.coverage?.retained ?? []).map(entry => entry.execution).filter(Boolean)]);
+    ...(record.coverage?.retained ?? []).map(entry => entry.execution).filter(Boolean)],
+  false);
 
 // Seams are private module dependencies, never selected by the public caller.
 export async function recoverAdoptedDeliverFence(context, {
   observeBoot = linuxBootId, containers = idleContainers,
   processes = proveDeliverProcesses, approvalReader = readProtectedApproval,
   inspectAdoption = inspectHostAdoption, afterRecord = async () => {},
+  reclaim,
 } = {}) {
   try {
     const { host, adopted } = context;
@@ -135,11 +138,12 @@ export async function recoverAdoptedDeliverFence(context, {
         }
         records.sort((a, b) => b.recordedAt - a.recordedAt);
         for (const record of records) await retireSessions(root, record);
+        await reportStorageReclamation(reclaim);
         return completed(records[0]);
       }
       return reconcile(context, approval, root, path, snapshot,
         { observeBoot, containers, processes, approvalReader, inspectAdoption,
-          afterRecord });
+          afterRecord, reclaim });
     });
   } catch (error) { return pendingRecovery(error); }
 }
@@ -238,6 +242,7 @@ async function reconcile(context, approval, root, path, snapshot, observers) {
   await retireSessions(root, previous);
   await unlink(path);
   await syncRecoveryDirectory(dirname(path));
+  await reportStorageReclamation(observers.reclaim);
   return completed(previous);
 }
 

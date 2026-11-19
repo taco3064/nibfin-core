@@ -36,8 +36,16 @@ async function fixture(t) {
 test('settled closure removes Git/artifacts/agent data and tolerates a cleanup retry',
   linux, async t => {
     const f = await fixture(t);
-    await cleanClosedWorkspace(f.config);
-    await cleanClosedWorkspace(f.config);
+    let requests = 0;
+    const reclaim = async () => {
+      requests++;
+      for (const path of [f.workspaceRoot, f.agent])
+        await assert.rejects(access(path), { code: 'ENOENT' });
+      throw Error('unavailable discard');
+    };
+    await cleanClosedWorkspace(f.config, reclaim);
+    await cleanClosedWorkspace(f.config, reclaim);
+    assert.equal(requests, 2);
     for (const path of [f.workspaceRoot, f.agent])
       await assert.rejects(access(path), { code: 'ENOENT' });
     assert.equal(await readFile(f.receipt, 'utf8'), 'native closure reference');
@@ -71,7 +79,9 @@ for (const state of ['open', 'not-delivered', 'unsettled']) {
     if (state === 'open') f.live.state = 'open';
     if (state === 'not-delivered') f.live.labels = [];
     if (state === 'unsettled') f.receipts.merge.outcome = 'pending';
-    await cleanClosedWorkspace(f.config);
+    let requests = 0;
+    await cleanClosedWorkspace(f.config, async () => { requests++; });
+    assert.equal(requests, 0);
     await access(f.workspaceRoot);
     await access(f.agent);
   });
