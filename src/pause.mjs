@@ -63,28 +63,7 @@ export function pauseEvent(event) {
   );
 }
 
-export function pauseDecisionMatches(proof, event) {
-  return proof?.eventId !== undefined
-    ? isId(proof.eventId) && proof.eventId === event.id
-    : proof?.eventHash === digest(event);
-}
-
-export function validPauseDecisionIdentity(proof) {
-  return isId(proof?.eventId) ||
-    proof?.eventId === undefined && isDigest(proof?.eventHash);
-}
-
-export function pauseDecisionsForEvent(decisions, event) {
-  const matches = decisions.filter(proof => pauseDecisionMatches(proof, event));
-  const native = matches.filter(proof => proof.eventId !== undefined);
-  if (!native.length) return matches;
-  const conflict = matches.some(proof => proof.eventId === undefined &&
-    native.some(current => current.qualification !== proof.qualification ||
-      current.desired !== proof.desired));
-  return conflict ? matches : native;
-}
-
-function history(events, actorFrom = 0) {
+function history(events) {
   requireThat(Array.isArray(events), 'PAUSE_HISTORY_UNKNOWN');
   let previousId = 0,
     previousTime = -Infinity;
@@ -102,43 +81,34 @@ function history(events, actorFrom = 0) {
     if (!pauseEvent(event)) continue;
     requireThat(event.id > previousId && time >= previousTime,
       'PAUSE_HISTORY_INCONSISTENT');
-    if (event.id >= actorFrom)
-      requireThat(identity(event.actor), 'PAUSE_ACTOR_UNKNOWN');
+    requireThat(identity(event.actor), 'PAUSE_ACTOR_UNKNOWN');
     previousId = event.id;
     previousTime = time;
   }
 }
 
-// A newly qualified explicit command establishes the requested current state.
-// Earlier missing bookkeeping cannot invalidate it. Later unqualified changes
-// still require observation; merely removing the visible label proves nothing.
+// These are event qualification receipts from the trusted journal, not a pause
+// owner or current-state store. Every receipt binds the immutable native event.
+// Missing historical qualification cannot be replaced by today's permissions.
 export function interpretPause({ issue, events, decisions = [] }) {
   try {
-    requireThat(Array.isArray(events), 'PAUSE_HISTORY_UNKNOWN');
+    history(events);
     requireThat(Array.isArray(decisions), 'PAUSE_DECISIONS_UNKNOWN');
-    const relevant = events.filter(pauseEvent);
-    const checkpoint = relevant.findLastIndex(event => {
-      const proofs = pauseDecisionsForEvent(decisions, event);
-      return proofs.length === 1 && proofs[0].qualification === 'allowed' &&
-        isDigest(proofs[0].observationHash) &&
-        proofs[0].desired === (event.event === 'labeled');
-    });
-    history(events, checkpoint < 0 ? 0 : relevant[checkpoint].id);
     const seen = new Set();
     let effective = false,
       visible = false;
-    for (const event of relevant.slice(Math.max(checkpoint, 0))) {
-      const proofs = pauseDecisionsForEvent(decisions, event);
+    for (const event of events.filter(pauseEvent)) {
+      const proofs = decisions.filter((proof) => proof.eventHash === digest(event));
       requireThat(proofs.length === 1, 'PAUSE_QUALIFICATION_UNKNOWN');
       const proof = proofs[0];
       requireThat(
-        !seen.has(event.id) && validPauseDecisionIdentity(proof) &&
+        !seen.has(proof.eventHash) &&
           ['allowed', 'denied', 'repair'].includes(proof.qualification) &&
           isDigest(proof.observationHash) &&
           typeof proof.desired === 'boolean',
         'PAUSE_DECISION_INVALID',
       );
-      seen.add(event.id);
+      seen.add(proof.eventHash);
       const adding = event.event === 'labeled';
       if (proof.qualification === 'repair') {
         requireThat(

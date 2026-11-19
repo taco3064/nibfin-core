@@ -7,7 +7,6 @@ import { stageSuccess } from '../src/stage-runtime.mjs';
 import { digest } from '../src/identity.mjs';
 import { issueRequirementsChanged } from '../src/stages.mjs';
 import { githubReadWaiting } from '../src/observation-failure.mjs';
-import { codexPreflightExits } from '../src/codex-bootstrap.mjs';
 
 function fixture() {
   const receipts = {},
@@ -110,77 +109,6 @@ test('a new dispatch resumes only a Core-proven idle interruption', async () => 
     assert.equal(f.calls[0], matching ? 'shape' : undefined);
   }
 });
-
-test('saved native preflight failures recheck unfinished work on continuation',
-  async () => {
-    for (const code of Object.keys(codexPreflightExits)) {
-      const f = fixture();
-      for (const stage of ['shape', 'validate-shape', 'publish-shape'])
-        f.receipts[stage] = { stage, outcome: stageSuccess[stage] };
-      const execution = { id: 'stopped-before-agent' };
-      const proof = { executionId: execution.id,
-        terminationHash: 'a'.repeat(64), code };
-      const hash = digest(proof);
-      f.objects[hash] = proof;
-      f.receipts.deliver = { stage: 'deliver', outcome: 'blocked', execution,
-        references: ['evidence:' + hash] };
-      assert.equal((await continueStages(f.options)).stage, 'close');
-      assert.equal(f.calls[0], 'deliver');
-      assert.equal(f.calls.filter(stage => stage === 'commit-pr').length, 1);
-      const completed = f.calls.length;
-      assert.equal((await continueStages(f.options)).code,
-        'DELIVERY_ALREADY_RECORDED');
-      assert.equal(f.calls.length, completed);
-    }
-  });
-
-test('preflight restart still requires matching, proven termination', async () => {
-  for (const kind of ['foreign-execution', 'missing-termination', 'product-failure']) {
-    const f = fixture();
-    const execution = { id: 'stopped-before-agent' };
-    const proof = { executionId: execution.id,
-      terminationHash: 'a'.repeat(64), code: 'SANDBOX_PROBE_FAILED' };
-    if (kind === 'foreign-execution') proof.executionId = 'another-execution';
-    if (kind === 'missing-termination') delete proof.terminationHash;
-    if (kind === 'product-failure') proof.code = 'PRODUCT_FAILURE';
-    const hash = digest(proof);
-    f.objects[hash] = proof;
-    f.receipts.shape = { stage: 'shape', outcome: 'blocked', execution,
-      references: ['evidence:' + hash] };
-    assert.equal((await continueStages(f.options)).code, 'STAGE_REQUIRES_CORRECTION');
-    assert.equal(f.calls.length, 0);
-  }
-});
-
-test('saved external Deliver blockers retry only a matching clean execution',
-  async () => {
-    for (const kind of ['settled', 'running', 'failed', 'foreign', 'product']) {
-      const f = fixture();
-      for (const stage of ['shape', 'validate-shape', 'publish-shape'])
-        f.receipts[stage] = { stage, outcome: stageSuccess[stage] };
-      const id = 'writer-completed';
-      const report = { producer: 'agent', failureClass: 'external_failure',
-        binding: { executionId: id },
-        termination: { executionId: id, running: false, exitCode: 0 } };
-      if (kind === 'running') report.termination.running = true;
-      if (kind === 'failed') report.termination.exitCode = 1;
-      if (kind === 'foreign') report.termination.executionId = 'another-writer';
-      if (kind === 'product') report.failureClass = 'implementation_defect';
-      f.receipts.deliver = { stage: 'deliver', outcome: 'blocked', report,
-        execution: { id }, references: ['/work/runtime/lock'] };
-      const result = await continueStages(f.options);
-      assert.equal(result.stage, kind === 'settled' ? 'close' : 'deliver');
-      assert.equal(f.calls.length > 0, kind === 'settled');
-      if (kind === 'settled') {
-        assert.equal(f.calls[0], 'deliver');
-        assert.equal(f.calls.filter(stage => stage === 'commit-pr').length, 1);
-        const count = f.calls.length;
-        assert.equal((await continueStages(f.options)).code,
-          'DELIVERY_ALREADY_RECORDED');
-        assert.equal(f.calls.length, count);
-      }
-    }
-  });
 
 test('an idle Accept retries once only after termination is proved', async () => {
   for (const valid of [true, false]) {

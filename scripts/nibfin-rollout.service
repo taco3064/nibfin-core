@@ -6,5 +6,5 @@ Wants=network-online.target
 [Service]
 Type=oneshot
 ExecStart=/usr/bin/python3 /usr/local/libexec/nibfin/host-auto-rollout.py
-Restart=on-failure
+TimeoutStartSec=10min
 UMask=0022

@@ -5,7 +5,6 @@ import { randomUUID } from 'node:crypto';
 import { digest, isDigest, isId, requireThat } from './identity.mjs';
 import { operations } from './approval-record.mjs';
 import { MergeBeforeWrite } from './github-write.mjs';
-import { validPauseDecisionIdentity } from './pause.mjs';
 import {
   retainedRecovery, recoveryFile, inspectRecoveryFile,
   syncRecoveryDirectory as syncDirectory,
@@ -70,7 +69,7 @@ export class OperationJournal {
         (record.payload.pauseDecisions === undefined ||
           Array.isArray(record.payload.pauseDecisions) &&
           record.payload.pauseDecisions.every(proof =>
-            validPauseDecisionIdentity(proof) && isDigest(proof.observationHash) &&
+            isDigest(proof?.eventHash) && isDigest(proof.observationHash) &&
             ['allowed', 'denied', 'repair'].includes(proof.qualification) &&
             typeof proof.desired === 'boolean')) &&
         Array.isArray(record.payload.completed) &&
@@ -133,15 +132,13 @@ export class OperationJournal {
     return { decisions: state.pauseDecisions ?? [], pending: state.pending !== null };
   }
   async recordPauseDecision(proof) {
-    requireThat(validPauseDecisionIdentity(proof) && isDigest(proof.observationHash) &&
+    requireThat(isDigest(proof?.eventHash) && isDigest(proof.observationHash) &&
       ['allowed', 'denied'].includes(proof.qualification) &&
       typeof proof.desired === 'boolean', 'INVALID_PAUSE_DECISION');
     return this.#withLock(digest(proof), async state => {
       requireThat(state.pending === null, 'EXTERNAL_EFFECT_UNKNOWN');
       const decisions = state.pauseDecisions ?? [];
-      const previous = decisions.find(item =>
-        isId(proof.eventId) && item.eventId === proof.eventId ||
-        isDigest(proof.eventHash) && item.eventHash === proof.eventHash);
+      const previous = decisions.find(item => item.eventHash === proof.eventHash);
       requireThat(!previous || digest(previous) === digest(proof),
         'PAUSE_DECISION_CHANGED');
       if (!previous) await this.#write({ ...state,
@@ -167,7 +164,7 @@ export class OperationJournal {
       try {
         await perform();
         const proof = await readBack();
-        requireThat(validPauseDecisionIdentity(proof) &&
+        requireThat(isDigest(proof?.eventHash) &&
           proof.observationHash === request.bindingHash &&
           proof.qualification === 'repair' && proof.desired === request.desired,
         'PAUSE_REPAIR_READBACK_UNKNOWN');
