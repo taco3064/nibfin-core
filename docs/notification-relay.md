@@ -146,3 +146,31 @@ Kernel locks release on process termination, including abrupt termination;
 pending intent remains durable and still requires reconciliation. Resume does
 not erase unknown effects. No manual JSON edits or guessed run IDs are a
 recovery interface.
+
+## Continue work after a host rollout
+
+After installing a Core package, the existing rollout timer scans the currently
+adopted repositories for open Scope Issues assigned to the adopted member.
+It rechecks the Issue, owner pause and native prerequisites using the same
+eligibility rules as Issue wake events, then triggers the current shared
+workflow with `stage=continue`. GitHub owns queueing, assignment and workflow
+concurrency. Core's normal admission and continuation own stage execution.
+
+The completion scan reads current host adoption rather than the previous
+relay workflow source bindings. It also runs after a self-update when the
+old updater has already removed its deployment plan. A completion receipt at
+`/etc/nibfin/rollout-resume.json` records successful native dispatch IDs for
+the installed package. Later timer invocations reuse those results after a
+partial failure and retry the remaining scan. Missing bookkeeping starts a
+fresh scan. An Issue read failure leaves other eligible Issues independent.
+
+An operator relay pause defers the remaining scan. Existing Issue pauses and
+unmet native dependencies remain effective. Deployment completion and pending
+continuation observations are tracked independently so a failed Issue read
+does not leave the deployment unfinished.
+
+If GitHub accepts a dispatch but its response is lost, a later scan can submit
+another normal continuation for that unfinished Issue. The shared workflow's
+native concurrency applies to both invocations, and Core reuses confirmed
+stage effects. Successful dispatch establishes that GitHub received the job;
+the job's own result establishes progress or completion of the Issue.

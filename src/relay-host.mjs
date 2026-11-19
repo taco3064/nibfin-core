@@ -60,7 +60,20 @@ export function bindRelayOrigin(host, target, origin) {
 }
 
 // Fixed host files only. No workspace, artifact or CLI argument chooses a token/path.
-export async function loadRelayHost({ authenticate = true, verifyRemote = true } = {}) {
+export async function currentRelayOrigins(host, readPeer) {
+  const origins = [];
+  for (const repositoryId of host.sharedRunner?.repositories ?? []) {
+    const target = await sharedRepository(host, repositoryId, readPeer);
+    const event = target.repository.eventRunner;
+    origins.push({ repositoryId, repository: target.repository.approval.repository,
+      workflow: { id: event.workflowId, path: event.workflowPath,
+        commit: event.sourceCommit, blob: event.workflowBlob } });
+  }
+  return origins;
+}
+
+export async function loadRelayHost({ authenticate = true, verifyRemote = true,
+  currentAdoption = false } = {}) {
   requireThat(process.platform === 'linux' && process.getuid() === 0 &&
     coreRoot === '/opt/nibfin/core', 'RELAY_REQUIRES_INSTALLED_ADMINISTRATOR');
   const snapshots = new Map();
@@ -74,7 +87,9 @@ export async function loadRelayHost({ authenticate = true, verifyRemote = true }
   requireThat(host.schemaVersion === 1 && host.kind === 'single-host-linux-v1' &&
     host.installation?.directory === coreRoot && controllerRoute(host) &&
     isId(host.memberId), 'INVALID_HOST_ADOPTION');
-  const config = validateRelayConfiguration(await read(relayConfigFile));
+  const config = currentAdoption ? { schemaVersion: 1,
+    origins: await currentRelayOrigins(host, read) }
+    : validateRelayConfiguration(await read(relayConfigFile));
   await rootOwnedPath(coreRoot);
   await rootOwnedPath('/usr/bin/flock');
   await verifyInstalledSource(coreRoot, host.installation.pin);
@@ -115,7 +130,7 @@ export async function loadRelayHost({ authenticate = true, verifyRemote = true }
   requireThat(!verifyRemote || actor.id === host.memberId && actor.type === 'User',
     'RELAY_CONTROLLER_CHANGED');
   const remote = verifyRemote ? await sharedDispatchWorkflow(reader, destination) : null;
-  for (const origin of verifyRemote ? config.origins : [])
+  for (const origin of verifyRemote && !currentAdoption ? config.origins : [])
     await observeRelayOrigin(reader, origin, configuration.coreCommit);
   const inspectCredential = async () => {
     await inspect();

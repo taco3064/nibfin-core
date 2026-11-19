@@ -183,15 +183,12 @@ export async function resolveIssueWake(reader, adoption, event, invocation) {
 export async function resolveSharedIssueWake(reader, event, invocation) {
   const { issue, live } = await readIssueEvent(reader, null, event, invocation);
   const actor = await reader.get('/user');
+  if (event.action !== 'closed' && !pauseTrigger(event))
+    return resolveSharedContinuation(reader, issue, live, actor);
   const scope = live.labels?.some(label => label.name === 'scope');
   requireThat(scope && actor.type === 'User', 'WAKE_TARGET_NOT_READY');
   if (event.action === 'closed') {
     requireThat(isDeliveredIssue(live), 'UPSTREAM_NOT_DELIVERED');
-  } else if (!pauseTrigger(event)) {
-    requireThat(live.state === 'open' &&
-      !live.labels.some(label => label.name === 'delivered'), 'INACTIVE_WAKE_TARGET');
-    const prerequisites = await reader.blockedBy(issue);
-    requireThat(prerequisites.every(isDeliveredIssue), 'WAKE_TARGET_NOT_READY');
   }
   const route = await selectAssignee(live, async user => user.id === actor.id);
   requireThat(route, 'WAKE_TARGET_NOT_READY');
@@ -199,6 +196,21 @@ export async function resolveSharedIssueWake(reader, event, invocation) {
     status: 'resolved', issue_number: String(issue.number),
     member_id: String(route.userId), stageAdmitted: false,
   };
+}
+
+// Eligibility shared by native Issue events and post-rollout continuation.
+// The caller authenticates its own origin; this function creates no event.
+export async function resolveSharedContinuation(reader, issue, live, actor) {
+  requireThat(live.labels?.some(label => label.name === 'scope') &&
+    actor.type === 'User', 'WAKE_TARGET_NOT_READY');
+  requireThat(live.state === 'open' &&
+    !live.labels.some(label => label.name === 'delivered'), 'INACTIVE_WAKE_TARGET');
+  const prerequisites = await reader.blockedBy(issue);
+  requireThat(prerequisites.every(isDeliveredIssue), 'WAKE_TARGET_NOT_READY');
+  const route = await selectAssignee(live, async user => user.id === actor.id);
+  requireThat(route, 'WAKE_TARGET_NOT_READY');
+  return { status: 'resolved', issue_number: String(issue.number),
+    member_id: String(route.userId), stageAdmitted: false };
 }
 
 // The hosted job routes locators. The installed Core admits and journals work.
