@@ -1,14 +1,15 @@
-import { join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { readFileSync } from 'node:fs';
-import { lstat } from 'node:fs/promises';
+import { join } from 'node:path';
 import { repoPath } from './github-read.mjs';
 import { isId, requireThat } from './identity.mjs';
 import { resolveSharedContinuation } from './issue-wake.mjs';
-import { loadRelayHost } from './relay-host.mjs';
+import { loadAdoptedHost } from './adopted-host.mjs';
 import { safeRelayCode } from './notification-relay.mjs';
 import { sharedDispatchWorkflow } from './shared-runner.mjs';
-import { withManagedAdmission } from './managed-credential-admission.mjs';
+import { continuationLifecycle, ContinuationState, resumeLifecycle,
+  continuationOutcome } from './continuation-state.mjs';
+import { retirementPath, drainPath, requireNoRetirement } from
+  './retirement-admission.mjs';
+import { readRetirementFile } from './retirement-files.mjs';
 
 // Run once at rollout completion. GitHub owns queueing and concurrency;
 // each continuation enters normal Core admission and reuses completed work.
@@ -40,8 +41,6 @@ export async function resumeRolloutWork({ reader, configuration, inspect, journa
       if (item.pull_request) continue;
       const issue = { repository: origin.repository,
         repositoryId: origin.repositoryId, number: item.number, id: item.node_id };
-      if (completed.some(done => done.repositoryId === issue.repositoryId &&
-        done.id === issue.id)) continue;
       await inspect();
       let destination;
       try {
@@ -51,6 +50,9 @@ export async function resumeRolloutWork({ reader, configuration, inspect, journa
         continue;
       }
       if (!destination) continue;
+      const confirmed = completed.find(done => done.repositoryId === issue.repositoryId &&
+        done.id === issue.id);
+      if (confirmed) { results.push(confirmed); continue; }
       if ((await journal.control()).paused)
         return { status: 'paused', results };
       await inspect();
@@ -85,19 +87,17 @@ async function continuationDestination(reader, configuration, issue, actor) {
   return sharedDispatchWorkflow(reader, configuration.runner);
 }
 
-export async function resumeInstalledWork(completed = []) {
-  const context = await loadRelayHost({ currentAdoption: true });
-  const control = async () => {
-    const file = await lstat(join(context.journal.root, 'control.json')).catch(error => {
-      if (error.code !== 'ENOENT') throw error;
-      return null;
-    });
-    return file ? context.journal.control() : { paused: false };
-  };
-  return resumeRolloutWork({ ...context, completed, journal: { control },
-    onDispatched: async result => console.log(JSON.stringify({ dispatched: result })),
+export async function resumeInstalledWork({ onDispatched = async () => {},
+  load = loadAdoptedHost, read = readRetirementFile,
+  requireAdmission = requireNoRetirement,
+  createState = root => new ContinuationState(root), fetcher = fetch,
+} = {}) {
+  const context = await load({ verifyRemote: false });
+  const control = async () => ({ paused: false });
+  const resume = progress => resumeRolloutWork({ ...context, ...progress,
+    journal: { control }, inspect,
     dispatch: async (destination, inputs) => {
-      const response = await fetch('https://api.github.com' +
+      const response = await fetcher('https://api.github.com' +
         `${repoPath(destination.repository)}/actions/workflows/` +
         `${destination.id}/dispatches`, {
         method: 'POST', redirect: 'error',
@@ -116,17 +116,21 @@ export async function resumeInstalledWork(completed = []) {
         run.workflow_run_id, 'ROLLOUT_CONTINUATION_DISPATCH_UNKNOWN');
       return { runId: run.workflow_run_id, url: run.html_url };
     } });
+  const inspect = async () => {
+    await requireAdmission();
+    await context.inspect();
+  };
+  if ((await control()).paused) return { status: 'paused', results: [] };
+  const lifecycle = continuationLifecycle(context.host, context.configuration.origins,
+    await read(retirementPath), await read(drainPath));
+  const root = join(context.host.stateRoot, 'lifecycle-continuation');
+  return resumeLifecycle({ lifecycle, state: createState(root),
+    inspect, resume, onDispatched, control });
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  try {
-    const input = JSON.parse(readFileSync(0, 'utf8'));
-    requireThat(Array.isArray(input.completed), 'INVALID_ROLLOUT_RESUME_INPUT');
-    const result = await withManagedAdmission(() => resumeInstalledWork(input.completed),
-      { pool: true });
-    console.log(JSON.stringify(result));
-  } catch (error) {
-    console.error(JSON.stringify({ status: 'pending', code: safeRelayCode(error) }));
-    process.exitCode = 1;
+export async function pendingInstalledContinuation(options) {
+  try { return continuationOutcome(await resumeInstalledWork(options)); }
+  catch (error) {
+    return { status: 'pending', results: [], code: safeRelayCode(error) };
   }
 }

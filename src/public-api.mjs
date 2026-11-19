@@ -39,6 +39,14 @@ export const consumerContract = Object.freeze({
     executionAuthority: false }),
   claudeModel: claudeModelComponent,
   managedResourcePreparation: managedPreparationCapability,
+  installedLifecycleCompletion: Object.freeze({
+    schemaVersion: 1, command: 'complete-installed-lifecycle', input: 'none',
+    requires: 'local administrator on the adopted installed host',
+    statuses: Object.freeze(['dispatched', 'paused', 'pending']),
+    exitStatuses: Object.freeze({ dispatched: 0, paused: 0, pending: 2, denied: 1 }),
+    dispatched: 'Successful current scan and confirmed requests; not delivery',
+    retry: 'Observe current state again and reuse lifecycle-compatible confirmations',
+  }),
   managedPoolReplacement: Object.freeze({
     kind: 'managed-pool-replacement-v1',
     activationCommand: 'activate-shared-replacement',

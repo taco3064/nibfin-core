@@ -52,18 +52,36 @@ rollout guard is preserved. A later retirement archives the previous completed
 record as `retirement-history-<retirementId>.json` in the same directory.
 
 The verified Core contract advertises `managedPoolReplacement`. After preparing
-the primary adoption, re-adopt the historical peers with `adopt-shared-peer`,
-start the two new listeners, and prepare and resume the managed notification
-relay. While the drain marker exists, the listeners can be observed online,
+the primary adoption, re-adopt the historical peers with `adopt-shared-peer`
+and start the two new listeners. While the drain marker exists, the listeners
+can be observed online,
 but both Worker execution and new relay dispatches remain closed.
 
 The fixed, argument-free `activate-shared-replacement` operation is local
 administrator only. It verifies both new registrations, absence of the old IDs,
-the local services, all historical repository and caller bindings, and the relay
-configuration and timer. Then Core durably records the release and removes the
-drain marker. A verification failure leaves admission closed. If publication is
+the local services, installed source, private credential identity and all
+historical repository and caller bindings. Notification artifacts and relay
+service or timer readiness are not activation prerequisites. Then Core durably
+records the release and removes the drain marker. A verification failure leaves admission closed. If publication is
 interrupted before the marker is removed, retrying activation revalidates the
 replacement before completing the release.
+
+After verified release and drain-marker removal, Core releases the replacement
+mutation lock and requests continuation of eligible unfinished Issues. The single
+JSON response keeps `status: active`, `retirementId` and the pool fields, and adds
+`continuation` with its separate `dispatched`, `paused` or `pending` outcome.
+A pending continuation does not roll back activation or repeat replacement.
+
+Retrying activation observes an already verified release and absent drain marker,
+keeps the active result and invokes completion outside the mutation lock. The
+argument-free installed `complete-installed-lifecycle` command also discovers the
+released pool without a prior local receipt. It uses current adoption and the
+same completion operation as successful deployment. Fresh Runner IDs start a new
+lifecycle even with the same installed package. Private observational progress
+lives beneath the adopted Controller state root in `lifecycle-continuation/`.
+Prepared replacements, missing activation verification and unresolved drains stay
+closed. No timer or notification control record initiates or recovers completion.
+See [continuation recovery](notification-relay.md#continue-work-after-a-host-rollout).
 
 Retirement preserves repositories, PRs, Issues, delivery evidence, original user
 login stores, shared credentials, unrelated services and shared uplink networks.

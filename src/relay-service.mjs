@@ -136,12 +136,15 @@ export async function controlNotificationRelay(paused) {
   return context.journal.setPaused(paused);
 }
 
-export async function pollNotificationRelay() {
-  const context = await loadRelayHost({ verifyRemote: false });
+export async function pollNotificationRelay({ load = loadRelayHost,
+  poll = context => new NotificationRelay({ ...context,
+    requireAdmission: requirePoolOpen }).poll(),
+  recover = recoverRolloutOrigins,
+} = {}) {
+  const context = await load({ verifyRemote: false });
   await context.journal.control();
-  const result = await new NotificationRelay({ ...context,
-    requireAdmission: requirePoolOpen }).poll();
-  try { result.recovery = await recoverRolloutOrigins(context); }
+  const result = await poll(context);
+  try { result.recovery = await recover(context); }
   catch (error) { result.recovery = [{ status: 'pending', code: safeRelayCode(error) }]; }
   return result;
 }

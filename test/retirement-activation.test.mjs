@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { commitReplacementAdmission } from '../src/retirement-rebind.mjs';
-import { verifyReplacementRunners } from '../src/retirement-activate.mjs';
+import { verifyReplacementRunners, activateThenContinue } from
+  '../src/retirement-activate.mjs';
 
 const old = { runners: [{ id: 1 }, { id: 2 }] };
 const pool = { memberId: 32, runners: [{ id: 3, name: 'a' }, { id: 4, name: 'b' }] };
@@ -43,4 +44,34 @@ test('failed or interrupted activation keeps admission closed', async () => {
   assert.deepEqual(await commitReplacementAdmission(state, ports), { released: true });
   assert.deepEqual(await commitReplacementAdmission(state, ports), { released: true });
   assert.deepEqual(effects, ['verify', 'write', 'open', 'verify', 'write', 'open']);
+});
+
+
+test('continuation runs after activation lock release and failure preserves active',
+  async () => {
+    let locked = false;
+    const active = { status: 'active', retirementId: 'one', ...pool };
+    const activate = async () => {
+      locked = true;
+      try { return active; }
+      finally { locked = false; }
+    };
+    const result = await activateThenContinue(activate, async () => {
+      assert.equal(locked, false);
+      throw new Error('GitHub unavailable');
+    });
+    assert.deepEqual(result, { ...active,
+      continuation: { status: 'pending', results: [] } });
+    const output = JSON.stringify(result) + '\n';
+    assert.equal(output.trim().split('\n').length, 1);
+    assert.equal(JSON.parse(output).status, 'active');
+    await assert.rejects(activateThenContinue(async () => {
+      throw new Error('verification failed');
+    }, async () => assert.fail('not released')), /verification failed/);
+  });
+
+test('an activation admission deferral cannot initiate completion', async () => {
+  const pending = { status: 'pending', code: 'RESOURCE_PREPARATION_PENDING' };
+  assert.deepEqual(await activateThenContinue(async () => pending,
+    async () => assert.fail('activation was not verified')), pending);
 });

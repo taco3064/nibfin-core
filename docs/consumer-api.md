@@ -160,3 +160,14 @@ observed to exit is not signalled again. Partial output is not returned with
 transport failure. A settled caller does not prove that another UID, a detached
 descendant or external operation terminated. Stage consumers must return Pending
 and preserve fences/journals until actual effects and processes are reconciled.
+
+## Installed lifecycle completion
+
+The additive `installedLifecycleCompletion` contract advertises the argument-free
+`complete-installed-lifecycle` installed command, its no-input convention,
+administrator/adopted-host requirement, statuses, exit codes and retry behavior.
+Deployment and verified replacement activation use the same Core-owned operation.
+A successful scan (`dispatched`) reports confirmed requests, including an empty
+scan; it does not establish delivery. Retry observes current state again and
+reuses compatible confirmed requests. See the
+[completion contract](notification-relay.md#continue-work-after-a-host-rollout).

@@ -705,6 +705,8 @@ def finish(services):
             "Installed commit alone does not establish rollout completion")
     if plan["phase"] != "complete":
         start_enabled(services)
+    for service in services:
+        run("systemctl", "is-active", "--quiet", service)
     pool_step("release")
     staged = CONFIG / "rollout"
     names = {*HOSTS.values(), E2E_HOST}
@@ -724,42 +726,19 @@ def finish(services):
 
 def resume_installed_work():
     host = json.loads((CONFIG / HOSTS[CORE]).read_text())
-    entry = INSTALL / "core/src/rollout-resume.mjs"
-    if not host.get("sharedRunner") or not entry.is_file():
+    if not host.get("sharedRunner"):
         return
-    receipt = CONFIG / "rollout-resume.json"
-    try:
-        state = json.loads(receipt.read_text())
-    except (FileNotFoundError, ValueError):
-        state = None
-    installation = host["installation"]
-    if (not isinstance(state, dict) or state.get("installation") != installation
-            or not isinstance(state.get("completed"), list)):
-        state = {"installation": installation, "completed": [], "status": "pending"}
-    if state.get("status") == "dispatched":
-        return
-    write_config(receipt, state)
-    process = subprocess.Popen(
-        ("node", str(entry)), env=ENV, stdin=subprocess.PIPE,
-        stdout=subprocess.PIPE, text=True,
+    response = subprocess.run(
+        ("node", str(CLI), "complete-installed-lifecycle"), env=ENV,
+        stdin=subprocess.DEVNULL, capture_output=True, text=True,
     )
-    try:
-        process.stdin.write(json.dumps({"completed": state["completed"]}))
-        process.stdin.close()
-        for line in process.stdout:
-            result = json.loads(line)
-            if "dispatched" in result:
-                state["completed"].append(result["dispatched"])
-                write_config(receipt, state)
-            elif result.get("status") in ("dispatched", "paused", "pending"):
-                state["status"] = result["status"]
-                write_config(receipt, state)
-            print(line.strip(), flush=True)
-        require(process.wait() == 0, "Post-rollout continuation remains pending")
-    finally:
-        if process.poll() is None:
-            process.terminate()
-            process.wait()
+    result = json.loads(response.stdout)
+    require(isinstance(result, dict) and
+            result.get("status") in ("dispatched", "paused", "pending") and
+            isinstance(result.get("results"), list), "Invalid continuation response")
+    print(json.dumps(result), flush=True)
+    require(response.returncode == 0 and result["status"] != "pending",
+            "Post-rollout continuation remains pending")
 
 
 def require_manual_credential(host):
@@ -793,12 +772,6 @@ def main():
     require(os.getuid() == 0, "Rollout must run as host administrator")
     hosts = {repo: json.loads((CONFIG / name).read_text())
              for repo, name in HOSTS.items()}
-    if RATE_WAIT.exists():
-        if time.time() < json.loads(RATE_WAIT.read_text()):
-            return
-        RATE_WAIT.unlink()
-    github_token = read_manual_credential(hosts[CORE])
-    require(bool(github_token), "Host GitHub credential is missing")
     current = hosts[CORE]["installation"]["pin"]["commit"]
     plan_path = CONFIG / "rollout-plan.json"
     plan = json.loads(plan_path.read_text()) if plan_path.exists() else None
@@ -809,7 +782,25 @@ def main():
             result = json.loads(run("node", coordinator_cli(plan), "promote-host"))
             require(result["status"] == "installed", "Interrupted promotion pending")
         finish(runner_services(hosts))
+        resume_installed_work()
         return
+    continuation_error = None
+    if plan is None:
+        try:
+            resume_installed_work()
+        except (RuntimeError, OSError, ValueError) as error:
+            continuation_error = error
+        marker = Path(hosts[CORE]["tokenFile"]).with_name("managed.json")
+        if marker.exists() or marker.is_symlink():
+            if continuation_error:
+                raise continuation_error
+            return
+    if RATE_WAIT.exists():
+        if time.time() < json.loads(RATE_WAIT.read_text()):
+            return
+        RATE_WAIT.unlink()
+    github_token = read_manual_credential(hosts[CORE])
+    require(bool(github_token), "Host GitHub credential is missing")
     # Wake recovery verifies the installed package against the host pin. Resume
     # durable apply first: either may be absent or out of sync after a crash.
     recover_legacy_wakes()
@@ -820,8 +811,17 @@ def main():
     elif target:
         raise RuntimeError(f"CD artifacts for interrupted rollout {target} are missing")
     else:
+        if continuation_error:
+            raise continuation_error
         clean_superseded_staged_packages(current)
-    resume_installed_work()
+    if selected and not plan_path.exists():
+        installed = json.loads((CONFIG / HOSTS[CORE]).read_text())
+        revision = installed["installation"]["pin"]["commit"]
+        if revision == selected[1]["core"]["commit"]:
+            resume_installed_work()
+            clean_superseded_staged_packages(revision)
+        elif continuation_error:
+            raise continuation_error
 
 def serialized_main():
     require(os.getuid() == 0, "Rollout must run as host administrator")

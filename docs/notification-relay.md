@@ -154,28 +154,74 @@ recovery interface.
 
 ## Continue work after a host rollout
 
-After installing a Core package, the existing rollout timer scans the currently
-adopted repositories for open Scope Issues assigned to the adopted member.
-It rechecks the Issue, owner pause and native prerequisites using the same
-eligibility rules as Issue wake events, then triggers the current shared
-workflow with `stage=continue`. GitHub owns queueing, assignment and workflow
-concurrency. Core's normal admission and continuation own stage execution.
+Successful Core deployment and verified managed replacement activation share
+one continuation mechanism. It scans the currently adopted repositories for
+open Scope Issues assigned to the adopted member, rechecks current eligibility,
+owner pauses and native prerequisites, then requests the current shared workflow
+with `stage=continue`. GitHub owns queueing, assignment and workflow concurrency.
+Core's normal admission and continuation own stage execution.
 
-The completion scan reads current host adoption rather than the previous
-relay workflow source bindings. It also runs after a self-update when the
-old updater has already removed its deployment plan. A completion receipt at
-`/etc/nibfin/rollout-resume.json` records successful native dispatch IDs for
-the installed package. Later timer invocations reuse those results after a
-partial failure and retry the remaining scan. Missing bookkeeping starts a
-fresh scan. An Issue read failure leaves other eligible Issues independent.
+The fixed installed entry is:
 
-An operator relay pause defers the remaining scan. Existing Issue pauses and
-unmet native dependencies remain effective. Deployment completion and pending
-continuation observations are tracked independently so a failed Issue read
-does not leave the deployment unfinished.
+```sh
+sudo node /opt/nibfin/core/bin/nibfin-core.mjs complete-installed-lifecycle
+```
 
-If GitHub accepts a dispatch but its response is lost, a later scan can submit
-another normal continuation for that unfinished Issue. The shared workflow's
-native concurrency applies to both invocations, and Core reuses confirmed
-stage effects. Successful dispatch establishes that GitHub received the job;
-the job's own result establishes progress or completion of the Issue.
+It accepts no arguments or stdin input and requires the adopted installed host's
+local administrator. Core verifies installed source, current adoption, private
+Controller credentials and managed pool admission. Callers cannot choose modules,
+credentials, state paths, repositories or bypass options. Discover this additive
+contract as `consumerContract.installedLifecycleCompletion` or through `contract`
+and `help` in the installed CLI; consumers do not implement Issue scanning.
+
+Exactly one JSON result describes continuation: `status` is `dispatched`, `paused`
+or `pending`, `results` holds actual reported outcomes and a safe diagnostic
+`code` may explain a pending observation. Exit status is 0 for a successful scan
+or paused result, 2 for retryable pending continuation, and 1 for denied invocation
+or trusted admission failure. Imported operations are silent. `dispatched` means
+a successful current scan and its confirmed requests, including a genuinely empty
+scan; it never establishes installation, activation or delivery success.
+
+Every completion invocation discovers current work again, even after an earlier
+completed scan. Current host adoption supplies repositories and destination,
+independently of old notification artifacts, journals or local relay pause records.
+Private observational progress lives in the fixed `lifecycle-continuation/` child
+of the adopted host's Controller state root: `continuation.json` records scan
+status and `continuation-<repositoryId>-<number>.json` records each confirmed
+request. Lifecycle compatibility includes installation, adopted pool and repository
+identities and the existing replacement identity when applicable. Fresh Runner IDs
+start a new lifecycle even when the installed package is unchanged.
+
+Confirmed native requests are reused only for compatible lifecycles after checking
+current eligibility. Missing, malformed or incompatible bookkeeping starts ordinary
+discovery. Temporary identity, adoption, list or Issue observation failures remain
+retryable; partial success preserves confirmed results. Old installation-only
+`/etc/nibfin/rollout-resume.json` records cannot suppress discovery. Existing relay
+records are retained as recovery evidence, without becoming completion authority.
+
+Successful deployment requests this operation after installation/adoption read-back
+and Runner service restoration. The rollout adapter uses the fixed command rather
+than an internal module protocol. Its normal retry observes installed state even
+when a self-update removed its plan and response. Managed-credential completion
+uses Core admission without entering the adapter's legacy deployment token path;
+that path still cannot consume imported managed credentials.
+
+Verified replacement activation releases its mutation lock before completion.
+Retrying activation or invoking standalone completion discovers a released pool
+without requiring a prior continuation receipt. Prepared replacements, unverified
+release and unresolved drains remain ineligible. Activation retains its compatible
+`active` response with a separate `continuation` outcome; pending continuation
+does not redo deployment or replacement.
+
+Explicit lifecycle completion and the operation's normal retry initiate recovery.
+Notification polling does not invoke lifecycle continuation. No timer, cron job,
+scheduled workflow, polling service or external watcher is required. Existing
+notification processing and its stricter immutable-intent/unknown-effect recovery
+remain separate; this change does not remove notification resources or migrate
+native caller credentials. Current Issue pauses, dependencies and managed
+admission remain authoritative.
+
+If GitHub accepts a request but its response is lost, retry can submit another
+ordinary native continuation after current-state checks. Exactly-once dispatch is
+not promised. GitHub's native concurrency and Core's stage/effect protections
+remain authoritative; the resulting job establishes actual Issue progress.
