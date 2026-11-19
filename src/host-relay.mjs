@@ -1,3 +1,7 @@
+import {
+  isReconciledResult, isUnfinishedObservation,
+} from './reconciliation-result.mjs';
+import { githubReadWaiting, githubApiWaiting } from './observation-failure.mjs';
 import { rootOwnedPath } from './host-paths.mjs';
 import { hostFile, coreRoot } from './host-adoption.mjs';
 import { boundedHostFile } from './host-adoption.mjs';
@@ -83,10 +87,16 @@ export async function relayControllerRequest(request, uid, run = command) {
   if (request.command === 'stage') {
     try {
       const observed = await invoke({ ...request, command: 'reconcile-stage' });
-      if (observed.schemaVersion === 1 && observed.status === 'completed' &&
-          request.stage === 'continue' && observed.stage === 'continue' &&
-          observed.terminalStage === 'close' &&
-          /^[a-f0-9]{64}$/.test(observed.receiptHash ?? '')) return observed;
+      if (isReconciledResult(observed, request.stage)) return observed;
+      if (isUnfinishedObservation(observed, request.stage)) {
+        // Re-enter once through normal authenticated admission. A lost response
+        // here remains unresolved; never recursively replay an unknown effect.
+        const result = await invoke(request);
+        return result.stage === undefined ? { ...result, stage: request.stage } : result;
+      }
+      if (observed.schemaVersion === 1 && observed.stage === request.stage &&
+        observed.status === 'pending' &&
+        [githubReadWaiting, githubApiWaiting].includes(observed.code)) return observed;
       reconciliationFailure = 'COMPLETION_UNPROVEN';
     } catch (error) { reconciliationFailure = error.message; }
   }

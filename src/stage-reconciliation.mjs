@@ -1,13 +1,19 @@
+import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { digest } from './identity.mjs';
-import { acquireHostFence, issueStatePath } from './host-fence.mjs';
+import {
+  acquireHostFence, issueStatePath, privateHostDirectory,
+} from './host-fence.mjs';
 import { inspectHostAdoption } from './host-adoption.mjs';
 import { idleContainers } from './host-containers.mjs';
 import { OperationJournal } from './operation-journal.mjs';
 import { issueProgress } from './issue-progress.mjs';
-import { retryGitHubObservation } from './observation-failure.mjs';
+import {
+  githubApiWaiting, githubReadWaiting, githubReadWait, retryGitHubObservation,
+} from './observation-failure.mjs';
 import { assertHostSettlement } from './host-stage-settlement.mjs';
-import { reconciledEvidence } from './reconciled-evidence.mjs';
+import { observeDelivery } from './unfinished-observation.mjs';
+import { stages } from './stages.mjs';
 
 // Reuse the launcher's admission before entering this observational path.
 // No stage composer, Writer, mutation handler or retained-fence recovery runs here.
@@ -24,9 +30,15 @@ export async function reconcileDelivery(input, dependencies = {}) {
     new OperationJournal(join(root, 'receipts'), issue);
   const pending = { schemaVersion: 1, stage, status: 'pending',
     code: 'CONTROLLER_RECONCILIATION_UNPROVEN' };
-  if (stage !== 'continue') return pending;
+  if (stage !== 'continue' && !Object.hasOwn(stages, stage)) return pending;
   let fence;
   try {
+    if (!dependencies.acquire) {
+      await privateHostDirectory(host.stateRoot);
+      await mkdir(root, { mode: 0o700 }).catch(error => {
+        if (error.code !== 'EEXIST') throw error;
+      });
+    }
     fence = await acquire(root, { execution, issueId: issue.id,
       host: digest(hostBytes) });
   } catch { return pending; }
@@ -37,16 +49,31 @@ export async function reconcileDelivery(input, dependencies = {}) {
   };
   let result = pending;
   try {
+    if (!dependencies.journal) {
+      const receipts = join(root, 'receipts');
+      await mkdir(receipts, { mode: 0o700 }).catch(error => {
+        if (error.code !== 'EEXIST') throw error;
+      });
+      await privateHostDirectory(receipts);
+    }
     await settled();
     const selected = await progress(root, approval);
-    result = await retryGitHubObservation(() => reconciledEvidence({
-      ...selected, approval, runner, closeExecution, reader,
-    }));
-  } catch { result = pending; }
+    const retry = dependencies.retryObservation ?? retryGitHubObservation;
+    result = await retry(() => observeDelivery({
+      ...selected, approval, runner, closeExecution, reader, stage,
+    }), { stage: true });
+  } catch (error) {
+    const waiting = githubReadWait(error, undefined, { stage: true });
+    result = waiting ? { schemaVersion: 1, stage, ...waiting } : pending;
+  }
   try {
     // A failed proof may release only our own fence, after settlement is proven.
     await settled();
     await fence.release();
   } catch { return pending; }
-  return result;
+  return result.code === githubReadWaiting ||
+    result.code === githubApiWaiting
+    ? { ...result, retrySettled: true, ...(runner.target ? {
+      retryRun: runner.runId, retryAttempt: runner.attempt,
+    } : {}) } : result;
 }

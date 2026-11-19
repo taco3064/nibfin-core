@@ -164,6 +164,35 @@ host or its Runner registration also requires reconciliation; removing a GitHub
 registration is not proof that the old host stopped. This launcher does not
 automatically adopt a replacement host or claim cross-host crash recovery.
 
+When the Runner loses a Controller stage response or receives malformed output,
+it asks the authenticated Controller to observe the same Issue and requested
+stage. A proven complete delivery is returned without starting another stage.
+A validated retained result, when available, keeps its actual status and terminal
+stage; a pre-merge result does not establish complete delivery.
+
+If a successful live Issue read establishes open, unfinished work, reconciliation
+checks existing progress and proves that the journal and containers are settled.
+It rechecks settlement and releases only its own fence before returning an
+internal unfinished disposition. Missing optional local results or initial
+receipt directories do not prevent this observation. Closed Issues without a
+complete proof, contradictory evidence and unknown effects remain unresolved.
+
+The relay then submits the original stage request through normal authenticated
+entry. `continue` selects current unfinished progress and reuses confirmed stage
+effects; an explicit stage keeps its original contract. Permissions, adoption,
+Pause, dependencies, role independence, Writer termination and isolation still
+control admission. An observation grants no permission to execute. A current
+admission refusal or other native result is returned with its real stage and
+cause. Another lost response stays unresolved and can be observed again through
+the ordinary continuation path; the relay does not recursively replay it.
+
+Temporary GitHub read failures use the existing observation retry path. Exhausted
+read waits keep their recognized diagnostics. Automatic workflow retry metadata
+is emitted only after Controller-owned settlement, bound to the current Run and
+Attempt where applicable. An unavailable read, malformed observation or missing
+receipt is never treated as successful absence. Retained fences still require
+the recovery procedure below; this handoff path never reclaims another fence.
+
 For a published PR repair whose head read-back was interrupted, stop the adopted
 Runner and wait for GitHub to report it offline. Recovery requires the same
 trusted Linux host to have entered a different kernel boot. The durable host
