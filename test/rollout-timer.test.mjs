@@ -169,6 +169,7 @@ with tempfile.TemporaryDirectory() as directory:
     g["RATE_WAIT"] = Path(directory) / "absent-rate-wait"
     for name in g["HOSTS"].values():
         (Path(directory) / name).write_text(json.dumps({
+            "tokenFile": str(Path(directory) / "token"),
             "installation": {"pin": {"commit": "a" * 40}}}))
     main()
     assert effects == ["recovery", "cleanup"]
@@ -202,6 +203,7 @@ with tempfile.TemporaryDirectory() as directory:
     (package / "bin/nibfin-core.mjs").touch()
     for name in g["HOSTS"].values():
         (g["CONFIG"] / name).write_text(json.dumps({
+            "tokenFile": str(root / "token"),
             "installation": {"pin": {"commit": old}}}))
     path = g["CONFIG"] / "rollout-plan.json"
     g["write_config"](path, {"schemaVersion": 2, "phase": "applying",
@@ -220,6 +222,7 @@ with tempfile.TemporaryDirectory() as directory:
             staged.rename(live)
         for name in g["HOSTS"].values():
             (g["CONFIG"] / name).write_text(json.dumps({
+                "tokenFile": str(root / "token"),
                 "installation": {"pin": {"commit": target}}}))
         plan = json.loads(path.read_text())
         plan["apply"]["completed"] = True
@@ -233,12 +236,13 @@ with tempfile.TemporaryDirectory() as directory:
         effects.append("finish")
         path.unlink()
 
+    g["resume_installed_work"] = lambda: effects.append("continuation")
     g.update(run=run, finish=finish, next_rollout=lambda *args: None,
              clean_superseded_staged_packages=lambda *args: None)
     main()
-    assert effects == ["promote", "finish"]
+    assert effects == ["promote", "finish", "continuation"]
     main()
-    assert effects == ["promote", "finish", "wakes"]
+    assert effects == ["promote", "finish", "continuation", "continuation", "wakes"]
 `, resolve('scripts/host-auto-rollout.py'), interrupted], {
       encoding: 'utf8', timeout: 5000,
     });

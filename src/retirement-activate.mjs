@@ -1,3 +1,4 @@
+import { completeInstalledLifecycle } from './installed-lifecycle.mjs';
 import { boundedHostFile, coreRoot, hostFile } from './host-adoption.mjs';
 import { rootOwnedPath } from './host-paths.mjs';
 import { requireThat } from './identity.mjs';
@@ -9,7 +10,6 @@ import {
   adoptionReader, observePeer, verifyAdoptionAction,
 } from './shared-peer-adoption.mjs';
 import { verifyRunningSharedServices } from './shared-service-start.mjs';
-import { inspectNotificationRelay } from './relay-service.mjs';
 import { retirementPath } from './retirement-admission.mjs';
 import { readRetirementFile } from './retirement-files.mjs';
 import { withRetirementLock } from './retirement-lock.mjs';
@@ -51,35 +51,41 @@ async function verifyRepository(reader, host, target, source) {
 export async function activateSharedReplacement() {
   requireThat(process.platform === 'linux' && process.getuid() === 0 &&
     coreRoot === '/opt/nibfin/core', 'RETIREMENT_REQUIRES_LOCAL_ADMIN');
-  return withManagedAdmission(() => withRetirementLock(async () => {
-    await rootOwnedPath(hostFile);
-    const bytes = await boundedHostFile(hostFile, 262144);
-    const host = JSON.parse(bytes);
-    const state = await readRetirementFile(retirementPath);
-    const pool = await inspectSharedHost();
-    await releaseRetiredReplacement(state, host, async () => {
-      const targets = state.binding.repositories;
-      requireThat(pool.adoptedRepositoryIds.length === targets.length &&
-        targets.every(target => pool.adoptedRepositoryIds.includes(target.repositoryId)),
-      'RETIREMENT_REPOSITORIES_UNVERIFIED');
-      const source = await verifyInstalledSource(coreRoot, host.installation.pin);
-      const reader = await adoptionReader(host);
-      for (const target of targets) await verifyRepository(reader, host, target, source);
-      const relay = await inspectNotificationRelay();
-      const timer = relay.service.units?.find(
-        unit => unit.Id === 'nibfin-notification-relay.timer');
-      requireThat(relay.github.status === 'verified' &&
-        relay.recovery.status === 'observed' && relay.recovery.control.paused === false &&
-        relay.resources.every(resource => resource.status === 'prepared') &&
-        timer?.LoadState === 'loaded' && timer.ActiveState === 'active',
-      'RETIREMENT_RELAY_UNVERIFIED');
-      await verifyRunningSharedServices();
-      const registrations = await reader.list(
-        repoPath(pool.repository) + '/actions/runners', 'runners');
-      verifyReplacementRunners(pool, state.binding.pool, registrations);
-      requireThat(await boundedHostFile(hostFile, 262144) === bytes,
-        'RETIREMENT_ADOPTION_CHANGED');
-    });
-    return { status: 'active', retirementId: state.id, ...pool };
-  }));
+  return activateThenContinue(
+    () => withManagedAdmission(() => withRetirementLock(verifyAndReleaseReplacement)),
+    completeInstalledLifecycle);
+}
+
+async function verifyAndReleaseReplacement() {
+  await rootOwnedPath(hostFile);
+  const bytes = await boundedHostFile(hostFile, 262144);
+  const host = JSON.parse(bytes);
+  const state = await readRetirementFile(retirementPath);
+  const pool = await inspectSharedHost();
+  await releaseRetiredReplacement(state, host, async () => {
+    const targets = state.binding.repositories;
+    requireThat(pool.adoptedRepositoryIds.length === targets.length &&
+      targets.every(target => pool.adoptedRepositoryIds.includes(target.repositoryId)),
+    'RETIREMENT_REPOSITORIES_UNVERIFIED');
+    const source = await verifyInstalledSource(coreRoot, host.installation.pin);
+    const reader = await adoptionReader(host);
+    for (const target of targets) await verifyRepository(reader, host, target, source);
+    await verifyRunningSharedServices();
+    const registrations = await reader.list(
+      repoPath(pool.repository) + '/actions/runners', 'runners');
+    verifyReplacementRunners(pool, state.binding.pool, registrations);
+    requireThat(await boundedHostFile(hostFile, 262144) === bytes,
+      'RETIREMENT_ADOPTION_CHANGED');
+  });
+  return { status: 'active', retirementId: state.id, ...pool };
+}
+
+// The mutation callback must finish (and release its lock) before continuation.
+export async function activateThenContinue(activate, resume) {
+  const active = await activate();
+  if (active.status !== 'active') return active;
+  let continuation;
+  try { continuation = await resume(); }
+  catch { continuation = { status: 'pending', results: [] }; }
+  return { ...active, continuation };
 }

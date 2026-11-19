@@ -17,7 +17,7 @@ export async function retiredReplacement(pool) {
   return state;
 }
 
-function replacementPool(host) {
+export function replacementPool(host) {
   return { repository: host.sharedRunner.runner.repository,
     repositoryId: host.sharedRunner.runner.repositoryId, memberId: host.memberId,
     runners: [

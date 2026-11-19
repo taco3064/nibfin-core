@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { completeInstalledLifecycle } from '../src/installed-lifecycle.mjs';
 import { readDiagnosisInput } from '../src/diagnosis-input.mjs';
 import { retireSharedHost } from '../src/retirement-host.mjs';
 import { activateSharedReplacement } from '../src/retirement-activate.mjs';
@@ -52,6 +53,8 @@ async function main(args) {
     return retireSharedHost();
   if (command === 'activate-shared-replacement' && values.length === 0)
     return activateSharedReplacement();
+  if (command === 'complete-installed-lifecycle' && values.length === 0)
+    return completeInstalledLifecycle();
   if (command === 'promote-host' && values.length === 0) return promoteHost();
   if (command === 'contract' && values.length === 0) return consumerContract;
   if (command === 'inspect-shared-host' && values.length === 0)
@@ -87,6 +90,7 @@ async function main(args) {
     return {
       commands: [
         'contract',
+        'complete-installed-lifecycle (installed administrator, no input or arguments)',
         'managed-credentials <intake|replace|status|disconnect> (local admin)',
         'inspect-shared-host',
         'observe-local-work (private JSON stdin, no arguments)',
@@ -112,6 +116,7 @@ async function main(args) {
         'export-mcp <codex> <settings-home> <auth-home> <member-id> <new-private-file>',
         'import-mcp <member-id> <new-private-file> (private stdin only)',
       ],
+      installedLifecycleCompletion: consumerContract.installedLifecycleCompletion,
       lifecycle:
         'Stage execution requires administrator-adopted host configuration ' +
         'and live native admission.',

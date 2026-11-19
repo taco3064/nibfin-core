@@ -1,8 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
+import { readFile, mkdtemp, rm, chmod } from 'node:fs/promises';
+import { resolve, join } from 'node:path';
 import { gitBlob } from '../src/identity.mjs';
-import { resumeRolloutWork } from '../src/rollout-resume.mjs';
+import { resumeRolloutWork, resumeInstalledWork } from '../src/rollout-resume.mjs';
 import { currentRelayOrigins, bindRelayOrigin } from '../src/relay-host.mjs';
 import { providerHost } from './provider-fixture.mjs';
 import { GitHubReader } from '../src/github-read.mjs';
@@ -210,3 +211,48 @@ test('pause during a partial scan leaves the remaining work resumable', async ()
   assert.equal((await resumeRolloutWork(f.context)).status, 'dispatched');
   assert.deepEqual(f.calls.map(call => call.inputs.issue_number), ['1', '7']);
 });
+
+
+test('installed shared path persists dispatches silently and rescans fresh IDs',
+  async t => {
+    const f = await fixture();
+    const root = await mkdtemp(join(resolve('.'), '.installed-continuation-'));
+    await chmod(root, 0o700);
+    t.after(() => rm(root, { recursive: true, force: true }));
+    const host = providerHost();
+    host.stateRoot = root;
+    host.memberId = f.context.configuration.memberId;
+    const context = { ...f.context, host,
+      journal: { ...f.context.journal, root } };
+    const options = { load: async () => context, read: async () => null,
+      requireAdmission: async () => {},
+      fetcher: async (url, request) => {
+        const { inputs } = JSON.parse(request.body);
+        const run = await f.context.dispatch({}, inputs);
+        return Response.json({ workflow_run_id: run.runId, html_url: run.url });
+      } };
+    const original = console.log;
+    const output = [];
+    console.log = (...args) => output.push(args);
+    try {
+      assert.equal((await resumeInstalledWork(options)).status, 'dispatched');
+      assert.equal((await resumeInstalledWork(options)).status, 'dispatched');
+      assert.equal(f.calls.length, 1);
+      const fresh = { ...f.items[0], number: 7, node_id: 'I_7',
+        url: f.items[0].url.replace('/1', '/7') };
+      f.items.push(fresh);
+      const discovered = await resumeInstalledWork(options);
+      assert.equal(discovered.status, 'dispatched');
+      assert.deepEqual(discovered.results.map(item => item.number), [1, 7]);
+      assert.equal(f.calls.length, 2);
+      f.items[0].labels = [{ name: 'scope' }, { name: 'pause' }];
+      const paused = await resumeInstalledWork(options);
+      assert.deepEqual(paused.results.map(item => item.number), [7]);
+      assert.equal(f.calls.length, 2);
+      host.sharedRunner.runner.runnerId = 80;
+      host.sharedRunner.additionalRunner.id = 81;
+      assert.equal((await resumeInstalledWork(options)).status, 'dispatched');
+      assert.equal(f.calls.length, 3);
+    } finally { console.log = original; }
+    assert.deepEqual(output, []);
+  });
