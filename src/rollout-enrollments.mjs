@@ -20,8 +20,12 @@ export async function verifyRolloutEnrollments(reader, host, targets, pin) {
     const branchPath = root + '/branches/' + encodeURIComponent(native.default_branch);
     const branch = await reader.get(branchPath);
     const checked = new Set();
-    for (const [name, kind] of [['eventRunner', 'issue-forwarded'],
-      ['runner', 'action-wake']]) {
+    const callers = [['eventRunner', 'issue-forwarded']];
+    // Shared execution is verified through the adopted pool by the caller.
+    // A retired legacy adapter is not an active route for an enrolled target.
+    if (!host.sharedRunner?.repositories?.includes(approval.repositoryId))
+      callers.push(['runner', 'action-wake']);
+    for (const [name, kind] of callers) {
       const binding = next.repository[name];
       if (checked.has(binding.workflowPath)) continue;
       checked.add(binding.workflowPath);
