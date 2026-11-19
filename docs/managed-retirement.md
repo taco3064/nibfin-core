@@ -13,12 +13,14 @@ the same operation. No token, model authentication, or exception text is returne
 1. Core records the exact adoption, provider, repository/member identity, both
    registration IDs and their managed service-slot directory identities.
 2. Under the Controller admission gate, Core writes a root-owned drain marker.
-   It durably pauses the notification relay through its control interface.
+   For an adopted artifact consumer it also durably pauses the notification relay.
+   When all adopted consumers have freshly verified native Issue callers, drain
+   does not require notification configuration, service, timer or journal state.
    New Controller admissions and pre-Worker admission refuse the draining pool.
    Continuation checks the drain boundary before beginning another stage.
 3. Existing admitted work settles. Core checks admission and credential leases,
    all adopted repositories' native Jobs, journals, Writer/session fences,
-   containers and both service cgroups. Under the relay gate it also requires
+   containers and both service cgroups. For artifact consumers, the relay gate requires
    paused control and no pending dispatch receipts, including lost-response
    effects without a native run ID. Relay recovery retains and reconciles these
    receipts; retirement never clears or reposts them. Busy, unavailable or unknown observations
@@ -87,6 +89,38 @@ Retirement preserves repositories, PRs, Issues, delivery evidence, original user
 login stores, shared credentials, unrelated services and shared uplink networks.
 It never revokes account credentials. Legacy/unadopted removal is unchanged.
 Unsupported service supervisor or gateway layouts remain explicitly Pending.
+
+## Retire obsolete notification resources
+
+The contract advertises `notificationRelayRetirement`. Its fixed command,
+`retire-notification-relay`, takes no arguments and requires the verified installed
+administrator context. CLI can call it after its native credential and caller
+setup. It does not provide or infer credential installation: a maintained native
+caller proves the selected route, not the value of an unreadable GitHub secret.
+
+Core verifies every actual adopted repository's live native Issue and Action
+caller against the maintained recipes and adopted identities. An additional old
+configuration origin must be an identically identified archived/disabled repository;
+a live unadopted consumer prevents deletion. Missing obsolete configuration does
+not prevent native activation, retirement or lifecycle completion. Corrupt obsolete
+configuration prevents cleanup of shared resources whose consumers cannot be proved;
+it does not become an unrelated lifecycle prerequisite.
+
+Cleanup stops and disables the owned notification timer before stopping its worker.
+Only exact root-owned installed unit resources and their verified configuration are
+removed, after independent systemd readback confirms termination. Drop-ins, foreign
+units and changed adoption are preserved. Command response loss re-enters the same
+operation: confirmed stopped units and absent files are reused rather than written
+again. No new timer, scheduler, queue or durable cleanup lock is introduced.
+
+`retired` exits zero; `pending` exits two with a safe code and partial removal list.
+Trust/admission refusal exits one. The optional old journal is pruned only after
+worker termination using its existing gate. Confirmed terminal adopted-origin
+receipts and obsolete poll caches can be removed. Owner pause, unknown effects,
+malformed records, unrelated origins and replacement recovery evidence remain.
+Their retained names are reported separately. None is required to activate a native
+pool or complete its normal continuation. This command neither resumes Owner pause
+nor removes active Issue/Writer state, registrations or shared credentials.
 
 Controlled tests use two disposable slots, fake native services/registrations
 and gateways, the real relay control interface and admission kernel gate. They

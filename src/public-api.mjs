@@ -51,6 +51,14 @@ export const consumerContract = Object.freeze({
     kind: 'managed-pool-replacement-v1',
     activationCommand: 'activate-shared-replacement',
   }),
+  notificationRelayRetirement: Object.freeze({
+    schemaVersion: 1, command: 'retire-notification-relay', input: 'none',
+    requires: 'local administrator on the adopted installed host',
+    statuses: Object.freeze(['retired', 'pending']),
+    exitStatuses: Object.freeze({ retired: 0, pending: 2, denied: 1 }),
+    retained: 'Owner pause, unknown effects and unrelated resources are preserved',
+    independent: 'Native activation and lifecycle completion do not require cleanup',
+  }),
   managedSharedAdmission: Object.freeze({
     kind: managedSharedAdmission,
     adoptionProfileKey: 'sharedAdmission',

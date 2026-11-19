@@ -3,7 +3,7 @@ import { link, lstat, mkdir, open, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { command } from './process.mjs';
-import { boundedHostFile, coreRoot } from './host-adoption.mjs';
+import { boundedHostFile } from './host-adoption.mjs';
 import { rootOwnedPath } from './host-paths.mjs';
 import { requireThat } from './identity.mjs';
 import { syncRecoveryDirectory } from './recovery-lock.mjs';
@@ -12,7 +12,7 @@ import {
   loadRelayHost, relayStateRoot, relayUnitDirectory, relayUnits,
 } from './relay-host.mjs';
 import { NotificationRelay, safeRelayCode } from './notification-relay.mjs';
-import { installedSharedRuntime } from './shared-platform.mjs';
+import { notificationUnitContents } from './relay-unit-contents.mjs';
 import { requirePoolOpen } from './retirement-admission.mjs';
 
 export async function writeRelayResource(directory, name, content, inspect) {
@@ -43,18 +43,6 @@ export async function writeRelayResource(directory, name, content, inspect) {
   }
 }
 
-async function unitContents() {
-  const { nodePath } = await installedSharedRuntime();
-  const result = new Map();
-  for (const name of relayUnits) {
-    const path = join(coreRoot, 'src/security', name);
-    await rootOwnedPath(path);
-    const template = await boundedHostFile(path, 16384);
-    result.set(name, template.replaceAll('NODE_RUNTIME', nodePath));
-  }
-  return result;
-}
-
 async function serviceState() {
   try {
     await rootOwnedPath('/usr/bin/systemctl');
@@ -73,7 +61,7 @@ async function serviceState() {
 
 export async function prepareNotificationRelay() {
   const context = await loadRelayHost();
-  const contents = await unitContents();
+  const contents = await notificationUnitContents();
   await rootOwnedPath(relayUnitDirectory);
   await rootOwnedPath('/var/lib');
   await mkdir('/var/lib/nibfin', { mode: 0o755 }).catch(error => {
@@ -103,7 +91,7 @@ export async function prepareNotificationRelay() {
 
 export async function inspectNotificationRelay() {
   const local = await loadRelayHost({ authenticate: false });
-  const contents = await unitContents();
+  const contents = await notificationUnitContents();
   const resources = [];
   for (const [name, content] of contents) {
     let status = 'missing';

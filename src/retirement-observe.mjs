@@ -104,8 +104,10 @@ export async function assertRetirementJobs(reader, repositories, pool) {
   }
 }
 
-export async function settleRetirementWork(host, reader, binding, state) {
-  await new RelayJournal(relayStateRoot).requireSettled();
+export async function settleRetirementWork(host, reader, binding, state, {
+  relayRequired = true,
+} = {}) {
+  if (relayRequired) await new RelayJournal(relayStateRoot).requireSettled();
   await settlePoolWork(host, reader, binding, state);
 }
 
@@ -123,8 +125,8 @@ export async function settlePoolWork(host, reader, binding, state, options) {
   await observeRetirementRegistrations(reader, binding.pool, { allowOnline: true });
 }
 
-export async function settleRetirement(host, reader, binding, state) {
-  await settleRetirementWork(host, reader, binding, state);
+export async function settleRetirement(host, reader, binding, state, options) {
+  await settleRetirementWork(host, reader, binding, state, options);
   await observeRetirementRegistrations(reader, binding.pool);
   for (const slot of [1, 2]) await observeRetirementUnit(slot);
   await assertRetirementCgroups();

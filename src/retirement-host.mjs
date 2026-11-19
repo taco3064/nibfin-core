@@ -27,6 +27,7 @@ import { readPrivate } from './managed-credential-files.mjs';
 import { controlNotificationRelay } from './relay-service.mjs';
 import { RelayJournal } from './relay-state.mjs';
 import { relayStateRoot } from './relay-host.mjs';
+import { observeNativeNotificationRoutes } from './native-notification-route.mjs';
 import { retireManagedPool } from './managed-retirement.mjs';
 import {
   drainPath, retirementPath, withPoolGate,
@@ -100,11 +101,12 @@ function marker(state) {
   return { schemaVersion: 1, retirementId: state.id, pool: state.binding.pool };
 }
 
-async function assertClosed(state) {
+async function assertClosed(state, relayRequired = true) {
   requireThat(same(await readRetirementFile(drainPath), marker(state)),
     'RETIREMENT_ADMISSION_NOT_CLOSED');
-  requireThat((await new RelayJournal(relayStateRoot).control()).paused === true,
-    'RETIREMENT_RELAY_NOT_PAUSED');
+  if (relayRequired)
+    requireThat((await new RelayJournal(relayStateRoot).control()).paused === true,
+      'RETIREMENT_RELAY_NOT_PAUSED');
 }
 
 // This command has no path, adapter, token, removal assertion or provider input.
@@ -138,6 +140,23 @@ export async function retireSharedHost() {
     let reader;
     const nativeReader = async () => reader ??= new GitHubReader(
       (await readPrivate(host.tokenFile, host, 16384)).trim());
+    const readPeer = async path => {
+      await rootOwnedPath(path);
+      return JSON.parse(await boundedHostFile(path, 262144));
+    };
+    let relayRequired = false;
+    try {
+      await observeNativeNotificationRoutes(host, await nativeReader(), readPeer);
+    } catch (error) {
+      if (error.code !== 'NOTIFICATION_ARTIFACT_CONSUMER_ACTIVE') throw error;
+      relayRequired = true;
+    }
+    const settlement = { relayRequired };
+    const closed = async state => {
+      await assertClosed(state, relayRequired);
+      if (!relayRequired)
+        await observeNativeNotificationRoutes(host, await nativeReader(), readPeer);
+    };
     const resources = new RetirementSlotResources();
     const gateways = new RetirementGateways();
     const services = new RetirementServices();
@@ -145,19 +164,22 @@ export async function retireSharedHost() {
       read: () => archive ? null : readRetirementFile(retirementPath),
       write: state => writeRetirementFile(retirementPath, state),
       inspectBinding: () => inspectAdoptions(binding),
-      assertClosed,
+      drainEffects: relayRequired ? ['close-admission', 'relay-pause'] :
+        ['close-admission'],
+      assertClosed: closed,
       settleWork: async state => {
         await verifyManagedAuthority({ ...host,
           credentialRepositories: binding.repositories }, '', await nativeReader());
         await inspectRetirementSessions(host);
-        await settleRetirementWork(host, await nativeReader(), binding, state);
+        await settleRetirementWork(host, await nativeReader(), binding, state,
+          settlement);
       },
       settlementEffects: retirementServiceEffects,
       settle: async state => {
         await verifyManagedAuthority({ ...host,
           credentialRepositories: binding.repositories }, '', await nativeReader());
         await inspectRetirementSessions(host);
-        await settleRetirement(host, await nativeReader(), binding, state);
+        await settleRetirement(host, await nativeReader(), binding, state, settlement);
       },
       registrations: async () =>
         observeRetirementRegistrations(await nativeReader(), binding.pool),
@@ -191,14 +213,15 @@ export async function retireSharedHost() {
           requireThat(result?.status !== 'pending', 'RETIREMENT_ADMISSION_BUSY');
           return;
         }
-        await assertClosed(state);
+        await closed(state);
         await inspectAdoptions(binding);
         await inspectRetirementSessions(host);
         if (retirementServiceEffects.includes(name)) {
-          await settleRetirementWork(host, await nativeReader(), binding, state);
+          await settleRetirementWork(host, await nativeReader(), binding, state,
+            settlement);
           return services.perform(name, state);
         }
-        await settleRetirement(host, await nativeReader(), binding, state);
+        await settleRetirement(host, await nativeReader(), binding, state, settlement);
         const registrations = await observeRetirementRegistrations(
           await nativeReader(), binding.pool);
         requireThat(registrations.every(value => value === 'absent'),
