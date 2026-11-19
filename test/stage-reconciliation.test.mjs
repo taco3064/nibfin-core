@@ -136,7 +136,7 @@ test('missing, corrupt, stale and contradictory evidence stays Pending', async (
 
 test('unsupported stage and lost settlement stay Pending', async () => {
   const unsupported = reconciliationFixture();
-  unsupported.input.stage = 'deliver';
+  unsupported.input.stage = 'unknown';
   assert.equal((await observe(unsupported)).status, 'pending');
   assert.equal(unsupported.counts.acquired, 0);
   const f = reconciliationFixture();
