@@ -18,6 +18,9 @@ import { digest, sha256 } from '../src/identity.mjs';
 import { stageHandlers } from '../src/stage-handlers.mjs';
 import { stageFixture } from './stage-fixture.mjs';
 import { refreshShapeWorkspace } from '../src/host-shape-workspace.mjs';
+import {
+  prepareWriterTemporaryDirectory, writerTemporaryDirectory,
+} from '../src/agent-scratch.mjs';
 
 const shape =
   'Shape\n```kairo-candidate\n' +
@@ -382,6 +385,25 @@ test('capture binds required evidence outside the tree', async (t) => {
     /CANDIDATE_CHANGED_AFTER_ACCEPT/,
   );
 });
+
+test('Writer scratch follows repository ignores without hiding root artifacts',
+  async t => {
+    const { workspace } = await fixture(t);
+    await writeFile(join(workspace.work, '.gitignore'), '/.nibfin-cache/\n');
+    await writeFile(join(workspace.work, 'source.txt'), 'Product change\n');
+    await writeFile(join(workspace.work, 'proof.txt'), 'Required evidence\n');
+    await prepareWriterTemporaryDirectory(workspace.work);
+    const registry = 'codex-bwrap-synthetic-mount-targets-0';
+    const temporary = join(workspace.work, writerTemporaryDirectory, registry);
+    await mkdir(temporary);
+    await writeFile(join(temporary, 'lock'), 'runtime metadata');
+    const candidate = await workspace.capture(shape);
+    assert.deepEqual(candidate.paths, ['.gitignore', 'proof.txt', 'source.txt']);
+    const unexpected = join(workspace.work, registry);
+    await mkdir(unexpected);
+    await writeFile(join(unexpected, 'lock'), 'unexpected root metadata');
+    assert.ok((await workspace.capture(shape)).paths.includes(registry + '/lock'));
+  });
 
 test('real Git rebase preserves content evidence across a parallel merge', async (t) => {
   const f = await fixture(t);

@@ -113,7 +113,8 @@ async function fixture(t, fault, rootful = false, mcp = false, project = false,
           Driver: 'bridge',
           Internal: fault !== 'public-network',
           Options: { 'com.docker.network.bridge.gateway_mode_ipv4': 'isolated' },
-          Containers: { [config.gatewayId]: {} },
+          Containers: { [config.gatewayId]: {},
+            ...(fault === 'active-agent' ? { ['d'.repeat(64)]: {} } : {}) },
         },
       ];
     else if (cmd[0] === 'inspect' && cmd[1] === config.gatewayId)
@@ -491,7 +492,7 @@ test('project policy binds the plan and stays outside Agent mounts', async t => 
   assert.deepEqual(await readdir(combined.config.mcpPolicyDirectory), []);
 });
 
-test('required project policy rejects missing adoption and stale ownership', async t => {
+test('project startup refreshes owned metadata only after an idle gateway', async t => {
   const absent = await fixture(t, 'project-unadopted', false, false, true);
   await assert.rejects(absent.sandbox.execute(absent.request),
     /PROJECT_EGRESS_NOT_ADOPTED/);
@@ -499,11 +500,19 @@ test('required project policy rejects missing adoption and stale ownership', asy
     const f = await fixture(t, undefined, false, true, requested);
     await writeFile(join(f.config.mcpPolicyDirectory, 'project.json'), '{}',
       { mode: 0o444 });
-    assert.equal((await f.sandbox.execute(f.request)).status, 'denied');
-    assert.equal(f.calls.some(c => c[0] === 'create'), false);
-    assert.equal(await readFile(join(f.config.mcpPolicyDirectory, 'project.json'),
-      'utf8'), '{}');
+    const result = await f.sandbox.execute(f.request);
+    assert.equal(result.status, 'completed');
+    assert.equal(f.calls.some(c => c[0] === 'create'), true);
+    await result.retireMcp();
+    assert.deepEqual(await readdir(f.config.mcpPolicyDirectory), []);
   }
+  const active = await fixture(t, 'active-agent', false, false, true);
+  const path = join(active.config.mcpPolicyDirectory, 'project.json');
+  await writeFile(path, '{}', { mode: 0o444 });
+  await assert.rejects(active.sandbox.execute(active.request),
+    /AGENT_EGRESS_NOT_ISOLATED/);
+  assert.equal(active.calls.some(c => c[0] === 'create'), false);
+  assert.equal(await readFile(path, 'utf8'), '{}');
 });
 
 test('project gateway keeps source, environment, mount and isolation checks', async t => {

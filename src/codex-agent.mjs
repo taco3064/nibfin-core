@@ -14,6 +14,7 @@ import { subscriptionSecrets, containsCredentials } from './credential-output.mj
 import { digest, requireThat } from './identity.mjs';
 import { prepareRoleUpstream } from './role-upstream.mjs';
 import { discardRoleSources } from './role-source-cleanup.mjs';
+import { prepareWriterTemporaryDirectory } from './agent-scratch.mjs';
 
 // A role adapter, not a sandbox implementation. Only the installed launcher may
 // supply the code-owned isolator. No external request may load an adapter/module.
@@ -54,6 +55,7 @@ export class CodexRoleAgent {
     const skill = await readEffectiveSkill(config.coreRoot, stage,
       config.skills[skillIdentity(stage)], config.project, config.projectRoot);
     return this.#sessions.run(stage, context, async session => {
+      if (stage === 'deliver') await prepareWriterTemporaryDirectory(work);
       const plan = codexPlan(stage, { model: config.model,
         threadId: session.threadId, skill, context,
         hasProposal: Boolean(config.proposal),

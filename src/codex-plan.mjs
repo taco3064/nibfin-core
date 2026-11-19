@@ -5,6 +5,7 @@ import { resultSchema } from './agent-result.mjs';
 import { skillIdentity } from './skills.mjs';
 import { toolDownloadHosts, projectDomains } from './egress-proxy.mjs';
 import { rolePrompt } from './role-prompt.mjs';
+import { writerTemporaryDirectory } from './agent-scratch.mjs';
 
 // Fixed paths belong to the isolated image contract, never the candidate. The
 // controller starts in /session, outside /work, to avoid candidate configuration
@@ -26,6 +27,7 @@ export function codexPlan(stage, {
   const selectedDomains = projectDomains(additionalDomains);
   const contract = privatePlanContract(stage, { model });
   const writable = contract.capabilities.workspace === 'write';
+  const temporaryDirectory = '/work/' + writerTemporaryDirectory;
   const config = {
     model, approval_policy: 'never', default_permissions: 'nibfin',
     web_search: 'disabled',
@@ -41,7 +43,7 @@ export function codexPlan(stage, {
       LANG: 'C.UTF-8',
       GOMAXPROCS: '2', GOFLAGS: '-p=1',
       ...(writable && {
-        TMPDIR: '/work', TMP: '/work', TEMP: '/work',
+        TMPDIR: temporaryDirectory, TMP: temporaryDirectory, TEMP: temporaryDirectory,
         XDG_CACHE_HOME: '/work/.nibfin-cache',
         XDG_CONFIG_HOME: '/work/.nibfin-cache/config',
         GOCACHE: '/work/.nibfin-cache/go-build', GOPATH: '/work/.nibfin-cache/go',

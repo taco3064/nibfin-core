@@ -71,8 +71,10 @@ test('slots and reuse keep project and MCP leases independent', async t => {
   assert.equal(await policyPermits(a, 'b.example.com', true), false);
   assert.equal(await policyPermits(b, 'a.example.com', true), false);
   assert.equal(await policyPermits(a, 'mcp.notion.com', true), false);
-  await assert.rejects(acquireProjectEgress(a, execution, []), { code: 'EEXIST' });
-  await first.release();
+  const replacement = await acquireProjectEgress(a, execution, []);
+  assert.equal(await policyPermits(a, 'a.example.com', true), false);
+  await assert.rejects(first.release(), { code: 'MCP_EGRESS_POLICY_CHANGED' });
+  await replacement.release();
   assert.equal(await policyPermits(a, 'mcp.notion.com'), true);
   const next = await acquireProjectEgress(a, execution, ['b.example.com']);
   assert.equal(await policyPermits(a, 'a.example.com', true), false);

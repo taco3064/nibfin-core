@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { codexPlan } from '../src/codex-plan.mjs';
 import { sandboxProbeArguments } from '../src/codex-bootstrap.mjs';
 import { digest } from '../src/identity.mjs';
+import { writerTemporaryDirectory } from '../src/agent-scratch.mjs';
 import {
   candidateContract, candidateContractSchema,
 } from '../src/candidate-contract.mjs';
@@ -94,8 +95,9 @@ test('Deliver tool writes and default generated paths stay inside its repository
     assert.equal(files['/tmp'], 'read');
     assert.equal(files['/tmp/.git'], 'read');
     const env = plan.config['shell_environment_policy.set'];
-    for (const name of ['HOME', 'TMPDIR', 'TMP', 'TEMP'])
-      assert.equal(env[name], '/work');
+    assert.equal(env.HOME, '/work');
+    for (const name of ['TMPDIR', 'TMP', 'TEMP'])
+      assert.equal(env[name], '/work/' + writerTemporaryDirectory);
     for (const name of ['XDG_CACHE_HOME', 'XDG_CONFIG_HOME', 'GOCACHE', 'GOPATH',
       'PIP_CACHE_DIR', 'npm_config_cache']) assert.match(env[name], /^\/work\//);
   });
@@ -126,7 +128,8 @@ test('VM preflight uses local control scratch without changing Writer policy', (
   assert.equal(args[args.indexOf('sandbox') - 2], '-c');
   assert(!sandboxProbeArguments(plan, '192.0.2.1', 8).includes(override));
   assert(!plan.args.includes(override));
-  assert.equal(plan.config['shell_environment_policy.set'].TMPDIR, '/work');
+  assert.equal(plan.config['shell_environment_policy.set'].TMPDIR,
+    '/work/' + writerTemporaryDirectory);
   assert.equal(plan.config['permissions.nibfin.filesystem']['/tmp'], 'read');
   assert.deepEqual(plan, original);
 });
