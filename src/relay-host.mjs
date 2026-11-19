@@ -7,6 +7,7 @@ import { verifyInstalledSource } from './source-package.mjs';
 import { sharedRepository, sharedRunner } from './shared-runner.mjs';
 import { digest, isId, isSha, requireThat } from './identity.mjs';
 import { RelayReader } from './relay-http.mjs';
+import { GitHubReader } from './github-read.mjs';
 import { observeRelayOrigin } from './relay-observe.mjs';
 import { sharedDispatchWorkflow } from './shared-runner.mjs';
 import { RelayJournal } from './relay-state.mjs';
@@ -125,7 +126,7 @@ export async function loadRelayHost({ authenticate = true, verifyRemote = true,
   }
   const token = (await boundedHostFile(host.tokenFile, 16384)).trim();
   const tokenIdentity = await lstat(host.tokenFile, { bigint: true });
-  const reader = new RelayReader(token);
+  const reader = currentAdoption ? new GitHubReader(token) : new RelayReader(token);
   const actor = verifyRemote ? await reader.get('/user') : null;
   requireThat(!verifyRemote || actor.id === host.memberId && actor.type === 'User',
     'RELAY_CONTROLLER_CHANGED');

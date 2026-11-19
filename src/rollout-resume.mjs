@@ -2,7 +2,7 @@ import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readFileSync } from 'node:fs';
 import { lstat } from 'node:fs/promises';
-import { GitHubReader, repoPath } from './github-read.mjs';
+import { repoPath } from './github-read.mjs';
 import { isId, requireThat } from './identity.mjs';
 import { resolveSharedContinuation } from './issue-wake.mjs';
 import { loadRelayHost } from './relay-host.mjs';
@@ -87,7 +87,6 @@ async function continuationDestination(reader, configuration, issue, actor) {
 
 export async function resumeInstalledWork(completed = []) {
   const context = await loadRelayHost({ currentAdoption: true });
-  const reader = new GitHubReader(context.token);
   const control = async () => {
     const file = await lstat(join(context.journal.root, 'control.json')).catch(error => {
       if (error.code !== 'ENOENT') throw error;
@@ -95,7 +94,7 @@ export async function resumeInstalledWork(completed = []) {
     });
     return file ? context.journal.control() : { paused: false };
   };
-  return resumeRolloutWork({ ...context, reader, completed, journal: { control },
+  return resumeRolloutWork({ ...context, completed, journal: { control },
     onDispatched: async result => console.log(JSON.stringify({ dispatched: result })),
     dispatch: async (destination, inputs) => {
       const response = await fetch('https://api.github.com' +
