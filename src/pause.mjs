@@ -63,7 +63,18 @@ export function pauseEvent(event) {
   );
 }
 
-function history(events) {
+export function pauseDecisionMatches(proof, event) {
+  return proof?.eventId !== undefined
+    ? isId(proof.eventId) && proof.eventId === event.id
+    : proof?.eventHash === digest(event);
+}
+
+export function validPauseDecisionIdentity(proof) {
+  return isId(proof?.eventId) ||
+    proof?.eventId === undefined && isDigest(proof?.eventHash);
+}
+
+function history(events, actorFrom = 0) {
   requireThat(Array.isArray(events), 'PAUSE_HISTORY_UNKNOWN');
   let previousId = 0,
     previousTime = -Infinity;
@@ -81,34 +92,43 @@ function history(events) {
     if (!pauseEvent(event)) continue;
     requireThat(event.id > previousId && time >= previousTime,
       'PAUSE_HISTORY_INCONSISTENT');
-    requireThat(identity(event.actor), 'PAUSE_ACTOR_UNKNOWN');
+    if (event.id >= actorFrom)
+      requireThat(identity(event.actor), 'PAUSE_ACTOR_UNKNOWN');
     previousId = event.id;
     previousTime = time;
   }
 }
 
-// These are event qualification receipts from the trusted journal, not a pause
-// owner or current-state store. Every receipt binds the immutable native event.
-// Missing historical qualification cannot be replaced by today's permissions.
+// A newly qualified explicit command establishes the requested current state.
+// Earlier missing bookkeeping cannot invalidate it. Later unqualified changes
+// still require observation; merely removing the visible label proves nothing.
 export function interpretPause({ issue, events, decisions = [] }) {
   try {
-    history(events);
+    requireThat(Array.isArray(events), 'PAUSE_HISTORY_UNKNOWN');
     requireThat(Array.isArray(decisions), 'PAUSE_DECISIONS_UNKNOWN');
+    const relevant = events.filter(pauseEvent);
+    const checkpoint = relevant.findLastIndex(event => {
+      const proofs = decisions.filter(proof => pauseDecisionMatches(proof, event));
+      return proofs.length === 1 && proofs[0].qualification === 'allowed' &&
+        isDigest(proofs[0].observationHash) &&
+        proofs[0].desired === (event.event === 'labeled');
+    });
+    history(events, checkpoint < 0 ? 0 : relevant[checkpoint].id);
     const seen = new Set();
     let effective = false,
       visible = false;
-    for (const event of events.filter(pauseEvent)) {
-      const proofs = decisions.filter((proof) => proof.eventHash === digest(event));
+    for (const event of relevant.slice(Math.max(checkpoint, 0))) {
+      const proofs = decisions.filter(proof => pauseDecisionMatches(proof, event));
       requireThat(proofs.length === 1, 'PAUSE_QUALIFICATION_UNKNOWN');
       const proof = proofs[0];
       requireThat(
-        !seen.has(proof.eventHash) &&
+        !seen.has(event.id) && validPauseDecisionIdentity(proof) &&
           ['allowed', 'denied', 'repair'].includes(proof.qualification) &&
           isDigest(proof.observationHash) &&
           typeof proof.desired === 'boolean',
         'PAUSE_DECISION_INVALID',
       );
-      seen.add(proof.eventHash);
+      seen.add(event.id);
       const adding = event.event === 'labeled';
       if (proof.qualification === 'repair') {
         requireThat(
