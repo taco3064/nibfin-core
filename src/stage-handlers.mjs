@@ -12,6 +12,7 @@ import { jobVmExecutorFailures } from './job-vm-exec-relay.mjs';
 import { writerPressureWait } from './job-vm-pressure.mjs';
 import { alignDelivery, handoffDelivery } from './deliver-freshness.mjs';
 import { ciCorrectionFindings } from './ci-recovery.mjs';
+import { issueRequirementsChanged } from './stages.mjs';
 
 // Only installed adapters enter this factory; the external stage request cannot
 // supply functions, commands, paths, credentials, source pins or role identities.
@@ -59,8 +60,18 @@ export function stageHandlers({
   ]) {
     handlers[stage] = {
       perform: async (context, decision) => {
+        // Published Shape text can be reused only while its requirements and
+        // independent validation still permit that text.
+        const rejectedShape = stage === 'shape' &&
+          context.receipts['validate-shape']?.outcome === 'changes_required' &&
+          context.receipts['validate-shape'].artifacts.shapeHash ===
+            context.receipts.shape?.artifacts.shapeHash
+          ? context.receipts['validate-shape'] : null;
         if (stage === 'shape' &&
-          context.issue.labels.some(label => label.name === 'shaped'))
+          context.issue.labels.some(label => label.name === 'shaped') &&
+          !rejectedShape && !await issueRequirementsChanged(
+            context.issue, context.receipts, hash => store.get(hash),
+          ))
           return { publishedShape: context.issue.body };
         if (['accept', 'review-pr'].includes(stage))
           requireThat(
@@ -101,10 +112,10 @@ export function stageHandlers({
         const deliveryFindings = previousDelivery?.outcome === 'changes_required' &&
           previousDelivery.artifacts.shapeHash === context.shape.hash
           ? previousDelivery.findings : undefined;
-        const findings = context.ciFailure
+        const findings = rejectedShape?.findings ?? (context.ciFailure
           ? ciCorrectionFindings(context.ciFailure)
           : deliveryFindings ?? (restricted.length
-            ? pathFindings(restricted) : correction?.findings);
+            ? pathFindings(restricted) : correction?.findings));
         const retain = reference ||
           (context.candidate && rebase?.status === 'rebased');
         if (!findings && retain && rebase &&
@@ -294,7 +305,8 @@ export function stageHandlers({
         expectedLabels: context.issue.labels.map((label) => label.name),
         body: context.shape.body,
       };
-      return context.issue.labels.some((label) => label.name === 'shaped')
+      return context.issue.labels.some((label) => label.name === 'shaped') &&
+          context.shape.body === context.issue.body
         ? writer.confirmShape(request)
         : writer.publishShape(request);
     },

@@ -111,7 +111,8 @@ function shapeEvidence(context, requireValidator) {
     requireThat(isDigest(prior), 'INVALID_REQUIREMENTS_EVIDENCE');
     artifacts.requirementsHash = prior;
   }
-  if (!context.issue.labels.some(label => label.name === 'shaped')) {
+  if (body !== context.issue.body ||
+    !context.issue.labels.some(label => label.name === 'shaped')) {
     const requirements = requirementsText(context.issue.body);
     const original = context.receipts.shape?.requirementsBody;
     const sameRequirements = typeof original === 'string'
@@ -374,10 +375,11 @@ export function decideStage(stage, context, now = Date.now()) {
     let artifacts = {};
     if (['shape', 'validate-shape', 'publish-shape'].includes(stage)) {
       if (labels.has('shaped')) {
-        candidateContract(issue.body);
         if (stage !== 'shape')
           requireThat(
-            context.shape?.body === issue.body,
+            context.shape?.body === issue.body ||
+              requirementsText(context.receipts.shape?.requirementsBody) ===
+                requirementsText(issue.body),
             'CURRENT_SHAPE_REVALIDATION_CHANGED',
           );
       } else requireThat(typeof issue.body === 'string' && issue.body.trim(),
