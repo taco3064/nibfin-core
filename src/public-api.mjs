@@ -51,6 +51,15 @@ export const consumerContract = Object.freeze({
     kind: 'managed-pool-replacement-v1',
     activationCommand: 'activate-shared-replacement',
   }),
+  managedNotificationLifecycle: Object.freeze({
+    kind: 'route-aware-notification-lifecycle-v1',
+    routes: Object.freeze(['native', 'artifact']),
+    retirementCommand: 'retire-shared-host',
+    nativeCallerRefreshCommand: 'refresh-native-issue-caller',
+    cleanupCommand: 'cleanup-notifications',
+    cleanupInput: 'none-installed-administrator-only',
+    readiness: 'observed-configuration-not-live-dispatch',
+  }),
   managedSharedAdmission: Object.freeze({
     kind: managedSharedAdmission,
     adoptionProfileKey: 'sharedAdmission',

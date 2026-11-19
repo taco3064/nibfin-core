@@ -1,3 +1,6 @@
+import { join } from 'node:path';
+import { requireWakeEffectsSettled } from './operation-journal.mjs';
+import { optionalStat } from './retirement-files.mjs';
 import { mkdir, readdir } from 'node:fs/promises';
 import { privateHostDirectory } from './host-fence.mjs';
 import { syncRecoveryDirectory } from './recovery-lock.mjs';
@@ -60,17 +63,44 @@ export class RelayJournal {
       'RELAY_CONTROL_UNKNOWN');
     return value;
   }
-  async requireReplacementEffectsSettled({ except } = {}) {
-    for (const name of await readdir(this.root)) {
-      if (!/^replacement-[a-f0-9]{64}\.json$/.test(name) || name === except) continue;
+  async requireReplacementEffectsSettled({
+    except, only, affects, inspect = false,
+  } = {}) {
+    const origins = affects ? await this.records() : [];
+    const names = new Set((await readdir(this.root)).flatMap(name => {
+      if (/^replacement-[a-f0-9]{64}\.json$/.test(name)) return [name];
+      // Operation journals survive a lost association and remain authoritative.
+      if (/^replacement-[a-f0-9]{64}$/.test(name)) return [name + '.json'];
+      return [];
+    }));
+    for (const name of names) {
+      if (name === except || only && name !== only) continue;
       const record = await readRelayState(this.root, name);
-      requireThat(record?.status === 'scheduled', 'ROLLOUT_REPLACEMENT_PENDING');
+      if (affects) {
+        const origin = origins.find(item =>
+          name === 'replacement-' + digest(item.origin) + '.json');
+        // Orphan evidence cannot be attributed safely to another pool.
+        requireThat(origin, 'ROLLOUT_REPLACEMENT_PENDING');
+        if (!affects(origin)) continue;
+        if (record) requireThat(record.origin &&
+          digest(record.origin) === digest(origin.origin) &&
+          record.originRunId === origin.runId, 'ROLLOUT_REPLACEMENT_SOURCE_CHANGED');
+      }
+      if (inspect) {
+        const directory = join(this.root, name.slice(0, -5));
+        if (await optionalStat(directory)) await requireWakeEffectsSettled(directory);
+      }
+      // A missing association cannot hide an unknown effect. Once inspection
+      // confirms settlement, no association needs reconstruction for retirement.
+      requireThat(inspect && !record || record?.status === 'scheduled',
+        'ROLLOUT_REPLACEMENT_PENDING');
     }
   }
   // Caller must hold this journal's relay gate throughout check and effects.
-  async requireEffectsSettledUnderGate() {
+  async requireEffectsSettledUnderGate(affects = () => true) {
     await this.requireReplacementEffectsSettled();
-    requireThat((await this.records()).every(record => record.status !== 'pending'),
+    requireThat((await this.records()).every(record =>
+      record.status !== 'pending' || !affects(record)),
       'RETIREMENT_RELAY_EFFECT_PENDING');
   }
   async requireEffectsSettled() {
@@ -80,13 +110,13 @@ export class RelayJournal {
     });
     requireThat(result?.settled === true, 'RETIREMENT_RELAY_BUSY');
   }
-  async requireSettled() {
+  async requireSettled(affects = () => true) {
     const result = await withRelayGate(this.root, async () => {
       requireThat((await this.control()).paused, 'RETIREMENT_RELAY_NOT_PAUSED');
       // A lost dispatch response remains an external effect even if no active
       // Job or registration is visible. Recovery owns reconciliation; retirement
       // must neither clear the receipt nor repeat the POST.
-      await this.requireEffectsSettledUnderGate();
+      await this.requireEffectsSettledUnderGate(affects);
       return { settled: true };
     });
     requireThat(result?.settled === true, 'RETIREMENT_RELAY_BUSY');

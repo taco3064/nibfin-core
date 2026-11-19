@@ -10,6 +10,8 @@ import {
   syncRecoveryDirectory as syncDirectory,
 } from './recovery-lock.mjs';
 
+export const operationReceiptLimit = 8 * 1024 * 1024;
+
 async function privateDirectory(path, uid = process.getuid()) {
   const stat = await lstat(path);
   requireThat(stat.isDirectory() && !stat.isSymbolicLink() &&
@@ -298,7 +300,7 @@ export class OperationJournal {
         state.pending === null && state.completed.includes(decision),
       'RECOVERY_DECISION_MISMATCH');
       const journalPath = join(this.#directory, 'receipts.json');
-      const snapshot = await recoveryFile(journalPath, 8 * 1024 * 1024, this.#uid);
+      const snapshot = await recoveryFile(journalPath, operationReceiptLimit, this.#uid);
       requireThat(digest(JSON.parse(snapshot.bytes).payload) === digest(state),
         'RECOVERY_JOURNAL_CHANGED');
       const receiptHash = await readBack();
@@ -307,7 +309,7 @@ export class OperationJournal {
       await privateDirectory(this.root, this.#uid);
       await privateDirectory(this.#directory, this.#uid);
       await inspectRecoveryFile(
-        journalPath, snapshot, 8 * 1024 * 1024, this.#uid);
+        journalPath, snapshot, operationReceiptLimit, this.#uid);
       requireThat(digest(await this.#read()) === digest(state),
         'RECOVERY_JOURNAL_CHANGED');
       if (state.pending === decision) await this.#complete(state, decision);
@@ -363,7 +365,7 @@ export class OperationJournal {
 async function readScannedJournal(directory, uid) {
   const path = join(directory, 'receipts.json');
   let file;
-  try { file = await recoveryFile(path, 8 * 1024 * 1024, uid); }
+  try { file = await recoveryFile(path, operationReceiptLimit, uid); }
   catch (error) {
     if (error.code !== 'ENOENT') throw error;
     // A dangling symlink is not an absent receipt.

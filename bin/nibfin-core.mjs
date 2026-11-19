@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 import { completeInstalledLifecycle } from '../src/installed-lifecycle.mjs';
+import { cleanupInstalledNotifications }
+  from '../src/notification-cleanup-host.mjs';
 import { readDiagnosisInput } from '../src/diagnosis-input.mjs';
 import { retireSharedHost } from '../src/retirement-host.mjs';
 import { activateSharedReplacement } from '../src/retirement-activate.mjs';
@@ -20,7 +22,7 @@ import { promoteHost } from '../src/host-rollout.mjs';
 import { inspectSharedHost } from '../src/shared-host-inspect.mjs';
 import { installSharedServiceTemplate } from '../src/shared-service-install.mjs';
 import { installAndStartSharedServices } from '../src/shared-service-start.mjs';
-import { adoptSharedPeer, refreshManagedIssueCaller }
+import { adoptSharedPeer, refreshManagedIssueCaller, refreshNativeIssueCaller }
   from '../src/shared-peer-adoption.mjs';
 import { adoptSharedHost } from '../src/shared-host-adopt.mjs';
 
@@ -49,6 +51,8 @@ async function main(args) {
     return recoverCommitPr(values[0], values[1]);
   if (command === 'recover-review' && values.length === 2)
     return recoverReview(values[0], values[1]);
+  if (command === 'cleanup-notifications' && values.length === 0)
+    return cleanupInstalledNotifications();
   if (command === 'retire-shared-host' && values.length === 0)
     return retireSharedHost();
   if (command === 'activate-shared-replacement' && values.length === 0)
@@ -67,6 +71,8 @@ async function main(args) {
     return adoptSharedPeer(values[0], Number(values[1]), values[2]);
   if (command === 'refresh-managed-issue-caller' && values.length === 2)
     return refreshManagedIssueCaller(values[0], Number(values[1]));
+  if (command === 'refresh-native-issue-caller' && values.length === 2)
+    return refreshNativeIssueCaller(values[0], Number(values[1]));
   if (command === 'adopt-shared-host' && values.length === 5) {
     const chunks = [];
     let size = 0;
@@ -96,6 +102,8 @@ async function main(args) {
         'observe-local-work (private JSON stdin, no arguments)',
         'request-local-diagnosis (private JSON stdin, no arguments)',
         'retire-shared-host (local administrator, no arguments)',
+        'cleanup-notifications (installed administrator, no arguments)',
+        'refresh-native-issue-caller <repository> <repository-id> (administrator-only)',
         'activate-shared-replacement (local administrator, no arguments)',
         'install-shared-service-template',
         'start-shared-services',
@@ -160,7 +168,7 @@ main(process.argv.slice(2))
   .then((result) => {
     process.stdout.write(JSON.stringify(result) + '\n');
     if (result.status === 'denied') process.exitCode = 1;
-    if (result.status === 'pending') process.exitCode = 2;
+    if (['pending', 'incomplete'].includes(result.status)) process.exitCode = 2;
   })
   .catch((error) => {
     const code =

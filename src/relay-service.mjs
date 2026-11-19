@@ -43,7 +43,7 @@ export async function writeRelayResource(directory, name, content, inspect) {
   }
 }
 
-async function unitContents() {
+export async function notificationUnitContents() {
   const { nodePath } = await installedSharedRuntime();
   const result = new Map();
   for (const name of relayUnits) {
@@ -73,7 +73,7 @@ async function serviceState() {
 
 export async function prepareNotificationRelay() {
   const context = await loadRelayHost();
-  const contents = await unitContents();
+  const contents = await notificationUnitContents();
   await rootOwnedPath(relayUnitDirectory);
   await rootOwnedPath('/var/lib');
   await mkdir('/var/lib/nibfin', { mode: 0o755 }).catch(error => {
@@ -103,7 +103,7 @@ export async function prepareNotificationRelay() {
 
 export async function inspectNotificationRelay() {
   const local = await loadRelayHost({ authenticate: false });
-  const contents = await unitContents();
+  const contents = await notificationUnitContents();
   const resources = [];
   for (const [name, content] of contents) {
     let status = 'missing';
