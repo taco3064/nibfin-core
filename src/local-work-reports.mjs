@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { digest, requireThat } from './identity.mjs';
 import { observationEntries, readObservationFile } from './local-work-files.mjs';
 import { projectBlockerReport } from './blocker-report.mjs';
+import { blockerReportsName } from './blocker-report-store.mjs';
 import { limits } from './local-work-values.mjs';
 
 // Historical selection is independent of active runs and open scoped Issues.
@@ -32,7 +33,7 @@ export function localReportReader(host, {
     diagnoses: issue => diagnosisHistory(host, issue, { readJSON, entries: readEntries }),
     async reports(issue) {
       const root = join(host.stateRoot,
-        `issue-${issue.repositoryId}-${issue.number}`, 'receipts', 'reports');
+        `issue-${issue.repositoryId}-${issue.number}`, 'receipts', blockerReportsName);
       const names = await readEntries(root);
       const reports = [];
       for (const name of names) {

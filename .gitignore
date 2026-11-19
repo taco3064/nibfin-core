@@ -11,3 +11,4 @@ website/dist/
 /.deliver-test-tmp/
 /.deliver-recovery-*/
 /.nibfin-cache/
+/.managed-report-*/
