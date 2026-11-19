@@ -153,6 +153,16 @@ Return `PUBLISHED` only when every approved operation and handoff is fully recon
 
 ## Audit: read-only reconciliation
 
+When scoping interrupted-work recovery, require progress after missing local
+bookkeeping or a lost response. Read the authoritative provider, reuse confirmed
+effects, and re-enter unfinished work through its existing authorized stage.
+Do not make reconstruction of the old response a prerequisite for continuation.
+Keep observation failure distinct from a successful read finding no result.
+Assign actual terminal-stage reporting and resumption to their existing runtime
+owners, with checks for both missing outcomes and already completed writes.
+For retained PRs behind main, include controlled rebase and affected verification
+on the same PR in the existing delivery flow.
+
 Audit the same work-type, implementation, ownership and dependency boundaries as Plan. Compare current Issues with source and native relationships. Identify gaps, duplicate or misrouted work, and the authorized next owner. Audit remains read-only. Distinguish reported historical verification from evidence observed directly.
 
 Use `AUDIT_PASS` for an evidenced portfolio assessment and `AUDIT_FAILED` for unresolved Issues, implementation outputs, native edges or authority gaps. Audit corrections require the approved Publish or protected lifecycle recovery process.

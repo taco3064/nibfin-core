@@ -64,6 +64,21 @@ references. Use `accepted` only for this exact pre-commit Candidate with no
 blocking findings. Acceptance is neither permission to mutate GitHub nor proof
 that future PR head/CI, final Shape fidelity review, merge or closure succeeded.
 Any material Candidate change requires fresh independent Acceptance.
+
+For changes to continuation or recovery, verify the interrupted stage resumes
+when a successful authoritative read finds no completed result, including when
+local bookkeeping or the old response is missing. Also verify reuse of a
+confirmed effect and retry of a failed observation. Exercise the real result
+construction path so a generic continuation command cannot replace the actual
+terminal stage. Request correction when recovery merely reports an absent
+record and leaves otherwise executable work stopped.
+
+For main alignment changes, exercise an existing PR becoming behind after
+earlier checks passed. Verify the same PR is rebased through the supported
+route and affected verification runs for the resulting content. An old-head
+success does not establish this behavior. Use maintained controlled adapters
+when they reach the actual continuation path; distinguish those results from
+a real Runner or GitHub operation.
 No historical Agent transcript or permanent evidence archive is required.
 Choose independent verification methods within the assigned environment.
 Code inspection can suffice when it establishes the required behavior and

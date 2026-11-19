@@ -388,6 +388,20 @@ Provide an evidence-backed **approval, changes-required or blocked** result thro
 
 ## Stage result, publication and recovery boundary
 
+When planning interrupted or resumed work, trace the existing continuation
+path through authoritative provider reads, operation execution and result
+handling. A missing response or local receipt must lead to observation and
+normal re-entry of unfinished work. Reuse provider-confirmed effects. A failed
+observation follows the existing retry path and does not prove an absent effect.
+Keep the actual terminal stage distinct from the continuation command name.
+Include a response-loss case and a confirmed-effect case in the plan so Accept
+can verify both progress and reuse without requiring a permanent transcript.
+
+For an existing delivery PR behind main, plan continued work on that same PR
+through Core's controlled rebase onto current main, conflict repair and affected
+verification. Check that the assigned runtime exposes the needed route. Merely
+requiring a fresh base in the plan cannot implement a missing continuation path.
+
 For formal roles, return **only the current adapter/runtime-supported structured fields, outcome values, defect classes and required evidence references**. If the current runtime schema contains required `body`, `summary`, `rootCause`, `failureClass`, `blockingFindings` or conflicting-clause evidence, populate them faithfully; do not invent new fields/enums or reuse a planner-only status as a Core result. In a protected Core system, the Core constructs and verifies trusted execution state, publication actions and read-back; another project must supply equivalent required authority and evidence under its own current policy rather than claiming Core guarantees that do not exist.
 
 **Shape stage completion contract:** Shape is responsible for getting **one existing Issue** from its original Scope to a validated and **confirmed published** detailed contract. Its sequence is **author → independent validator → policy-authorized publisher → provider read-back**. The Author prepares and, if needed, revises the contract; the Validator makes its own independent decision; the publisher alone executes the authorized mutation and records its verifiable result. If publication is unavailable, rejected, unconfirmed or stale, the stage is **not complete**. A human or AI label changes none of these steps. The Author never applies a downstream-ready label or presents a proposed Body as already published. Shape's instructions cannot weaken grants, dependency proofs, workspace isolation, required artifacts/hooks, independent Acceptance, CI, final fidelity review, merge authorization or closure proofs.
