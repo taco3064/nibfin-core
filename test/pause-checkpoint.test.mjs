@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { observePause } from '../src/pause.mjs';
+import { observePause, interpretPause } from '../src/pause.mjs';
+import { digest } from '../src/identity.mjs';
 import { pauseFixture, pauseIdentity, people } from './pause-fixture.mjs';
 
 test('Owner Resume after offline Pause needs no missing historical receipt', async t => {
@@ -46,3 +47,21 @@ test('stable native event identity survives mutable actor presentation', async t
   assert.equal((await observePause(f.reader, pauseIdentity,
     evidence.decisions)).status, 'pending');
 });
+
+test('native identity takes precedence over a matching compatible legacy receipt',
+  async t => {
+    const f = await pauseFixture(t);
+    f.emit(people.owner, 'labeled');
+    const event = f.events[0];
+    const legacy = { eventHash: digest(event), observationHash: 'a'.repeat(64),
+      qualification: 'allowed', desired: true };
+    const changed = { ...event, actor: { ...event.actor, avatar_url: 'changed' } };
+    const native = { ...legacy, eventId: event.id, eventHash: digest(changed) };
+    const state = (value, proofs) => interpretPause({ issue: f.issue,
+      events: [value], decisions: proofs });
+    assert.equal(state(changed, [legacy, native]).status, 'paused');
+    assert.equal(state(event, [legacy, native]).status, 'paused');
+    assert.equal(state(event, [native, native]).status, 'pending');
+    assert.equal(state(event, [legacy, { ...native,
+      qualification: 'denied', desired: false }]).status, 'pending');
+  });
