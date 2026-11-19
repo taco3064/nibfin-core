@@ -724,6 +724,46 @@ def finish(services):
     clean_superseded_staged_packages(current["installation"]["pin"]["commit"])
 
 
+def resume_installed_work():
+    host = json.loads((CONFIG / HOSTS[CORE]).read_text())
+    entry = INSTALL / "core/src/rollout-resume.mjs"
+    if not host.get("sharedRunner") or not entry.is_file():
+        return
+    receipt = CONFIG / "rollout-resume.json"
+    try:
+        state = json.loads(receipt.read_text())
+    except (FileNotFoundError, ValueError):
+        state = None
+    installation = host["installation"]
+    if (not isinstance(state, dict) or state.get("installation") != installation
+            or not isinstance(state.get("completed"), list)):
+        state = {"installation": installation, "completed": [], "status": "pending"}
+    if state.get("status") == "dispatched":
+        return
+    write_config(receipt, state)
+    process = subprocess.Popen(
+        ("node", str(entry)), env=ENV, stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE, text=True,
+    )
+    try:
+        process.stdin.write(json.dumps({"completed": state["completed"]}))
+        process.stdin.close()
+        for line in process.stdout:
+            result = json.loads(line)
+            if "dispatched" in result:
+                state["completed"].append(result["dispatched"])
+                write_config(receipt, state)
+            elif result.get("status") in ("dispatched", "paused", "pending"):
+                state["status"] = result["status"]
+                write_config(receipt, state)
+            print(line.strip(), flush=True)
+        require(process.wait() == 0, "Post-rollout continuation remains pending")
+    finally:
+        if process.poll() is None:
+            process.terminate()
+            process.wait()
+
+
 def require_manual_credential(host):
     # This legacy adapter hands its manual token to gh through an environment.
     # It must never read an imported credential or bypass Core consumer leases.
@@ -770,6 +810,7 @@ def main():
         raise RuntimeError(f"CD artifacts for interrupted rollout {target} are missing")
     else:
         clean_superseded_staged_packages(current)
+    resume_installed_work()
 
 
 if __name__ == "__main__":
