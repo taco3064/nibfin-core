@@ -1,6 +1,6 @@
 import { join } from 'node:path';
 import { repoPath } from './github-read.mjs';
-import { isId, requireThat } from './identity.mjs';
+import { requireThat } from './identity.mjs';
 import { resolveSharedContinuation } from './issue-wake.mjs';
 import { loadAdoptedHost } from './adopted-host.mjs';
 import { safeRelayCode } from './notification-relay.mjs';
@@ -12,6 +12,8 @@ import { continuationLifecycle, ContinuationState, resumeLifecycle,
 import { retirementPath, drainPath, requireNoRetirement } from
   './retirement-admission.mjs';
 import { readRetirementFile } from './retirement-files.mjs';
+import { dispatchNativeWorkflow, workflowDispatchFailure }
+  from './native-workflow-dispatch.mjs';
 
 // Run once at rollout completion. GitHub owns queueing and concurrency;
 // each continuation enters normal Core admission and reuses completed work.
@@ -27,7 +29,8 @@ export async function resumeRolloutWork({ reader, configuration, inspect, journa
   const pending = (issue, stage, error) => {
     failed = true;
     results.push({ ...issue, status: 'pending', stage,
-      ...(githubReadDiagnostic(error) ?? { code: safeRelayCode(error) }),
+      ...(workflowDispatchFailure(error) ?? githubReadDiagnostic(error) ??
+        { code: safeRelayCode(error) }),
       ...(Number.isInteger(error.status) ? { httpStatus: error.status } : {}) });
   };
   for (const origin of configuration.origins) {
@@ -100,26 +103,8 @@ export async function resumeInstalledWork({ onDispatched = async () => {},
   const control = async () => ({ paused: false });
   const resume = progress => resumeRolloutWork({ ...context, ...progress,
     journal: { control }, inspect,
-    dispatch: async (destination, inputs) => {
-      const response = await fetcher('https://api.github.com' +
-        `${repoPath(destination.repository)}/actions/workflows/` +
-        `${destination.id}/dispatches`, {
-        method: 'POST', redirect: 'error',
-        headers: { Authorization: `Bearer ${context.token}`,
-          Accept: 'application/vnd.github+json', 'Content-Type': 'application/json',
-          'X-GitHub-Api-Version': '2026-03-10' },
-        body: JSON.stringify({ ref: destination.ref, inputs }),
-      });
-      if (response.status !== 200) {
-        await response.body?.cancel();
-        requireThat(false, 'ROLLOUT_CONTINUATION_DISPATCH_UNKNOWN');
-      }
-      const run = await response.json();
-      requireThat(isId(run.workflow_run_id) && run.html_url ===
-        `https://github.com/${destination.repository}/actions/runs/` +
-        run.workflow_run_id, 'ROLLOUT_CONTINUATION_DISPATCH_UNKNOWN');
-      return { runId: run.workflow_run_id, url: run.html_url };
-    } });
+    dispatch: (destination, inputs) =>
+      dispatchNativeWorkflow(destination, inputs, context.token, fetcher) });
   const inspect = async () => {
     await requireAdmission();
     await context.inspect();

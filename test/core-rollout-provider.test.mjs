@@ -66,6 +66,13 @@ test('JSON GET preserves typed 585 errors; local CLI errors never claim API HTTP
   });
 
 const python = spawnSync('python3', ['--version'], { encoding: 'utf8' }).status === 0;
+test('actual runtime preserves typed refresh failures and reobserves unknown writes', {
+  skip: !python && 'Python is unavailable in this assigned environment',
+}, () => {
+  const child = spawnSync('python3', ['test/core-rollout-refresh-probe.py'],
+    { encoding: 'utf8' });
+  assert.equal(child.status, 0, child.stdout + child.stderr);
+});
 for (const kind of ['ready', 'behind', 'merged']) {
   test(`actual Python load_runtime/read_consumer delegates native ${kind} closure`, {
     skip: !python && 'Python is unavailable in this assigned environment',

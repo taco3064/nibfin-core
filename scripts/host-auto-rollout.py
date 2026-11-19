@@ -1,8 +1,7 @@
 #!/usr/bin/python3
-"""Apply completed Nibfin CD rollouts from the trusted Linux host."""
+"""Shared one-target rollout helpers; called only by the fixed administrator."""
 
 import base64
-import fcntl
 import hashlib
 import io
 import json
@@ -12,7 +11,6 @@ import shutil
 import subprocess
 import sys
 import tempfile
-import time
 import zipfile
 from pathlib import Path
 
@@ -22,7 +20,6 @@ E2E = "taco3064/nibfin-e2e"
 CONFIG = Path("/etc/nibfin")
 INSTALL = Path("/opt/nibfin")
 CLI = INSTALL / "core/bin/nibfin-core.mjs"
-SERVICE_SCRIPT = Path("/usr/local/libexec/nibfin/host-auto-rollout.py")
 HOSTS = {
     CORE: "host.json",
     ACTION: "host.nibfin-act.json",
@@ -32,7 +29,7 @@ E2E_HOST = "host.nibfin-e2e.json"
 PIN_PATH = ".nibfin/producer-pins.json"
 ISSUE = ".github/workflows/nibfin-issue.yml"
 WAKE = ".github/workflows/nibfin-wake.yml"
-RATE_WAIT = Path("/run/nibfin-rollout-rate-limit")
+PROVIDER_FAILURES = ()
 LAST_PR_CLEANUP = Path("/run/nibfin-rollout-pr-cleanup")
 ENV = {"PATH": "/usr/local/bin:/usr/bin:/bin", "LANG": "C", "GH_PROMPT_DISABLED": "1"}
 
@@ -40,48 +37,6 @@ ENV = {"PATH": "/usr/local/bin:/usr/bin:/bin", "LANG": "C", "GH_PROMPT_DISABLED"
 def require(condition, message):
     if not condition:
         raise RuntimeError(message)
-
-
-def run(*args, timeout=90, env=ENV):
-    result = subprocess.run(args, env=env, capture_output=True, timeout=timeout)
-    if result.returncode:
-        detail = result.stderr.decode(errors="replace").strip()[-500:]
-        raise RuntimeError(f"{args[0]} failed ({result.returncode}): {detail}")
-    return result.stdout
-
-
-def gh(*args):
-    return run("/usr/bin/gh", *args, env={**ENV, "GH_TOKEN": github_token})
-
-
-class RateLimited(RuntimeError):
-    pass
-
-
-def api(path, *options):
-    response = subprocess.run(
-        ("/usr/bin/gh", "api", "--include", path, *options),
-        env={**ENV, "GH_TOKEN": github_token}, capture_output=True, timeout=90,
-    )
-    headers, _, body = response.stdout.replace(b"\r\n", b"\n").partition(b"\n\n")
-    values = dict(
-        line.lower().split(b":", 1) for line in headers.splitlines()[1:] if b":" in line
-    )
-    if response.returncode:
-        retry = values.get(b"retry-after", b"").strip()
-        remaining = values.get(b"x-ratelimit-remaining", b"").strip()
-        reset = values.get(b"x-ratelimit-reset", b"").strip()
-        diagnostic = response.stderr.lower()
-        if (remaining == b"0" or retry.isdigit() or b"http 429" in diagnostic or
-                b"rate limit exceeded" in diagnostic):
-            now = int(time.time())
-            delay = int(retry) if retry.isdigit() else 60
-            deadline = max(now + delay, int(reset) + 1 if
-                           remaining == b"0" and reset.isdigit() else 0)
-            write_config(RATE_WAIT, deadline)
-            raise RateLimited(f"GitHub rate limit; retry after {deadline}")
-        raise RuntimeError(f"GitHub read failed: {path.split('?')[0]}")
-    return json.loads(body)
 
 
 def main_sha(repo):
@@ -126,21 +81,16 @@ def has_main_ci(commit):
 
 
 def next_rollout(current, target=None, candidate_run=None):
-    if candidate_run is not None:
-        # Resume the durable target independently of the discovery window.
-        record = api(f"repos/{CORE}/actions/runs/{candidate_run}")
-        if not (record.get("id") == candidate_run and
-                record.get("path") == ".github/workflows/cd.yml" and
-                record.get("head_branch") == "main" and
-                record.get("event") == "workflow_run" and
-                record.get("status") == "completed" and
-                record.get("conclusion") == "success"):
-            return None
-        records = [record]
-    else:
-        records = api(f"repos/{CORE}/actions/workflows/cd.yml/runs"
-                      "?branch=main&event=workflow_run&status=success&per_page=15"
-                      )["workflow_runs"]
+    require(candidate_run is not None, "An explicit native CD run is required")
+    record = api(f"repos/{CORE}/actions/runs/{candidate_run}")
+    if not (record.get("id") == candidate_run and
+            record.get("path") == ".github/workflows/cd.yml" and
+            record.get("head_branch") == "main" and
+            record.get("event") in ("workflow_run", "workflow_dispatch") and
+            record.get("status") == "completed" and
+            record.get("conclusion") == "success"):
+        return None
+    records = [record]
     for record in records:
         if record["head_repository"]["full_name"] != CORE:
             continue
@@ -260,7 +210,7 @@ def refresh_consumer(repo, branch, pr):
         api(f"{path}/update-branch", "--method", "PUT", "-f",
             f"expected_head_sha={pr['headRefOid']}")
         return "refresh requested; awaiting read-back/checks"
-    except RateLimited:
+    except PROVIDER_FAILURES:
         raise
     except (RuntimeError, KeyError, TypeError, OSError, ValueError,
             subprocess.TimeoutExpired):
@@ -421,7 +371,7 @@ def pool_step(operation):
     plan = json.loads((CONFIG / "rollout-plan.json").read_text())
     script = coordinator_cli(plan).parent.parent / "src/rollout-pool-entry.mjs"
     result = json.loads(run("node", script, operation))
-    require(result["status"] != "pending", "Pool gate is busy; retry next timer")
+    require(result["status"] != "pending", "Pool gate is busy; retry the same operation")
     return result
 
 
@@ -616,30 +566,6 @@ def clean_superseded_staged_packages(current):
             print(f"Removed superseded staged Core package {revision}", flush=True)
 
 
-def refresh_rollout_service(host):
-    source = INSTALL / "core/scripts/host-auto-rollout.py"
-    if not source.is_file() or Path(__file__).resolve() != SERVICE_SCRIPT:
-        return
-    data = source.read_bytes()
-    if SERVICE_SCRIPT.read_bytes() == data:
-        return
-    with tempfile.TemporaryDirectory(prefix="nibfin-rollout-service-") as work:
-        pin = Path(work) / "pin.json"
-        pin.write_text(json.dumps(host["installation"]["pin"]))
-        run("node", CLI, "verify", INSTALL / "core", pin)
-    with tempfile.NamedTemporaryFile(dir=SERVICE_SCRIPT.parent, delete=False) as script:
-        temp = Path(script.name)
-        try:
-            script.write(data)
-            script.flush()
-            os.fchmod(script.fileno(), 0o755)
-            os.fsync(script.fileno())
-            temp.replace(SERVICE_SCRIPT)
-            sync_directory(SERVICE_SCRIPT.parent)
-        finally:
-            temp.unlink(missing_ok=True)
-
-
 def finish(services):
     path = CONFIG / "rollout-plan.json"
     plan = json.loads(path.read_text())
@@ -656,7 +582,6 @@ def finish(services):
     for name in names:
         (staged / name).unlink(missing_ok=True)
     current = json.loads((CONFIG / HOSTS[CORE]).read_text())
-    refresh_rollout_service(current)
     path.unlink()
     sync_directory(CONFIG)
     # The apply backup is retained as the verified recovery package. Package
@@ -709,100 +634,7 @@ def recover_legacy_wakes():
     print(json.dumps({"legacyWakeRecovery": result}), flush=True)
 
 
-def main():
-    global github_token
-    require(os.getuid() == 0, "Rollout must run as host administrator")
-    hosts = {repo: json.loads((CONFIG / name).read_text())
-             for repo, name in HOSTS.items()}
-    current = hosts[CORE]["installation"]["pin"]["commit"]
-    plan_path = CONFIG / "rollout-plan.json"
-    plan = json.loads(plan_path.read_text()) if plan_path.exists() else None
-    if plan and plan.get("schemaVersion") != 2:
-        pool_step("legacy")
-    if plan and plan.get("administratorTarget"):
-        print("Explicit administrator rollout awaits normal command retry")
-        return
-    if plan and plan.get("apply"):
-        if not plan["apply"].get("completed"):
-            result = json.loads(run("node", coordinator_cli(plan), "promote-host"))
-            require(result["status"] == "installed", "Interrupted promotion pending")
-        finish(runner_services(hosts))
-        resume_installed_work()
-        return
-    continuation_error = None
-    if plan is None:
-        try:
-            resume_installed_work()
-        except (RuntimeError, OSError, ValueError) as error:
-            continuation_error = error
-        marker = Path(hosts[CORE]["tokenFile"]).with_name("managed.json")
-        if marker.exists() or marker.is_symlink():
-            if continuation_error:
-                raise continuation_error
-            return
-    if RATE_WAIT.exists():
-        if time.time() < json.loads(RATE_WAIT.read_text()):
-            return
-        RATE_WAIT.unlink()
-    github_token = read_manual_credential(hosts[CORE])
-    require(bool(github_token), "Host GitHub credential is missing")
-    # Wake recovery verifies the installed package against the host pin. Resume
-    # durable apply first: either may be absent or out of sync after a crash.
-    recover_legacy_wakes()
-    target = plan["pin"]["commit"] if plan else None
-    selected = next_rollout(current, target, plan.get("runId") if plan else None)
-    if selected:
-        rollout(hosts, selected)
-    elif target:
-        raise RuntimeError(f"CD artifacts for interrupted rollout {target} are missing")
-    else:
-        if continuation_error:
-            raise continuation_error
-        clean_superseded_staged_packages(current)
-    if selected and not plan_path.exists():
-        installed = json.loads((CONFIG / HOSTS[CORE]).read_text())
-        revision = installed["installation"]["pin"]["commit"]
-        if revision == selected[1]["core"]["commit"]:
-            resume_installed_work()
-            clean_superseded_staged_packages(revision)
-        elif continuation_error:
-            raise continuation_error
-
-def serialized_main():
-    require(os.getuid() == 0, "Rollout must run as host administrator")
-    # Lock a stable root-owned directory inode. No stale PID or unlink-based
-    # lock stealing after a timer interruption, and no disposable lock file.
-    handle = os.open(CONFIG, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
-    try:
-        try:
-            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError:
-            return
-        main()
-    finally:
-        os.close(handle)
-
-
-def record_pending(code):
-    path = CONFIG / "rollout-plan.json"
-    if os.getuid() == 0 and path.is_file():
-        plan = json.loads(path.read_text())
-        if plan.get("schemaVersion") == 2:
-            pending = plan.get("pending")
-            if (code == "ROLLOUT_COORDINATOR_PENDING" and pending and
-                    not pending.endswith("_REQUIRED")):
-                return
-            write_config(path, {**plan, "pending": code})
-
-
 if __name__ == "__main__":
-    try:
-        serialized_main()
-    except RateLimited as error:
-        record_pending("ROLLOUT_RATE_LIMITED")
-        print(f"Nibfin rollout: {error}", file=sys.stderr)
-    except (RuntimeError, KeyError, OSError, ValueError,
-            subprocess.TimeoutExpired) as error:
-        record_pending("ROLLOUT_COORDINATOR_PENDING")
-        print(f"Nibfin rollout: {error}", file=sys.stderr)
-        sys.exit(1)
+    print("Use the installed fixed Core administrator for one native CD target.",
+          file=sys.stderr)
+    sys.exit(2)

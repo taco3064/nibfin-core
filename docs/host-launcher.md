@@ -116,14 +116,13 @@ the recorded Candidate while it still holds the Issue fence. Matching working
 files can be removed while Git objects, artifacts and receipts stay available.
 Local edits, unrelated ignored files and unresolved executions keep the workspace.
 
-For hosts using automated Core rollouts, the verified package includes
-`scripts/host-auto-rollout.py`, `scripts/nibfin-rollout.service` and
-`scripts/nibfin-rollout.timer`. During host setup or maintenance, the administrator
-installs the script at `/usr/local/libexec/nibfin/host-auto-rollout.py`, installs
-the units under `/etc/systemd/system`, reloads systemd and enables the timer.
-Once installed, the service refreshes its script from verified Core updates.
-The service removes superseded staged packages after the Runner resumes or on an
-idle pass. Installed rollback packages, host settings and gateways remain available.
+Automated Core updates use successful Core CD completion and GitHub's native
+maintenance dispatch. Normal installation prepares the verified external manager,
+stable pre-Worker entry and fixed administrator bridge. A compatible Core-only
+update keeps both official listeners and registrations in place. See
+[administrator Core rollout](administrator-core-rollout.md) for setup and recovery.
+Do not install the retired rollout service or timer. Owned legacy resources are
+removed after native entry readback; unknown files and active work are retained.
 
 Core CD also prepares the E2E Issue caller from the same verified Core package.
 The host waits for the E2E `verify` check and for the shared Runners to become

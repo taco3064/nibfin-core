@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "kind": "core-native-maintenance-v1",
+  "bootstrapRoot": "/usr/local/libexec/nibfin/core-rollout/bootstrap",
+  "bootstrapPin": "/usr/local/libexec/nibfin/core-rollout/bootstrap-source-pin.json",
+  "bootstrapEntry": "scripts/core-maintenance-bootstrap.mjs",
+  "bridge": "/usr/local/libexec/nibfin/core-rollout/bridge.py",
+  "client": "/usr/local/libexec/nibfin/core-rollout/client.py",
+  "dispatcher": "/usr/local/libexec/nibfin/core-rollout/worker-dispatch.py",
+  "sudoers": "/etc/sudoers.d/nibfin-core-maintenance"
+}

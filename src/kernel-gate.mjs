@@ -12,9 +12,8 @@ export async function withKernelGate(handle, use, {
     env: { PATH: '/usr/bin:/bin' },
   });
   const code = await new Promise((resolve, reject) => {
-    const timer = setTimeout(() => child.kill('SIGKILL'), 5000);
-    child.once('error', error => { clearTimeout(timer); reject(error); });
-    child.once('close', value => { clearTimeout(timer); resolve(value); });
+    child.once('error', reject);
+    child.once('close', resolve);
   });
   if (code === 75) return { status: 'pending', code: busyCode };
   requireThat(code === 0, 'RELAY_LOCK_UNAVAILABLE');

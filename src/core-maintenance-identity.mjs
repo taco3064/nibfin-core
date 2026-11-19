@@ -11,6 +11,7 @@ import { readRetirementFile } from './retirement-files.mjs';
 import { rolloutPlanPath } from './rollout-admission.mjs';
 
 const scopes = new WeakMap();
+const requiredLabels = ['self-hosted', 'nibfin-shared'];
 
 export function requireCoreMaintenance(scope, context, target) {
   const value = scopes.get(scope);
@@ -30,26 +31,30 @@ function nativeIds(request) {
     .every(key => isId(request[key])), 'CORE_MAINTENANCE_IDENTITY_REQUIRED');
 }
 
+function invokerRunner(pool, host, uid) {
+  const index = uid === host.runnerUid ? 0 :
+    uid === host.sharedRunner.additionalRunner.uid ? 1 : -1;
+  requireThat(index >= 0 && isId(uid), 'CORE_MAINTENANCE_INVOKER_CHANGED');
+  return pool.runners[index];
+}
+
 // Root-owned host adoption selects the pool and repository. Request fields can
 // locate a native object but cannot select a workflow, mode, UID or executable.
-async function observe(context, host, request, invokerUid, reader) {
+async function observeNativeJob(context, host, request, invokerUid, reader) {
   requireManagerContext(context);
   nativeIds(request);
   const pool = managerHostRegistrations(host, context);
   requireThat(pool.repository === 'taco3064/nibfin-core',
     'CORE_MAINTENANCE_REPOSITORY_CHANGED');
-  const index = pool.runners.findIndex(runner => runner.id === request.runnerId);
-  const uid = index === 0 ? host.runnerUid : host.sharedRunner.additionalRunner.uid;
-  requireThat(index >= 0 && isId(invokerUid) && uid === invokerUid,
+  const selected = invokerRunner(pool, host, invokerUid);
+  requireThat(selected.id === request.runnerId,
     'CORE_MAINTENANCE_INVOKER_CHANGED');
-  const selected = pool.runners[index];
   const root = repoPath(pool.repository);
-  const [repository, run, job, workflow, runner] = await Promise.all([
+  const [repository, run, job, workflow] = await Promise.all([
     reader.get(root),
     reader.get(`${root}/actions/runs/${request.runId}/attempts/${request.attempt}`),
     reader.get(`${root}/actions/jobs/${request.jobId}`),
     reader.get(`${root}/actions/workflows/core-maintenance.yml`),
-    reader.get(`${root}/actions/runners/${request.runnerId}`),
   ]);
   const branch = repository.default_branch;
   const ref = `refs/heads/${branch}`;
@@ -79,19 +84,12 @@ async function observe(context, host, request, invokerUid, reader) {
     requireThat(['identical', 'ahead'].includes(comparison.status),
       'CORE_MAINTENANCE_SOURCE_UNTRUSTED');
   }
-  const labels = ['self-hosted', 'nibfin-shared'];
   requireThat(job.id === request.jobId && job.run_id === request.runId &&
     job.run_attempt === request.attempt && job.head_sha === run.head_sha &&
     job.status === 'in_progress' && job.conclusion === null &&
     job.name === contract.jobName && job.runner_id === selected.id &&
-    job.runner_name === selected.name && labels.every(label =>
+    job.runner_name === selected.name && requiredLabels.every(label =>
       job.labels?.includes(label)), 'CORE_MAINTENANCE_JOB_UNTRUSTED');
-  requireThat(runner.id === selected.id && runner.name === selected.name &&
-    runner.os?.toLowerCase() === 'linux' && runner.status === 'online' &&
-    runner.busy === true && labels.every(label =>
-      runner.labels?.some(value => value.name === label)) &&
-    runner.labels?.some(value => value.name === `nibfin-user-${pool.memberId}`),
-  'CORE_MAINTENANCE_RUNNER_CHANGED');
   const checkRunId = jobCheckRunId(job, pool.repository);
   const check = await reader.get(`${root}/check-runs/${checkRunId}`);
   requireThat(check.id === checkRunId && check.head_sha === run.head_sha &&
@@ -100,29 +98,47 @@ async function observe(context, host, request, invokerUid, reader) {
   'CORE_MAINTENANCE_CHECK_CHANGED');
   return { repository: pool.repository, repositoryId: pool.repositoryId,
     ownerId: repository.owner.id, runId: run.id, attempt: run.run_attempt,
-    jobId: job.id, runnerId: runner.id, runnerName: runner.name, invokerUid,
+    jobId: job.id, runnerId: selected.id, runnerName: selected.name, invokerUid,
     actorId: run.actor.id, triggeringActorId: run.triggering_actor.id,
     sourceCommit: run.head_sha, workflowId: workflow.id, checkRunId,
     ref, subject: adopted.subject };
+}
+
+// The workflow's read-only token observes its assigned job. Privileged Root
+// admission separately uses the managed reader's Runner administration access.
+async function observeAuthorizedRunner(context, host, request, invokerUid, reader) {
+  const provenance = await observeNativeJob(context, host, request, invokerUid,
+    reader);
+  const pool = managerHostRegistrations(host, context);
+  const runner = await reader.get(`${repoPath(pool.repository)}/actions/runners/` +
+    provenance.runnerId);
+  requireThat(runner.id === provenance.runnerId &&
+    runner.name === provenance.runnerName &&
+    runner.os?.toLowerCase() === 'linux' && runner.status === 'online' &&
+    runner.busy === true && requiredLabels.every(label =>
+      runner.labels?.some(value => value.name === label)) &&
+    runner.labels?.some(value => value.name === `nibfin-user-${pool.memberId}`),
+  'CORE_MAINTENANCE_RUNNER_CHANGED');
+  return provenance;
 }
 
 // Pre-Worker may identify a native maintenance Job before requesting OIDC.
 // This read-only observation never creates a promotion/settlement scope.
 export async function observeCoreMaintenanceJob(context, host, request,
   actualInvokerUid, reader) {
-  return observe(context, host, request, actualInvokerUid, reader);
+  return observeNativeJob(context, host, request, actualInvokerUid, reader);
 }
 
 export async function observeCoreMaintenanceFrame(context, host, message,
   actualInvokerUid, reader) {
   const pool = managerHostRegistrations(host, context);
-  const selected = pool.runners[actualInvokerUid === host.runnerUid ? 0 : 1];
+  const selected = invokerRunner(pool, host, actualInvokerUid);
   const frame = nativeWorkerFrame(message);
   const job = await assignedNativeJob(reader, { repository: pool.repository,
     runId: frame.runId, attempt: frame.attempt, sourceCommit: frame.commit,
     runnerId: selected.id, runnerName: selected.name, jobName: contract.jobName },
   frame.guid);
-  const provenance = await observe(context, host, { runId: frame.runId,
+  const provenance = await observeNativeJob(context, host, { runId: frame.runId,
     attempt: frame.attempt, jobId: job.id, runnerId: selected.id },
   actualInvokerUid, reader);
   requireThat(frame.commit === provenance.sourceCommit &&
@@ -153,12 +169,14 @@ export async function admitCoreMaintenance(context, host, request, invokerUid, r
   'CORE_MAINTENANCE_REQUEST_INVALID');
   requireThat(isId(request.target?.runId) && isId(request.target?.artifactId),
     'CORE_MAINTENANCE_TARGET_REQUIRED');
-  const provenance = await observe(context, host, request, invokerUid, reader);
+  const provenance = await observeAuthorizedRunner(context, host, request, invokerUid,
+    reader);
   await verifyActionsIdentity(request.token, { ...provenance,
     audience: contract.audience, eventName: contract.eventName,
     workflowRef: `${provenance.repository}/${contract.workflowPath}@${provenance.ref}`,
   }, identityOptions);
-  const confirmed = await observe(context, host, request, invokerUid, reader);
+  const confirmed = await observeAuthorizedRunner(context, host, request, invokerUid,
+    reader);
   requireThat(isDeepStrictEqual(provenance, confirmed),
     'CORE_MAINTENANCE_CHANGED_DURING_ADMISSION');
   return mint(context, provenance, request.target);
@@ -174,7 +192,8 @@ export async function reobserveCoreMaintenance(context, host, reader,
     isId(plan.administratorTarget?.runId) && isId(plan.administratorTarget?.artifactId),
   'CORE_MAINTENANCE_PROVENANCE_REQUIRED');
   const provenance = plan.maintenanceInvocation;
-  const current = await observe(context, host, provenance, provenance.invokerUid, reader);
+  const current = await observeAuthorizedRunner(context, host, provenance,
+    provenance.invokerUid, reader);
   requireThat(isDeepStrictEqual(current, provenance),
     'CORE_MAINTENANCE_PROVENANCE_CHANGED');
   return mint(context, current, plan.administratorTarget);

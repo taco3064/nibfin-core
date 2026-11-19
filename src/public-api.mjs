@@ -4,6 +4,8 @@ import { managedPreparationCapability } from './managed-resource-contract.mjs';
 import { managedSharedAdmission } from './shared-admission-policy.mjs';
 import { claudeModelComponent } from './claude-model-runner.mjs';
 import { coreMaintenanceContract } from './core-maintenance-contract.mjs';
+import maintenanceInstallation from './core-maintenance-installation.json'
+  with { type: 'json' };
 export { createClaudePrivateRunner } from './claude-model-runner.mjs';
 
 // Versioned public exports. Thin consumers call Core; they must not copy its
@@ -32,6 +34,7 @@ export { sharedDispatchWorkflow, sharedRepository } from './shared-runner.mjs';
 
 export const interfaceVersion = 1;
 export const consumerContract = Object.freeze({
+  eventDrivenCoreMaintenance: Object.freeze(maintenanceInstallation),
   officialRunnerRefresh: Object.freeze({
     schemaVersion: 1, command: 'refresh-runner-runtime',
     modes: Object.freeze(['preview', 'apply', 'resume']),

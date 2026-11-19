@@ -72,6 +72,7 @@ def load_runtime():
     spec.loader.exec_module(runtime)
     runtime.CLI = ENTRY
     runtime.run = execute
+    runtime.PROVIDER_FAILURES = (RESULTS.CoreRolloutFailure,)
     runtime.coordinator_cli = lambda plan=None: ENTRY
     runtime.gh = lambda *args: base64.b64decode(
         bridge("github", request=list(args))["bytes"])
@@ -110,8 +111,6 @@ def finish(runtime, services):
                "candidate": plan["candidate"], "runId": plan["runId"],
                "originalServices": plan["originalServices"]}
     runtime.write_config(runtime.CONFIG / "core-rollout-operation.json", receipt)
-    current = json.loads((runtime.CONFIG / "host.json").read_text())
-    runtime.refresh_rollout_service(current)
     for name in (*runtime.HOSTS.values(), runtime.E2E_HOST):
         (runtime.CONFIG / "rollout" / name).unlink(missing_ok=True)
     path.unlink()

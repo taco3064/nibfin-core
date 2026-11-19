@@ -49,14 +49,15 @@ function provider() {
       head_repository: repository, actor: { id: 20 }, triggering_actor: { id: 20 },
     },
     [`${root}/actions/workflows/30`]: { id: 30, path, state: 'active' },
-    [`${root}/actions/runs/40/attempts/1/jobs?per_page=2`]: {
+    [`${root}/actions/runs/40/attempts/1/jobs?per_page=100&page=1`]: {
       total_count: 1, jobs: [{ id: 60, run_id: 40, run_attempt: 1, head_sha: commit,
         runner_id: 50, runner_name: 'slot-1', name: 'shared-stage',
-        status: 'in_progress' }],
+        status: 'in_progress', conclusion: null,
+        check_run_url: `https://api.github.com${root}/check-runs/160` }],
     },
-    [`${root}/check-runs/60`]: {
-      id: 60, name: 'shared-stage', head_sha: commit, external_id: guid,
-      app: { slug: 'github-actions' },
+    [`${root}/check-runs/160`]: {
+      id: 160, name: 'shared-stage', head_sha: commit, external_id: guid,
+      app: { slug: 'github-actions' }, status: 'in_progress', conclusion: null,
       details_url: 'https://github.com/example/project/actions/runs/40/job/60',
     },
     [`${root}/branches/main`]: { protected: true, commit: { sha: commit } },
@@ -124,7 +125,8 @@ test('rejects a fork job or alternate Workflow before reading the provider', asy
 
 test('requires the native slot assignment and Worker job identifier', async () => {
   const reader = provider();
-  const path = '/repos/example/project/actions/runs/40/attempts/1/jobs?per_page=2';
+  const path = '/repos/example/project/actions/runs/40/attempts/1/jobs' +
+    '?per_page=100&page=1';
   const job = reader.responses[path].jobs[0];
   job.runner_id = 51;
   await assert.rejects(admitSharedWorker(reader, request(), binding, ref, 20),
@@ -175,7 +177,7 @@ test('managed admission drops only branch protection, retaining provider denial'
       ['/actions/runs/40/attempts/1', 'triggering_actor', { id: 21 }],
       ['/actions/runs/40/attempts/1', 'run_attempt', 2],
       ['/actions/workflows/30', 'state', 'disabled_manually'],
-      ['/check-runs/60', 'external_id', 'forged'],
+      ['/check-runs/160', 'external_id', 'forged'],
     ]) {
       const record = reader.responses['/repos/example/project' + key];
       const original = record[property];
@@ -220,9 +222,9 @@ test('managed pre-Worker checks run and current source lineage', async () => {
   // A descendant run is also verified, without changing the adoption anchor.
   const message = request({ workflow_sha: current, sha: current });
   reader.responses[root + '/actions/runs/40/attempts/1'].head_sha = current;
-  reader.responses[root + '/actions/runs/40/attempts/1/jobs?per_page=2']
+  reader.responses[root + '/actions/runs/40/attempts/1/jobs?per_page=100&page=1']
     .jobs[0].head_sha = current;
-  reader.responses[root + '/check-runs/60'].head_sha = current;
+  reader.responses[root + '/check-runs/160'].head_sha = current;
   await admitSharedWorker(reader, message, managed, ref, 20);
   assert.equal(managed.sourceCommit, commit);
 });

@@ -9,9 +9,10 @@ export function sharedWorkerReader(credential, request = fetch) {
     const route = path.split('?')[0];
     requireThat(/^\/repos\/[A-Za-z0-9_./-]+$/.test(route) && !/[\r\n#\\]/.test(path),
       'SHARED_WORKER_PROVIDER_PATH_INVALID');
-    const unavailable = status => Object.assign(
+    const unavailable = (status, failure) => Object.assign(
       new Error('SHARED_WORKER_PROVIDER_UNAVAILABLE'),
-      { code: 'SHARED_WORKER_PROVIDER_UNAVAILABLE', route, status },
+      { code: 'SHARED_WORKER_PROVIDER_UNAVAILABLE', route, status,
+        githubApiRead: true, ...(failure ? { githubReadFailure: failure } : {}) },
     );
     try {
       const response = await request(`https://api.github.com${path}`, {
@@ -27,7 +28,8 @@ export function sharedWorkerReader(credential, request = fetch) {
       return await response.json();
     } catch (error) {
       if (error.code === 'SHARED_WORKER_PROVIDER_UNAVAILABLE') throw error;
-      throw unavailable(null);
+      throw unavailable(null,
+        error instanceof SyntaxError ? 'invalid-response' : 'network');
     }
   } };
 }
