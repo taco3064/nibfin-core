@@ -179,6 +179,8 @@ main(process.argv.slice(2))
     const pending = ['MANAGED_CREDENTIAL_PROVIDER_UNAVAILABLE',
       'MANAGED_CREDENTIAL_CONSUMER_PENDING'].includes(code);
     process.stderr.write(JSON.stringify({ status: pending ? 'pending' : 'denied',
-      code, diagnostic: commandDiagnostic(error) }) + '\n');
+      code, ...(code === 'COMMAND_FAILED' && {
+        diagnostic: commandDiagnostic(error),
+      }) }) + '\n');
     process.exitCode = pending ? 2 : 1;
   });

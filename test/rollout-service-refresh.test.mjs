@@ -25,12 +25,16 @@ with tempfile.TemporaryDirectory(dir=pathlib.Path.cwd()) as directory:
     g.update(INSTALL=installed, SERVICE_SCRIPT=service, __file__=str(service))
     g['Path'] = lambda value: (unit if value ==
         '/etc/systemd/system/nibfin-rollout.service' else pathlib.Path(value))
-    calls = []
+    calls, loaded = [], [False]
     def run(*args):
         calls.append(args)
         if args[0] == 'node':
             assert args[2] == 'verify'
             assert json.loads(pathlib.Path(args[-1]).read_text()) == {'commit': 'pin'}
+        if args[:2] == ('systemctl', 'show'):
+            return b'no' if loaded[0] else b'yes'
+        if args == ('systemctl', 'daemon-reload'):
+            loaded[0] = True
     g['run'] = run
     host = {'installation': {'pin': {'commit': 'pin'}}}
     refresh(host)
@@ -38,9 +42,13 @@ with tempfile.TemporaryDirectory(dir=pathlib.Path.cwd()) as directory:
     assert template.read_bytes() == unit.read_bytes()
     assert service.stat().st_mode & 0o777 == 0o755
     assert unit.stat().st_mode & 0o777 == 0o644
-    assert len(calls) == 2 and calls[-1] == ('systemctl', 'daemon-reload')
+    assert len(calls) == 3 and calls[-1] == ('systemctl', 'daemon-reload')
     refresh(host)
-    assert len(calls) == 2
+    assert len(calls) == 4 and calls[-1][1] == 'show'
+    # Files already match after an interruption; the manager still has old data.
+    loaded[0] = False
+    refresh(host)
+    assert len(calls) == 6 and calls[-1] == ('systemctl', 'daemon-reload')
     unit.write_bytes(b'old unit')
     def fail(*args):
         raise RuntimeError('verification failed')
