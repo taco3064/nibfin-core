@@ -97,7 +97,7 @@ export async function deliverRecoveryFixture(t, outer = 'deliver') {
       census: async () => structuredClone(processes) }),
     approvalReader: async () => approval, inspectAdoption: async () => {} };
   return { root, context, subject, runner, approval, store, journal, effects,
-    execution, binding, artifacts, retained, inputPath, invocationPath,
+    execution, binding, artifacts, retained, input, inputPath, invocationPath,
     issueRoot, fencePath, fenceBytes, processes, options, job, run, issue, data,
     journalRoot: join(receiptsRoot, digest({ issueId: subject.id, repositoryId: 10 })),
     observations: () => observations,
