@@ -1,5 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { acquireHostFence, issueStatePath } from '../src/host-fence.mjs';
 import { digest } from '../src/identity.mjs';
@@ -9,12 +8,12 @@ import { evidenceBinding } from '../src/stages.mjs';
 import { OperationJournal } from '../src/operation-journal.mjs';
 import { recoverAdoptedDeliverFence } from '../src/recover-deliver-fence.mjs';
 import { proveDeliverProcesses } from '../src/deliver-recovery-processes.mjs';
+import { recoveryFixtureRoot } from './recovery-fixture-root.mjs';
 
 export const boot = '11111111-1111-4111-8111-111111111111';
 
-export async function deliverRecoveryFixture(t, outer = 'deliver') {
-  const root = await mkdtemp(join(tmpdir(), 'nibfin-deliver-recovery-'));
-  t.after(() => rm(root, { recursive: true, force: true }));
+export async function deliverRecoveryFixture(t, outer = 'deliver', rootOptions = {}) {
+  const { root, environment } = await recoveryFixtureRoot(t, rootOptions);
   const subject = { id: 'I_target', repository: 'example/core',
     repositoryId: 10, number: 2 };
   const runner = { repository: subject.repository, repositoryId: 10, runId: 20,
@@ -95,7 +94,7 @@ export async function deliverRecoveryFixture(t, outer = 'deliver') {
     processes: (fence, options) => proveDeliverProcesses(fence, { ...options,
       census: async () => structuredClone(processes) }),
     approvalReader: async () => approval, inspectAdoption: async () => {} };
-  return { root, context, subject, runner, approval, store, journal, effects,
+  return { root, environment, context, subject, runner, approval, store, journal, effects,
     execution, binding, artifacts, retained, inputPath, invocationPath,
     issueRoot, fencePath, fenceBytes, processes, options, job, run, issue, data,
     journalRoot: join(receiptsRoot, digest({ issueId: subject.id, repositoryId: 10 })),
