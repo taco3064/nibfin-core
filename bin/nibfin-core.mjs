@@ -11,6 +11,7 @@ import { resolve, join } from 'node:path';
 import { packageSource, verifyInstalledSource } from '../src/source-package.mjs';
 import { installSource } from '../src/source-install.mjs';
 import { requireThat } from '../src/identity.mjs';
+import { commandDiagnostic } from '../src/command-diagnostic.mjs';
 import { launchStage } from '../src/host-launcher.mjs';
 import { runWakeEntry } from '../src/wake-entry.mjs';
 import { runIssueWake } from '../src/issue-wake.mjs';
@@ -178,6 +179,6 @@ main(process.argv.slice(2))
     const pending = ['MANAGED_CREDENTIAL_PROVIDER_UNAVAILABLE',
       'MANAGED_CREDENTIAL_CONSUMER_PENDING'].includes(code);
     process.stderr.write(JSON.stringify({ status: pending ? 'pending' : 'denied',
-      code }) + '\n');
+      code, diagnostic: commandDiagnostic(error) }) + '\n');
     process.exitCode = pending ? 2 : 1;
   });

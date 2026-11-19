@@ -685,22 +685,34 @@ def refresh_rollout_service(host):
     source = INSTALL / "core/scripts/host-auto-rollout.py"
     if not source.is_file() or Path(__file__).resolve() != SERVICE_SCRIPT:
         return
-    data = source.read_bytes()
-    if SERVICE_SCRIPT.read_bytes() == data:
+    unit = Path("/etc/systemd/system/nibfin-rollout.service")
+    template = source.with_name("nibfin-rollout.service")
+    targets = [(SERVICE_SCRIPT, source.read_bytes(), 0o755),
+               (unit, template.read_bytes(), 0o644)]
+    changed = [(path, data, mode) for path, data, mode in targets
+               if not path.exists() or path.read_bytes() != data]
+    if not changed:
         return
     with tempfile.TemporaryDirectory(prefix="nibfin-rollout-service-") as work:
         pin = Path(work) / "pin.json"
         pin.write_text(json.dumps(host["installation"]["pin"]))
         run("node", CLI, "verify", INSTALL / "core", pin)
-    with tempfile.NamedTemporaryFile(dir=SERVICE_SCRIPT.parent, delete=False) as script:
-        temp = Path(script.name)
+    for path, data, mode in changed:
+        replace_service_file(path, data, mode)
+    if any(path == unit for path, _, _ in changed):
+        run("systemctl", "daemon-reload")
+
+
+def replace_service_file(path, data, mode):
+    with tempfile.NamedTemporaryFile(dir=path.parent, delete=False) as output:
+        temp = Path(output.name)
         try:
-            script.write(data)
-            script.flush()
-            os.fchmod(script.fileno(), 0o755)
-            os.fsync(script.fileno())
-            temp.replace(SERVICE_SCRIPT)
-            sync_directory(SERVICE_SCRIPT.parent)
+            output.write(data)
+            output.flush()
+            os.fchmod(output.fileno(), mode)
+            os.fsync(output.fileno())
+            temp.replace(path)
+            sync_directory(path.parent)
         finally:
             temp.unlink(missing_ok=True)
 
