@@ -1,23 +1,39 @@
-import test from 'node:test';
+import test, { after } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { resolve } from 'node:path';
+import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+
+const fixtureParent = resolve('.deliver-test-tmp');
+mkdirSync(fixtureParent, { recursive: true });
+const fixtureRoot = mkdtempSync(resolve(fixtureParent, 'rollout-timer-'));
+after(() => rmSync(fixtureRoot, { recursive: true, force: true }));
+const pythonOptions = {
+  encoding: 'utf8',
+  env: { ...process.env, TMPDIR: fixtureRoot, TMP: fixtureRoot, TEMP: fixtureRoot,
+    PYTHONDONTWRITEBYTECODE: '1' },
+};
 
 // Controlled Python coordinator, not a live systemd/GitHub rollout. All effects
 // use the same maintained coordinator functions called by the installed timer.
 test('timer closes admission, pins its target and reconciles unknown merges', () => {
   const result = spawnSync('python3', ['-B', '-c', `
-import json, runpy, sys, tempfile
+import importlib.util, json, sys, tempfile
 from pathlib import Path
-module = runpy.run_path(sys.argv[1])
+spec = importlib.util.spec_from_file_location("rollout_fixture", sys.argv[1])
+runtime = importlib.util.module_from_spec(spec)
+sys.modules[spec.name] = runtime
+spec.loader.exec_module(runtime)
+module = vars(runtime)
 rollout = module["rollout"]
 g = rollout.__globals__
+g["CLI"] = Path(sys.argv[1]).resolve().parent.parent / "bin/nibfin-core.mjs"
 core, action, e2e = g["CORE"], g["ACTION"], g["E2E"]
 pins = {"core": {"repository": core, "commit": "a" * 40},
         "action": {"repository": action, "commit": "b" * 40}, "artifact": {}}
 pr = {"number": 1, "headRefOid": "c" * 40}
 hosts = {core: {}, action: {}, "taco3064/gh-nibfin": {}}
-effects, state = [], dict(busy=True, merged=False, posts=0)
+effects, state = [], dict(busy=True, merged=False, posts=0, read_error=False)
 g["main_sha"] = lambda repo: "d" * 40
 g["content"] = lambda *args: (json.dumps(pins["core"]).encode(), "blob")
 g["stage_package"] = lambda *args: {}
@@ -25,7 +41,12 @@ g["close_superseded_rollouts"] = lambda *args: None
 g["stage_bindings"] = lambda *args, **kwargs: effects.append("bindings")
 g["api"] = lambda path: ({"status": "ahead"} if "/compare/" in path else
                          {"permissions": {"push": True}})
-g["read_consumer"] = lambda *args: ("base", None if state["merged"] else pr)
+def read_consumer(*args):
+    if state["read_error"]:
+        raise OSError("native observation unavailable")
+    return "base", None if state["merged"] else pr
+
+g["read_consumer"] = read_consumer
 
 def pool_step(step):
     path = g["CONFIG"] / "rollout-plan.json"
@@ -45,7 +66,12 @@ def gh(*args):
     raise RuntimeError("lost merge response")
 
 g["pool_step"], g["gh"] = pool_step, gh
-g["run"] = lambda *args: b'{"status":"installed"}'
+def run(*args):
+    assert args[-1] == "promote-host"
+    effects.append("apply")
+    return b'{"status":"installed"}'
+
+g["run"] = run
 g["finish"] = lambda *args: effects.append("finish")
 with tempfile.TemporaryDirectory() as directory:
     g["CONFIG"] = Path(directory)
@@ -59,7 +85,7 @@ with tempfile.TemporaryDirectory() as directory:
     path = g["CONFIG"] / "rollout-plan.json"
     saved = json.loads(path.read_text())
     assert saved["phase"] == "draining" and saved["candidate"] == pins
-    assert state["posts"] == 0
+    assert state["posts"] == 0 and "apply" not in effects
     state["busy"] = False
     try:
         rollout(hosts, selected)
@@ -69,15 +95,26 @@ with tempfile.TemporaryDirectory() as directory:
     assert state["posts"] == 1
     try:
         rollout(hosts, selected)
-        raise AssertionError("unknown merge must not retry")
+        raise AssertionError("an unfinished native PR must retry its merge")
     except RuntimeError as error:
-        assert "unresolved" in str(error)
-    assert state["posts"] == 1
+        assert str(error) == "lost merge response"
+    assert state["posts"] == 2
+    state["read_error"] = True
+    before = list(effects)
+    try:
+        rollout(hosts, selected)
+        raise AssertionError("a failed observation cannot establish absence")
+    except OSError as error:
+        assert str(error) == "native observation unavailable"
+    assert effects == before and state["posts"] == 2
+    assert json.loads(path.read_text())["candidate"] == pins
+    assert json.loads(path.read_text())["runId"] == 10
+    state["read_error"] = False
     state["merged"] = True
-    rollout(hosts, selected)
+    assert rollout(hosts, selected) == {"status": "installed"}
     assert effects[-1] == "finish"
-    assert state["posts"] == 1
-`, resolve('scripts/host-auto-rollout.py')], { encoding: 'utf8', timeout: 5000 });
+    assert effects.count("apply") == 1 and state["posts"] == 2
+`, resolve('scripts/host-auto-rollout.py')], pythonOptions);
   assert.ifError(result.error);
   assert.equal(result.status, 0, result.stderr);
 });
@@ -141,7 +178,7 @@ try:
     raise AssertionError("main CI must still be required")
 except RuntimeError as error:
     assert "main CI" in str(error)
-`, resolve('scripts/host-auto-rollout.py')], { encoding: 'utf8', timeout: 5000 });
+`, resolve('scripts/host-auto-rollout.py')], pythonOptions);
   assert.ifError(result.error);
   assert.equal(result.status, 0, result.stderr);
 });
@@ -173,7 +210,7 @@ with tempfile.TemporaryDirectory() as directory:
             "installation": {"pin": {"commit": "a" * 40}}}))
     main()
     assert effects == ["recovery", "cleanup"]
-`, resolve('scripts/host-auto-rollout.py')], { encoding: 'utf8', timeout: 5000 });
+`, resolve('scripts/host-auto-rollout.py')], pythonOptions);
   assert.ifError(result.error);
   assert.equal(result.status, 0, result.stderr);
 });
@@ -243,9 +280,7 @@ with tempfile.TemporaryDirectory() as directory:
     assert effects == ["promote", "finish", "continuation"]
     main()
     assert effects == ["promote", "finish", "continuation", "continuation", "wakes"]
-`, resolve('scripts/host-auto-rollout.py'), interrupted], {
-      encoding: 'utf8', timeout: 5000,
-    });
+`, resolve('scripts/host-auto-rollout.py'), interrupted], pythonOptions);
     assert.ifError(result.error);
     assert.equal(result.status, 0, result.stderr);
   });
