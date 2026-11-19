@@ -23,6 +23,7 @@ MAX_FILE = 16 * 1024 * 1024
 MAX_ENTRIES = 10000
 CODEX = "/usr/local/bin/codex"
 ROOTS = ("work", "main", "input")
+TOOL_OUTPUT = {}
 ENV = {
     "HOME": "/tmp/tool-home",
     "PATH": "/opt/nibfin/project/bin:/usr/local/bin:/usr/bin:/bin",
@@ -58,11 +59,28 @@ def restore(root, files):
         target.chmod(0o755 if item["executable"] else 0o644)
 
 
-def snapshot(root):
+def snapshot(root, excluded=None):
+    excluded_path = None
+    if excluded:
+        for observed in (excluded["parent"], excluded["root"]):
+            path = root / observed["path"]
+            try:
+                actual = directory_identity(path)
+            except FileNotFoundError:
+                # Removed scratch has no contents to omit from collection.
+                break
+            if (actual["dev"], actual["ino"]) != (observed["dev"], observed["ino"]):
+                raise ValueError("Tool output directory changed")
+        else:
+            excluded_path = excluded["path"]
     files = []
     size = 0
     entries = 0
     for directory, dirs, names in os.walk(root, followlinks=False):
+        if excluded_path:
+            dirs[:] = [name for name in dirs
+                       if (Path(directory, name).relative_to(root).as_posix()
+                           != excluded_path)]
         for name in sorted(dirs + names):
             entries += 1
             path = Path(directory, name)
@@ -92,6 +110,30 @@ def snapshot(root):
     return files
 
 
+def directory_identity(path):
+    observed = path.lstat()
+    if not stat.S_ISDIR(observed.st_mode) or path.resolve() != path:
+        raise ValueError("Tool output directory changed")
+    return {"dev": observed.st_dev, "ino": observed.st_ino}
+
+
+def prepare_tool_output(root, temporary, directories):
+    if not safe_path(temporary) or not isinstance(directories, list):
+        raise ValueError("Invalid tool output")
+    if any(not safe_path(directory) or not directory.startswith(temporary + "/")
+           for directory in directories):
+        raise ValueError("Invalid tool directory")
+    owned = not (root / temporary).exists()
+    for directory in directories:
+        (root / directory).mkdir(parents=True, exist_ok=True)
+    if not owned:
+        return None
+    parent = Path(temporary).parent.as_posix()
+    return {"path": temporary,
+            "parent": {"path": parent, **directory_identity(root / parent)},
+            "root": {"path": temporary, **directory_identity(root / temporary)}}
+
+
 def workspace(client):
     with client.makefile("rb") as stream:
         frame = stream.readline(MAX_FRAME + 1)
@@ -108,10 +150,16 @@ def workspace(client):
                 shutil.rmtree(root)
             root.mkdir()
             restore(root, request["files"])
+            TOOL_OUTPUT.pop(name, None)
+            if name == "work" and "toolRoot" in request:
+                # Exclude only a new execution-owned directory. Existing source
+                # files never become disposable just because of their name.
+                TOOL_OUTPUT[name] = prepare_tool_output(
+                    root, request["toolRoot"], request["toolDirectories"])
             Path(ENV["HOME"]).mkdir(parents=True, exist_ok=True)
             result = {"ready": True}
         elif request["operation"] == "collect":
-            result = {"files": snapshot(Path("/work"))}
+            result = {"files": snapshot(Path("/work"), TOOL_OUTPUT.get("work"))}
         else:
             raise ValueError("Unsupported workspace operation")
     except (ValueError, OSError, KeyError, TypeError):

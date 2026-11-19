@@ -108,6 +108,9 @@ class Frames:
 
 def _serve(config):
     global CONNECTION, PENDING
+    # Admission, never a model request, supplies the role's tool environment.
+    for directory in config.get("toolDirectories", []):
+        Path(directory).mkdir(parents=True, exist_ok=True)
     endpoint = config["socket"]
     directory = Path(endpoint).parent
     info = directory.lstat()

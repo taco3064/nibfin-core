@@ -1,28 +1,29 @@
 import { digest, requireThat } from './identity.mjs';
 import { projectToolPath } from './tool-catalog.mjs';
+import { projectToolPaths, toolScratchOptions } from './project-tool-paths.mjs';
 
 export const workerEntry = '/opt/nibfin/work/claude-work-worker.py';
 export const workerPython = '/usr/local/bin/python3';
 export const workerEnvironment = Object.freeze([
-  'HOME=/tmp', 'TMPDIR=/tmp', 'LANG=C.UTF-8', `PATH=${projectToolPath}`,
+  'LANG=C.UTF-8', `PATH=${projectToolPath}`,
   'GIT_CONFIG_NOSYSTEM=1', 'GIT_CONFIG_GLOBAL=/dev/null',
 ]);
 
 export function workContainerArgs(config, name, mounts, writable,
-  inherited = [], egress) {
+  inherited = [], egress, executionId) {
   return [
     'create', '--pull=never', '--name', name, '--read-only',
     `--network=${egress.network}`, '--dns=127.0.0.1',
     '--ipc=none', '--cap-drop=ALL', '--security-opt=no-new-privileges',
     '--security-opt=apparmor=codex-security-container', '--pids-limit=256',
     '--memory=4g', '--memory-swap=8g', '--cpus=2', '--user=1000:1000',
-    '--tmpfs=/tmp:rw,nosuid,nodev,size=2g,mode=1777', '--workdir=/work',
+    '--tmpfs=/tmp:' + toolScratchOptions, '--workdir=/work',
     ...mounts.flatMap(m => ['--mount', `type=bind,src=${m.source},` +
       `dst=${m.target},${m.target === '/work' && writable ||
         m.target === '/session/work-channel' ? '' : 'readonly,'}` +
       'bind-propagation=rprivate,bind-recursive=disabled']),
     ...inherited.flatMap(name => ['--env', name]),
-    ...workEnvironment(egress).flatMap(value => ['--env', value]),
+    ...workEnvironment(egress, writable, executionId).flatMap(value => ['--env', value]),
     '--entrypoint', workerPython, config.image, '-I', '-B', workerEntry,
   ];
 }
@@ -30,10 +31,10 @@ export function workContainerArgs(config, name, mounts, writable,
 // Inspect exact effective configuration, including inherited image settings.
 // Merely requesting flags is insufficient evidence of applied isolation.
 export function inspectWorkContainer(actual, {
-  config, name, id, mounts, writable, egress,
+  config, name, id, mounts, writable, egress, executionId,
 }) {
   const h = actual?.HostConfig, c = actual?.Config;
-  const expected = new Set(workEnvironment(egress));
+  const expected = new Set(workEnvironment(egress, writable, executionId));
   requireThat(actual?.Id === id && actual.Name === `/${name}` &&
     actual.State?.Status === 'created' && c?.Image === config.image &&
     c.User === '1000:1000' && c.WorkingDir === '/work' &&
@@ -58,7 +59,7 @@ export function inspectWorkContainer(actual, {
     ]) &&
     actual.AppArmorProfile === 'codex-security-container' &&
     h.Tmpfs && Object.keys(h.Tmpfs).join() === '/tmp' &&
-    h.Tmpfs['/tmp'] === 'rw,nosuid,nodev,size=2g,mode=1777' &&
+    h.Tmpfs['/tmp'] === toolScratchOptions &&
     Array.isArray(actual.Mounts) && actual.Mounts.length === mounts.length &&
     mounts.every(m => actual.Mounts.some(a => a.Type === 'bind' &&
       a.Source === m.source && a.Destination === m.target &&
@@ -68,7 +69,10 @@ export function inspectWorkContainer(actual, {
 
 }
 
-export function workEnvironment(egress) {
-  return [...workerEnvironment, ...['HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY']
+export function workEnvironment(egress, writable, executionId) {
+  return [...workerEnvironment,
+    ...Object.entries(projectToolPaths(writable, executionId))
+      .map(([key, value]) => `${key}=${value}`),
+    ...['HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY']
     .map(key => `${key}=${egress.proxyUrl}`), 'NODE_USE_ENV_PROXY=1'];
 }

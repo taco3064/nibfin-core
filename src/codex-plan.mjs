@@ -5,6 +5,9 @@ import { resultSchema } from './agent-result.mjs';
 import { skillIdentity } from './skills.mjs';
 import { toolDownloadHosts, projectDomains } from './egress-proxy.mjs';
 import { rolePrompt } from './role-prompt.mjs';
+import {
+  projectToolPaths, projectToolDirectories, projectToolRoot,
+} from './project-tool-paths.mjs';
 
 // Fixed paths belong to the isolated image contract, never the candidate. The
 // controller starts in /session, outside /work, to avoid candidate configuration
@@ -37,15 +40,9 @@ export function codexPlan(stage, {
     'shell_environment_policy.experimental_use_profile': false,
     'shell_environment_policy.ignore_default_excludes': false,
     'shell_environment_policy.set': {
-      PATH: projectToolPath, HOME: '/tmp/tool-home', LANG: 'C.UTF-8',
+      PATH: projectToolPath, LANG: 'C.UTF-8',
+      ...projectToolPaths(writable, context.execution?.id),
       GOMAXPROCS: '2', GOFLAGS: '-p=1',
-      ...(writable && {
-        XDG_CACHE_HOME: '/tmp/tool-home/.cache',
-        XDG_CONFIG_HOME: '/tmp/tool-home/.config',
-        GOCACHE: '/tmp/tool-home/.cache/go-build', GOPATH: '/tmp/tool-home/go',
-        PIP_CACHE_DIR: '/tmp/tool-home/.cache/pip',
-        npm_config_cache: '/tmp/tool-home/.cache/npm',
-      }),
     },
     'permissions.nibfin.filesystem': {
       ':minimal': 'read', '/work': writable ? 'write' : 'read', '/input': 'read',
@@ -107,6 +104,8 @@ export function codexPlan(stage, {
     additionalDomains: selectedDomains,
     args, config, settings, requirements, schema: resultSchema, prompt,
     expectedThread: threadId, writable, mcpPolicyHash,
+    toolDirectories: projectToolDirectories(writable, context.execution?.id),
+    toolRoot: projectToolRoot(writable, context.execution?.id),
     projectPython: projectTools?.python ?? null,
     policyHash: digest({ config, requirements }),
     cwd: '/session',

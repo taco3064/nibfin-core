@@ -19,6 +19,8 @@ import { isAbsolute, resolve, join, dirname } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { command, deliveryRoleTimeout } from './process.mjs';
 import { codexIdle, codexPreflightExits, idleDiagnostic } from './codex-bootstrap.mjs';
+import { toolScratchOptions } from './project-tool-paths.mjs';
+import { prepareToolOutput } from './project-tool-output.mjs';
 import {
   shareAgentMount,
   privateMountParent,
@@ -361,7 +363,7 @@ export class CodexSandbox {
       '--user',
       '1000:1000',
       '--tmpfs',
-      '/tmp:rw,exec,nosuid,nodev,size=2g,mode=1777',
+      '/tmp:' + toolScratchOptions,
       '--workdir',
       '/session',
       ...mounts.flatMap((m) => [
@@ -378,13 +380,16 @@ export class CodexSandbox {
       c.image,
       '/input/bootstrap.mjs',
     ];
-    let memoryPressure, monitor, ownershipTimer, ownership = Promise.resolve();
+    let memoryPressure, monitor, ownershipTimer, toolOutput;
+    let ownership = Promise.resolve();
     let samplingOwnership = false, ownershipUnresolved = false;
     let id,
       observed, termination,
       mcpLease, projectLease,
       outcome = { status: 'denied', executionId, code: 'AGENT_ENTRY_DENIED' };
     try {
+      if (plan.writable && !jobVmSocket)
+        toolOutput = await prepareToolOutput(work, executionId);
       if (c.mcpPolicyDirectory)
         projectLease = await acquireProjectEgress(c.mcpPolicyDirectory, executionId,
           c.additionalDomains);
@@ -405,6 +410,8 @@ export class CodexSandbox {
           .map(([key, value]) => `${key}=${value}`)),
         'AGENT_ENVIRONMENT_CHANGED',
       );
+      requireThat(host.Tmpfs && Object.keys(host.Tmpfs).join() === '/tmp' &&
+        host.Tmpfs['/tmp'] === toolScratchOptions, 'AGENT_SCRATCH_CHANGED');
       requireThat(
         observed.Id === id &&
           observed.Name === `/${name}` &&
@@ -560,9 +567,10 @@ export class CodexSandbox {
           '/usr/local/bin/node',
           c.image,
           '-e',
-          cleanupAgentMounts,
+          (toolOutput?.cleanupScript ?? '') + cleanupAgentMounts,
           ...cleanupMounts.map((m) => m.destination),
         ]);
+        await toolOutput?.dispose();
         cleanupStep = 'credential and session removal';
         if (discard) {
           await rm(authRoot, { recursive: true });

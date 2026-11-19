@@ -88,7 +88,11 @@ export async function fixture(stage = 'deliver') {
           Memory: 4294967296, MemorySwap: 8589934592, NanoCpus: 2000000000,
           PidsLimit: 256, CapDrop: ['ALL'],
           SecurityOpt: ['no-new-privileges', 'apparmor=codex-security-container'],
-          Tmpfs: { '/tmp': 'rw,nosuid,nodev,size=2g,mode=1777' },
+          Tmpfs: Object.fromEntries(cmd.filter(value => value.startsWith('--tmpfs='))
+            .map(value => {
+              const specification = value.slice(8), split = specification.indexOf(':');
+              return [specification.slice(0, split), specification.slice(split + 1)];
+            })),
         }, Mounts: mounts, NetworkSettings: { Networks: { [egress.network]: {} } },
       };
       controls.mutate?.(container);
