@@ -131,6 +131,15 @@ those from trusted observations.
 
 ## Parallel main changes
 
+Treat an existing delivery PR behind main as unfinished integration work.
+Use the trusted continuation's controlled rebase of that same PR onto current
+main. Resolve ordinary conflicts within this Shape, rerun affected checks,
+and return the updated Candidate for independent verification. An earlier
+ready result or successful old-head CI does not complete this work. If the
+assigned invocation supplies neither the current main observation nor the
+controlled alignment route, identify that runtime capability as the concrete
+missing input in the supported result. Do not silently treat it as aligned.
+
 Do not introduce a hash or fixed version as a condition for starting or
 resuming delivery. If the design genuinely needs an exception, explain the
 concrete need and ask the Owner before adopting it.
@@ -157,3 +166,26 @@ Core reobserves before integration, including after verification or review. Chan
 content receives affected stage-owned checks; equivalent-content evidence reuse
 follows existing policy. Native integration checks must bind the actual rebased PR
 head and integration state. Old-head CI cannot authorize merge.
+
+## Continue after a missing response
+
+At a resumed invocation, inspect the supplied current work and authoritative
+provider observations for the interrupted operation. Reuse a confirmed result.
+When a successful provider read establishes that the operation is unfinished,
+perform that work again through the normal stage checks and authorized path.
+A missing local receipt, lost Agent response or unavailable old transcript
+alone does not make the implementation blocked. Preserve existing partial work.
+
+For GitHub observation failures, retain completed work and use the existing
+retry path for the failed read. A failed read cannot establish that a previous
+write did not happen. Reconcile the affected object before repeating its write.
+Do not require a replay of already confirmed writes or restart the whole Issue.
+
+When the authorized change concerns continuation or recovery, implement it at
+the layer that owns the operation. Core owns stage admission and runtime result
+handling. A read-only recovery routine can establish current state; normal
+continuation then re-enters the unfinished stage. Preserve the concrete stage
+when returning or storing an actionable runtime result. The continuation
+command name does not identify that stage. Test response loss with and without
+a recoverable local result, checking that confirmed effects are reused and
+missing unfinished work actually resumes.
