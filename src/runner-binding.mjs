@@ -6,6 +6,7 @@ import { wakeRecipe } from './caller-recipes.mjs';
 import { originalSharedRepository } from './shared-runner.mjs';
 
 import { usesManagedSharedAdmission } from './shared-admission-policy.mjs';
+import { jobCheckRunId } from './native-job-check.mjs';
 
 // Provider-side binding only. The caller is trusted Core, executing from an
 // installed pinned workflow outside the candidate. No event payload, environment
@@ -203,15 +204,7 @@ export async function readRunnerBinding(reader, expected, observeSharedCaller) {
       job.labels.includes(label),
     'ACTIONS_JOB_BINDING_MISMATCH',
   );
-  const checkPrefix = `https://api.github.com${root}/check-runs/`;
-  const checkId =
-    typeof job.check_run_url === 'string' && job.check_run_url.startsWith(checkPrefix)
-      ? job.check_run_url.slice(checkPrefix.length)
-      : '';
-  requireThat(
-    /^[1-9][0-9]*$/.test(checkId) && isId(Number(checkId)),
-    'JOB_CHECK_IDENTITY_REQUIRED',
-  );
+  const checkId = jobCheckRunId(job, expected.repository);
   const runner = await reader.get(runnerPath);
   const runnerOS = typeof runner?.os === 'string' ? runner.os.toLowerCase() : '';
   requireThat(

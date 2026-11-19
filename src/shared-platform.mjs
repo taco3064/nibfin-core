@@ -40,14 +40,22 @@ export function platformContract(value, nodeVersion) {
 export const sharedPlatforms = platformContract(contract, contract.nodeVersion);
 
 export function sharedTarget(arch) {
-  requireThat(Object.hasOwn(sharedPlatforms.targets, arch),
+  return sharedTargetFromContract(sharedPlatforms, arch);
+}
+
+// Trusted installers can inspect another verified package's contract as data.
+// Parsing a contract does not authorize using its executables or publishing it.
+export function sharedTargetFromContract(platform, arch) {
+  platformContract(platform, platform.nodeVersion);
+  requireThat(Object.hasOwn(platform.targets, arch),
     'UNSUPPORTED_SHARED_PLATFORM');
-  const record = sharedPlatforms.targets[arch];
+  const record = platform.targets[arch];
   const runnerArchive =
-    `actions-runner-linux-${record.artifactArch}-${sharedPlatforms.runnerVersion}.tar.gz`;
+    `actions-runner-linux-${record.artifactArch}-${platform.runnerVersion}.tar.gz`;
   const nodeDirectory =
-    `node-v${sharedPlatforms.nodeVersion}-linux-${record.artifactArch}`;
-  return { ...record, arch, runnerArchive, nodeDirectory,
+    `node-v${platform.nodeVersion}-linux-${record.artifactArch}`;
+  return { ...record, arch, nodeVersion: platform.nodeVersion,
+    runnerArchive, nodeDirectory,
     nodeArchive: `${nodeDirectory}.tar.xz`,
     nodeMember: `${nodeDirectory}/bin/node`,
     nodePath: `/opt/nibfin/tools/${nodeDirectory}/bin/node` };

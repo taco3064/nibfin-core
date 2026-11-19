@@ -10,6 +10,10 @@ import { installSource } from './source-install.mjs';
 import { command } from './process.mjs';
 import { requireThat } from './identity.mjs';
 import { installedSharedRuntime } from './shared-platform.mjs';
+import { admitCoreMaintenance, coreMaintenanceProvenance }
+  from './core-maintenance-identity.mjs';
+import { privateCredentialPipe } from './managed-credential-input.mjs';
+import { GitHubReader } from './github-read.mjs';
 
 async function main(args) {
   await installedSharedRuntime();
@@ -17,6 +21,25 @@ async function main(args) {
   const [operation, ...values] = args;
   if (operation === 'admit' && values.length === 0)
     return { status: 'admitted' };
+  if (operation === 'authorize-core-only' && values.length === 0) {
+    privateCredentialPipe();
+    const parts = [];
+    for await (const part of process.stdin) parts.push(part);
+    const request = JSON.parse(Buffer.concat(parts).toString());
+    const uid = process.env.SUDO_UID;
+    requireThat(/^[1-9][0-9]*$/.test(uid ?? ''),
+      'CORE_MAINTENANCE_INVOKER_CHANGED');
+    // This borrowed credential lease ends before Python begins any operation.
+    return withManagerAdmission(context, async () => {
+      const host = await managerCredentialHost(context);
+      const reader = new GitHubReader(
+        (await readPrivate(host.tokenFile, host, 16384)).trim());
+      const scope = await admitCoreMaintenance(context, host, request, Number(uid),
+        reader);
+      return { status: 'authorized',
+        provenance: coreMaintenanceProvenance(scope, context) };
+    });
+  }
   if (operation === 'pool' && values.length === 1)
     return withManagerAdmission(context, scope =>
       advanceRolloutPool(values[0], context, scope));

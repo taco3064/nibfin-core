@@ -1,12 +1,14 @@
 """One explicit administrator rollout; no discovery, timer or background worker."""
 import base64
 import contextlib
+import errno
 import fcntl
 import importlib.util
 import json
 import os
 from pathlib import Path
 import re
+import stat
 import subprocess
 import sys
 
@@ -40,10 +42,13 @@ def execute(*args, timeout=None, env=None):
 
 
 def bridge(*args, request=None):
+    environment = {"PATH": "/usr/bin:/bin", "LANG": "C"}
+    if args and args[0] == "authorize-core-only" and "SUDO_UID" in os.environ:
+        environment["SUDO_UID"] = os.environ["SUDO_UID"]
     result = subprocess.run([node_path(), str(ENTRY), *args],
                             input=json.dumps(request).encode() if request else None,
                             capture_output=True,
-                            env={"PATH": "/usr/bin:/bin", "LANG": "C"})
+                            env=environment)
     value = json.loads(result.stdout)
     if result.returncode or value.get("status") == "pending":
         raise RuntimeError(value.get("code", "CORE_ROLLOUT_OBSERVATION_UNAVAILABLE"))
@@ -88,7 +93,7 @@ def finish(runtime, services):
     plan = json.loads(path.read_text())
     runtime.require(plan.get("apply", {}).get("completed"),
                     "Rollout apply is not complete")
-    if plan["phase"] != "complete":
+    if plan["phase"] != "complete" and plan.get("mode") != "core-only":
         runtime.pool_step("restore")
     runtime.pool_step("release")
     plan = json.loads(path.read_text())
@@ -109,7 +114,12 @@ def finish(runtime, services):
 
 def continuation():
     # Only after release: execute the new installed Core in a separate process.
-    result = subprocess.run([node_path(), str(LIVE_CLI),
+    observed = bridge("observe-installed")
+    runtime = observed.get("runtime", {}).get("nodePath")
+    if (observed.get("status") != "observed" or not isinstance(runtime, str)
+            or not runtime.startswith("/opt/nibfin/tools/")):
+        raise RuntimeError("Installed pool runtime observation needs normal retry")
+    result = subprocess.run([runtime, str(LIVE_CLI),
                              "complete-installed-lifecycle"], capture_output=True,
                             env={"PATH": "/usr/bin:/bin", "LANG": "C"})
     value = json.loads(result.stdout)
@@ -117,19 +127,42 @@ def continuation():
         raise RuntimeError("Installed lifecycle returned an invalid result")
     if not isinstance(value.get("results"), list):
         raise RuntimeError("Installed lifecycle omitted continuation results")
-    if result.returncode not in (0, 2):
+    expected_exit = 2 if value["status"] == "pending" else 0
+    if result.returncode != expected_exit:
         raise RuntimeError("Installed lifecycle observation needs normal retry")
     return value
 
 
-def operation(runtime, target):
+def operation(runtime, target, core_only=False, provenance=None,
+              defer_continuation=False):
     path = runtime.CONFIG / "rollout-plan.json"
     hosts = {repo: json.loads((runtime.CONFIG / name).read_text())
              for repo, name in runtime.HOSTS.items()}
     plan = json.loads(path.read_text()) if path.exists() else None
     runtime.require(not plan or plan.get("administratorTarget") == target,
                     "Another rollout target has not completed")
-    runtime.prepare_plan = lambda value: {**value, "administratorTarget": target}
+    runtime.require(not plan or (plan.get("mode") == "core-only") == core_only,
+                    "Another rollout mode owns the current operation")
+    closure = runtime.CONFIG / "rollout-admission.json"
+    if (core_only and plan and plan.get("phase") == "prepared"
+            and not plan.get("apply") and not closure.exists()):
+        # Before admission closes there are no installation effects. Retire
+        # only this operation's planning record, then observe the actual result.
+        # Verified staged bytes and provider effects retain their normal readback.
+        path.unlink()
+        runtime.sync_directory(runtime.CONFIG)
+        plan = None
+    def prepare(value):
+        result = {**value, "administratorTarget": target}
+        if core_only:
+            result["mode"] = "core-only"
+            if provenance:
+                result["maintenanceInvocation"] = provenance
+        return result
+    runtime.prepare_plan = prepare
+    if plan and provenance:
+        plan["maintenanceInvocation"] = provenance
+        runtime.write_config(path, plan)
     runtime.finish = lambda services: finish(runtime, services)
     if plan and plan.get("apply"):
         if not plan["apply"].get("completed"):
@@ -153,9 +186,35 @@ def operation(runtime, target):
                 complete = all(pr is None for _, pr in observed)
         if not complete:
             outcome = runtime.rollout(hosts, selected)
+            if outcome and outcome.get("status") == "unsupported":
+                # No installation or closure exists yet. A prepared local record
+                # must not block a later compatible target or an explicit mode.
+                pending = json.loads(path.read_text()) if path.exists() else None
+                closure = runtime.CONFIG / "rollout-admission.json"
+                runtime.require(not pending or pending.get("phase") == "prepared"
+                                and not pending.get("apply") and not closure.exists()
+                                and pending.get("administratorTarget") == target,
+                                "Unsupported operation has unresolved effects")
+                if pending:
+                    path.unlink()
+                    runtime.sync_directory(runtime.CONFIG)
+                return {**outcome, "installation": "unsupported"}
             if not outcome or outcome.get("status") != "installed" or path.exists():
                 return {"status": "pending", "installation": "pending",
                         "code": "CORE_ROLLOUT_STAGE_PENDING"}
+    if defer_continuation:
+        result = {"status": "installed", "installation": "complete",
+                  "continuation": {"status": "pending", "results": [],
+                                   "code": "INSTALLED_CONTINUATION_PENDING"}}
+        try:
+            observed = bridge("observe-installed")
+            if observed.get("status") != "observed":
+                raise RuntimeError("Installed observation is incomplete")
+            result["completion"] = observed
+        except (OSError, ValueError, RuntimeError):
+            result["continuation"]["code"] = \
+                "INSTALLED_CONTINUATION_OBSERVATION_UNAVAILABLE"
+        return result
     try:
         result = continuation()
     except (OSError, ValueError, RuntimeError):
@@ -165,22 +224,75 @@ def operation(runtime, target):
             "continuation": result}
 
 
+def operation_gate(config):
+    # The fixed Root bridge may pass its existing directory open-description in
+    # fd 3. Reopening the directory while its parent holds the exclusive flock
+    # would contend with the operation itself. No public path/flag selects this.
+    try:
+        inherited = os.fstat(3)
+    except OSError as error:
+        if error.errno != errno.EBADF:
+            raise
+        return os.open(config, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW), False
+    expected = config.lstat()
+    if (inherited.st_dev != expected.st_dev or inherited.st_ino != expected.st_ino
+            or inherited.st_uid != 0 or expected.st_uid != 0
+            or not stat.S_ISDIR(inherited.st_mode) or not stat.S_ISDIR(expected.st_mode)
+            or (inherited.st_mode | expected.st_mode) & 0o022):
+        raise RuntimeError("Inherited rollout gate does not match fixed configuration")
+    return 3, True
+
+
+def continue_after_gate(result, handle):
+    # flock conversion is not assumed atomic. Only a successful shared lock
+    # permits fresh observation; old completion facts never select executable code.
+    completed = {**result}
+    completed.pop("completion", None)
+    try:
+        fcntl.flock(handle, fcntl.LOCK_SH | fcntl.LOCK_NB)
+        completed["continuation"] = continuation()
+    except (OSError, ValueError, RuntimeError):
+        completed["continuation"] = {"status": "pending", "results": [],
+            "code": "INSTALLED_CONTINUATION_OBSERVATION_UNAVAILABLE"}
+    return completed
+
+
 def main():
-    if len(sys.argv) != 3 or not all(re.fullmatch(r"[1-9][0-9]*", value)
-                                     for value in sys.argv[1:]):
+    values = sys.argv[1:]
+    core_only = bool(values and values[0] == "--core-only")
+    if core_only:
+        values = values[1:]
+    if len(values) != 2 or not all(re.fullmatch(r"[1-9][0-9]*", value)
+                                  for value in values):
         raise RuntimeError("Expected one native CD run ID and activation artifact ID")
     bridge("admit")
     groups = Path("/proc/self/cgroup").read_text()
-    if re.search(r"nibfin-shared-runner@(?:1|2)\.service", groups):
+    in_pool = re.search(r"nibfin-shared-runner@(?:1|2)\.service", groups)
+    target = {"runId": int(values[0]), "artifactId": int(values[1])}
+    provenance = None
+    request = sys.stdin.buffer.read() if core_only else b""
+    if request:
+        supplied = json.loads(request)
+        if supplied.get("target") != target:
+            raise RuntimeError("Maintenance request target changed")
+        authorization = bridge("authorize-core-only", request=supplied)
+        if authorization.get("status") != "authorized":
+            raise RuntimeError("Native maintenance authorization is unavailable")
+        provenance = authorization["provenance"]
+    if in_pool and not (core_only and provenance):
         raise RuntimeError("Out-of-pool rollout cannot stop its own Runner job or hook")
     runtime = load_runtime()
-    handle = os.open(runtime.CONFIG, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    handle, inherited = operation_gate(runtime.CONFIG)
     try:
         fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        target = {"runId": int(sys.argv[1]), "artifactId": int(sys.argv[2])}
         with contextlib.redirect_stdout(sys.stderr):
-            result = operation(runtime, target)
+            result = operation(runtime, target, core_only, provenance,
+                               defer_continuation=True)
+            if result.get("installation") == "complete" and not inherited:
+                result = continue_after_gate(result, handle)
         print(json.dumps(result))
+        if result.get("status") == "unsupported":
+            sys.exit(1)
     finally:
         os.close(handle)
 
