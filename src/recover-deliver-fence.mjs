@@ -29,39 +29,46 @@ export async function recoverDeliverFence(issueNumber) {
     isId(Number(issueNumber)), 'INVALID_RECOVERY_REQUEST');
   await rootOwnedPath(coreRoot);
   const installed = await import('/opt/nibfin/core/src/host-adoption.mjs');
-  const adoption = coreRoot === '/opt/nibfin/core' ?
-    { loadHostAdoption, inspectHostAdoption } : installed;
+  return withManagedAdmission(() => recoverSelectedDeliverFence(issueNumber, {
+    installed, target: process.env[targetContextKey],
+  }), { reconcile: true }).catch(pendingRecovery);
+}
+
+// Internal composition seam; the public command fixes all module dependencies.
+export async function recoverSelectedDeliverFence(issueNumber, {
+  installed, target, directory = coreRoot,
+  local = { loadHostAdoption, inspectHostAdoption },
+  recover = recoverAdoptedDeliverFence,
+}) {
+  const adoption = directory === '/opt/nibfin/core' ? local : installed;
   const load = adoption.loadHostAdoption;
-  return withManagedAdmission(async () => {
-    const target = process.env[targetContextKey];
-    let context = await load(issueNumber, target, undefined, true);
-    // Shared slots have separate adopted isolation. Select only an explicitly
-    // adopted slot using the native Job, never a caller-supplied Runner identity.
-    const root = issueStatePath(context.host.stateRoot, context.adopted.isolation.issue);
-    let snapshot;
-    for (const directory of [root, context.host.stateRoot]) {
-      snapshot = await recoveryFile(join(directory, 'stage.lock')).catch(error => {
-        if (error.code === 'ENOENT') return null;
-        throw error;
-      });
-      if (snapshot) break;
-    }
-    if (snapshot) {
-      const prior = JSON.parse(snapshot.bytes).binding?.execution;
-      requireThat(isId(prior?.jobId), 'INVALID_RECOVERY_FENCE');
-      const job = await context.reader.get(repoPath(context.adopted.runner.repository) +
-        '/actions/jobs/' + prior.jobId);
-      if (job.runner_id !== context.adopted.runner.runnerId) {
-        const additional = context.host.sharedRunner?.additionalRunner;
-        requireThat(additional?.id === job.runner_id && isId(additional.uid),
-          'RECOVERY_EXECUTION_MISMATCH');
-        context = await load(issueNumber, target, additional.uid, true);
-      }
-    }
-    return recoverAdoptedDeliverFence(context, {
-      inspectAdoption: adoption.inspectHostAdoption,
+  let context = await load(issueNumber, target, undefined, true);
+  // Shared slots have separate adopted isolation. Select only an explicitly
+  // adopted slot using the native Job, never a caller-supplied Runner identity.
+  const root = issueStatePath(context.host.stateRoot, context.adopted.isolation.issue);
+  let snapshot;
+  for (const directory of [root, context.host.stateRoot]) {
+    snapshot = await recoveryFile(join(directory, 'stage.lock')).catch(error => {
+      if (error.code === 'ENOENT') return null;
+      throw error;
     });
-  }, { reconcile: true }).catch(pendingRecovery);
+    if (snapshot) break;
+  }
+  if (snapshot) {
+    const prior = JSON.parse(snapshot.bytes).binding?.execution;
+    requireThat(isId(prior?.jobId), 'INVALID_RECOVERY_FENCE');
+    const job = await context.reader.get(repoPath(context.adopted.runner.repository) +
+      '/actions/jobs/' + prior.jobId);
+    if (job.runner_id !== context.adopted.runner.runnerId) {
+      const additional = context.host.sharedRunner?.additionalRunner;
+      requireThat(additional?.id === job.runner_id && isId(additional.uid),
+        'RECOVERY_EXECUTION_MISMATCH');
+      context = await load(issueNumber, target, additional.uid, true);
+    }
+  }
+  return recover(context, {
+    inspectAdoption: adoption.inspectHostAdoption,
+  });
 }
 
 const prefix = 'settled-deliver-fence-';
