@@ -1,5 +1,6 @@
 import { digest, requireThat } from './identity.mjs';
 import { projectToolPath } from './tool-catalog.mjs';
+import { agentScratchMount, agentScratchOptions } from './agent-scratch.mjs';
 
 export const workerEntry = '/opt/nibfin/work/claude-work-worker.py';
 export const workerPython = '/usr/local/bin/python3';
@@ -16,7 +17,7 @@ export function workContainerArgs(config, name, mounts, writable,
     '--ipc=none', '--cap-drop=ALL', '--security-opt=no-new-privileges',
     '--security-opt=apparmor=codex-security-container', '--pids-limit=256',
     '--memory=4g', '--memory-swap=8g', '--cpus=2', '--user=1000:1000',
-    '--tmpfs=/tmp:rw,nosuid,nodev,size=2g,mode=1777', '--workdir=/work',
+    `--tmpfs=${agentScratchMount}`, '--workdir=/work',
     ...mounts.flatMap(m => ['--mount', `type=bind,src=${m.source},` +
       `dst=${m.target},${m.target === '/work' && writable ||
         m.target === '/session/work-channel' ? '' : 'readonly,'}` +
@@ -58,7 +59,7 @@ export function inspectWorkContainer(actual, {
     ]) &&
     actual.AppArmorProfile === 'codex-security-container' &&
     h.Tmpfs && Object.keys(h.Tmpfs).join() === '/tmp' &&
-    h.Tmpfs['/tmp'] === 'rw,nosuid,nodev,size=2g,mode=1777' &&
+    h.Tmpfs['/tmp'] === agentScratchOptions &&
     Array.isArray(actual.Mounts) && actual.Mounts.length === mounts.length &&
     mounts.every(m => actual.Mounts.some(a => a.Type === 'bind' &&
       a.Source === m.source && a.Destination === m.target &&

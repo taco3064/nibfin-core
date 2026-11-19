@@ -37,21 +37,24 @@ export function codexPlan(stage, {
     'shell_environment_policy.experimental_use_profile': false,
     'shell_environment_policy.ignore_default_excludes': false,
     'shell_environment_policy.set': {
-      PATH: projectToolPath, HOME: '/tmp/tool-home', LANG: 'C.UTF-8',
+      PATH: projectToolPath, HOME: writable ? '/work' : '/tmp/tool-home',
+      LANG: 'C.UTF-8',
       GOMAXPROCS: '2', GOFLAGS: '-p=1',
       ...(writable && {
-        XDG_CACHE_HOME: '/tmp/tool-home/.cache',
-        XDG_CONFIG_HOME: '/tmp/tool-home/.config',
-        GOCACHE: '/tmp/tool-home/.cache/go-build', GOPATH: '/tmp/tool-home/go',
-        PIP_CACHE_DIR: '/tmp/tool-home/.cache/pip',
-        npm_config_cache: '/tmp/tool-home/.cache/npm',
+        TMPDIR: '/work', TMP: '/work', TEMP: '/work',
+        XDG_CACHE_HOME: '/work/.nibfin-cache',
+        XDG_CONFIG_HOME: '/work/.nibfin-cache/config',
+        GOCACHE: '/work/.nibfin-cache/go-build', GOPATH: '/work/.nibfin-cache/go',
+        PIP_CACHE_DIR: '/work/.nibfin-cache/pip',
+        npm_config_cache: '/work/.nibfin-cache/npm',
       }),
     },
     'permissions.nibfin.filesystem': {
       ':minimal': 'read', '/work': writable ? 'write' : 'read', '/input': 'read',
-      // The fresh tmpfs has no Git metadata. A synthetic /tmp/.git would make
-      // every private Runner fixture look like a checkout to the CLI.
-      '/main': 'read', '/tmp': 'write', '/tmp/.git': 'write',
+      // Deliver may generate files only in its assigned repository. Other
+      // roles retain their separate disposable verification facility.
+      '/main': 'read', '/tmp': writable ? 'read' : 'write',
+      '/tmp/.git': writable ? 'read' : 'write',
       '/auth': 'deny', '/agent-home': 'deny',
       '/io': 'deny', '/session': 'read', '/proc': 'read',
       '/opt/nibfin/project': 'read',

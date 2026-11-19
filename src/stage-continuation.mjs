@@ -9,6 +9,7 @@ import { integrationRepairRequired, pendingCIObservation } from './github-ci.mjs
 import { codexIdle } from './codex-bootstrap.mjs';
 import { retryableWriterPressure } from './job-vm-pressure.mjs';
 import { ciCorrectionWaiting, requiredCheckFailed } from './ci-recovery.mjs';
+import { candidateCorrectionRequired } from './candidate-correction.mjs';
 import {
   githubReadDelay, githubReadWaiting, retryGitHubObservation,
 } from './observation-failure.mjs';
@@ -155,7 +156,7 @@ export async function continueStages({
         gap = true;
         continue;
       }
-      if (correctionStages.has(stage) && initial[stage].outcome === 'changes_required' &&
+      if (candidateCorrectionRequired(initial[stage], stage) &&
         correctionRepairs > 0) return repairCandidate(initial[stage]);
       if (await stoppedAgentCanRestart(store, stage, initial[stage])) {
         delete initial[stage];
@@ -243,7 +244,7 @@ export async function continueStages({
       correctionRepairs > 0 && result.code === 'STAGE_REQUIRES_CORRECTION' &&
       result.receiptHash) {
       const rejected = await reportedReceipt(store, stage, result);
-      if (rejected?.outcome === 'changes_required') {
+      if (candidateCorrectionRequired(rejected, stage)) {
         return repairCandidate(rejected);
       }
     }
