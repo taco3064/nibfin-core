@@ -1,4 +1,38 @@
-# Managed Issue wake producer
+# Native Issue forwarding and caller refresh
+
+The existing `issue` caller forwards native Issue events to the configured shared
+workflow using its wake credential. Forwarding verifies the public destination
+repository identity, default-branch source and active maintained workflow. It does
+not require branch protection: the receiver checks trusted adoption, actual
+repository policy, owner, source continuity and Job/Runner authentication.
+Notifications locate work and grant no execution permission. CLI owns automatic
+credential installation and migration orchestration.
+
+After installing and verifying either exact maintained Issue caller at the installed
+Core source, an authorized administrator can run:
+
+```sh
+nibfin-core refresh-managed-issue-caller OWNER/REPO REPOSITORY_ID
+```
+
+Despite its compatibility name, this command supports `issue-managed` to `issue`,
+`issue` to `issue-managed`, and repeated refresh of either recipe, including CRLF
+callers. It verifies administrator permission, repository and member identity,
+installed Core/Action source and unchanged Action workflow identity before updating
+only the event workflow binding and its source observation. Both Runner IDs, roles,
+pool membership, provider and unrelated adoption fields remain unchanged. Unknown
+caller bytes, changed workflow identity/path or mismatched source are rejected.
+
+The result retains `status`, `repositoryId` and `runners`: `adopted` means a guarded
+replacement was read back; `unchanged` means current adoption already matches the
+freshly observed installation. If a response is lost after replacement, rerun the
+same command: it reuses confirmed adoption. If replacement never happened, retry
+performs the unfinished guarded replacement. Observation failures remain errors;
+they do not authorize overwriting conflicting state. The existing adoption lock,
+atomic replacement and readback remain in use. Native forwarding and refresh do
+not require historical notification configuration or relay receipts.
+
+## Historical managed Issue wake producer
 
 The managed producer creates a notification locator. It grants no execution
 permission and makes no claim about live eligibility, successful upload,
@@ -45,9 +79,9 @@ protected reusable workflow invokes the producer on the GitHub-hosted Runner
 without a wake token and uploads only the resulting JSON. The upload action
 fails if the file is missing. Managed mode does not schedule a self-hosted job.
 
-The existing `issue` caller recipe selects legacy routing by omitting the mode.
-Existing callers can keep using that recipe while managed artifact consumption
-is developed. Legacy routing still requires its existing wake authorization.
+The existing `issue` caller recipe selects native routing by omitting the mode.
+Native routing requires its existing wake authorization. The retained artifact
+route is historical compatibility, not a native migration prerequisite.
 Both recipes are subject to exact source verification.
 
 The Core source package includes the producer, contract, caller recipes,

@@ -131,14 +131,14 @@ function recipeBlobs(kind, commit) {
 }
 
 export function managedIssueBinding(event, observed, commit) {
-  const managed = recipeBlobs('issue-managed', commit);
+  const recipes = ['issue', 'issue-managed'].flatMap(kind => recipeBlobs(kind, commit));
   requireThat(event && isSha(observed.head) &&
     event.workflowId === observed.issue.workflowId &&
     event.workflowPath === issueWorkflow &&
     observed.issue.workflowPath === issueWorkflow &&
     event.reusable?.commit === commit &&
-    managed.includes(observed.issue.workflowBlob) &&
-    [...managed, ...recipeBlobs('issue', commit)].includes(event.workflowBlob),
+    recipes.includes(observed.issue.workflowBlob) &&
+    recipes.includes(event.workflowBlob),
   'MANAGED_ISSUE_TRANSITION_CONFLICT');
   return event.workflowBlob === observed.issue.workflowBlob ? event :
     { ...event, ...observed.issue, sourceCommit: observed.head };
@@ -184,19 +184,33 @@ export async function refreshManagedIssueCaller(name, id) {
     requireThat(adopted.runner.workflowId === observed.action.workflowId &&
       adopted.runner.workflowBlob === observed.action.workflowBlob,
     'MANAGED_ISSUE_TRANSITION_CONFLICT');
-    const event = managedIssueBinding(adopted.eventRunner, observed, source.commit);
-    if (event === adopted.eventRunner)
-      return { status: 'unchanged', repositoryId: id, runners: pool.runners };
-    for (const entry of new Set([primary, target]))
-      requireThat(await boundedHostFile(entry.path, 262144) === entry.bytes,
-        'HOST_ADOPTION_CHANGED');
-    adopted.eventRunner = event;
-    await replace(target.path, target.value);
-    const readback = await read(target.path);
-    requireThat(digest(readback.value) === digest(target.value),
-      'PEER_ADOPTION_UNVERIFIED');
-    return { status: 'adopted', repositoryId: id, runners: pool.runners };
+    return refreshObservedIssueCaller(primary, target, pool, observed, source.commit, {
+      read,
+      readBytes: path => boundedHostFile(path, 262144),
+      replace,
+    });
   }));
+}
+
+// Internal persistence step. The administrator wrapper supplies verified observations
+// and host I/O under the existing adoption lock; retries re-observe before entering.
+export async function refreshObservedIssueCaller(
+  primary, target, pool, observed, commit, io,
+) {
+  const adopted = target.value.repository;
+  const repositoryId = adopted.approval.repositoryId;
+  const event = managedIssueBinding(adopted.eventRunner, observed, commit);
+  if (event === adopted.eventRunner)
+    return { status: 'unchanged', repositoryId, runners: pool.runners };
+  for (const entry of new Set([primary, target]))
+    requireThat(await io.readBytes(entry.path) === entry.bytes,
+      'HOST_ADOPTION_CHANGED');
+  adopted.eventRunner = event;
+  await io.replace(target.path, target.value);
+  const readback = await io.read(target.path);
+  requireThat(digest(readback.value) === digest(target.value),
+    'PEER_ADOPTION_UNVERIFIED');
+  return { status: 'adopted', repositoryId, runners: pool.runners };
 }
 
 export const retirementLockMarker = '{"kind":"managed-retirement-v1"}\n';

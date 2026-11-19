@@ -1,5 +1,10 @@
 # Installed outgoing notification relay
 
+This page describes the retained historical artifact route. Native Issue forwarding
+and caller refresh do not require this configuration or its receipts; see
+[the native caller-refresh contract](managed-issue-wake.md). Removing historical
+notification resources is a separate migration responsibility.
+
 The Controller polls adopted public GitHub repositories and forwards bounded
 Issue notification artifacts to its installed shared workflow. Notifications
 locate work; they grant no execution permission. The receiving shared job still
