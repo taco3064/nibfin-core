@@ -74,6 +74,16 @@ export function validPauseDecisionIdentity(proof) {
     proof?.eventId === undefined && isDigest(proof?.eventHash);
 }
 
+export function pauseDecisionsForEvent(decisions, event) {
+  const matches = decisions.filter(proof => pauseDecisionMatches(proof, event));
+  const native = matches.filter(proof => proof.eventId !== undefined);
+  if (!native.length) return matches;
+  const conflict = matches.some(proof => proof.eventId === undefined &&
+    native.some(current => current.qualification !== proof.qualification ||
+      current.desired !== proof.desired));
+  return conflict ? matches : native;
+}
+
 function history(events, actorFrom = 0) {
   requireThat(Array.isArray(events), 'PAUSE_HISTORY_UNKNOWN');
   let previousId = 0,
@@ -108,7 +118,7 @@ export function interpretPause({ issue, events, decisions = [] }) {
     requireThat(Array.isArray(decisions), 'PAUSE_DECISIONS_UNKNOWN');
     const relevant = events.filter(pauseEvent);
     const checkpoint = relevant.findLastIndex(event => {
-      const proofs = decisions.filter(proof => pauseDecisionMatches(proof, event));
+      const proofs = pauseDecisionsForEvent(decisions, event);
       return proofs.length === 1 && proofs[0].qualification === 'allowed' &&
         isDigest(proofs[0].observationHash) &&
         proofs[0].desired === (event.event === 'labeled');
@@ -118,7 +128,7 @@ export function interpretPause({ issue, events, decisions = [] }) {
     let effective = false,
       visible = false;
     for (const event of relevant.slice(Math.max(checkpoint, 0))) {
-      const proofs = decisions.filter(proof => pauseDecisionMatches(proof, event));
+      const proofs = pauseDecisionsForEvent(decisions, event);
       requireThat(proofs.length === 1, 'PAUSE_QUALIFICATION_UNKNOWN');
       const proof = proofs[0];
       requireThat(

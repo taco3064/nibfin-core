@@ -6,7 +6,7 @@ import {
   interpretPause,
   pauseEvent,
   qualifyPauseEvent,
-  pauseDecisionMatches,
+  pauseDecisionsForEvent,
 } from './pause.mjs';
 
 export function pauseTrigger(event) {
@@ -61,9 +61,7 @@ export async function reconcilePause({
         native.created_at === event.issue?.updated_at,
       'PAUSE_EVENT_NOT_CURRENT',
     );
-    const recorded = evidence.decisions.find(
-      proof => pauseDecisionMatches(proof, native),
-    );
+    const recorded = pauseDecisionsForEvent(evidence.decisions, native)[0];
     if (!recorded) {
       // Qualify the authenticated current command before consulting old local
       // receipts. An allowed command needs no historical state to override.
