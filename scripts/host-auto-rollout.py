@@ -692,6 +692,7 @@ def refresh_rollout_service(host):
     changed = [(path, data, mode) for path, data, mode in targets
                if not path.exists() or path.read_bytes() != data]
     if not changed:
+        reload_rollout_unit()
         return
     with tempfile.TemporaryDirectory(prefix="nibfin-rollout-service-") as work:
         pin = Path(work) / "pin.json"
@@ -699,7 +700,13 @@ def refresh_rollout_service(host):
         run("node", CLI, "verify", INSTALL / "core", pin)
     for path, data, mode in changed:
         replace_service_file(path, data, mode)
-    if any(path == unit for path, _, _ in changed):
+    reload_rollout_unit()
+
+
+def reload_rollout_unit():
+    needed = run("systemctl", "show", "--property=NeedDaemonReload", "--value",
+                 "nibfin-rollout.service")
+    if needed.strip() == b"yes":
         run("systemctl", "daemon-reload")
 
 
