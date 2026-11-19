@@ -1,5 +1,6 @@
 """Native component regressions; Docker/host boundaries use separate doubles."""
 import importlib.util
+from contextlib import contextmanager
 import json
 import os
 from pathlib import Path
@@ -11,6 +12,7 @@ import tempfile
 import threading
 import time
 import unittest
+from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -30,6 +32,53 @@ worker = load("claude-work-worker")
 
 def request(method, params=None):
     return {"jsonrpc": "2.0", "id": 1, "method": method, "params": params or {}}
+
+
+def fixture_directory(prefix):
+    parent = ROOT / ".nibfin-cache"
+    parent.mkdir(exist_ok=True)
+    return tempfile.TemporaryDirectory(prefix=prefix, dir=parent)
+
+
+@contextmanager
+def listening_worker(config):
+    ready = threading.Event()
+    outcomes, failures = [], []
+
+    class ListeningSocket(socket.socket):
+        def listen(self, *args, **kwargs):
+            result = super().listen(*args, **kwargs)
+            ready.set()
+            return result
+
+    class ReadySockets:
+        socket = ListeningSocket
+
+        def __getattr__(self, name):
+            return getattr(socket, name)
+
+    def serve():
+        try:
+            outcomes.append(worker.serve(config))
+        except BaseException as error:
+            failures.append(error)
+        finally:
+            # A startup failure must wake the caller and preserve its cause.
+            ready.set()
+
+    with patch.object(worker, "socket", ReadySockets()):
+        thread = threading.Thread(target=serve)
+        thread.start()
+        try:
+            ready.wait()
+            if failures:
+                raise failures[0]
+            yield outcomes
+        finally:
+            # The real worker's configured lifetime and peer protocol own exit.
+            thread.join()
+            if failures:
+                raise failures[0]
 
 
 class ProtocolTests(unittest.TestCase):
@@ -90,7 +139,7 @@ class ProtocolTests(unittest.TestCase):
 
 class FilesystemTests(unittest.TestCase):
     def test_read_search_write_and_link_denials(self):
-        with tempfile.TemporaryDirectory(prefix="work-files-") as root:
+        with fixture_directory("work-files-") as root:
             base = Path(root)
             (base / "dir").mkdir()
             files.write(root, "dir/file", "one\ntwo needle\nthree")
@@ -119,8 +168,14 @@ class FilesystemTests(unittest.TestCase):
 
 
 class NativeTransportTests(unittest.TestCase):
+    def test_startup_exception_wakes_waiter_and_preserves_cause(self):
+        with patch.object(worker, "serve", side_effect=RuntimeError("bind failed")):
+            with self.assertRaisesRegex(RuntimeError, "bind failed"):
+                with listening_worker({}):
+                    self.fail("Failed startup must never signal readiness")
+
     def test_real_peer_credentials_wrong_peer_then_valid_connection(self):
-        with tempfile.TemporaryDirectory(prefix="work-socket-") as root:
+        with fixture_directory("work-socket-") as root:
             endpoint = str(Path(root) / "worker.sock")
             try:
                 probe = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
@@ -131,18 +186,7 @@ class NativeTransportTests(unittest.TestCase):
                 self.skipTest(f"Unverified: Unix socket bind denied: {error.errno}")
             config = {"socket": endpoint, "peer": [os.getuid() + 1, os.getgid()],
                       "operations": ["read", "check"], "lifetime": 3}
-            failures = []
-            def serve():
-                try:
-                    worker.serve(config)
-                except BaseException as error:
-                    failures.append(error)
-            thread = threading.Thread(target=serve)
-            thread.start()
-            try:
-                deadline = time.monotonic() + 2
-                while not Path(endpoint).exists() and time.monotonic() < deadline:
-                    time.sleep(0.01)
+            with listening_worker(config):
                 with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as peer:
                     peer.settimeout(1)
                     peer.connect(endpoint)
@@ -157,10 +201,6 @@ class NativeTransportTests(unittest.TestCase):
                                      ["read", "check"])
                     peer.sendall(b'{"jsonrpc":"2.0","id":1,"id":2}\n')
                     self.assertIn("error", json.loads(peer.recv(1024)))
-            finally:
-                thread.join(4)
-            self.assertFalse(thread.is_alive())
-            self.assertEqual(failures, [])
 
     def test_only_bridge_completion_is_orderly(self):
         completion = protocol.encode({
@@ -169,25 +209,12 @@ class NativeTransportTests(unittest.TestCase):
                                 (b'{"id":', False),
                                 (completion + b'{"id":1}\n', False)]:
             with self.subTest(frame=frame):
-                with tempfile.TemporaryDirectory(prefix="work-complete-") as root:
+                with fixture_directory("work-complete-") as root:
                     endpoint = str(Path(root) / "worker.sock")
                     config = {"socket": endpoint,
                               "peer": [os.getuid(), os.getgid()],
                               "operations": ["read"], "lifetime": 3}
-                    outcomes = []
-                    failures = []
-                    def serve():
-                        try:
-                            outcomes.append(worker.serve(config))
-                        except BaseException as error:
-                            failures.append(error)
-                    thread = threading.Thread(target=serve)
-                    thread.start()
-                    try:
-                        deadline = time.monotonic() + 2
-                        while (not Path(endpoint).exists()
-                               and time.monotonic() < deadline):
-                            time.sleep(0.01)
+                    with listening_worker(config) as outcomes:
                         with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as peer:
                             peer.settimeout(1)
                             peer.connect(endpoint)
@@ -196,10 +223,6 @@ class NativeTransportTests(unittest.TestCase):
                             peer.shutdown(socket.SHUT_WR)
                             while peer.recv(protocol.RESPONSE_LIMIT):
                                 pass
-                    finally:
-                        thread.join(4)
-                    self.assertFalse(thread.is_alive())
-                    self.assertEqual(failures, [])
                     self.assertEqual(outcomes, [expected])
 
 
@@ -222,7 +245,7 @@ class CommandTests(unittest.TestCase):
             os.environ.update(original)
 
     def test_timeout_and_output_exhaustion_exit_worker(self):
-        with tempfile.TemporaryDirectory(prefix="work-command-") as root:
+        with fixture_directory("work-command-") as root:
             for kind in ("timeout", "output"):
                 pid_path = Path(root) / kind
                 command = f"echo $$ > {pid_path}; exec /bin/sleep 10"
@@ -252,7 +275,7 @@ class CommandTests(unittest.TestCase):
                             pass
 
     def test_socket_interruption_terminates_command_worker(self):
-        with tempfile.TemporaryDirectory(prefix="work-interrupt-") as root:
+        with fixture_directory("work-interrupt-") as root:
             pid_path = Path(root) / "command-pid"
             local, remote = socket.socketpair()
             command = f"echo $$ > {pid_path}; exec /bin/sleep 10"
