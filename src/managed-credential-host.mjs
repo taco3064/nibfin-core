@@ -9,6 +9,7 @@ import { managedBase, managedPaths, credentialDirectories, credentialBindingFile
   './managed-credential-files.mjs';
 
 import { prepareSharedAccounts } from './shared-host-setup.mjs';
+import { requireManagerContext } from './rollout-manager-context.mjs';
 
 const profileFile = '/etc/nibfin/shared-host-profile.json';
 
@@ -26,14 +27,16 @@ function repositoryIdentity(profile) {
 
 // Installed legacy services are outside the Core package directory. Before
 // enrollment, prove they cannot consume the new token through their old path.
-async function verifyLegacyRollout(prepare) {
+async function verifyLegacyRollout(prepare, sourceRoot) {
   const path = '/usr/local/libexec/nibfin/host-auto-rollout.py';
   try { await lstat(path); }
   catch (error) { if (error.code === 'ENOENT') return; throw error; }
   await rootOwnedPath(path);
-  const expected = join(coreRoot, 'scripts/host-auto-rollout.py');
-  requireThat(await boundedHostFile(path, 65536) ===
-    await boundedHostFile(expected, 65536),
+  const roots = Array.isArray(sourceRoot) ? sourceRoot : [sourceRoot];
+  const installed = await boundedHostFile(path, 65536);
+  const expected = await Promise.all(roots.map(root =>
+    boundedHostFile(join(root, 'scripts/host-auto-rollout.py'), 65536)));
+  requireThat(expected.includes(installed),
   'MANAGED_CREDENTIAL_LEGACY_CONSUMER_UPGRADE_REQUIRED');
   if (!prepare) return;
   await rootOwnedPath('/usr/bin/systemctl');
@@ -54,6 +57,19 @@ export async function managedCredentialHost(administrator = false, prepare = fal
     (administrator ? process.getuid() === 0 : process.getuid() > 0),
   'MANAGED_CREDENTIAL_REQUIRES_LOCAL_ADMIN');
   await rootOwnedPath(coreRoot);
+  return inspectCredentialHost(administrator, prepare, coreRoot,
+    pin => verifyInstalledSource(coreRoot, pin), coreRoot);
+}
+
+export async function managerCredentialHost(context) {
+  const admitted = requireManagerContext(context);
+  return inspectCredentialHost(true, false, admitted.installationRoot,
+    admitted.verifyInstallation, async pin => [admitted.codeRoot,
+      await admitted.installationPath(pin)]);
+}
+
+async function inspectCredentialHost(administrator, prepare, installationRoot,
+  verify, sourceRoot) {
   let host, beforeAdoption = false;
   try { host = await trustedJson(hostFile); }
   catch (error) {
@@ -71,11 +87,11 @@ export async function managedCredentialHost(administrator = false, prepare = fal
     requireThat(binding?.schemaVersion === 1 &&
       Array.isArray(binding.repositories) && binding.repositories.length === 2,
     'MANAGED_CREDENTIAL_TRUSTED_BINDING_REQUIRED');
-    requireThat(binding.installation?.directory === coreRoot &&
+    requireThat(binding.installation?.directory === installationRoot &&
       isId(binding.memberId) && Object.entries(managedPaths).every(
         ([key, path]) => profile[key] === path),
     'MANAGED_CREDENTIAL_HOST_INVALID');
-    await verifyInstalledSource(coreRoot, binding.installation.pin);
+    await verify(binding.installation.pin);
     if (prepare) await prepareSharedAccounts(profile);
     const stat = await lstat(dirname(profile.tokenFile));
     host = { ...profile, kind: 'single-host-linux-v1', uid: stat.uid, gid: stat.gid,
@@ -86,7 +102,7 @@ export async function managedCredentialHost(administrator = false, prepare = fal
   requireThat(host.schemaVersion === 1 && host.kind === 'single-host-linux-v1' &&
     isId(host.uid) && isId(host.memberId) &&
     (administrator || host.uid === process.getuid()) &&
-    host.installation?.directory === coreRoot &&
+    host.installation?.directory === installationRoot &&
     Object.entries(managedPaths).every(([key, path]) => host[key] === path),
   'MANAGED_CREDENTIAL_HOST_INVALID');
   await rootOwnedPath(dirname(managedBase));
@@ -95,8 +111,10 @@ export async function managedCredentialHost(administrator = false, prepare = fal
   requireThat(base.isDirectory() && base.uid === host.uid &&
     (base.mode & 0o777) === 0o700, 'MANAGED_CREDENTIAL_HOST_INVALID');
   host.gid = (await lstat(dirname(host.tokenFile))).gid;
-  await verifyInstalledSource(coreRoot, host.installation.pin);
-  await verifyLegacyRollout(prepare);
+  await verify(host.installation.pin);
+  const legacySource = typeof sourceRoot === 'function' ?
+    await sourceRoot(host.installation.pin) : sourceRoot;
+  await verifyLegacyRollout(prepare, legacySource);
   if (!beforeAdoption) {
     const execution = host.sharedRunner?.runner ?? host.repository?.runner;
     requireThat(execution && isId(execution.repositoryId),

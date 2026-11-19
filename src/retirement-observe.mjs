@@ -1,6 +1,7 @@
 import { RelayJournal } from './relay-state.mjs';
 import { relayStateRoot } from './relay-host.mjs';
-import { assertNoCredentialConsumers } from './managed-credentials.mjs';
+import { assertNoCredentialConsumers, assertNoOtherCredentialConsumers }
+  from './managed-credentials.mjs';
 import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { requireThat } from './identity.mjs';
@@ -64,7 +65,7 @@ export async function assertRetirementCgroups(
 }
 
 export async function observeRetirementRegistrations(reader, pool, {
-  allowOnline = false,
+  allowOnline = false, allowBusy = false,
 } = {}) {
   const repo = await reader.get(repoPath(pool.repository));
   requireThat(repo.id === pool.repositoryId && repo.full_name === pool.repository,
@@ -80,7 +81,7 @@ export async function observeRetirementRegistrations(reader, pool, {
       matches[0].labels?.some(label => label.name === 'nibfin-shared') &&
       matches[0].labels.some(label => label.name === `nibfin-user-${pool.memberId}`),
     'RETIREMENT_NATIVE_IDENTITY_CHANGED');
-    requireThat(matches[0].busy === false &&
+    requireThat((matches[0].busy === false || allowBusy && matches[0].busy === true) &&
       (matches[0].status === 'offline' || allowOnline && matches[0].status === 'online'),
       'RETIREMENT_NATIVE_BUSY');
     return 'present';
@@ -111,18 +112,23 @@ export async function settleRetirementWork(host, reader, binding, state, {
   await settlePoolWork(host, reader, binding, state);
 }
 
-export async function settlePoolWork(host, reader, binding, state, options) {
+export async function settlePoolWork(host, reader, binding, state, options, {
+  containers = idleContainers, jobs = assertRetirementJobs,
+  registrations = observeRetirementRegistrations,
+} = {}) {
   await requirePoolConsumersSettled(host);
-  await assertNoCredentialConsumers(host);
+  if (options?.credentialScope)
+    await assertNoOtherCredentialConsumers(host, options.credentialScope);
+  else await assertNoCredentialConsumers(host);
   await managedSettlement(host, options);
   const uids = [host.runnerUid, host.sharedRunner.additionalRunner.uid];
   for (const [index, uid] of uids.entries()) {
     const allowMissingGateway = Boolean(state?.effects[`gateway-remove-${index + 1}`]);
-    await idleContainers(sharedSlotIsolation(host, uid), undefined, command,
+    await containers(sharedSlotIsolation(host, uid), undefined, command,
       { allowMissingGateway });
   }
-  await assertRetirementJobs(reader, binding.repositories, binding.pool);
-  await observeRetirementRegistrations(reader, binding.pool, { allowOnline: true });
+  await jobs(reader, binding.repositories, binding.pool);
+  await registrations(reader, binding.pool, { allowOnline: true });
 }
 
 export async function settleRetirement(host, reader, binding, state, options) {

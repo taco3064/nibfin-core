@@ -39,6 +39,15 @@ export const consumerContract = Object.freeze({
     executionAuthority: false }),
   claudeModel: claudeModelComponent,
   managedResourcePreparation: managedPreparationCapability,
+  administratorCoreRollout: Object.freeze({
+    schemaVersion: 1, command: 'rollout-core',
+    preparationCommand: 'install-core-rollout-manager',
+    input: 'native CD run ID and activation artifact ID',
+    requires: 'root administrator outside the affected Runner pool',
+    retry: 'same explicit target; authoritative readback before repeating writes',
+    installation: Object.freeze(['complete', 'pending']),
+    continuation: Object.freeze(['dispatched', 'paused', 'pending']),
+  }),
   installedLifecycleCompletion: Object.freeze({
     schemaVersion: 1, command: 'complete-installed-lifecycle', input: 'none',
     requires: 'local administrator on the adopted installed host',

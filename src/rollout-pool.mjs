@@ -7,12 +7,16 @@ import { boundedHostFile } from './host-adoption.mjs';
 import { rootOwnedPath } from './host-paths.mjs';
 import { sharedHostRegistrations, inspectSharedHost }
   from './shared-host-inspect.mjs';
+import { managerHostRegistrations, inspectManagerHost }
+  from './shared-host-inspect.mjs';
+import { requireManagerContext } from './rollout-manager-context.mjs';
 import { sharedRepository, sharedRunner, sharedDispatchWorkflow }
   from './shared-runner.mjs';
 import { verifyInstalledSource } from './source-package.mjs';
 import { verifySharedSlotIdentity } from './shared-slot-identity.mjs';
 import { readPrivate } from './managed-credential-files.mjs';
-import { assertNoCredentialConsumers } from './managed-credentials.mjs';
+import { assertNoCredentialConsumers, assertNoOtherCredentialConsumers }
+  from './managed-credentials.mjs';
 import { GitHubReader } from './github-read.mjs';
 import { RelayJournal } from './relay-state.mjs';
 import { relayStateRoot } from './relay-host.mjs';
@@ -40,8 +44,11 @@ async function readHost(path) {
   return JSON.parse(await boundedHostFile(path, 262144));
 }
 
-export async function bindRolloutPool(host) {
-  const { schemaVersion: unused, ...pool } = sharedHostRegistrations(host);
+export async function bindRolloutPool(host, context,
+  registration = verifySharedSlotIdentity) {
+  const registrations = context ? managerHostRegistrations(host, context) :
+    sharedHostRegistrations(host);
+  const { schemaVersion: unused, ...pool } = registrations;
   void unused;
   const adoptions = [];
   const read = async path => {
@@ -77,7 +84,7 @@ export async function bindRolloutPool(host) {
   const slots = [];
   for (const [index, runner] of pool.runners.entries()) {
     const slot = index + 1, path = `/var/lib/nibfin/runners/slot-${slot}`;
-    await verifySharedSlotIdentity(path, runner, pool.repository);
+    await registration(path, runner, pool.repository);
     slots.push({ slot, path, runner, service: slotUnit(slot),
       uid: index ? host.sharedRunner.additionalRunner.uid : host.runnerUid });
   }
@@ -96,7 +103,7 @@ async function inspectBinding(plan) {
 // Same settlement rules as retirement, with its destructive relay-pause
 // prerequisite replaced by the independent rollout closure. No retirement effects.
 export async function settleRolloutWork(host, reader, binding, {
-  relayGateHeld = false, legacyReplacement,
+  relayGateHeld = false, legacyReplacement, credentialScope,
 } = {}) {
   const wakeRoot = join(host.stateRoot, 'wake');
   if (await optionalStat(wakeRoot)) {
@@ -113,17 +120,20 @@ export async function settleRolloutWork(host, reader, binding, {
     else await journal.requireEffectsSettled();
   }
   await inspectRetirementSessions(host);
-  await settlePoolWork(host, reader, binding, undefined, { legacyReplacement });
+  await settlePoolWork(host, reader, binding, undefined,
+    { legacyReplacement, credentialScope });
 }
 
-export async function advanceRolloutPool(operation) {
+export async function advanceRolloutPool(operation, context, credentialScope) {
+  if (context !== undefined) requireManagerContext(context);
   requireThat(process.platform === 'linux' && process.getuid() === 0,
     'ROLLOUT_REQUIRES_HOST_ADMINISTRATOR');
   if (operation === 'recover-wakes') {
     const { recoverInstalledLegacyWakes } = await import('./rollout-legacy-wake.mjs');
     return recoverInstalledLegacyWakes();
   }
-  const operations = ['legacy', 'prepare', 'close', 'stop', 'verify', 'release'];
+  const operations = ['legacy', 'prepare', 'close', 'stop', 'verify', 'release',
+    ...(context ? ['restore'] : [])];
   requireThat(operations.includes(operation),
     'INVALID_ROLLOUT_OPERATION');
   await rootOwnedPath(root);
@@ -153,13 +163,14 @@ export async function advanceRolloutPool(operation) {
   };
   if (operation === 'prepare') {
     requireThat(plan.phase === 'prepared', 'ROLLOUT_PHASE_CHANGED');
-    await inspectSharedHost();
+    if (context) await inspectManagerHost(context);
+    else await inspectSharedHost();
     const reader = new GitHubReader(
       (await readPrivate(host.tokenFile, host, 16384)).trim());
     const actor = await reader.get('/user');
     requireThat(actor.id === host.memberId && actor.type === 'User',
       'ROLLOUT_CONTROLLER_CHANGED');
-    const binding = await bindRolloutPool(host);
+    const binding = await bindRolloutPool(host, context);
     requireThat(!plan.binding || digest(plan.binding) === digest(binding),
       'ROLLOUT_ADOPTION_CHANGED');
     const source = await verifyInstalledSource(
@@ -192,11 +203,16 @@ export async function advanceRolloutPool(operation) {
     const extras = await rolloutPeerTargets(binding, provisional, validateRolloutHost,
       plan.pin, source, plan.actionCommit);
     const resources = await prepareRolloutRelay(provisional);
+    const originalServices = plan.originalServices ?? [];
     for (const slot of [1, 2]) {
-      requireThat(!await disabledRetirementUnit(slot), 'ROLLOUT_SERVICE_DISABLED');
-      await observeRetirementUnit(slot, command, { allowActive: true });
+      if (!context)
+        requireThat(!await disabledRetirementUnit(slot), 'ROLLOUT_SERVICE_DISABLED');
+      const unit = await observeRetirementUnit(slot, command, { allowActive: true });
+      if (!plan.originalServices)
+        originalServices.push({ slot, running: unit.ActiveState === 'active' });
     }
-    await save({ binding, pending: null });
+    await save({ binding, pending: null,
+      ...(context ? { originalServices } : {}) });
     const closure = await readRetirementFile(rolloutClosurePath);
     if (closure?.legacy) {
       requireThat(digest(closure.pin) === digest(plan.pin) &&
@@ -254,15 +270,18 @@ export async function advanceRolloutPool(operation) {
       .trim());
     const services = new RetirementServices();
     for (const slot of [1, 2]) {
-      await settleRolloutWork(host, reader, plan.binding);
+      await settleRolloutWork(host, reader, plan.binding, { credentialScope });
       await inspectBinding(plan);
       const name = `service-stop-${slot}`;
-      if (await services.observe(name, plan) !== 'done')
+      if (await services.observe(name, plan) !== 'done') {
+        if (context && !(plan.stoppedServices ?? []).includes(slot))
+          await save({ stoppedServices: [...(plan.stoppedServices ?? []), slot] });
         await services.perform(name, plan);
+      }
       requireThat(await services.observe(name, plan) === 'done',
         'ROLLOUT_SERVICE_STOP_PENDING');
     }
-    await settleRolloutWork(host, reader, plan.binding);
+    await settleRolloutWork(host, reader, plan.binding, { credentialScope });
     for (const slot of [1, 2]) await observeRetirementUnit(slot);
     await assertRetirementCgroups();
     await save({ phase: 'applying', pending: 'ROLLOUT_APPLY_REQUIRED' });
@@ -270,56 +289,105 @@ export async function advanceRolloutPool(operation) {
   }
   requireThat(plan.phase === 'verifying' && plan.apply?.completed,
     'ROLLOUT_APPLY_PENDING');
+  if (operation === 'restore') {
+    requireThat(plan.originalServices?.length === 2,
+      'ROLLOUT_ORIGINAL_SERVICE_STATE_MISSING');
+    await verifyInstalledSource('/opt/nibfin/core', plan.pin);
+    for (const target of [...plan.apply.targets, ...(plan.apply.resources ?? [])])
+      requireThat(await boundedHostFile(target.path, 262144) === target.next,
+        'ROLLOUT_HOST_READBACK_MISMATCH');
+    for (const state of plan.originalServices) {
+      requireThat([1, 2].includes(state.slot) && typeof state.running === 'boolean',
+        'ROLLOUT_ORIGINAL_SERVICE_STATE_MISSING');
+      const unit = await observeRetirementUnit(state.slot, command,
+        { allowActive: true });
+      if (state.running && plan.stoppedServices?.includes(state.slot) &&
+        unit.ActiveState === 'inactive') {
+        await rootOwnedPath('/usr/bin/systemctl');
+        await command('/usr/bin/systemctl', ['start', slotUnit(state.slot)],
+          { env: { PATH: '/usr/bin:/bin', LANG: 'C' } });
+      }
+    }
+    return { status: 'restored' };
+  }
   if (operation === 'release') return withRolloutGates(host, async () => {
       await requireNoRetirement({ rollout: true });
       await requireRolloutClosure(plan);
-      await verifyInstalledRollout(plan, host);
+      await verifyInstalledRollout(plan, host, context, credentialScope);
       await save({ phase: 'complete', pending: null });
       await removeRolloutClosure(plan);
       return { status: 'complete' };
     });
-  await verifyInstalledRollout(plan, host);
+  await verifyInstalledRollout(plan, host, context, credentialScope);
   return { status: 'verified' };
 }
 
-async function verifyInstalledRollout(plan, host) {
+async function readInstalledFacts(plan, host, context, {
+  reader: createReader = token => new GitHubReader(token),
+  enrollments = verifyRolloutEnrollments, workflow = sharedDispatchWorkflow,
+  registrations: readRegistrations = observeRetirementRegistrations,
+  unit: readUnit = observeRetirementUnit, identity = verifySharedSlotIdentity,
+} = {}, allowBusy = false) {
   await verifyInstalledSource('/opt/nibfin/core', plan.pin);
   for (const target of [...plan.apply.targets, ...(plan.apply.resources ?? [])]) {
     await rootOwnedPath(target.path);
     requireThat(await boundedHostFile(target.path, 262144) === target.next,
       'ROLLOUT_HOST_READBACK_MISMATCH');
   }
-  const observed = await inspectSharedHost();
+  const observed = context ? await inspectManagerHost(context) :
+    await inspectSharedHost();
   requireThat(digest([...observed.adoptedRepositoryIds].sort()) ===
     digest(plan.binding.repositories.map(r => r.repositoryId).sort()),
   'ROLLOUT_ENROLLMENTS_CHANGED');
-  const reader = new GitHubReader(
-    (await readPrivate(host.tokenFile, host, 16384)).trim());
-  await verifyRolloutEnrollments(reader, host, plan.apply.targets, plan.pin);
+  const reader = createReader((await readPrivate(host.tokenFile, host, 16384)).trim());
+  await enrollments(reader, host, plan.apply.targets, plan.pin);
   const shared = sharedRunner(host,
     { repositoryId: host.repository.approval.repositoryId });
-  await sharedDispatchWorkflow(reader, shared.runner);
-  const registrations = await observeRetirementRegistrations(reader,
-    plan.binding.pool, { allowOnline: true });
+  await workflow(reader, shared.runner);
+  const registrations = await readRegistrations(reader,
+    plan.binding.pool, { allowOnline: true, allowBusy });
   requireThat(registrations.every(value => value === 'present'),
     'ROLLOUT_REGISTRATION_MISSING');
   const native = await reader.list('/repos/' + plan.binding.pool.repository +
     '/actions/runners', 'runners');
-  requireThat(plan.binding.pool.runners.every(expected => native.some(r =>
-    r.id === expected.id && r.name === expected.name && r.status === 'online')),
+  const running = slot => !context || plan.originalServices?.some(value =>
+    value.slot === slot && value.running);
+  requireThat(!context || plan.originalServices?.length === 2,
+    'ROLLOUT_ORIGINAL_SERVICE_STATE_MISSING');
+  requireThat(plan.binding.pool.runners.every((expected, index) => native.some(r =>
+    r.id === expected.id && r.name === expected.name &&
+      r.status === (running(index + 1) ? 'online' : 'offline'))),
   'ROLLOUT_REGISTRATION_OFFLINE');
+  const units = [];
   for (const slot of [1, 2]) {
-    const unit = await observeRetirementUnit(slot, command, { allowActive: true });
-    requireThat(unit.ActiveState === 'active', 'ROLLOUT_LISTENER_PENDING');
+    const unit = await readUnit(slot, command, { allowActive: true });
+    requireThat(unit.ActiveState === (running(slot) ? 'active' : 'inactive'),
+      'ROLLOUT_LISTENER_PENDING');
     const binding = plan.binding.slots[slot - 1];
-    await verifySharedSlotIdentity(binding.path, binding.runner,
+    await identity(binding.path, binding.runner,
       plan.binding.pool.repository);
-    await new RetirementServices().supervisors(slot, plan, unit);
+    units.push({ slot, unit, running: running(slot) });
+  }
+  return units;
+}
+
+// Transaction verification adds settlement to shared installed facts. Ordinary
+// work must never be treated as an installation-observation failure.
+export async function verifyInstalledRollout(plan, host, context, credentialScope,
+  ports = {}) {
+  const units = await readInstalledFacts(plan, host, context, ports);
+  const supervisors = ports.supervisors ?? ((slot, plan, unit) =>
+    new RetirementServices().supervisors(slot, plan, unit));
+  const cgroups = ports.cgroups ?? assertRetirementCgroups;
+  for (const { slot, unit, running } of units) {
+    if (running) await supervisors(slot, plan, unit);
+    else await cgroups('/sys/fs/cgroup', [slot]);
   }
   await requirePoolConsumersSettled(host);
-  await assertNoCredentialConsumers(host);
+  if (credentialScope) await assertNoOtherCredentialConsumers(host, credentialScope);
+  else await assertNoCredentialConsumers(host);
   await managedSettlement(host);
-  if (await rolloutHasRelay()) {
+  if (await (ports.relay ?? rolloutHasRelay)()) {
     const journal = new RelayJournal(relayStateRoot);
     await journal.requireReplacementEffectsSettled();
     requireThat((await journal.records()).every(record => record.status !== 'pending'),
@@ -327,14 +395,43 @@ async function verifyInstalledRollout(plan, host) {
   }
 }
 
-export async function requirePromotionSettlement(plan) {
-  await requireRolloutClosure(plan);
+// No target, paths, service assertions or restoration instructions are accepted
+// by the administrator entry. Snapshot current authoritative state read-only.
+export async function observeInstalledManager(context, credentialScope, ports = {}) {
+  requireManagerContext(context);
+  requireThat(!await optionalStat(rolloutPlanPath), 'ROLLOUT_OPERATION_ACTIVE');
+  requireThat(!await optionalStat(rolloutClosurePath), 'ROLLOUT_CLOSURE_CHANGED');
+  await requireNoRetirement({ rollout: true });
+  const host = await readHost(join(root, rolloutHostNames[0]));
+  const binding = await bindRolloutPool(host, context, ports.identity);
+  const originalServices = [];
+  const readUnit = ports.unit ?? observeRetirementUnit;
+  for (const slot of [1, 2]) {
+    const unit = await readUnit(slot, command, { allowActive: true });
+    originalServices.push({ slot, running: unit.ActiveState === 'active' });
+  }
+  const plan = { pin: host.installation.pin, binding, originalServices,
+    apply: { targets: binding.adoptions.map(item => ({ path: item.path,
+      current: item.bytes, next: item.bytes })) } };
+  await readInstalledFacts(plan, host, context, ports, true);
+  requireThat(!await optionalStat(rolloutPlanPath), 'ROLLOUT_OPERATION_ACTIVE');
+  requireThat(!await optionalStat(rolloutClosurePath), 'ROLLOUT_CLOSURE_CHANGED');
+  await requireNoRetirement({ rollout: true });
+  return { status: 'observed', pin: host.installation.pin };
+}
+
+export async function requirePromotionSettlement(plan, credentialScope, {
+  closure = requireRolloutClosure,
+  reader = token => new GitHubReader(token),
+  settle = settleRolloutWork, unit = observeRetirementUnit,
+  cgroups = assertRetirementCgroups,
+} = {}) {
+  await closure(plan);
   const primary = plan.binding.adoptions.find(item => item.path === root + '/host.json');
   requireThat(primary, 'ROLLOUT_ADOPTION_CHANGED');
   const host = JSON.parse(primary.bytes);
-  const reader = new GitHubReader(
-    (await readPrivate(host.tokenFile, host, 16384)).trim());
-  await settleRolloutWork(host, reader, plan.binding);
-  for (const slot of [1, 2]) await observeRetirementUnit(slot);
-  await assertRetirementCgroups();
+  const provider = reader((await readPrivate(host.tokenFile, host, 16384)).trim());
+  await settle(host, provider, plan.binding, { credentialScope });
+  for (const slot of [1, 2]) await unit(slot);
+  await cgroups();
 }

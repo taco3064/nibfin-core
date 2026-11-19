@@ -9,6 +9,8 @@ import { requirePromotionSettlement } from './rollout-pool.mjs';
 import { requireNoRetirement } from './retirement-admission.mjs';
 import { validateProviderUpdate, compareProviderViews } from './provider-binding.mjs';
 import { withManagedAdmission } from './managed-credential-admission.mjs';
+import { requireManagerContext } from './rollout-manager-context.mjs';
+import { withManagerAdmission } from './rollout-manager-admission.mjs';
 import {
   lstat, open, readdir, readFile, unlink,
 } from 'node:fs/promises';
@@ -138,7 +140,8 @@ async function requireMissing(path, code) {
 
 // Administrator-only. The plan and staged bindings are prepared out of band
 // under /etc/nibfin. A public workflow or ordinary Runner cannot supply them.
-export async function promoteHost() {
+export async function promoteHost(context) {
+  if (context !== undefined) requireManagerContext(context);
   requireThat(process.platform === 'linux' && process.getuid() === 0,
     'ROLLOUT_REQUIRES_HOST_ADMINISTRATOR');
   const lockPath = '/etc/nibfin/rollout.lock';
@@ -158,19 +161,23 @@ export async function promoteHost() {
         try { await file.writeFile(marker); await file.sync(); }
         finally { await file.close(); }
       }
-      try { return await withManagedAdmission(() => promoteLockedHost()); }
+      try {
+        const action = scope => promoteLockedHost(scope);
+        return context ? await withManagerAdmission(context, action) :
+          await withManagedAdmission(action);
+      }
       finally { await unlink(lockPath); }
     });
   } finally { await gate.close(); }
 }
 
-async function promoteLockedHost() {
+async function promoteLockedHost(credentialScope) {
   await requireNoRetirement({ rollout: true });
   const { value: plan } = await readTrusted(planPath, 4 * 1024 * 1024);
   requireThat(isSha(plan.pin?.commit) && isSha(plan.actionCommit) &&
     plan.pin.repository === 'taco3064/nibfin-core', 'INVALID_ROLLOUT_PLAN');
   await requireRolloutClosure(plan);
-  await requirePromotionSettlement(plan);
+  await requirePromotionSettlement(plan, credentialScope);
   if (plan.apply) {
     validateApplyIntent(plan);
     return resumeHostApply(plan);

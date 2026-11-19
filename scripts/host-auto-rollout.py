@@ -564,73 +564,15 @@ def stage_bindings(hosts, consumers, pins, source, preflight=False):
 
 
 def rollout(hosts, selected):
-    run_id, pins, artifacts = selected
-    path = CONFIG / "rollout-plan.json"
-    core, action = pins["core"]["commit"], pins["action"]["commit"]
-    action_main = main_sha(ACTION)
-    comparison = api(f"repos/{ACTION}/compare/{action}...{action_main}")["status"]
-    require(comparison in ("identical", "ahead") and
-            json.loads(content(ACTION, "core-source.json", action)[0]) == pins["core"],
-            "Action main does not contain the verified Core pin")
-    consumers = {repo: read_consumer(repo, config, pins, run_id)
-                 for repo, config in hosts.items()}
-    consumers[E2E] = read_consumer(E2E, None, pins, run_id)
-    if any(pr is False for _, pr in consumers.values()):
-        return
-    for repo in (*hosts, E2E):
-        permissions = api(f"repos/{repo}").get("permissions", {})
-        require(permissions.get("push") is True,
-                f"{repo} consumer promotion permission is unavailable")
-    source = stage_package(pins, artifacts)
-    previous = json.loads(path.read_text()) if path.exists() else None
-    # Minimal legacy plans may already have stopped services. Never treat their
-    # target commit as completion. Rebind and observe before any further effect.
-    if not previous or previous.get("schemaVersion") != 2:
-        wanted = {"schemaVersion": 2, "pin": pins["core"], "actionCommit": action,
-                  "candidate": pins, "runId": run_id, "phase": "prepared",
-                  "pending": "ROLLOUT_PREFLIGHT_REQUIRED", "mergeIntents": {}}
-        write_config(path, wanted)
-    plan = json.loads(path.read_text())
-    require(plan["candidate"] == pins and plan["runId"] == run_id,
-            "Rollout target changed after drain began")
-    if plan["phase"] == "prepared":
-        # Validate prospective bindings and permissions before closing admission.
-        stage_bindings(hosts, consumers, pins, source, preflight=True)
-        if (not LAST_PR_CLEANUP.exists() or
-                json.loads(LAST_PR_CLEANUP.read_text()) != run_id):
-            close_superseded_rollouts(core)
-            write_config(LAST_PR_CLEANUP, run_id)
-        pool_step("prepare")
-        prepared = json.loads(path.read_text())
-        if prepared.get("apply", {}).get("completed"):
-            finish(runner_services(hosts))
-            return
-        pool_step("close")
-    pool_step("stop")
-    plan = json.loads(path.read_text())
-    for repo, (_, pr) in consumers.items():
-        if not pr:
-            continue
-        require(repo not in plan["mergeIntents"],
-                f"{repo} merge response unresolved; retaining exact PR intent")
-        # The validated PR is read again immediately before the effect.
-        _, fresh = read_consumer(repo, hosts.get(repo), pins, run_id)
-        require(fresh and fresh["headRefOid"] == pr["headRefOid"],
-                f"{repo} rollout head or checks changed")
-        plan["mergeIntents"][repo] = {"number": pr["number"], "head": pr["headRefOid"]}
-        write_config(path, plan)
-        gh("pr", "merge", "-R", repo, str(pr["number"]), "--rebase",
-           "--match-head-commit", pr["headRefOid"])
-    current_consumers = {repo: read_consumer(repo, hosts.get(repo), pins)
-                         for repo in (*hosts, E2E)}
-    require(all(pr is None for _, pr in current_consumers.values()),
-            "Consumer merge has not been read back")
-    stage_bindings(hosts, current_consumers, pins, source)
-    result = json.loads(run("node", CLI, "promote-host"))
-    require(result["status"] == "installed", "Host promotion failed")
-    print(f"CD {run_id} installed Core {core} with Action {action}", flush=True)
-    finish(runner_services(hosts))
-
+    # Load once before replacement. The explicit manager resolves this within
+    # its stable verified closure; legacy discovery retains its installed route.
+    import importlib.util
+    import sys
+    path = CLI.parent.parent / "scripts/core_rollout_coordinator.py"
+    spec = importlib.util.spec_from_file_location("core_rollout_coordinator", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module.rollout(sys.modules[__name__], hosts, selected)
 
 def start_enabled(services):
     for service in services:
@@ -777,6 +719,9 @@ def main():
     plan = json.loads(plan_path.read_text()) if plan_path.exists() else None
     if plan and plan.get("schemaVersion") != 2:
         pool_step("legacy")
+    if plan and plan.get("administratorTarget"):
+        print("Explicit administrator rollout awaits normal command retry")
+        return
     if plan and plan.get("apply"):
         if not plan["apply"].get("completed"):
             result = json.loads(run("node", coordinator_cli(plan), "promote-host"))
