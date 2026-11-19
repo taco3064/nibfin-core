@@ -10,6 +10,7 @@ export async function retainHostOutcome(root, context, stage, outcome,
     return outcome;
   const report = makeBlockerReport(context, stage, {
     producer: 'core-native', code, agentStarted, workflow: outcome.failure,
+    localInterruption: outcome.localInterruption,
   });
   try { await saveBlockerReport(join(root, 'receipts'), report); }
   catch {

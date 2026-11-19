@@ -5,6 +5,7 @@ import { randomUUID } from 'node:crypto';
 import { digest, isDigest, isId, requireThat } from './identity.mjs';
 import { operations } from './approval-record.mjs';
 import { MergeBeforeWrite } from './github-write.mjs';
+import { localDeliverInterruption } from './local-deliver-interruption.mjs';
 import {
   retainedRecovery, recoveryFile, inspectRecoveryFile,
   syncRecoveryDirectory as syncDirectory,
@@ -212,6 +213,7 @@ export class OperationJournal {
       if (!localDeliver) await this.#write({ ...state, pending: decision,
         ...(request.operation === 'wake' && request.observation
           ? { wakeObservation: request.observation } : {}) });
+      let phase = 'perform';
       try {
         let result;
         try { result = await perform(); }
@@ -230,12 +232,17 @@ export class OperationJournal {
             ...(request.observation ? { wakeObservation: request.observation } : {})
           }, decision, result, request, readBack);
         }
+        phase = 'read-back';
         requireThat(await readBack() === request.bindingHash,
           'READBACK_BINDING_MISMATCH');
+        phase = 'complete';
         await this.#complete(state, decision);
-      } catch {
+      } catch (error) {
         return { status: 'pending', code: localDeliver ?
-          'LOCAL_DELIVER_INTERRUPTED' : 'EXTERNAL_EFFECT_UNKNOWN' };
+          'LOCAL_DELIVER_INTERRUPTED' : 'EXTERNAL_EFFECT_UNKNOWN',
+        ...(localDeliver ? {
+          localInterruption: localDeliverInterruption(phase, error),
+        } : {}) };
       }
       return { status: 'completed', decisionId: decision };
     });

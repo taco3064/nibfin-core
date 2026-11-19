@@ -1,5 +1,7 @@
 import { workflowObservation } from './blocker-workflow.mjs';
 import { digest, isId, isSha, requireThat } from './identity.mjs';
+import { localInterruptionSummary, projectLocalInterruption }
+  from './local-deliver-interruption.mjs';
 
 const classes = ['none', 'implementation_defect', 'shape_defect',
   'authority_gap', 'external_failure'];
@@ -77,16 +79,19 @@ export function terminationObservation(container, executionId, at) {
 
 export function makeBlockerReport(context, stage, {
   result, termination = null, code = null, producer = 'agent', agentStarted = true,
-  at = new Date().toISOString(), workflow = context.ciFailure,
+  at = new Date().toISOString(), workflow = context.ciFailure, localInterruption,
 }) {
   const binding = reportBinding(context, stage, { agentStarted });
   requireThat(['agent', 'core-native', 'diagnosis'].includes(producer) &&
     (!code || /^[A-Z][A-Z0-9_]{0,95}$/.test(code)) &&
     typeof at === 'string' && at.length <= 64 && Number.isFinite(Date.parse(at)),
   'INVALID_REPORT_PRODUCER');
+  const local = producer === 'core-native' && stage === 'deliver' &&
+    code === 'LOCAL_DELIVER_INTERRUPTED'
+    ? projectLocalInterruption(localInterruption) : null;
   const report = { schemaVersion: 1, kind: 'blocker-report', binding, producer,
     observedAt: at, executionAuthority: false,
-    rootCause: text(result?.rootCause),
+    rootCause: local ? localInterruptionSummary(local) : text(result?.rootCause),
     failureClass: classes.includes(result?.failureClass) ? result.failureClass : null,
     findings: (result?.blockingFindings ?? []).map(text).filter(Boolean),
     agentEvidenceReferences: result?.evidenceReferences ?? [],
@@ -94,6 +99,12 @@ export function makeBlockerReport(context, stage, {
     confirmed: [], hypotheses: [], missing: [], code };
   if (producer === 'core-native' && code)
     report.confirmed.push('CORE_ADMISSION_OR_SETTLEMENT_CODE');
+  if (local) {
+    report.localInterruption = local;
+    report.confirmed.push('LOCAL_OPERATION_PHASE');
+    if (local.cause) report.confirmed.push('LOCAL_OPERATION_CAUSE_CODE');
+    else report.missing.push('LOCAL_OPERATION_CAUSE_UNAVAILABLE');
+  }
   if (producer === 'agent') {
     report.hypotheses = report.rootCause ? ['AGENT_ATTRIBUTED_EXPLANATION'] : [];
     report.missing.push('INDEPENDENT_CAUSE_CONFIRMATION_UNAVAILABLE');
@@ -152,6 +163,10 @@ export function projectBlockerReport(report, expected) {
     termination: report.termination ?? null,
     workflow: workflowObservation(report.workflow, report.binding.issue),
     references: reportReferences(report.references, report.binding),
+    ...(report.producer === 'core-native' && report.binding.stage === 'deliver' &&
+      report.code === 'LOCAL_DELIVER_INTERRUPTED' ? {
+        localInterruption: projectLocalInterruption(report.localInterruption),
+      } : {}),
     executionAuthority: false };
 }
 
