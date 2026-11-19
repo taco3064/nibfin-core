@@ -12,6 +12,7 @@ export const includesPackagePath = (path) =>
   /^\.github\/workflows\/[A-Za-z0-9_.-]+\.ya?ml$/.test(path) ||
   [
     'scripts/issue-ci.mjs',
+    'scripts/actions-summary.mjs',
     'scripts/routing-output.mjs',
     'scripts/package-ci.mjs',
     'scripts/release-ci.mjs',

@@ -1,4 +1,5 @@
 import { repoPath } from './github-read.mjs';
+import { targetTitleInput } from './dispatch-presentation.mjs';
 import { isId, requireThat } from './identity.mjs';
 import { sharedDispatchWorkflow } from './shared-runner.mjs';
 import { resolveSharedIssueWake } from './issue-wake.mjs';
@@ -83,6 +84,7 @@ export class NotificationRelay {
         issue: { repositoryId: origin.repositoryId, repository: origin.repository,
           number: payload.event.issue.number, id: payload.event.issue.node_id },
         inputs: { repository_id: String(origin.repositoryId),
+          ...targetTitleInput(destination, origin.repository),
           issue_number: route.issue_number, issue_id: payload.event.issue.node_id,
           stage: 'wake', wake_event: JSON.stringify({ event: payload.event, runId }) },
         // Native run timestamps have second precision. Preserve that precision

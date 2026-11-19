@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { gitBlob, isId, requireThat } from './identity.mjs';
 import { GitHubReader, repoPath } from './github-read.mjs';
 import { readPinnedFile } from './github-approval.mjs';
+import { supportsTargetTitle, targetTitleInput } from './dispatch-presentation.mjs';
 import {
   originalSharedRepository, sharedDestinationVariable, sharedWorkflowPath,
 } from './shared-runner.mjs';
@@ -34,8 +35,10 @@ async function sharedWakeDestination(env, fetcher) {
   ]);
   requireThat(isId(registered?.id) && registered.path === path &&
     registered.state === 'active', 'SHARED_DISPATCH_WORKFLOW_UNAVAILABLE');
-  await readPinnedFile(reader, repository, path, branch?.commit?.sha, gitBlob(expected));
-  return { repository, ref };
+  const source = await readPinnedFile(
+    reader, repository, path, branch?.commit?.sha, gitBlob(expected),
+  );
+  return { repository, ref, targetTitle: supportsTargetTitle(source) };
 }
 
 export async function forwardSharedWake(resolved, env, fetcher = fetch) {
@@ -60,7 +63,8 @@ export async function forwardSharedWake(resolved, env, fetcher = fetch) {
     repository: { id: repository.id, full_name: repository.full_name },
     ...(label ? { label: { name: label.name } } : {}),
   };
-  const { repository: executionRepo, ref } = await sharedWakeDestination(env, fetcher);
+  const destination = await sharedWakeDestination(env, fetcher);
+  const { repository: executionRepo, ref } = destination;
   const workflow = sharedWorkflowPath.split('/').at(-1);
   const endpoint = `https://api.github.com${repoPath(executionRepo)}/actions/workflows/` +
     `${workflow}/dispatches`;
@@ -76,6 +80,7 @@ export async function forwardSharedWake(resolved, env, fetcher = fetch) {
     },
     body: JSON.stringify({ ref, inputs: {
       repository_id: String(repository.id),
+      ...targetTitleInput(destination, repository.full_name),
       issue_number: resolved.issue_number,
       issue_id: issue.node_id,
       stage: 'wake',

@@ -3,6 +3,7 @@ import { isId, requireThat } from './identity.mjs';
 import { readCallerContinuity } from './caller-source.mjs';
 import { repoPath } from './github-read.mjs';
 import contract from './shared-runner-contract.json' with { type: 'json' };
+import { supportsTargetTitle } from './dispatch-presentation.mjs';
 
 import { usesManagedSharedAdmission } from './shared-admission-policy.mjs';
 
@@ -108,6 +109,9 @@ export async function sharedDispatchWorkflow(reader, runner) {
     repository === originalSharedRepository || branch.protected === true,
     'SHARED_WAKE_BRANCH_UNPROTECTED');
   const pin = { path, commit: runner.sourceCommit, blob: runner.workflowBlob };
-  const commit = await readCallerContinuity(reader, repository, pin, branch.commit?.sha);
-  return { repository, repositoryId, id, path, commit, ref: repo.default_branch };
+  let targetTitle = false;
+  const commit = await readCallerContinuity(reader, repository, pin, branch.commit?.sha,
+    source => { targetTitle = supportsTargetTitle(source); });
+  return { repository, repositoryId, id, path, commit, ref: repo.default_branch,
+    ...(targetTitle ? { targetTitle: true } : {}) };
 }

@@ -1,13 +1,7 @@
 name: Core CD
 run-name: >-
-  ${{ github.event_name == 'workflow_run' &&
-      github.ref == 'refs/heads/main' &&
-      github.event.workflow_run.event == 'push' &&
-      github.event.workflow_run.conclusion == 'success' &&
-      github.event.workflow_run.head_repository.id == github.event.repository.id &&
-      github.event.workflow_run.head_sha == github.sha &&
-      format('Main CD {0}', github.event.workflow_run.head_sha) ||
-      format('Core CD ({0})', github.ref_name) }}
+  ${{ inputs.deploy_docs && 'Deploy docs' || 'Deploy' }} ·
+  ${{ github.repository }} · ${{ github.ref_name }}
 
 on:
   workflow_run:

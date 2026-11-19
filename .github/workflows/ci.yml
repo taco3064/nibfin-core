@@ -1,4 +1,9 @@
 name: Core CI
+run-name: >-
+  ${{ github.event_name == 'workflow_dispatch' && 'Environment check' || 'CI' }} ·
+  ${{ github.repository }} ·
+  ${{ github.event_name == 'pull_request' &&
+      format('PR #{0}', github.event.pull_request.number) || github.ref_name }}
 
 on:
   workflow_dispatch:

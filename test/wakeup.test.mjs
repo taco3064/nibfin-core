@@ -10,7 +10,7 @@ import { approvalProviderFixture } from './github-approval-fixture.mjs';
 import { now, approvalRecord } from './approval-fixture.mjs';
 import { gitBlob } from '../src/identity.mjs';
 
-async function dispatchFixture(t, failure, shared = false) {
+async function dispatchFixture(t, failure, shared = false, targetTitle = false) {
   const root = await mkdtemp(join(tmpdir(), 'nibfin-wake-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   const issue = {
@@ -24,6 +24,7 @@ async function dispatchFixture(t, failure, shared = false) {
     path: '.github/workflows/nibfin.yml',
     ref: 'main',
     commit: '1'.repeat(40),
+    ...(targetTitle ? { targetTitle: true } : {}),
     ...(shared ? { repository: 'example/runner', repositoryId: 11 } : {}),
   };
   const destination = workflow.repository ?? issue.repository;
@@ -72,7 +73,8 @@ async function dispatchFixture(t, failure, shared = false) {
         assert.equal(options.headers['X-GitHub-Api-Version'], '2026-03-10');
         assert.deepEqual(JSON.parse(options.body), {
           ref: 'main',
-          inputs: { issue_number: '2', issue_id: 'I_target', repository_id: '10' },
+          inputs: { issue_number: '2', issue_id: 'I_target', repository_id: '10',
+            ...(targetTitle ? { target_repository: 'example/core' } : {}) },
         });
         if (failure === 'disconnect') throw new Error('Lost acknowledgement');
         return {
@@ -120,6 +122,32 @@ test('wake dispatches to the shared queue with the original issue locator', asyn
   const fixture = await dispatchFixture(t, undefined, true);
   assert.equal((await fixture.dispatcher.dispatch()).status, 'scheduled');
   assert.equal(fixture.writes(), 1);
+});
+
+test('new shared receiver gets display metadata without another GitHub read', async t => {
+  const fixture = await dispatchFixture(t, undefined, true, true);
+  assert.equal((await fixture.dispatcher.dispatch()).status, 'scheduled');
+  assert.equal(fixture.writes(), 1);
+});
+
+test('display capability does not change the wake operation binding', async t => {
+  const old = await dispatchFixture(t, undefined, true, false);
+  const current = await dispatchFixture(t, undefined, true, true);
+  const before = await old.dispatcher.dispatch();
+  const after = await current.dispatcher.dispatch();
+  assert.equal(before.status, 'scheduled');
+  assert.equal(after.status, 'scheduled');
+  assert.equal(before.bindingHash, after.bindingHash);
+});
+
+test('titled wakes recover saved observations without another dispatch', async t => {
+  const f = await dispatchFixture(t, 'readback', true, true);
+  assert.equal((await f.dispatcher.dispatch()).status, 'pending');
+  const saved = await f.options.journal.wakeRecoveryState();
+  assert.equal(saved.status, 'observed');
+  assert.equal(saved.initial.workflow.targetTitle, undefined);
+  assert.equal((await f.restart().reconcile(f.observed)).status, 'scheduled');
+  assert.equal(f.writes(), 1);
 });
 
 test(

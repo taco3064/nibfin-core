@@ -2,6 +2,7 @@ import { appendFile } from 'node:fs/promises';
 import { spawnSync } from 'node:child_process';
 import { GitHubReader, repoPath } from '../src/github-read.mjs';
 import { cdPaths, docsNeedRetry, websiteOnlyLockChange } from './cd-paths.mjs';
+import { cdBaseline } from './cd-baseline.mjs';
 
 function lockfile(ref) {
   const result = spawnSync('git', ['show', `${ref}:package-lock.json`], {
@@ -21,11 +22,13 @@ if (manual) {
   const docsOnly = process.env.CD_DOCS_ONLY === 'true';
   routes = { core: !docsOnly, website: docsOnly };
 } else {
-  // Only successful automatic runs use this name. A missing baseline rebuilds both.
+  // Use native Run identity; presentation changes must not invalidate the baseline.
   const history = await reader.get(root + '/actions/workflows/cd.yml/runs?' +
     'event=workflow_run&branch=main&status=success&per_page=20');
   for (const run of history.workflow_runs) {
-    const previous = /^Main CD ([a-f0-9]{40})$/.exec(run.display_title)?.[1];
+    const jobs = await reader.get(`${root}/actions/runs/${run.id}/jobs?per_page=20`)
+      .catch(() => undefined);
+    const previous = cdBaseline(run, jobs?.jobs);
     if (!previous) continue;
     const ancestor = spawnSync('git', [
       'merge-base', '--is-ancestor', previous, checkout,
@@ -47,8 +50,6 @@ if (manual) {
       websiteOnlyLockChange(lockfile(previous), lockfile(checkout));
     routes = cdPaths(paths, commit.stdout.trim(), websiteLockOnly);
     if (!routes.website) {
-      const jobs = await reader.get(`${root}/actions/runs/${run.id}/jobs?per_page=20`)
-        .catch(() => undefined);
       routes.website = docsNeedRetry(jobs?.jobs);
     }
     break;
