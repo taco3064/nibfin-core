@@ -4,7 +4,7 @@ import { readFile } from 'node:fs/promises';
 import { managedIssueBinding, observePeer, peerConfiguration }
   from '../src/shared-peer-adoption.mjs';
 import { observeExecutionPool } from '../src/shared-host-adopt.mjs';
-import { callerRecipe } from '../src/caller-recipes.mjs';
+import { callerRecipe, callerRecipeVariants } from '../src/caller-recipes.mjs';
 import { gitBlob } from '../src/identity.mjs';
 
 const name = 'example/peer';
@@ -130,3 +130,33 @@ test('managed adoption pins the workflow and both slots', async () => {
   policy.ownerId = 71;
   await assert.rejects(observe(), { code: 'SHARED_EXECUTION_OWNER_INVALID' });
 });
+
+test('peer observation accepts only exact historical and titled recipe variants',
+  async () => {
+    for (const issueKind of ['issue', 'issue-managed']) {
+      for (const index of [0, 1]) {
+        const reader = fixture();
+        for (const [file, kind] of [['nibfin-issue.yml', issueKind],
+          ['nibfin-wake.yml', 'action-dispatch']]) {
+          const body = callerRecipeVariants(kind, source.commit,
+            { actionCommit, memberId })[index].replaceAll('\n', '\r\n');
+          const path = root + '/contents/.github/workflows/' + file + '?ref=' + head;
+          const entry = reader.replies.get(path);
+          entry.content = Buffer.from(body).toString('base64');
+          entry.sha = gitBlob(body);
+        }
+        await observePeer(reader, name, 123, memberId, source, actionCommit);
+        await assert.rejects(
+          observePeer(reader, name, 123, memberId + 1, source, actionCommit),
+          /PEER_INSTALLATION_IDENTITY_CHANGED/);
+        const path = root + '/contents/.github/workflows/nibfin-issue.yml?ref=' + head;
+        const entry = reader.replies.get(path);
+        const body = Buffer.from(entry.content, 'base64').toString() + 'env: {}\n';
+        entry.content = Buffer.from(body).toString('base64');
+        entry.sha = gitBlob(body);
+        await assert.rejects(
+          observePeer(reader, name, 123, memberId, source, actionCommit),
+          /CALLER_NOT_FIXED_RECIPE/);
+      }
+    }
+  });

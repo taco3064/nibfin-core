@@ -18,6 +18,18 @@ export function callerRecipe(kind, commit, action = {}) {
     .replaceAll('MEMBER_ID', String(action.memberId ?? ''));
 }
 
+// Derive historical bytes only from the maintained workflow-level title block.
+// Never remove title-like content from untrusted caller input.
+export function callerRecipeVariants(kind, commit, action = {}) {
+  const titled = callerRecipe(kind, commit, action);
+  const lines = titled.split('\n');
+  const start = lines.indexOf('run-name: >-');
+  requireThat(start >= 0, 'INVALID_CALLER_RECIPE');
+  let end = start + 1;
+  while (lines[end]?.startsWith('  ')) end++;
+  return [titled, [...lines.slice(0, start), ...lines.slice(end)].join('\n')];
+}
+
 export function wakeRecipe(coreCommit, workflow, memberId) {
   const recipe = {
     kind: workflow.actionCommit === undefined ? 'wake' : 'action-wake',

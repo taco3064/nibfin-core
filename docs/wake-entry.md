@@ -172,3 +172,27 @@ correction; this entry does not add automatic repair or cross-host recovery.
 Tests and package installation establish reproducible code behavior only.
 Actual event, Runner/OIDC, authenticated Agent/container execution and full
 external delivery remain unverified until exercised on a lawful adopted host.
+
+## Caller run titles
+
+Newly rendered customer callers use `Operation · owner/repo#42`, with identifying
+information before optional event details. `wake` uses **Wake**; `action-wake`
+uses **Auto**. `action-dispatch` uses **Auto** for absent or `continue` stages;
+explicit stages use English names such as **Shape**, **Validate Shape**,
+**Publish Shape**, **Deliver**, **Pre-Accept Hooks**, **Accept**,
+**Post-Accept Hooks**, **Create PR**, **Review PR**, **Merge** and **Close**.
+An unsupported stage does not gain execution permission from its display title.
+
+Native Issue callers append the event action and affected label when available,
+for example `Wake · owner/repo#42 · labeled scope`. Action callers target their
+existing single-repository context. A Wake dispatch targeting another repository
+uses `Wake · repository ID 123#42` when only its repository ID is available,
+rather than naming the execution repository as the target. No display lookup or
+new dispatch input is required.
+
+GitHub evaluates these titles when a run starts. **Auto** does not claim to show
+the current delivery phase, and a title does not change as the run progresses.
+Both exact maintained titled and titleless callers remain supported, including
+source-pin updates to titleless callers. Arbitrary titles or workflow edits are
+not accepted as recipe variants. See [caller refresh](managed-issue-wake.md) for
+its unchanged authorization and retry behavior.

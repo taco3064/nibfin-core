@@ -10,7 +10,7 @@ import { boundedHostFile, coreRoot, hostFile } from './host-adoption.mjs';
 import { rootOwnedPath } from './host-paths.mjs';
 import { inspectSharedHost, sharedHostRegistrations } from './shared-host-inspect.mjs';
 import { GitHubReader, repoPath } from './github-read.mjs';
-import { callerRecipe } from './caller-recipes.mjs';
+import { callerRecipeVariants } from './caller-recipes.mjs';
 import { gitBlob, isId, isSha, digest, requireThat } from './identity.mjs';
 import { syncRecoveryDirectory } from './recovery-lock.mjs';
 import { verifyInstalledSource } from './source-package.mjs';
@@ -40,8 +40,9 @@ export async function observePeer(reader, name, id, memberId, source, actionComm
     'PEER_DEFAULT_BRANCH_UNAVAILABLE');
   requireThat(permission?.user?.id === memberId && permission.permission === 'admin',
     'PEER_INSTALLATION_ADMIN_REQUIRED');
-  const issue = ['issue', 'issue-managed'].map(kind => callerRecipe(kind, source.commit));
-  const action = callerRecipe('action-dispatch', source.commit, {
+  const issue = ['issue', 'issue-managed']
+    .flatMap(kind => callerRecipeVariants(kind, source.commit));
+  const action = callerRecipeVariants('action-dispatch', source.commit, {
     actionCommit, memberId,
   });
   const [eventBinding, actionBinding] = await Promise.all([
@@ -126,8 +127,8 @@ export async function adoptSharedPeer(name, id, actionCommit) {
 }
 
 function recipeBlobs(kind, commit) {
-  const text = callerRecipe(kind, commit).replaceAll('\r\n', '\n');
-  return [gitBlob(text), gitBlob(text.replaceAll('\n', '\r\n'))];
+  return callerRecipeVariants(kind, commit).flatMap(text =>
+    [gitBlob(text), gitBlob(text.replaceAll('\n', '\r\n'))]);
 }
 
 export function managedIssueBinding(event, observed, commit) {

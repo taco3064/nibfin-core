@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { refreshObservedIssueCaller } from '../src/shared-peer-adoption.mjs';
-import { callerRecipe } from '../src/caller-recipes.mjs';
+import { callerRecipe, callerRecipeVariants } from '../src/caller-recipes.mjs';
 import { gitBlob } from '../src/identity.mjs';
 
 const commit = 'b'.repeat(40);
@@ -11,7 +11,7 @@ const blob = (kind, crlf = false) => gitBlob(crlf
   ? callerRecipe(kind, commit).replaceAll('\n', '\r\n')
   : callerRecipe(kind, commit));
 
-function fixture() {
+function fixture(titleless = false) {
   const original = {
     memberId: 77, providerBinding: { provider: 'codex' }, roles: ['writer'],
     sharedRunner: { repositories: [123, 456] },
@@ -19,7 +19,9 @@ function fixture() {
       approval: { repositoryId: 123, memberId: 77 },
       runner: { runnerId: 56, workflowId: 22 },
       eventRunner: {
-        workflowId: 11, workflowPath, workflowBlob: blob('issue-managed'),
+        workflowId: 11, workflowPath,
+        workflowBlob: gitBlob(callerRecipeVariants('issue-managed', commit)
+          [titleless ? 1 : 0]),
         sourceCommit: 'd'.repeat(40), reusable: { commit }, runnerId: 56,
       },
     },
@@ -60,19 +62,22 @@ test('native refresh preserves all unrelated adoption and both Runner identities
     assert.equal(f.writes(), 1);
   });
 
-for (const committed of [false, true]) {
-  test(`refresh retries response loss, committed=${committed}`, async () => {
-    const f = fixture();
-    const replace = f.io.replace;
-    f.io.replace = async (...args) => {
-      if (committed) await replace(...args);
-      throw new Error('response lost');
-    };
-    await assert.rejects(f.run(), /response lost/);
-    f.io.replace = replace;
-    assert.equal((await f.run()).status, committed ? 'unchanged' : 'adopted');
-    assert.equal(f.writes(), 1);
-  });
+for (const titleless of [false, true]) {
+  for (const committed of [false, true]) {
+    const description = `refresh response loss, committed=${committed}, old=${titleless}`;
+    test(description, async () => {
+      const f = fixture(titleless);
+      const replace = f.io.replace;
+      f.io.replace = async (...args) => {
+        if (committed) await replace(...args);
+        throw new Error('response lost');
+      };
+      await assert.rejects(f.run(), /response lost/);
+      f.io.replace = replace;
+      assert.equal((await f.run()).status, committed ? 'unchanged' : 'adopted');
+      assert.equal(f.writes(), 1);
+    });
+  }
 }
 
 test('refresh rejects changed adoption and failed reads', async () => {
@@ -120,3 +125,16 @@ test('refresh accepts both line endings and rejects caller identity/source drift
     f.files.set('peer', JSON.stringify(prior));
     await assert.rejects(f.run(), { code: 'MANAGED_ISSUE_TRANSITION_CONFLICT' });
   });
+
+test('refresh recognizes titleless Issue blobs with either line ending', async () => {
+  for (const kind of ['issue', 'issue-managed']) {
+    for (const newline of ['\n', '\r\n']) {
+      const f = fixture();
+      f.observed.issue.workflowBlob = gitBlob(
+        callerRecipeVariants(kind, commit)[1].replaceAll('\n', newline));
+      assert.equal((await f.run()).status, 'adopted');
+      assert.equal((await f.run()).status, 'unchanged');
+      assert.equal(f.writes(), 1);
+    }
+  }
+});
