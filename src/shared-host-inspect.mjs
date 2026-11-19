@@ -5,12 +5,22 @@ import { verifyInstalledSource } from './source-package.mjs';
 import { digest, isId, requireThat } from './identity.mjs';
 import { controllerRoute } from './controller-contract.mjs';
 import { sharedRepository, sharedRunner } from './shared-runner.mjs';
+import { requireManagerContext } from './rollout-manager-context.mjs';
 
 // Return only native registration identifiers from trusted host adoption.
 // This does not test execution or grant adoption to a new repository.
 export function sharedHostRegistrations(host) {
+  return readSharedHostRegistrations(host, coreRoot);
+}
+
+export function managerHostRegistrations(host, context) {
+  return readSharedHostRegistrations(host,
+    requireManagerContext(context).installationRoot);
+}
+
+function readSharedHostRegistrations(host, installationRoot) {
   requireThat(host.schemaVersion === 1 && host.kind === 'single-host-linux-v1' &&
-    host.installation?.directory === coreRoot && controllerRoute(host),
+    host.installation?.directory === installationRoot && controllerRoute(host),
     'INVALID_HOST_ADOPTION');
   const repositoryId = host.repository?.approval?.repositoryId;
   const second = host.sharedRunner?.additionalRunner;
@@ -52,12 +62,24 @@ export function sharedPeerIdentity(primary, peer) {
 }
 
 export async function inspectSharedHost() {
+  await rootOwnedPath(coreRoot);
+  return inspectSharedInstallation(coreRoot,
+    pin => verifyInstalledSource(coreRoot, pin));
+}
+
+export async function inspectManagerHost(context) {
+  const admitted = requireManagerContext(context);
+  return inspectSharedInstallation(admitted.installationRoot,
+    admitted.verifyInstallation);
+}
+
+async function inspectSharedInstallation(installationRoot, verify) {
   requireThat(process.platform === 'linux', 'UNSUPPORTED_STAGE_HOST');
-  await Promise.all([rootOwnedPath(hostFile), rootOwnedPath(coreRoot)]);
+  await rootOwnedPath(hostFile);
   const bytes = await boundedHostFile(hostFile, 256 * 1024);
   const host = JSON.parse(bytes);
-  const result = sharedHostRegistrations(host);
-  await verifyInstalledSource(coreRoot, host.installation.pin);
+  const result = readSharedHostRegistrations(host, installationRoot);
+  await verify(host.installation.pin);
   const peerReads = new Map();
   const readPeer = async path => {
     if (!peerReads.has(path)) {

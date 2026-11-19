@@ -2,6 +2,8 @@
 import { completeInstalledLifecycle } from '../src/installed-lifecycle.mjs';
 import { retireInstalledNotificationRelay }
   from '../src/notification-retirement-host.mjs';
+import { installCoreRolloutManager, runCoreRollout }
+  from '../src/core-rollout-manager.mjs';
 import { readDiagnosisInput } from '../src/diagnosis-input.mjs';
 import { retireSharedHost } from '../src/retirement-host.mjs';
 import { activateSharedReplacement } from '../src/retirement-activate.mjs';
@@ -33,6 +35,10 @@ import { credentialAdministrator } from '../src/managed-credentials.mjs';
 // This entry point never imports a caller-selected adapter or runs candidate code.
 async function main(args) {
   const [command, ...values] = args;
+  if (command === 'install-core-rollout-manager' && values.length === 0)
+    return installCoreRolloutManager();
+  if (command === 'rollout-core' && values.length === 2)
+    return runCoreRollout(values[0], values[1]);
   if (command === 'request-local-diagnosis' && values.length === 0)
     return readDiagnosisInput(process.stdin);
   if (command === 'observe-local-work' && values.length === 0)

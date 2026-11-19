@@ -22,6 +22,7 @@ export const credentialGuidance =
   'original login stores and unrelated authorizations remain unchanged.';
 
 const paths = host => [host.tokenFile, host.authFile];
+const consumerScopes = new WeakMap();
 async function absent(path) {
   try { await lstat(path); requireThat(false, 'MANAGED_CREDENTIAL_FILE_CONFLICT'); }
   catch (error) { if (error.code !== 'ENOENT') throw error; }
@@ -36,6 +37,18 @@ export async function assertNoCredentialConsumers(host) {
   const entries = await readdir(dirname(host.tokenFile));
   requireThat(!entries.some(name => name.startsWith('consumer-')),
     'MANAGED_CREDENTIAL_CONSUMER_PENDING');
+}
+
+export async function assertNoOtherCredentialConsumers(host, scope) {
+  const lease = consumerScopes.get(scope);
+  requireThat(lease && lease.memberId === host.memberId && lease.uid === host.uid &&
+    dirname(lease.path) === dirname(host.tokenFile),
+  'MANAGED_CREDENTIAL_CONSUMER_SCOPE_INVALID');
+  await sameResource(lease.path, host, lease.identity);
+  const entries = await readdir(dirname(host.tokenFile));
+  requireThat(!entries.some(name => name.startsWith('consumer-') &&
+    join(dirname(host.tokenFile), name) !== lease.path),
+  'MANAGED_CREDENTIAL_CONSUMER_PENDING');
 }
 
 async function consumersSettled(host) {
@@ -190,6 +203,7 @@ export async function consumeManagedCredentials(host, action, {
   reconcile = false, verify = verifyManagedAuthority,
 } = {}) {
   const lease = join(dirname(host.tokenFile), `consumer-${randomUUID()}`);
+  const scope = Object.freeze({});
   await withCredentialLock(host, async () => {
     const state = await lifecycleState(host);
     requireThat(state && (state.phase === 'active' ||
@@ -198,10 +212,16 @@ export async function consumeManagedCredentials(host, action, {
     await assertOwned(host, state);
     if (!reconcile)
       await verify(host, (await readPrivate(host.tokenFile, host, 16384)).trim());
-    await publishPrivate(lease, JSON.stringify({ pid: process.pid }) + '\n', host);
+    const identity = await publishPrivate(lease,
+      JSON.stringify({ pid: process.pid }) + '\n', host);
+    consumerScopes.set(scope, { path: lease, identity,
+      uid: host.uid, memberId: host.memberId });
   });
-  try { return await action(); }
+  try { return await action(scope); }
   finally {
+    const current = consumerScopes.get(scope);
+    consumerScopes.delete(scope);
+    await sameResource(lease, host, current.identity);
     await unlink(lease);
     await syncRecoveryDirectory(dirname(lease));
   }
