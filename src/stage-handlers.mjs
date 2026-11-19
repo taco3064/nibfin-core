@@ -13,6 +13,7 @@ import { writerPressureWait } from './job-vm-pressure.mjs';
 import { alignDelivery, handoffDelivery } from './deliver-freshness.mjs';
 import { ciCorrectionFindings } from './ci-recovery.mjs';
 import { issueRequirementsChanged } from './stages.mjs';
+import { candidateCorrectionRequired } from './candidate-correction.mjs';
 
 // Only installed adapters enter this factory; the external stage request cannot
 // supply functions, commands, paths, credentials, source pins or role identities.
@@ -104,7 +105,7 @@ export function stageHandlers({
         const correction = stage === 'deliver' && [
           context.receipts['review-pr'], context.receipts.accept,
         ].find(receipt =>
-          receipt?.outcome === 'changes_required' &&
+          candidateCorrectionRequired(receipt) &&
           receipt.artifacts.shapeHash === context.shape.hash &&
           receipt.artifacts.candidateHash ===
             context.receipts.deliver?.artifacts.candidateHash);

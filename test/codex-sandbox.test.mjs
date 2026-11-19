@@ -196,6 +196,7 @@ async function fixture(t, fault, rootful = false, mcp = false, project = false,
           ReadonlyRootfs: true,
           NetworkMode: config.network,
           IpcMode: 'none',
+          Tmpfs: { '/tmp': cmd[cmd.indexOf('--tmpfs') + 1].slice('/tmp:'.length) },
           Memory: 4294967296,
           NanoCpus: 2000000000,
           PidsLimit: 256,
@@ -217,6 +218,8 @@ async function fixture(t, fault, rootful = false, mcp = false, project = false,
       };
       if (fault === 'apparmor') container.AppArmorProfile = 'unconfined';
       if (fault === 'root-user') container.Config.User = '0:0';
+      if (fault === 'scratch-owner')
+        container.HostConfig.Tmpfs['/tmp'] = 'rw,exec,nosuid,nodev,mode=1777';
       if (fault === 'environment') container.Config.Env.push('GITHUB_TOKEN=foreign');
       if (fault === 'seccomp')
         container.HostConfig.SecurityOpt.push('seccomp=unconfined');
@@ -348,7 +351,7 @@ test('Agent policy, private outputs and termination are verified', async (t) => 
   assert.ok(f.calls.some((c) => c[0] === 'rm'));
   const create = f.calls.find((c) => c[0] === 'create');
   assert.equal(create[create.indexOf('--tmpfs') + 1],
-    '/tmp:rw,exec,nosuid,nodev,size=2g,mode=1777');
+    '/tmp:rw,exec,nosuid,nodev,size=2g,mode=0700,uid=1000,gid=1000');
   const mounts = f.calls
     .find((c) => c[0] === 'create')
     .filter((v) => v.startsWith('type=bind'));
@@ -363,6 +366,7 @@ test('Policy changes deny launch and unknown cleanup remains Pending', async (t)
     'apparmor',
     'root-user',
     'missing-init',
+    'scratch-owner',
     'lost-create',
   ]) {
     const f = await fixture(t, fault);

@@ -53,7 +53,8 @@ export function pressureMatchesReceipt(value, stage, execution) {
 export function processIdentityNow(pid) {
   if (!isId(pid)) return null;
   try {
-    return parseIdentity(pid, readFileSync(`/proc/${pid}/stat`, 'utf8'));
+    const path = pid === process.pid ? '/proc/self/stat' : `/proc/${pid}/stat`;
+    return parseIdentity(pid, readFileSync(path, 'utf8'));
   } catch { return null; }
 }
 
@@ -66,7 +67,8 @@ function parseIdentity(pid, stat) {
 export async function processIdentity(pid) {
   if (!isId(pid)) return null;
   try {
-    const stat = await readFile(`/proc/${pid}/stat`, 'utf8');
+    const path = pid === process.pid ? '/proc/self/stat' : `/proc/${pid}/stat`;
+    const stat = await readFile(path, 'utf8');
     return parseIdentity(pid, stat);
   } catch { return null; }
 }
