@@ -17,7 +17,9 @@ nibfin-core refresh-managed-issue-caller OWNER/REPO REPOSITORY_ID
 
 Despite its compatibility name, this command supports `issue-managed` to `issue`,
 `issue` to `issue-managed`, and repeated refresh of either recipe, including CRLF
-callers. It verifies administrator permission, repository and member identity,
+callers. Exact maintained titled and titleless variants are both supported;
+see [caller run titles](wake-entry.md#caller-run-titles) for the shared format.
+It verifies administrator permission, repository and member identity,
 installed Core/Action source and unchanged Action workflow identity before updating
 only the event workflow binding and its source observation. Both Runner IDs, roles,
 pool membership, provider and unrelated adoption fields remain unchanged. Unknown

@@ -1,7 +1,7 @@
 import { repoPath } from './github-read.mjs';
 import { readPinnedFile } from './github-approval.mjs';
 import { isSha, requireThat } from './identity.mjs';
-import { callerRecipe } from './caller-recipes.mjs';
+import { callerRecipeVariants } from './caller-recipes.mjs';
 
 // Read the Workflow from the authenticated run or the current protected branch.
 // The installed Core controls which caller operations it accepts.
@@ -24,7 +24,8 @@ export async function readCallerSource(reader, repository, workflow, current, re
     ? ['action-wake', 'action-dispatch']
     : recipe.kind === 'issue-forwarded' ? ['issue', 'issue-managed'] : [recipe.kind];
   requireThat(kinds.some(kind =>
-    source.replaceAll('\r\n', '\n') === callerRecipe(kind, recipe.coreCommit, recipe)),
+    callerRecipeVariants(kind, recipe.coreCommit, recipe)
+      .includes(source.replaceAll('\r\n', '\n'))),
   'CALLER_NOT_FIXED_RECIPE');
   return current;
 }

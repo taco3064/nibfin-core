@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readCallerSource } from '../src/caller-source.mjs';
 import { gitBlob } from '../src/identity.mjs';
-import { callerRecipe } from '../src/caller-recipes.mjs';
+import { callerRecipe, callerRecipeVariants } from '../src/caller-recipes.mjs';
 import { deliveryRoleTimeout, deliveryTransportTimeout } from '../src/process.mjs';
 
 test('delivery callers give Core time to stop and clean up its role', () => {
@@ -99,4 +99,39 @@ for (const kind of ['wake', 'action-wake', 'action-dispatch']) {
       );
     },
   );
+}
+
+for (const kind of ['wake', 'action-wake', 'action-dispatch', 'issue',
+  'issue-managed']) {
+  test(`${kind}: exact titled and historical variants retain admission bounds`,
+    async () => {
+      const commit = 'c'.repeat(40);
+      const recipe = { kind, coreCommit: commit,
+        actionCommit: 'd'.repeat(40), memberId: 2 };
+      const path = '.github/workflows/nibfin.yml';
+      let source;
+      const reader = { get: async () => ({ type: 'file', path,
+        encoding: 'base64', content: Buffer.from(source).toString('base64') }) };
+      const read = (change = {}) => readCallerSource(reader, 'example/core',
+        { path }, commit, { ...recipe, ...change });
+      const variants = callerRecipeVariants(kind, commit, recipe);
+      assert.equal(variants.length, 2);
+      for (const variant of variants) {
+        for (const newline of ['\n', '\r\n']) {
+          source = variant.replaceAll('\n', newline);
+          assert.equal(await read(), commit);
+          await assert.rejects(read({ coreCommit: 'e'.repeat(40) }),
+            /CALLER_NOT_FIXED_RECIPE/);
+          if (kind.startsWith('action-')) {
+            await assert.rejects(read({ memberId: 3 }), /CALLER_NOT_FIXED_RECIPE/);
+            await assert.rejects(read({ actionCommit: 'e'.repeat(40) }),
+              /CALLER_NOT_FIXED_RECIPE/);
+          }
+          source += 'env: { UNEXPECTED: content }\n';
+          await assert.rejects(read(), /CALLER_NOT_FIXED_RECIPE/);
+        }
+      }
+      source = variants[1].replace('\non:', '\nrun-name: arbitrary\non:');
+      await assert.rejects(read(), /CALLER_NOT_FIXED_RECIPE/);
+    });
 }
