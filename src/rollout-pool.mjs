@@ -1,4 +1,5 @@
 import { rolloutPeerTargets } from './rollout-peers.mjs';
+import { sharedPoolSlots } from './shared-pool-slots.mjs';
 import { verifyRolloutEnrollments } from './rollout-enrollments.mjs';
 import { withRolloutGates, rolloutHasRelay } from './rollout-gates.mjs';
 import { join } from 'node:path';
@@ -85,13 +86,8 @@ export async function bindRolloutPool(host, context,
   requireThat(adoptions.every(item => repositories.some(repository =>
     repository.repositoryId === JSON.parse(item.bytes).repository.approval.repositoryId)),
   'ROLLOUT_PEER_BINDING_CHANGED');
-  const slots = [];
-  for (const [index, runner] of pool.runners.entries()) {
-    const slot = index + 1, path = `/var/lib/nibfin/runners/slot-${slot}`;
-    await registration(path, runner, pool.repository);
-    slots.push({ slot, path, runner, service: slotUnit(slot),
-      uid: index ? host.sharedRunner.additionalRunner.uid : host.runnerUid });
-  }
+  const slots = sharedPoolSlots(pool, host);
+  for (const slot of slots) await registration(slot.path, slot.runner, pool.repository);
   return { pool, repositories, slots,
     adoptions: [...new Map(adoptions.map(item => [item.path, item])).values()] };
 }

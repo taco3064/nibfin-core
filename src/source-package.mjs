@@ -20,8 +20,10 @@ export const includesPackagePath = (path) =>
     'scripts/core_rollout_coordinator.py',
     'scripts/core-rollout-admin.py',
     'scripts/core_rollout_result.py',
-    'scripts/nibfin-rollout.service',
-    'scripts/nibfin-rollout.timer',
+    'scripts/core-maintenance-bootstrap.mjs',
+    'scripts/core-maintenance-dispatch.mjs',
+    'scripts/core-maintenance-bridge.py',
+    'scripts/core-maintenance-client.py',
     'package.json',
     'package-lock.json',
     '.node-version',
@@ -167,12 +169,14 @@ export async function packageSource(
   return { bytes, sha256: sha256(bytes), manifest, manifestHash: digest(manifest) };
 }
 
+export const isInstallationPin = expected =>
+  expected?.repository === 'taco3064/nibfin-core' &&
+  isSha(expected.commit) && isDigest(expected.manifestHash);
+
 export async function verifyInstalledSource(directory, expected) {
   const root = resolve(directory);
   requireThat(
-    expected?.repository === 'taco3064/nibfin-core' &&
-      isSha(expected.commit) &&
-      isDigest(expected.manifestHash) &&
+    isInstallationPin(expected) &&
       (await realpath(root)) === root,
     'INVALID_INSTALLATION_PIN',
   );

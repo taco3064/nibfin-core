@@ -97,7 +97,7 @@ export async function checkCoreOnlyRuntime(module, context, host, binding, manif
     await writeFile(join(first, 'bin/Runner.Listener'), listener);
     const next = 'c'.repeat(40), backup = `/opt/nibfin/core-before-${next}`;
     await writeFile('/etc/nibfin/rollout-plan.json', JSON.stringify({
-      pin: { commit: next }, apply: { oldPin: pin } }));
+      schemaVersion: 2, pin: { commit: next }, apply: { oldPin: pin } }));
     await rename(live, backup);
     try {
       assert.equal((await currentPoolRuntime(context)).directory, backup);

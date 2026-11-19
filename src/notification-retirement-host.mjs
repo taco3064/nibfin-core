@@ -7,6 +7,7 @@ import { command } from './process.mjs';
 import { repoPath } from './github-read.mjs';
 import { requireThat } from './identity.mjs';
 import { notificationUnitContents } from './relay-unit-contents.mjs';
+import { readOwnedSystemdUnit, ownedSystemdUnitStopped } from './owned-systemd-unit.mjs';
 import { observeNativeNotificationRoutes } from './native-notification-route.mjs';
 import { retireNotificationResources } from './notification-retirement.mjs';
 import { withManagedAdmission } from './managed-credential-admission.mjs';
@@ -31,28 +32,12 @@ async function ownedBytes(path) {
 
 export async function readNotificationUnit(name, run = command, inspect = rootOwnedPath) {
   requireThat(relayUnits.includes(name), 'NOTIFICATION_UNIT_NOT_OWNED');
-  await inspect(systemctl);
-  const { stdout } = await run(systemctl, ['show', name, '--all',
-    '--property=Id,LoadState,FragmentPath,DropInPaths,ActiveState,UnitFileState',
-    '--property=MainPID,ControlGroup,NeedDaemonReload'], options);
-  const state = Object.fromEntries(stdout.toString().trim().split('\n').map(line => {
-    const at = line.indexOf('=');
-    return [line.slice(0, at), line.slice(at + 1)];
-  }));
-  requireThat(state.Id === name && state.DropInPaths === '' &&
-    (state.LoadState === 'not-found' && state.FragmentPath === '' ||
-      state.LoadState === 'loaded' &&
-      state.FragmentPath === `${relayUnitDirectory}/${name}`),
-  'NOTIFICATION_UNIT_NOT_OWNED');
-  return state;
+  return readOwnedSystemdUnit(name, `${relayUnitDirectory}/${name}`,
+    { run, inspect, code: 'NOTIFICATION_UNIT_NOT_OWNED' });
 }
 
 export function notificationUnitStopped(unit, name) {
-  if (!['inactive', 'failed'].includes(unit.ActiveState)) return false;
-  if (name.endsWith('.timer'))
-    return ['disabled', '', 'not-found'].includes(unit.UnitFileState);
-  return unit.LoadState === 'not-found' ||
-    unit.MainPID === '0' && unit.ControlGroup === '';
+  return ownedSystemdUnitStopped(unit, name);
 }
 
 // The old shared journal is not required to activate or retire a native pool.

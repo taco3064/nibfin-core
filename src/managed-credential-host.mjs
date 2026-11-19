@@ -1,4 +1,3 @@
-import { command } from './process.mjs';
 import { lstat } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { boundedHostFile, hostFile, coreRoot } from './host-adoption.mjs';
@@ -10,6 +9,7 @@ import { managedBase, managedPaths, credentialDirectories, credentialBindingFile
 
 import { prepareSharedAccounts } from './shared-host-setup.mjs';
 import { requireManagerContext } from './rollout-manager-context.mjs';
+import { requireNoLegacyRolloutConsumer } from './legacy-rollout-consumer.mjs';
 
 const profileFile = '/etc/nibfin/shared-host-profile.json';
 
@@ -25,51 +25,23 @@ function repositoryIdentity(profile) {
   return { repository: value.repository, repositoryId: value.repositoryId };
 }
 
-// Installed legacy services are outside the Core package directory. Before
-// enrollment, prove they cannot consume the new token through their old path.
-async function verifyLegacyRollout(prepare, sourceRoot) {
-  const path = '/usr/local/libexec/nibfin/host-auto-rollout.py';
-  try { await lstat(path); }
-  catch (error) { if (error.code === 'ENOENT') return; throw error; }
-  await rootOwnedPath(path);
-  const roots = Array.isArray(sourceRoot) ? sourceRoot : [sourceRoot];
-  const installed = await boundedHostFile(path, 65536);
-  const expected = await Promise.all(roots.map(root =>
-    boundedHostFile(join(root, 'scripts/host-auto-rollout.py'), 65536)));
-  requireThat(expected.includes(installed),
-  'MANAGED_CREDENTIAL_LEGACY_CONSUMER_UPGRADE_REQUIRED');
-  if (!prepare) return;
-  await rootOwnedPath('/usr/bin/systemctl');
-  const { stdout } = await command('/usr/bin/systemctl', [
-    'show', '--property=ActiveState,SubState,MainPID', 'nibfin-rollout.service',
-  ], { env: { PATH: '/usr/bin:/bin', LANG: 'C' }, limit: 4096 });
-  const values = new Map(stdout.toString().trim().split('\n').map(line => {
-    const split = line.indexOf('=');
-    return [line.slice(0, split), line.slice(split + 1)];
-  }));
-  requireThat(values.get('ActiveState') === 'inactive' &&
-    values.get('SubState') === 'dead' && values.get('MainPID') === '0',
-  'MANAGED_CREDENTIAL_LEGACY_CONSUMER_PENDING');
-}
-
 export async function managedCredentialHost(administrator = false, prepare = false) {
   requireThat(process.platform === 'linux' && coreRoot === '/opt/nibfin/core' &&
     (administrator ? process.getuid() === 0 : process.getuid() > 0),
   'MANAGED_CREDENTIAL_REQUIRES_LOCAL_ADMIN');
   await rootOwnedPath(coreRoot);
   return inspectCredentialHost(administrator, prepare, coreRoot,
-    pin => verifyInstalledSource(coreRoot, pin), coreRoot);
+    pin => verifyInstalledSource(coreRoot, pin));
 }
 
 export async function managerCredentialHost(context) {
   const admitted = requireManagerContext(context);
   return inspectCredentialHost(true, false, admitted.installationRoot,
-    admitted.verifyInstallation, async pin => [admitted.codeRoot,
-      await admitted.installationPath(pin)]);
+    admitted.verifyInstallation);
 }
 
 async function inspectCredentialHost(administrator, prepare, installationRoot,
-  verify, sourceRoot) {
+  verify) {
   let host, beforeAdoption = false;
   try { host = await trustedJson(hostFile); }
   catch (error) {
@@ -112,9 +84,7 @@ async function inspectCredentialHost(administrator, prepare, installationRoot,
     (base.mode & 0o777) === 0o700, 'MANAGED_CREDENTIAL_HOST_INVALID');
   host.gid = (await lstat(dirname(host.tokenFile))).gid;
   await verify(host.installation.pin);
-  const legacySource = typeof sourceRoot === 'function' ?
-    await sourceRoot(host.installation.pin) : sourceRoot;
-  await verifyLegacyRollout(prepare, legacySource);
+  await requireNoLegacyRolloutConsumer();
   if (!beforeAdoption) {
     const execution = host.sharedRunner?.runner ?? host.repository?.runner;
     requireThat(execution && isId(execution.repositoryId),

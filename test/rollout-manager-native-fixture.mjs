@@ -8,6 +8,10 @@ import { spawnSync } from 'node:child_process';
 import { digest, sha256 } from '../src/identity.mjs';
 import { checkInstalledObservation } from './rollout-manager-observation-fixture.mjs';
 import { checkAdmissionAndFootprint } from './core-rollout-admission-native-fixture.mjs';
+import { checkManagementPublication } from './core-management-publication-fixture.mjs';
+import { checkMaintenanceTransport } from './core-maintenance-transport-fixture.mjs';
+import { checkMaintenanceInstallation }
+  from './core-maintenance-installation-fixture.mjs';
 
 const source = resolve('.');
 const nodeBytes = await readFile(process.execPath);
@@ -45,7 +49,9 @@ await mkdir(resolve(poolNode, '..'), { recursive: true });
 await writeFile(poolNode, nodeBytes, { mode: 0o755 });
 await mkdir(join(manager, 'scripts'));
 for (const file of ['host-auto-rollout.py', 'core-rollout-admin.py',
-  'core_rollout_coordinator.py', 'core_rollout_result.py'])
+  'core_rollout_coordinator.py', 'core_rollout_result.py',
+  'core-maintenance-bootstrap.mjs', 'core-maintenance-dispatch.mjs',
+  'core-maintenance-bridge.py', 'core-maintenance-client.py'])
   await cp(join(source, 'scripts', file), join(manager, 'scripts', file));
 
 async function seal(root) {
@@ -85,6 +91,18 @@ async function manifest(root, commit) {
 const oldPin = await manifest(manager, '1'.repeat(40));
 await writeFile('/usr/local/libexec/nibfin/core-rollout/source-pin.json',
   JSON.stringify(oldPin));
+if (process.argv[3] === 'maintenance-installation') {
+  await checkMaintenanceInstallation(manager, poolNode, manifest);
+  process.exit(0);
+}
+if (process.argv[3] === 'maintenance-transport') {
+  await checkMaintenanceTransport(manager, manifest, poolNode);
+  process.exit(0);
+}
+if (process.argv[3] === 'maintenance-publication') {
+  await checkManagementPublication(manager, oldPin, poolNode, manifest);
+  process.exit(0);
+}
 const url = path => pathToFileURL(join(manager, 'src', path)).href;
 const { admitRolloutManager } = await import(url('rollout-manager-context.mjs'));
 const { applyRolloutTransaction, resumeHostApply } =

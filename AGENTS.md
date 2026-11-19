@@ -133,40 +133,36 @@ particular Issue to wait at a stage boundary. Existing admitted work can
 settle. Record which Issues were paused for maintenance and resume only those
 after verification. Preserve pauses already set by their owners.
 
-For a Core or Runner upgrade affecting the shared pool, use Core CD and the
-authorized [host rollout](scripts/host-auto-rollout.py). The timer preflights
-the package and consumer bindings,
-then records its exact target and phase in `/etc/nibfin/rollout-plan.json`.
-Its separate `/etc/nibfin/rollout-admission.json` closes both slots and new local
-relay dispatch. Admitted leases and prior effect readback may settle; unrelated
-queued Jobs do not block drain. The timer stops only the matched shared services,
-rechecks native Jobs, registrations, fences and cgroups, and promotes the package
-and bindings through a durable apply intent. It restarts both listeners under
-closure and verifies source, all four enrollments and original registrations
-before reopening admission. The operator's relay pause remains unchanged. If an
-execution or external effect is
-unresolved, let the existing recovery path settle it before promotion.
-Individual Issue pauses are optional and do not establish pool-wide idleness.
+Core CD publishes its selected activation through GitHub's native completion
+event. The fixed maintenance workflow dispatches one Core-only operation on the
+existing shared Runner pool. Use the installed, authenticated administrator
+bridge; preserve native queueing, permissions, branch protection and Owner pause.
 
-After promotion, verify the installed Core revision, enrollment for the four
-repositories and both Runner registrations. The timer retains the previous
-verified package for recovery.
-A pending phase/code identifies the unresolved observation or effect. Do not
-remove the plan, closure, journals or backup to force progress: the next timer
-reads back the same target and partial effects. Unknown installed bindings stay
-closed; an installed commit alone is insufficient. The legacy Python credential
-adapter continues to refuse imported managed credentials.
+The Core-only operation preserves official listeners, runtime, registrations and
+originally stopped services. A runtime, registration or layout change uses its
+separate normal administrator lifecycle. Do not run the stopped-pool operation
+inside a serving Runner Job or a job-completed hook.
 
-Compatible pending Jobs use normal admission. The rollout timer also polls
-legacy wake receipts in bounded rotating batches, including without a local relay.
-Known stale relay and legacy wake origins are
-reconciled by exact Run/attempt before current Issue eligibility, pause and
-source are rechecked. A replacement uses a separate effect journal associated
-with that origin. Ambiguous POSTs remain pending, with no title-based attribution,
-blind retry or bulk queue cancellation. Authorized work resumes through the
-normal Issue wake flow. Legacy receipts retain their original source observation
-and exact run ID; receipts from older installations without that observation
-report `LEGACY_WAKE_ORIGIN_EVIDENCE_MISSING` and remain unchanged.
+Normal init/upgrade bootstraps the verified external management entry when needed.
+Its source and the stable pre-Worker/root bridge stay outside the Core tree being
+replaced. They share the existing configuration-directory gate for source
+lifetime. A completed Core update also updates its management code through the
+same installer, after the old child has exited. Missing publication metadata is
+recovered from actual adopted source; it is not permission to overwrite foreign
+resources or repeat completed Core promotion.
+
+After verified installation and release, use the existing
+`complete-installed-lifecycle` operation. Preserve the distinction between
+installation and pending/paused/completed continuation. On retry, read current
+state, reuse confirmed effects and perform only unfinished work. Do not delete
+plans, closures or journals to force admission.
+
+The rollout timer and notification timer are retired designs. Do not install,
+enable or replace either with another periodic mechanism. Explicitly rerun the
+original authorized CD operation or the maintenance operation for its selected
+native run/artifact. A manual draft-only or docs-only CD run without an activation
+does not authorize deployment. Keep active work, unknown files and necessary
+recovery evidence when removing owned legacy resources.
 
 ## English for public-facing text
 

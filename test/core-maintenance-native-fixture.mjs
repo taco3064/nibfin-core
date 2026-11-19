@@ -6,7 +6,7 @@ import { join } from 'node:path';
 
 export async function checkCoreMaintenance(module, context, host, binding) {
   const { admitCoreMaintenance, coreMaintenanceProvenance, requireCoreMaintenance,
-    reobserveCoreMaintenance, observeCoreMaintenanceFrame } =
+    reobserveCoreMaintenance, observeCoreMaintenanceFrame, observeCoreMaintenanceJob } =
     await module('core-maintenance-identity.mjs');
   const { settleCoreOnlyWork, requireCoreOnlyListeners } =
     await module('core-only-settlement.mjs');
@@ -100,14 +100,46 @@ export async function checkCoreMaintenance(module, context, host, binding) {
     workflow_ref: payload.workflow_ref };
   const frame = { jobId: guid, jobDisplayName: 'core-maintenance', contextData: {
     github: { t: 2, d: Object.entries(frameGithub).map(([k, v]) => ({ k, v })) } } };
+  let administrativeReads = 0;
+  const forbidden = Object.assign(new Error('Workflow token has no Runner admin'),
+    { status: 403, githubApiRead: true });
+  const workflowReader = { get: async path => {
+    if (path.includes('/actions/runners/')) {
+      administrativeReads++;
+      throw forbidden;
+    }
+    return reader.get(path);
+  } };
   const observed = await observeCoreMaintenanceFrame(context, authHost, frame,
-    host.runnerUid, reader);
+    host.runnerUid, workflowReader);
+  assert.equal(administrativeReads, 0);
   assert.deepEqual(observed, coreMaintenanceProvenance(scope, context));
+  assert.deepEqual(await observeCoreMaintenanceJob(context, authHost, request,
+    host.runnerUid, workflowReader), observed);
   assert.throws(() => requireCoreMaintenance(observed, context),
     { code: 'CORE_MAINTENANCE_NOT_ADMITTED' });
   await assert.rejects(observeCoreMaintenanceFrame(context, authHost,
-    { ...frame, jobId: guid.replace('12345678', 'aaaaaaaa') }, host.runnerUid, reader),
+    { ...frame, jobId: guid.replace('12345678', 'aaaaaaaa') }, host.runnerUid,
+    workflowReader),
   { code: 'SHARED_WORKER_JOB_IDENTITY_MISMATCH' });
+  await assert.rejects(observeCoreMaintenanceFrame(context, authHost, frame,
+    host.uid, workflowReader), { code: 'CORE_MAINTENANCE_INVOKER_CHANGED' });
+  const assigned = job.runner_id;
+  job.runner_id = 43;
+  await assert.rejects(observeCoreMaintenanceFrame(context, authHost, frame,
+    host.runnerUid, workflowReader), { code: 'SHARED_WORKER_JOB_NOT_ASSIGNED' });
+  job.runner_id = assigned;
+  const repository = objects.get(root);
+  const repositoryId = repository.id;
+  repository.id = 99;
+  await assert.rejects(observeCoreMaintenanceFrame(context, authHost, frame,
+    host.runnerUid, workflowReader), { code: 'CORE_MAINTENANCE_REPOSITORY_CHANGED' });
+  repository.id = repositoryId;
+  assert.equal(administrativeReads, 0);
+  await assert.rejects(admitCoreMaintenance(context, authHost,
+    { ...request, token: token() }, host.runnerUid, workflowReader, identity),
+  error => error === forbidden);
+  assert.equal(administrativeReads, 1);
   assert.equal(requireCoreMaintenance(scope, context, target).provenance.checkRunId, 999);
   assert.notEqual(run.actor.id, host.memberId);
   assert.notEqual(job.id, 999);
@@ -129,8 +161,10 @@ export async function checkCoreMaintenance(module, context, host, binding) {
   const plan = { mode: 'core-only', administratorTarget: target,
     maintenanceInvocation: coreMaintenanceProvenance(scope, context),
     originalServices: [{ slot: 1, running: true }, { slot: 2, running: false }] };
+  await assert.rejects(reobserveCoreMaintenance(context, authHost, workflowReader,
+    async () => structuredClone(plan)), error => error === forbidden);
   await observeCoreMaintenanceWorker(context, authHost, frame, host.runnerUid,
-    reader);
+    workflowReader);
   const protectedPlan = { ...plan, schemaVersion: 2, pin: host.installation.pin,
     binding, maintenanceInvocation: { ...plan.maintenanceInvocation, runId: 122,
       jobId: 455 } };
@@ -140,12 +174,12 @@ export async function checkCoreMaintenance(module, context, host, binding) {
   await writeFile(closurePath, JSON.stringify(rolloutMarker(protectedPlan)));
   try {
     await observeCoreMaintenanceWorker(context, authHost, frame, host.runnerUid,
-      reader);
+      workflowReader);
     for (const previous of [undefined, { repository: 'old/other', repositoryId: 99 }]) {
       const rootPlan = { ...protectedPlan, maintenanceInvocation: previous };
       await writeFile(planPath, JSON.stringify(rootPlan));
       await observeCoreMaintenanceWorker(context, authHost, frame, host.runnerUid,
-        reader);
+        workflowReader);
       // Read-only Worker entry cannot grant settlement authority from a plan
       // with missing/stale auxiliary provenance. Fresh Root admission must run.
       await assert.rejects(reobserveCoreMaintenance(context, authHost, reader));

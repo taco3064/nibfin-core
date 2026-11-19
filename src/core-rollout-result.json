@@ -9,7 +9,8 @@
   "successFields": [
     "status", "code", "installation", "results", "continuation", "completion",
     "bytes", "provenance", "pin", "runtime", "source", "actionCommit", "backup",
-    "repositories", "originalServices"
+    "repositories", "originalServices", "schemaVersion", "capability", "programs",
+    "operationTarget", "operationSources", "operation", "cleanup", "recoveryRetained"
   ],
   "recordStringPatterns": {
     "repository": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$",
@@ -20,6 +21,15 @@
   "recordStatuses": ["pending", "dispatched", "paused", "completed", "denied"],
   "codePattern": "^[A-Z][A-Z0-9_]*$",
   "deniedCodes": [
+    "CORE_MAINTENANCE_ADMINISTRATOR_REQUIRED", "CORE_MAINTENANCE_FIXED_BOOTSTRAP_REQUIRED",
+    "CORE_MAINTENANCE_BOOTSTRAP_HAS_NO_ARGUMENTS", "CORE_MAINTENANCE_RESOURCE_UNKNOWN",
+    "CORE_MAINTENANCE_RESOURCE_CHANGED", "CORE_MANAGER_RECOVERY_UNKNOWN",
+    "SHARED_WORKER_FRAME_INVALID", "SHARED_WORKER_CONTEXT_INVALID",
+    "SHARED_WORKER_WORKFLOW_DENIED", "SHARED_WORKER_PROVIDER_DENIED",
+    "SHARED_WORKER_JOB_NOT_ASSIGNED", "SHARED_WORKER_JOB_IDENTITY_MISMATCH",
+    "SHARED_WORKER_SLOT_MISMATCH", "SHARED_WORKER_READ_CREDENTIAL_UNAVAILABLE",
+    "SHARED_RUNNER_REGISTRATION_MISMATCH",
+    "ROLLOUT_MANAGER_METADATA_UNKNOWN",
     "ROLLOUT_MANAGER_REQUIRES_INSTALLED_ADMIN", "ROLLOUT_MANAGER_NOT_ADMITTED",
     "CORE_MAINTENANCE_INVOKER_CHANGED", "CORE_MAINTENANCE_REQUEST_INVALID",
     "CORE_MAINTENANCE_IDENTITY_REQUIRED", "CORE_MAINTENANCE_TARGET_REQUIRED",

@@ -2,10 +2,10 @@ import { isId, isSha, requireThat } from '../identity.mjs';
 import { repoPath } from '../github-read.mjs';
 import { readCallerContinuity } from '../caller-source.mjs';
 import { sharedWorkflowPath } from '../shared-runner.mjs';
+import { assignedNativeJob, isNativeJobGuid } from '../native-job-check.mjs';
 
 import { requireSharedBranch } from '../shared-admission-policy.mjs';
 
-const uuid = /^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
 
 export function sharedWorkerContext(message, binding, ref) {
   const entries = message?.contextData?.github?.d;
@@ -21,7 +21,7 @@ export function sharedWorkerContext(message, binding, ref) {
   const attempt = number('run_attempt');
   const commit = github.get('workflow_sha');
   requireThat(github.size === entries.length && isId(runId) && isId(attempt) &&
-    typeof message.jobId === 'string' && uuid.test(message.jobId) &&
+    isNativeJobGuid(message.jobId) &&
     isSha(commit) && github.get('sha') === commit &&
     github.get('event_name') === 'workflow_dispatch' &&
     github.get('repository') === binding.repository &&
@@ -31,25 +31,6 @@ export function sharedWorkerContext(message, binding, ref) {
     message.jobDisplayName === binding.jobName,
   'SHARED_WORKER_WORKFLOW_DENIED');
   return { runId, attempt, commit };
-}
-
-async function admitAssignedJob(reader, root, runId, attempt, commit, binding, guid) {
-  const path = `${root}/actions/runs/${runId}/attempts/${attempt}/jobs?per_page=2`;
-  const list = await reader.get(path);
-  const job = list.jobs?.[0];
-  requireThat(list.total_count === 1 && list.jobs?.length === 1 && isId(job?.id) &&
-    job.run_id === runId && job.run_attempt === attempt && job.head_sha === commit &&
-    job.runner_id === binding.runnerId && job.runner_name === binding.runnerName &&
-    job.name === binding.jobName && job.status === 'in_progress',
-  'SHARED_WORKER_JOB_NOT_ASSIGNED');
-  const check = await reader.get(`${root}/check-runs/${job.id}`);
-  requireThat(check?.id === job.id && check.head_sha === commit &&
-    check.app?.slug === 'github-actions' && check.name === binding.jobName &&
-    check.details_url ===
-      `https://github.com/${binding.repository}/actions/runs/${runId}/job/${job.id}` &&
-    typeof check.external_id === 'string' &&
-    check.external_id.toLowerCase() === guid.toLowerCase(),
-  'SHARED_WORKER_JOB_IDENTITY_MISMATCH');
 }
 
 // Checks the Listener's message before launching the official Worker. Core
@@ -91,6 +72,7 @@ export async function admitSharedWorker(reader, message, binding, ref, ownerId) 
   await readCallerContinuity(reader, binding.repository, pin, commit);
   if (head.commit.sha !== commit)
     await readCallerContinuity(reader, binding.repository, pin, head.commit.sha);
-  await admitAssignedJob(reader, root, runId, attempt, commit,
-    binding, message.jobId);
+  await assignedNativeJob(reader, { repository: binding.repository, runId, attempt,
+    sourceCommit: commit, runnerId: binding.runnerId, runnerName: binding.runnerName,
+    jobName: binding.jobName }, message.jobId);
 }

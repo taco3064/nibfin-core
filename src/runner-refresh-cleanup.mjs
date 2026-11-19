@@ -1,44 +1,16 @@
-import { lstat, readdir, readFile, readlink, rm, rmdir } from 'node:fs/promises';
+import { lstat, readdir, rm, rmdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { rootOwnedPath } from './host-paths.mjs';
 import { optionalStat } from './retirement-files.mjs';
 import { requireThat } from './identity.mjs';
 import { safeRelayCode } from './notification-relay.mjs';
 import { runnerEntryIdentity } from './runner-refresh-files.mjs';
-import { assertNoSlotMounts } from './retirement-observe.mjs';
+import { requireNoResourceReferences } from './resource-references.mjs';
 import { syncRecoveryDirectory } from './recovery-lock.mjs';
 
-const refers = (value, path) => value === path || value.startsWith(path + '/') ||
-  value === path + ' (deleted)';
-
-export async function requireNoRefreshReferences(path, { proc = '/proc',
-  mounts = assertNoSlotMounts } = {}) {
-  await mounts(path);
-  for (const pid of await readdir(proc)) {
-    if (!/^[1-9][0-9]*$/.test(pid)) continue;
-    const root = join(proc, pid);
-    try {
-      for (const name of ['exe', 'cwd']) {
-        const observed = await readlink(join(root, name));
-        requireThat(!refers(observed, path), 'RUNNER_REFRESH_PREVIOUS_IN_USE');
-      }
-      const maps = await readFile(join(root, 'maps'), 'utf8');
-      requireThat(!maps.split('\n').some(line => {
-        const file = /^(?:\S+\s+){5}(.*)$/.exec(line)?.[1];
-        return file && refers(file, path);
-      }), 'RUNNER_REFRESH_PREVIOUS_IN_USE');
-      for (const fd of await readdir(join(root, 'fd'))) {
-        try {
-          requireThat(!refers(await readlink(join(root, 'fd', fd)), path),
-            'RUNNER_REFRESH_PREVIOUS_IN_USE');
-        } catch (error) { if (error.code !== 'ENOENT') throw error; }
-      }
-    } catch (error) {
-      // A process that exited contributes no remaining reference. Failed access
-      // to a live process is uncertainty and preserves the affected material.
-      if (error.code !== 'ENOENT' && error.code !== 'ESRCH') throw error;
-    }
-  }
+export function requireNoRefreshReferences(path, supplied = {}) {
+  return requireNoResourceReferences(path,
+    { ...supplied, code: 'RUNNER_REFRESH_PREVIOUS_IN_USE' });
 }
 
 const defaultPorts = { inspect: rootOwnedPath, references: requireNoRefreshReferences,

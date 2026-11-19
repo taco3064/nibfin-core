@@ -1,17 +1,22 @@
 #!/usr/bin/python3
 """Admit a GitHub Runner 2.338.2 message before exec'ing its official Worker."""
+import sys
+sys.dont_write_bytecode = True
+
 
 import ctypes
+import base64
 import importlib.util
+import json
 import os
 from pathlib import Path
 import select
 import signal
 import struct
 import subprocess
-import sys
 
 CORE = Path("/opt/nibfin/core")
+BRIDGE = Path('/usr/local/libexec/nibfin/core-rollout/bridge.py')
 PR_SET_PDEATHSIG = 1
 
 
@@ -57,6 +62,21 @@ def admit(source):
     if message_type != 1 or length <= 0 or length > 50_000_000 or length % 2:
         raise ValueError("Invalid Runner frame")
     body = exact_read(source, length)
+    if BRIDGE.exists() or BRIDGE.is_symlink():
+        parent = os.getpid()
+        result = subprocess.run(
+            ['/usr/bin/sudo', '-n', '--', str(BRIDGE)],
+            input=json.dumps({'kind': 'pre-worker',
+                              'frame': base64.b64encode(body).decode()}).encode(),
+            stdout=subprocess.PIPE, env={'PATH': '/usr/bin:/bin', 'LANG': 'C'},
+            preexec_fn=lambda: exit_with_parent(parent),
+        )
+        if result.returncode or json.loads(result.stdout).get('status') != 'admitted':
+            raise ValueError('Installed pre-Worker admission is pending')
+        return header + body
+    # Fresh installation may register the official slots before adopting the
+    # pool and installing its administrator bridge. Ordinary admission keeps its
+    # existing path; no maintenance job gains authority through this fallback.
     path = CORE / 'src/security/shared-runtime.py'
     spec = importlib.util.spec_from_file_location('shared_runtime', path)
     runtime = importlib.util.module_from_spec(spec)
@@ -66,7 +86,7 @@ def admit(source):
     subprocess.run(
         [node, str(CORE / "src/security/shared-worker-entry.mjs")],
         input=body, env={"PATH": "/usr/bin:/bin", "LANG": "C.UTF-8"},
-        stdout=subprocess.DEVNULL, check=True, timeout=45,
+        stdout=subprocess.DEVNULL, check=True,
         preexec_fn=lambda: exit_with_parent(parent),
     )
     return header + body

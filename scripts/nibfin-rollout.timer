@@ -1,9 +1,0 @@
-[Unit]
-Description=Check for verified Nibfin Core rollouts
-
-[Timer]
-OnBootSec=1min
-OnUnitInactiveSec=1min
-
-[Install]
-WantedBy=timers.target
