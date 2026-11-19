@@ -6,7 +6,7 @@ import { stageSuccess } from './stage-runtime.mjs';
 import { digest, isDigest, requireThat } from './identity.mjs';
 import { enforcementPaths, equivalentCandidate } from './candidate-evidence.mjs';
 import { integrationRepairRequired, pendingCIObservation } from './github-ci.mjs';
-import { codexIdle } from './codex-bootstrap.mjs';
+import { codexIdle, codexPreflightExits } from './codex-bootstrap.mjs';
 import { retryableWriterPressure } from './job-vm-pressure.mjs';
 import { ciCorrectionWaiting, requiredCheckFailed } from './ci-recovery.mjs';
 import { candidateCorrectionRequired } from './candidate-correction.mjs';
@@ -29,6 +29,7 @@ async function stoppedAgentCanRestart(store, stage, receipt) {
     (proof.code === hostMemoryPressure && proof.stage === stage &&
       pressureMatchesReceipt(proof.memoryPressure, stage, receipt.execution) ||
       proof.code === codexIdle.code ||
+      Object.hasOwn(codexPreflightExits, proof.code) ||
       stage === 'deliver' && retryableWriterPressure(proof.code));
 }
 
