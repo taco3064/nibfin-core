@@ -13,7 +13,11 @@ import { resolveWakeDispatch } from '../src/wake-entry.mjs';
 import { approvalProviderFixture } from './github-approval-fixture.mjs';
 import { approvalRecord, now } from './approval-fixture.mjs';
 import { gitBlob } from '../src/identity.mjs';
-import { readFile } from 'node:fs/promises';
+import { readFile, mkdtemp, rm, readdir } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { readWakeOrigins, requireWakeEffectsSettled }
+  from '../src/operation-journal.mjs';
 
 function fixture(kind = 'wake') {
   const record = approvalRecord();
@@ -412,3 +416,30 @@ test('pause reconciliation traverses read-only routing and authenticated control
   await assert.rejects(observeIssueEvent(f.reader, f.adoption, forged, f.invocation),
     /UNTRUSTED_PAUSE_ACTOR/);
 });
+
+
+test('a skipped event wake leaves an empty journal that does not block rollout',
+  async t => {
+    const root = await mkdtemp(join(tmpdir(), 'nibfin-skipped-wake-'));
+    t.after(() => rm(root, { recursive: true, force: true }));
+    t.mock.method(Date, 'now', () => now);
+    const f = fixture('issue');
+    f.adoption.eventWorkflow = f.adoption.issues[0].workflow;
+    f.invocation.eventName = 'issues';
+    f.run.event = 'issues';
+    f.run.referenced_workflows[0].path =
+      'taco3064/nibfin-core/.github/workflows/issue.yml@' + f.adoption.coreCommit;
+    f.issue.assignees = [];
+    const result = await dispatchIssueWake({
+      reader: f.reader, adoption: f.adoption, invocation: f.invocation,
+      event: { repository: f.repo, action: 'edited', issue: f.issue },
+      token: 'fixture-not-used', stateRoot: root, inspect: async () => {},
+      fetcher: () => assert.fail('No dispatch for ineligible work'),
+    });
+    assert.deepEqual(result, { status: 'skipped', code: 'WAKE_TARGET_NOT_READY' });
+    const names = await readdir(root);
+    assert.equal(names.length, 1);
+    assert.deepEqual(await readdir(join(root, names[0])), []);
+    assert.deepEqual(await readWakeOrigins(root), []);
+    await requireWakeEffectsSettled(root);
+  });

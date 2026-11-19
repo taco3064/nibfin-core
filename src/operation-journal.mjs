@@ -1,5 +1,5 @@
 import { constants } from 'node:fs';
-import { lstat, mkdir, open, realpath, rename, unlink } from 'node:fs/promises';
+import { lstat, mkdir, open, readdir, realpath, rename, unlink } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { digest, isDigest, isId, requireThat } from './identity.mjs';
@@ -10,10 +10,10 @@ import {
   syncRecoveryDirectory as syncDirectory,
 } from './recovery-lock.mjs';
 
-async function privateDirectory(path) {
+async function privateDirectory(path, uid = process.getuid()) {
   const stat = await lstat(path);
   requireThat(stat.isDirectory() && !stat.isSymbolicLink() &&
-        stat.uid === process.getuid() &&
+        stat.uid === uid &&
     (stat.mode & 0o077) === 0 && await realpath(path) === resolve(path),
   'UNTRUSTED_JOURNAL_DIRECTORY');
 }
@@ -24,22 +24,32 @@ async function privateDirectory(path) {
 // live/unknown previous writer on another host before invoking this component.
 export class OperationJournal {
   #directory;
-  constructor(root, issue) {
+  #uid;
+  constructor(root, issue, { uid = process.getuid() } = {}) {
     requireThat(process.platform === 'linux' && typeof process.getuid === 'function',
       'UNSUPPORTED_JOURNAL_HOST');
     requireThat(typeof issue?.id === 'string' && issue.id &&
       Number.isSafeInteger(issue.repositoryId) && issue.repositoryId > 0,
       'INVALID_JOURNAL_SUBJECT');
+    requireThat(Number.isSafeInteger(uid) && uid >= 0 &&
+      (uid === process.getuid() || process.getuid() === 0),
+    'UNTRUSTED_JOURNAL_OWNER');
+    this.#uid = uid;
     this.#directory = join(resolve(root),
       digest({ issueId: issue.id, repositoryId: issue.repositoryId }));
     this.root = resolve(root);
   }
   async #prepare() {
-    await privateDirectory(this.root);
-    await mkdir(this.#directory, { mode: 0o700 }).catch(error => {
-      if (error.code !== 'EEXIST') throw error;
-    });
-    await privateDirectory(this.#directory);
+    await privateDirectory(this.root, this.#uid);
+    const created = await mkdir(this.#directory, { mode: 0o700 }).then(
+      () => true, error => { if (error.code !== 'EEXIST') throw error; });
+    if (created) {
+      const directory = await open(this.#directory, constants.O_RDONLY |
+        constants.O_DIRECTORY | constants.O_NOFOLLOW);
+      try { await directory.chown(this.#uid, -1); }
+      finally { await directory.close(); }
+    }
+    await privateDirectory(this.#directory, this.#uid);
     await syncDirectory(this.root);
   }
   async #read() {
@@ -49,7 +59,7 @@ export class OperationJournal {
       handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
       const stat = await handle.stat();
       requireThat(stat.isFile() &&
-        stat.uid === process.getuid() && (stat.mode & 0o077) === 0 && stat.nlink === 1,
+        stat.uid === this.#uid && (stat.mode & 0o077) === 0 && stat.nlink === 1,
         'UNTRUSTED_JOURNAL_FILE');
       const record = JSON.parse(await handle.readFile('utf8'));
       requireThat(record.hash === digest(record.payload) &&
@@ -84,6 +94,7 @@ export class OperationJournal {
     const handle = await open(temp, constants.O_WRONLY | constants.O_CREAT |
       constants.O_EXCL | constants.O_NOFOLLOW, 0o600);
     try {
+      await handle.chown(this.#uid, -1);
       await handle.writeFile(JSON.stringify({ payload, hash: digest(payload) }));
       await handle.sync();
     }
@@ -91,8 +102,25 @@ export class OperationJournal {
     await rename(temp, join(this.#directory, 'receipts.json'));
     await syncDirectory(this.#directory);
   }
+  // An association or observation is not an effect. Only this journal can
+  // prove that dispatch never started; retained execution locks fail closed.
+  async wakeRecoveryState() {
+    return this.#withLock(digest({ operation: 'observe-wake-recovery' }), async state => {
+      const initial = state.wakeObservation ??
+        state.wakeReceipts?.at(-1)?.observation;
+      if (initial) return { status: 'observed', initial };
+      return state.pending === null && state.completed.length === 0
+        ? { status: 'unstarted' }
+        : { status: 'pending', code: 'EXTERNAL_EFFECT_UNKNOWN' };
+    });
+  }
+  async wakeObservation() {
+    await this.#prepare();
+    const state = await this.#read();
+    return state.wakeObservation ?? state.wakeReceipts?.at(-1)?.observation ?? null;
+  }
   async pauseEvidence() {
-    try { await privateDirectory(this.root); }
+    try { await privateDirectory(this.root, this.#uid); }
     catch (error) {
       if (error.code === 'ENOENT') return { decisions: [], pending: false };
       throw error;
@@ -159,7 +187,9 @@ export class OperationJournal {
     // Core; none can be supplied by an Agent/worktree or external JSON request.
     requireThat((operations.includes(request?.operation) ||
       request?.operation === 'release') && isDigest(request.bindingHash) &&
-      [admit, perform, readBack].every(value => typeof value === 'function'),
+      [admit, perform, readBack].every(value => typeof value === 'function') &&
+      (request.observation === undefined || request.operation === 'wake' &&
+        digest(request.observation) === request.bindingHash),
     'INVALID_OPERATION_REQUEST');
     requireThat(!localDeliver || request.operation === 'deliver',
       'INVALID_LOCAL_DELIVER_REQUEST');
@@ -178,9 +208,10 @@ export class OperationJournal {
         requireThat(await admit() === request.bindingHash, 'ADMISSION_BINDING_CHANGED');
       }
       catch { return { status: 'denied', code: 'ADMISSION_FAILED' }; }
-      // The Deliver handler prepares a local Candidate. It has no publisher.
-      // Keep the local mutex without recording a possible GitHub write.
-      if (!localDeliver) await this.#write({ ...state, pending: decision });
+      // Local Deliver has no publisher; external effects retain durable intent.
+      if (!localDeliver) await this.#write({ ...state, pending: decision,
+        ...(request.operation === 'wake' && request.observation
+          ? { wakeObservation: request.observation } : {}) });
       try {
         let result;
         try { result = await perform(); }
@@ -193,8 +224,11 @@ export class OperationJournal {
         }
         if (request.operation === 'wake') {
           requireThat(isId(result), 'DISPATCH_IDENTITY_UNKNOWN');
-          await this.#write({ ...state, pending: decision, wakeRunId: result });
-          return this.#finishWake(state, decision, result, request, readBack);
+          await this.#write({ ...state, pending: decision, wakeRunId: result,
+            ...(request.observation ? { wakeObservation: request.observation } : {}) });
+          return this.#finishWake({ ...state,
+            ...(request.observation ? { wakeObservation: request.observation } : {})
+          }, decision, result, request, readBack);
         }
         requireThat(await readBack() === request.bindingHash,
           'READBACK_BINDING_MISMATCH');
@@ -221,6 +255,20 @@ export class OperationJournal {
     });
     requireThat(result.status === 'completed', result.code);
   }
+  async recoverWake(bindingHash, readBack) {
+    requireThat(isDigest(bindingHash) && typeof readBack === 'function',
+      'INVALID_RECOVERY_REQUEST');
+    const request = { operation: 'wake', bindingHash };
+    const decision = digest(request);
+    return this.#withLock(decision, async state => {
+      const receipt = state.wakeReceipts?.find(item => item.decisionId === decision);
+      if (state.pending === null && state.completed.includes(decision) && receipt)
+        return { status: 'completed', decisionId: decision, runId: receipt.runId };
+      if (state.pending === decision && state.wakeRunId)
+        return this.#finishWake(state, decision, state.wakeRunId, request, readBack);
+      return { status: 'pending', code: 'EXTERNAL_EFFECT_UNKNOWN' };
+    });
+  }
   async recoverCommitPr(decision, readBack, proof) {
     return this.#reconcile(decision, readBack, proof);
   }
@@ -229,7 +277,8 @@ export class OperationJournal {
       requireThat(await readBack(runId) === request.bindingHash,
         'READBACK_BINDING_MISMATCH');
       await this.#complete({ ...state, wakeReceipts: [
-        ...(state.wakeReceipts ?? []), { decisionId: decision, runId },
+        ...(state.wakeReceipts ?? []), { decisionId: decision, runId,
+          ...(state.wakeObservation ? { observation: state.wakeObservation } : {}) },
       ] }, decision);
       return { status: 'completed', decisionId: decision, runId };
     } catch {
@@ -249,15 +298,16 @@ export class OperationJournal {
         state.pending === null && state.completed.includes(decision),
       'RECOVERY_DECISION_MISMATCH');
       const journalPath = join(this.#directory, 'receipts.json');
-      const snapshot = await recoveryFile(journalPath, 8 * 1024 * 1024);
+      const snapshot = await recoveryFile(journalPath, 8 * 1024 * 1024, this.#uid);
       requireThat(digest(JSON.parse(snapshot.bytes).payload) === digest(state),
         'RECOVERY_JOURNAL_CHANGED');
       const receiptHash = await readBack();
       requireThat(isDigest(receiptHash), 'INVALID_RECOVERY_RECEIPT');
       await inspect();
-      await privateDirectory(this.root);
-      await privateDirectory(this.#directory);
-      await inspectRecoveryFile(journalPath, snapshot, 8 * 1024 * 1024);
+      await privateDirectory(this.root, this.#uid);
+      await privateDirectory(this.#directory, this.#uid);
+      await inspectRecoveryFile(
+        journalPath, snapshot, 8 * 1024 * 1024, this.#uid);
       requireThat(digest(await this.#read()) === digest(state),
         'RECOVERY_JOURNAL_CHANGED');
       if (state.pending === decision) await this.#complete(state, decision);
@@ -273,12 +323,13 @@ export class OperationJournal {
           return false;
         });
       if (retained) return retainedRecovery(this.#directory, decision, proof,
-        async inspect => reconcile(await this.#read(), inspect));
+        async inspect => reconcile(await this.#read(), inspect), this.#uid);
     }
     return this.#withLock(decision, state => reconcile(state, proof?.prove));
   }
   async #complete(state, decision) {
-    const { wakeRunId: _, ...prior } = state;
+    const { wakeRunId: _, wakeObservation: unused, ...prior } = state;
+    void unused;
     await this.#write({
       ...prior, pending: null, completed: [...state.completed, decision],
     });
@@ -295,6 +346,7 @@ export class OperationJournal {
       throw error;
     }
     try {
+      await lock.chown(this.#uid, -1);
       await lock.writeFile(JSON.stringify({ pid: process.pid, decision }));
       await lock.sync();
       await syncDirectory(this.#directory);
@@ -304,5 +356,69 @@ export class OperationJournal {
       await unlink(lockPath);
       await syncDirectory(this.#directory);
     }
+  }
+}
+
+// Read-only observations can prepare a directory without issuing any effect.
+async function readScannedJournal(directory, uid) {
+  const path = join(directory, 'receipts.json');
+  let file;
+  try { file = await recoveryFile(path, 8 * 1024 * 1024, uid); }
+  catch (error) {
+    if (error.code !== 'ENOENT') throw error;
+    // A dangling symlink is not an absent receipt.
+    await lstat(path).then(() => { throw error; }, missing => {
+      if (missing.code !== 'ENOENT') throw missing;
+    });
+    return { schemaVersion: 1, pending: null, completed: [] };
+  }
+  const { payload, hash } = JSON.parse(file.bytes);
+  requireThat(hash === digest(payload) && payload.schemaVersion === 1 &&
+    Array.isArray(payload.completed), 'JOURNAL_CORRUPT');
+  return payload;
+}
+
+// Read only authenticated local receipts, never infer origins from run titles.
+export async function readWakeOrigins(root, uid = process.getuid()) {
+  try { await privateDirectory(root, uid); }
+  catch (error) { if (error.code === 'ENOENT') return []; throw error; }
+  const names = (await readdir(root)).filter(isDigest).sort();
+  requireThat(names.length <= 4096, 'WAKE_JOURNAL_CAPACITY');
+  const origins = [];
+  for (const name of names) {
+    const directory = join(root, name);
+    await privateDirectory(directory, uid);
+    const payload = await readScannedJournal(directory, uid);
+    for (const receipt of payload.wakeReceipts ?? []) {
+      const initial = receipt.observation;
+      // Older receipts lack immutable source/Issue observations. Keep them;
+      // neither title parsing nor queue absence can reconstruct a dispatch.
+      if (!initial) {
+        requireThat(isId(receipt.runId) && isDigest(receipt.decisionId) &&
+          payload.completed.includes(receipt.decisionId), 'JOURNAL_CORRUPT');
+        origins.push({ runId: receipt.runId, decisionId: receipt.decisionId });
+        continue;
+      }
+      const decision = digest({ operation: 'wake', bindingHash: digest(initial) });
+      requireThat(receipt.decisionId === decision && isId(receipt.runId) &&
+        payload.completed.includes(decision) &&
+        name === digest({ issueId: initial.issue?.id,
+          repositoryId: initial.issue?.repositoryId }), 'JOURNAL_CORRUPT');
+      origins.push({ initial, runId: receipt.runId, decisionId: decision });
+    }
+  }
+  return origins;
+}
+
+export async function requireWakeEffectsSettled(root, uid = process.getuid()) {
+  await privateDirectory(root, uid);
+  for (const name of (await readdir(root)).filter(isDigest)) {
+    const directory = join(root, name);
+    await privateDirectory(directory, uid);
+    await lstat(join(directory, 'execution.lock')).then(
+      () => requireThat(false, 'WRITER_NOT_PROVEN_TERMINATED'),
+      error => { if (error.code !== 'ENOENT') throw error; });
+    const payload = await readScannedJournal(directory, uid);
+    requireThat(payload.pending === null, 'EXTERNAL_EFFECT_UNKNOWN');
   }
 }

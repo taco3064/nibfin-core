@@ -1,15 +1,21 @@
+import { rolloutPeerTargets } from './rollout-peers.mjs';
+import { prepareRolloutRelay, validateRolloutRelay } from './rollout-relay.mjs';
+import { constants } from 'node:fs';
+import { withKernelGate } from './kernel-gate.mjs';
+import { requireRolloutClosure } from './rollout-admission.mjs';
+import { resumeHostApply } from './rollout-apply.mjs';
+import { writeRetirementFile } from './retirement-files.mjs';
+import { requirePromotionSettlement } from './rollout-pool.mjs';
 import { requireNoRetirement } from './retirement-admission.mjs';
 import { validateProviderUpdate, compareProviderViews } from './provider-binding.mjs';
 import { withManagedAdmission } from './managed-credential-admission.mjs';
 import {
-  lstat, open, readdir, readFile, rename, unlink, writeFile,
+  lstat, open, readdir, readFile, unlink,
 } from 'node:fs/promises';
 import { join } from 'node:path';
-import { randomUUID } from 'node:crypto';
 import { idleContainers } from './host-containers.mjs';
 import { rootOwnedPath } from './host-paths.mjs';
 import { digest, isSha, requireThat } from './identity.mjs';
-import { command } from './process.mjs';
 import { verifyInstalledSource } from './source-package.mjs';
 import { sharedSlotIsolation } from './shared-runner.mjs';
 
@@ -22,12 +28,12 @@ const repositories = [
   ['gh-nibfin', 'host.gh-nibfin.json'],
 ];
 
-async function readTrusted(path) {
+async function readTrusted(path, limit = 262144) {
   await rootOwnedPath(path);
   const stat = await lstat(path);
-  requireThat(stat.isFile() && stat.size <= 262144, 'INVALID_ROLLOUT_CONFIGURATION');
+  requireThat(stat.isFile() && stat.size <= limit, 'INVALID_ROLLOUT_CONFIGURATION');
   const bytes = await readFile(path, 'utf8');
-  requireThat(Buffer.byteLength(bytes) <= 262144, 'ROLLOUT_CONFIGURATION_TOO_LARGE');
+  requireThat(Buffer.byteLength(bytes) <= limit, 'ROLLOUT_CONFIGURATION_TOO_LARGE');
   return { bytes, value: JSON.parse(bytes) };
 }
 
@@ -57,7 +63,8 @@ export function validateRolloutHost(repository, current, next, pin, source, acti
     next.repository.runner.actionCoreCommit === pin.commit &&
     next.repository.eventRunner.reusable?.commit === pin.commit &&
     next.repository.eventCaller?.reusable?.commit === pin.commit &&
-    digest(next.sharedRunner ?? null) === digest(current.sharedRunner ?? null),
+    digest(next.sharedRunner ?? null) === digest(current.sharedRunner ?? null) &&
+    digest(next.repository.isolation) === digest(current.repository.isolation),
   'ROLLOUT_HOST_BINDING_MISMATCH');
 }
 
@@ -136,20 +143,38 @@ export async function promoteHost() {
     'ROLLOUT_REQUIRES_HOST_ADMINISTRATOR');
   const lockPath = '/etc/nibfin/rollout.lock';
   await rootOwnedPath('/etc/nibfin');
-  const lock = await open(lockPath, 'wx', 0o600);
+  const gate = await open('/etc/nibfin/rollout',
+    constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
   try {
-    return await withManagedAdmission(() => promoteLockedHost());
-  } finally {
-    await lock.close();
-    await unlink(lockPath);
-  }
+    return await withKernelGate(gate, async () => {
+      // Only our own tagged lock can be recovered under this kernel gate.
+      const marker = '"host-rollout-v2"\n';
+      try {
+        const existing = await readTrusted(lockPath);
+        requireThat(existing.bytes === marker, 'HOST_ROLLOUT_OR_ADOPTION_UNRESOLVED');
+      } catch (error) {
+        if (error.code !== 'ENOENT') throw error;
+        const file = await open(lockPath, 'wx', 0o600);
+        try { await file.writeFile(marker); await file.sync(); }
+        finally { await file.close(); }
+      }
+      try { return await withManagedAdmission(() => promoteLockedHost()); }
+      finally { await unlink(lockPath); }
+    });
+  } finally { await gate.close(); }
 }
 
 async function promoteLockedHost() {
-  await requireNoRetirement();
-  const { value: plan } = await readTrusted(planPath);
+  await requireNoRetirement({ rollout: true });
+  const { value: plan } = await readTrusted(planPath, 4 * 1024 * 1024);
   requireThat(isSha(plan.pin?.commit) && isSha(plan.actionCommit) &&
     plan.pin.repository === 'taco3064/nibfin-core', 'INVALID_ROLLOUT_PLAN');
+  await requireRolloutClosure(plan);
+  await requirePromotionSettlement(plan);
+  if (plan.apply) {
+    validateApplyIntent(plan);
+    return resumeHostApply(plan);
+  }
   const staged = `/opt/nibfin/core-staged-${plan.pin.commit}`;
   await rootOwnedPath(coreRoot);
   await rootOwnedPath(staged);
@@ -181,30 +206,12 @@ async function promoteLockedHost() {
   const oldPin = primary.current.value.installation.pin;
   requireThat(hosts.every(host => digest(host.current.value.installation.pin) ===
     digest(oldPin)), 'ROLLOUT_EXISTING_HOSTS_DIVERGED');
-  const agentProfiles = hosts.map(host => host.next.value.repository.isolation.agent);
-  const primaryConfig = primary.current.value;
-  const additional = primaryConfig.sharedRunner?.additionalRunner;
-  const secondaryIsolation = additional?.isolation &&
-    sharedSlotIsolation(primaryConfig, additional.uid);
-  if (secondaryIsolation) agentProfiles.push(secondaryIsolation.agent);
-  const networks = agentProfiles.map(agent => `${agent.socket}:${agent.network}`);
-  const gateways = agentProfiles.map(agent => `${agent.socket}:${agent.gatewayId}`);
-  const policies = agentProfiles.map(agent => agent.mcpPolicyDirectory).filter(Boolean);
-  requireThat([networks, gateways, policies].every(list =>
-    list.length === new Set(list).size), 'ROLLOUT_RUNNER_ISOLATION_SHARED');
+  const secondaryIsolation = validateRolloutIsolation(hosts.map(host => ({
+    current: host.current.value, next: host.next.value,
+  })));
   await verifyInstalledSource(coreRoot, oldPin);
   const backup = `/opt/nibfin/core-before-${plan.pin.commit}`;
   await requireMissing(backup, 'ROLLOUT_BACKUP_ALREADY_EXISTS');
-  const env = { PATH: '/usr/bin:/bin', LANG: 'C' };
-  const services = hosts.map(host => `${host.repository}-runner.service`);
-  if (secondaryIsolation)
-    services.push('nibfin-shared-runner@1.service', 'nibfin-shared-runner@2.service');
-  for (const service of services) {
-    const status = await command('/usr/bin/systemctl',
-      ['is-active', service],
-      { env, allowedExitCodes: [0, 3, 4] });
-    requireThat(status.stdout.toString().trim() === 'inactive', 'ROLLOUT_RUNNER_ACTIVE');
-  }
   for (const host of hosts) await idleContainers(host.current.value.repository.isolation);
   if (secondaryIsolation) await idleContainers(secondaryIsolation);
   for (const root of new Set(hosts.map(host => host.current.value.stateRoot))) {
@@ -214,40 +221,62 @@ async function promoteLockedHost() {
         await requireMissing(join(root, name, 'stage.lock'), 'ROLLOUT_FENCE_PRESENT');
     }
   }
-  const replace = async (path, bytes) => {
-    const temp = `${path}.rollout-${randomUUID()}`;
-    try {
-      await writeFile(temp, bytes, { mode: 0o644, flag: 'wx' });
-      await rename(temp, path);
-    } finally {
-      await unlink(temp).catch(error => { if (error.code !== 'ENOENT') throw error; });
-    }
-  };
-  const changed = [];
-  let stagedIsLive = false;
-  await rename(coreRoot, backup);
-  try {
-    await rename(staged, coreRoot);
-    stagedIsLive = true;
-    for (const host of targets) {
-      await replace(host.path, host.next.bytes);
-      changed.push(host);
-    }
-    await verifyInstalledSource(coreRoot, plan.pin);
-    for (const host of targets) {
-      requireThat((await readTrusted(host.path)).bytes === host.next.bytes,
-        'ROLLOUT_HOST_READBACK_MISMATCH');
-    }
-  } catch (error) {
-    for (const host of changed.reverse()) {
-      if (host.current) await replace(host.path, host.current.bytes);
-      else await unlink(host.path);
-    }
-    if (stagedIsLive) await rename(coreRoot, staged);
-    await rename(backup, coreRoot);
-    throw error;
+  const apply = { oldPin, source, completed: false, targets: targets.map(host => ({
+    path: host.path, current: host.current?.bytes ?? null,
+    next: JSON.stringify(host.next.value) + '\n',
+  })) };
+  apply.targets.push(...await rolloutPeerTargets(plan.binding, apply.targets,
+    validateRolloutHost, plan.pin, source, plan.actionCommit));
+  apply.resources = await prepareRolloutRelay(apply.targets);
+  const applying = { ...plan, apply, phase: 'applying',
+    pending: 'ROLLOUT_APPLY_REQUIRED' };
+  validateApplyIntent(applying);
+  await writeRetirementFile(planPath, applying);
+  return resumeHostApply(applying);
+}
+
+function validateApplyIntent(plan) {
+  validateRolloutRelay(plan.apply);
+  const targets = plan.apply?.targets;
+  const names = [...repositories.map(([, name]) => name), e2eHost];
+  requireThat(targets?.length === plan.binding.adoptions.length && names.every(name =>
+    targets.some(target => target.path === join('/etc/nibfin', name))),
+  'ROLLOUT_APPLY_INTENT_INVALID');
+  requireThat(targets.every(target => plan.binding.adoptions.some(adoption =>
+    adoption.path === target.path && adoption.bytes === target.current)),
+  'ROLLOUT_ADOPTION_CHANGED');
+  const hosts = repositories.map(([repository, name]) => {
+    const target = targets.find(item => item.path === join('/etc/nibfin', name));
+    return { repository, current: JSON.parse(target.current),
+      next: JSON.parse(target.next) };
+  });
+  validateRolloutHosts(hosts, plan.pin, plan.apply.source, plan.actionCommit);
+  for (const target of targets) {
+    if (names.some(name => target.path === join('/etc/nibfin', name))) continue;
+    const current = JSON.parse(target.current), next = JSON.parse(target.next);
+    validateRolloutHost(current.repository.approval.repository.split('/')[1],
+      current, next, plan.pin, plan.apply.source, plan.actionCommit);
   }
-  return { status: 'installed', source, actionCommit: plan.actionCommit,
-    repositories: targets.map(host => host.next.value.repository.runner.repository),
-    backup };
+  requireThat(hosts.every(host => digest(host.current.installation.pin) ===
+    digest(plan.apply.oldPin)), 'ROLLOUT_EXISTING_HOSTS_DIVERGED');
+  const e2e = targets.find(item => item.path === join('/etc/nibfin', e2eHost));
+  validateE2eRollout(JSON.parse(e2e.next), hosts[0].next, plan.apply.source);
+}
+
+export function validateRolloutIsolation(hosts) {
+  requireThat(hosts.every(host => digest(host.current.repository.isolation) ===
+    digest(host.next.repository.isolation)), 'ROLLOUT_RUNNER_ISOLATION_CHANGED');
+  const primary = hosts[0].current;
+  const second = primary.sharedRunner?.additionalRunner;
+  requireThat(second?.isolation, 'ROLLOUT_SHARED_SLOTS_REQUIRED');
+  const slots = [primary.runnerUid, second.uid]
+    .map(uid => sharedSlotIsolation(primary, uid));
+  const agents = slots.map(slot => slot.agent);
+  for (const key of ['network', 'gatewayId', 'mcpPolicyDirectory']) {
+    const values = agents.map(agent => agent[key] && `${agent.socket}:${agent[key]}`)
+      .filter(Boolean);
+    requireThat(new Set(values).size === values.length,
+      'ROLLOUT_RUNNER_ISOLATION_SHARED');
+  }
+  return slots[1];
 }

@@ -48,7 +48,7 @@ export class NotificationRelay {
       await this.inspect();
       await observeRelayOrigin(this.reader, origin, config.coreCommit);
       const run = await observeRelayAttempt(
-        this.reader, origin, runId, config.coreCommit);
+        this.reader, origin, runId, config.coreCommit, { historical: true });
       const artifact = await observeRelayArtifact(this.reader, origin, run);
       if (artifact.expired) {
         await this.journal.write({ origin: key, status: 'skipped',

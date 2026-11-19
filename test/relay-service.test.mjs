@@ -97,16 +97,21 @@ test('abruptly terminated lock holder releases the kernel gate on restart', asyn
   const fixture = await relayFixture(t);
   const modulePath = fileURLToPath(new URL('../src/relay-state.mjs', import.meta.url));
   const script = `import {withRelayGate} from ${JSON.stringify(modulePath)};\n` +
+    'import {once} from "node:events";\n' +
     `await withRelayGate(${JSON.stringify(fixture.root)}, async () => {\n` +
-    'process.stdout.write("ready\\n"); setInterval(() => {}, 1000);\n' +
-    'await new Promise(() => {}); });';
-  const child = spawn(process.execPath, ['--input-type=module', '-e', script],
-    { stdio: ['ignore', 'pipe', 'pipe'] });
+    // A real pending event keeps the operation and its FileHandle reachable.
+    // An unresolvable promise can be collected while an unrelated timer runs.
+    'const pending = once(process, "message");\n' +
+    'await new Promise(resolve => setImmediate(resolve));\n' +
+    'global.gc(); process.send("ready"); await pending; });';
+  const child = spawn(process.execPath,
+    ['--expose-gc', '--input-type=module', '-e', script],
+    { stdio: ['ignore', 'ignore', 'pipe', 'ipc'] });
   const closed = new Promise(resolve => child.once('close', resolve));
   t.after(() => { if (child.exitCode === null) child.kill('SIGKILL'); });
   await new Promise((resolve, reject) => {
-    child.stdout.once('data', resolve); child.once('error', reject);
-    child.once('exit', code => { if (code) reject(new Error('holder exited')); });
+    child.once('message', resolve); child.once('error', reject);
+    child.once('exit', () => reject(new Error('holder exited before readiness')));
   });
   const concurrent = await withRelayGate(fixture.root, () => 'impossible');
   assert.equal(concurrent.code, 'RELAY_BUSY');

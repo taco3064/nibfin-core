@@ -1,3 +1,4 @@
+import { inspectLegacyWakeEntry } from './legacy-wake-state.mjs';
 import { readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { requireThat, digest } from './identity.mjs';
@@ -5,10 +6,12 @@ import { readPrivate, privateResource } from './managed-credential-files.mjs';
 
 // Existing stage fences survive until both containers and journal effects settle.
 // Inspect only Controller state, never workspaces or untrusted repository files.
-export async function managedSettlement(host) {
-  const inspectJournal = async directory => {
+export async function managedSettlement(host, { legacyReplacement } = {}) {
+  const inspectJournal = async (directory, wake = false) => {
     await privateResource(directory, host.uid, true);
     for (const name of await readdir(directory)) {
+      if (wake && await inspectLegacyWakeEntry(directory, name, host.uid,
+        legacyReplacement, inspectJournal)) continue;
       if (/^evidence-[a-f0-9]{64}$/.test(name)) {
         const evidence = join(directory, name);
         await privateResource(evidence, host.uid, true);
@@ -36,7 +39,7 @@ export async function managedSettlement(host) {
   if (entries.includes('receipts'))
     await inspectJournal(join(host.stateRoot, 'receipts'));
   for (const name of entries) {
-    if (name === 'wake') await inspectJournal(join(host.stateRoot, name));
+    if (name === 'wake') await inspectJournal(join(host.stateRoot, name), true);
     if (!/^issue-[1-9][0-9]*-[1-9][0-9]*$/.test(name)) continue;
     const root = join(host.stateRoot, name);
     await privateResource(root, host.uid, true);

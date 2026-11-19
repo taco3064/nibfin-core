@@ -14,13 +14,13 @@ export async function syncRecoveryDirectory(directory) {
 }
 
 // Snapshot both identity and bytes. Identical replacement files are changes too.
-export async function recoveryFile(path, limit = 16384) {
+export async function recoveryFile(path, limit = 16384, uid = process.getuid()) {
   requireThat(await realpath(path) === resolve(path), 'UNSAFE_RECOVERY_LOCK');
   const handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW |
     constants.O_NONBLOCK);
   try {
     const stat = await handle.stat();
-    requireThat(stat.isFile() && stat.uid === process.getuid() && stat.nlink === 1 &&
+    requireThat(stat.isFile() && stat.uid === uid && stat.nlink === 1 &&
       (stat.mode & 0o077) === 0 && stat.size <= limit, 'UNSAFE_RECOVERY_LOCK');
     const before = fileIdentity(await handle.stat({ bigint: true }));
     const bytes = await handle.readFile('utf8');
@@ -31,14 +31,16 @@ export async function recoveryFile(path, limit = 16384) {
   } finally { await handle.close(); }
 }
 
-export async function inspectRecoveryFile(path, snapshot, limit = 16384) {
-  const current = await recoveryFile(path, limit);
+export async function inspectRecoveryFile(
+  path, snapshot, limit = 16384, uid = process.getuid(),
+) {
+  const current = await recoveryFile(path, limit, uid);
   requireThat(current.bytes === snapshot.bytes && current.identity === snapshot.identity,
     'RECOVERY_LOCK_CHANGED');
 }
 
 // A crashed recovery retains this guard. Never steal a guard on PID/age evidence.
-export async function exclusiveRecovery(directory, use) {
+export async function exclusiveRecovery(directory, use, uid = process.getuid()) {
   const path = join(directory, 'recovery.lock');
   let file;
   try {
@@ -52,11 +54,12 @@ export async function exclusiveRecovery(directory, use) {
   let snapshot;
   try {
     const bytes = JSON.stringify({ nonce: randomUUID(), pid: process.pid });
+    await file.chown(uid, -1);
     await file.writeFile(bytes);
     await file.sync();
     await syncRecoveryDirectory(directory);
     const identity = fileIdentity(await file.stat({ bigint: true }));
-    const current = await recoveryFile(path);
+    const current = await recoveryFile(path, 16384, uid);
     requireThat(current.bytes === bytes && current.identity === identity,
       'RECOVERY_LOCK_CHANGED');
     snapshot = current;
@@ -64,7 +67,7 @@ export async function exclusiveRecovery(directory, use) {
   } finally {
     await file.close();
     if (snapshot) {
-      await inspectRecoveryFile(path, snapshot);
+      await inspectRecoveryFile(path, snapshot, 16384, uid);
       await unlink(path);
       await syncRecoveryDirectory(directory);
     }
@@ -73,16 +76,18 @@ export async function exclusiveRecovery(directory, use) {
 
 // Ordinary acquisition never calls this. A retained execution lock stays in place
 // throughout read-back and is removed only after durable, exact reconciliation.
-export async function retainedRecovery(directory, decision, proof, use) {
+export async function retainedRecovery(
+  directory, decision, proof, use, uid = process.getuid(),
+) {
   return exclusiveRecovery(directory, async () => {
     const path = join(directory, 'execution.lock');
-    const snapshot = await recoveryFile(path);
+    const snapshot = await recoveryFile(path, 16384, uid);
     const lock = JSON.parse(snapshot.bytes);
     requireThat(isId(lock.pid) && lock.pid === proof.pid &&
       lock.decision === decision, 'RECOVERY_DECISION_MISMATCH');
     const inspect = async () => {
       await proof.prove();
-      await inspectRecoveryFile(path, snapshot);
+      await inspectRecoveryFile(path, snapshot, 16384, uid);
     };
     await inspect();
     const result = await use(inspect);
@@ -90,5 +95,5 @@ export async function retainedRecovery(directory, decision, proof, use) {
     await unlink(path);
     await syncRecoveryDirectory(directory);
     return result;
-  });
+  }, uid);
 }

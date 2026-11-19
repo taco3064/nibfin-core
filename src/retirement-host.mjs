@@ -1,3 +1,4 @@
+import { requireNoRollout } from './rollout-admission.mjs';
 import { verifySharedSlotIdentity } from './shared-slot-identity.mjs';
 import { RetirementServices, retirementServiceEffects }
   from './retirement-services.mjs';
@@ -113,6 +114,7 @@ export async function retireSharedHost() {
     coreRoot === '/opt/nibfin/core', 'RETIREMENT_REQUIRES_LOCAL_ADMIN');
   await rootOwnedPath(coreRoot);
   return withRetirementLock(async () => {
+    await requireNoRollout();
     await rootOwnedPath(hostFile);
     const bytes = await boundedHostFile(hostFile, 262144);
     const host = JSON.parse(bytes);
@@ -182,8 +184,10 @@ export async function retireSharedHost() {
       performEffect: async (name, state) => {
         if (name === 'relay-pause') return controlNotificationRelay(true);
         if (name === 'close-admission') {
-          const result = await withPoolGate(host, () =>
-            writeRetirementFile(drainPath, marker(state)));
+          const result = await withPoolGate(host, async () => {
+            await requireNoRollout();
+            await writeRetirementFile(drainPath, marker(state));
+          });
           requireThat(result?.status !== 'pending', 'RETIREMENT_ADMISSION_BUSY');
           return;
         }

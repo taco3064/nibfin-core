@@ -59,6 +59,7 @@ with tempfile.TemporaryDirectory(prefix='.nibfin-rollout-resume-',
     settings['RATE_WAIT'] = root / 'rate-wait'
     settings['os'].getuid = lambda: 0
     settings['read_manual_credential'] = lambda hosts: 'synthetic-token'
+    settings['recover_legacy_wakes'] = lambda: None
     settings['next_rollout'] = lambda *args: None
     settings['clean_superseded_staged_packages'] = lambda *args: None
     host['installation']['pin'] = {'commit': 'a' * 40}

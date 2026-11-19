@@ -78,6 +78,7 @@ export async function observeWake(
   if (!nativePolicy) await readMemberPermission(reader, issue.repository, actor);
   const observed = {
     issue,
+    coreCommit: record.source.commit,
     approvalHash: approval.approvalHash,
     actorId,
     route,
@@ -123,6 +124,31 @@ function pauseBinding(pause) {
   return { status, effective, visible, repair, events: events.filter(pauseEvent) };
 }
 
+function assertWakeRun(run, initial, workflow, runId) {
+  const destinationId = () => workflow.repositoryId ?? initial.issue.repositoryId;
+  requireThat(
+    run.id === runId &&
+      run.event === 'workflow_dispatch' &&
+      run.workflow_id === workflow.id &&
+      run.path === workflow.path &&
+      run.repository?.id === destinationId() &&
+      run.head_repository?.id === destinationId() &&
+      run.head_sha === workflow.commit &&
+      run.head_branch === workflow.ref &&
+      run.actor?.id === initial.actorId &&
+      run.run_attempt === 1,
+    'DISPATCH_RUN_MISMATCH',
+  );
+}
+
+export async function observeWakeAttempt(reader, initial, runId) {
+  const destination = initial.workflow.repository ?? initial.issue.repository;
+  const run = await reader.get(`${repoPath(destination)}/actions/runs/${runId}` +
+    '/attempts/1');
+  assertWakeRun(run, initial, initial.workflow, runId);
+  return run;
+}
+
 // The native 2026-03-10 dispatch endpoint returns the actual run ID. A 204 or
 // lost response is unknown, never permission to dispatch again. The returned
 // receipt means a matching run was observed, not that its stage was admitted.
@@ -146,6 +172,26 @@ export class WakeDispatcher {
     this.#journal = journal;
     this.#fetch = fetcher;
   }
+  async #readBack(initial, workflow, runId) {
+    const { issue } = initial;
+    const bindingHash = digest(initial);
+    const destination = () => workflow.repository ?? issue.repository;
+    const run = await this.#reader.get(
+      `${repoPath(destination())}/actions/runs/${runId}`,
+      { retryNotFound: true },
+    );
+    assertWakeRun(run, initial, workflow, runId);
+    return bindingHash;
+  }
+  // Reconcile only a durable known effect; never observe admission or POST here.
+  async reconcile(initial) {
+    const bindingHash = digest(initial);
+    const result = await this.#journal.recoverWake(bindingHash,
+      runId => this.#readBack(initial, initial.workflow, runId));
+    return result.status === 'completed'
+      ? { status: 'scheduled', runId: result.runId, bindingHash, stageAdmitted: false }
+      : result;
+  }
   async dispatch() {
     let initial;
     try {
@@ -158,10 +204,9 @@ export class WakeDispatcher {
     const { issue } = initial;
     let workflow = initial.workflow;
     const destination = () => workflow.repository ?? issue.repository;
-    const destinationId = () => workflow.repositoryId ?? issue.repositoryId;
     let admissionCode;
     const result = await this.#journal.run(
-      { operation: 'wake', bindingHash },
+      { operation: 'wake', bindingHash, observation: initial },
       {
         admit: async () => {
           try {
@@ -227,26 +272,7 @@ export class WakeDispatcher {
           );
           return runId;
         },
-        readBack: async (runId) => {
-          const run = await this.#reader.get(
-            `${repoPath(destination())}/actions/runs/${runId}`,
-            { retryNotFound: true },
-          );
-          requireThat(
-            run.id === runId &&
-              run.event === 'workflow_dispatch' &&
-              run.workflow_id === workflow.id &&
-              run.path === workflow.path &&
-              run.repository?.id === destinationId() &&
-              run.head_repository?.id === destinationId() &&
-              run.head_sha === workflow.commit &&
-              run.head_branch === workflow.ref &&
-              run.actor?.id === initial.actorId &&
-              run.run_attempt === 1,
-            'DISPATCH_RUN_MISMATCH',
-          );
-          return bindingHash;
-        },
+        readBack: runId => this.#readBack(initial, workflow, runId),
       },
     );
     return result.status === 'completed'

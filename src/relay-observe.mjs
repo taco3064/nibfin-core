@@ -22,12 +22,22 @@ export async function observeRelayOrigin(reader, origin, coreCommit) {
   return repo;
 }
 
-export async function observeRelayAttempt(reader, origin, runId, coreCommit) {
+export async function observeRelayAttempt(reader, origin, runId, coreCommit,
+  { historical = false } = {}) {
   requireThat(isId(runId), 'INVALID_RELAY_ORIGIN');
   // Never infer the original outcome from a later run/rerun's current status.
   const run = await reader.get(
     `${repoPath(origin.repository)}/actions/runs/${runId}/attempts/1`);
   const reference = run.referenced_workflows?.[0];
+  let eventCore = coreCommit;
+  if (historical && isSha(reference?.sha) && reference.sha !== coreCommit) {
+    const comparison = await reader.get('/repos/taco3064/nibfin-core/compare/' +
+      `${reference.sha}...${coreCommit}`);
+    requireThat(comparison.status === 'ahead' &&
+      comparison.merge_base_commit?.sha === reference.sha,
+    'RELAY_ORIGINAL_SOURCE_UNRELATED');
+    eventCore = reference.sha;
+  }
   requireThat(run.id === runId && run.run_attempt === 1 && run.event === 'issues' &&
     run.status === 'completed' && run.conclusion === 'success' &&
     run.workflow_id === origin.workflow.id && run.path === origin.workflow.path &&
@@ -36,11 +46,21 @@ export async function observeRelayAttempt(reader, origin, runId, coreCommit) {
     run.head_repository?.id === origin.repositoryId && isSha(run.head_sha) &&
     isId(run.actor?.id) && run.actor.id === run.triggering_actor?.id &&
     Array.isArray(run.referenced_workflows) && run.referenced_workflows.length === 1 &&
-    reference.path === 'taco3064/nibfin-core/.github/workflows/issue.yml@' + coreCommit &&
-    reference.sha === coreCommit, 'RELAY_ORIGINAL_NOT_ELIGIBLE');
-  await readCallerContinuity(reader, origin.repository, origin.workflow, run.head_sha);
+    reference.path === 'taco3064/nibfin-core/.github/workflows/issue.yml@' + eventCore &&
+    reference.sha === eventCore, 'RELAY_ORIGINAL_NOT_ELIGIBLE');
+  if (historical && run.head_sha !== origin.workflow.commit) {
+    // The adopted caller advanced during promotion. Validate the original
+    // recipe at its authenticated head, then prove that head precedes adoption;
+    // current-to-old continuity would incorrectly refuse every upgraded origin.
+    const ancestry = await reader.get(`${repoPath(origin.repository)}/compare/` +
+      `${run.head_sha}...${origin.workflow.commit}`);
+    requireThat(ancestry.status === 'ahead' &&
+      ancestry.merge_base_commit?.sha === run.head_sha,
+    'RELAY_ORIGINAL_SOURCE_UNRELATED');
+  } else await readCallerContinuity(reader, origin.repository, origin.workflow,
+    run.head_sha);
   await readCallerSource(reader, origin.repository, origin.workflow, run.head_sha,
-    { kind: 'issue-managed', coreCommit });
+    { kind: 'issue-managed', coreCommit: eventCore });
   return run;
 }
 
@@ -96,4 +116,13 @@ export async function reconcileRelayRun(reader, intent, runId) {
   requireThat(run.id === runId && relayRunMatches(run, intent),
     'RELAY_RUN_READBACK_UNKNOWN');
   return runId;
+}
+
+export async function reconcileRelayAttempt(reader, intent, runId) {
+  requireThat(isId(runId), 'RELAY_RUN_READBACK_UNKNOWN');
+  const run = await reader.get(`${repoPath(intent.destination.repository)}` +
+    `/actions/runs/${runId}/attempts/1`);
+  requireThat(run.id === runId && relayRunMatches(run, intent),
+    'RELAY_RUN_READBACK_UNKNOWN');
+  return run;
 }
