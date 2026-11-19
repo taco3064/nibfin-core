@@ -15,6 +15,7 @@ import { issueProgress } from './issue-progress.mjs';
 import { OperationJournal } from './operation-journal.mjs';
 import { RecoveryEvidenceSnapshot } from './recovery-evidence-snapshot.mjs';
 import { idleContainers } from './host-containers.mjs';
+import { retireRecoveredRoleSessions } from './role-sessions.mjs';
 import { proveDeliverProcesses } from './deliver-recovery-processes.mjs';
 import { deliverExecutionEvidence, terminalDeliverJob }
   from './deliver-recovery-evidence.mjs';
@@ -74,6 +75,10 @@ const recordIdentity = record => digest({ fence: record.fence,
 const completed = record => ({ status: 'completed', code: 'DELIVER_FENCE_RECOVERED',
   executionId: record.execution.id, recovery: record.id });
 
+const retireSessions = (root, record) => retireRecoveredRoleSessions(
+  join(root, 'agent'), [record.execution,
+    ...(record.coverage?.retained ?? []).map(entry => entry.execution).filter(Boolean)]);
+
 // Seams are private module dependencies, never selected by the public caller.
 export async function recoverAdoptedDeliverFence(context, {
   observeBoot = linuxBootId, containers = idleContainers,
@@ -122,6 +127,7 @@ export async function recoverAdoptedDeliverFence(context, {
           records.push(record);
         }
         records.sort((a, b) => b.recordedAt - a.recordedAt);
+        for (const record of records) await retireSessions(root, record);
         return completed(records[0]);
       }
       return reconcile(context, approval, root, path, snapshot,
@@ -222,6 +228,7 @@ async function reconcile(context, approval, root, path, snapshot, observers) {
   await observe();
   await inspectRecoveryFile(archive, saved, recordLimit);
   await inspectRecoveryFile(path, snapshot);
+  await retireSessions(root, previous);
   await unlink(path);
   await syncRecoveryDirectory(dirname(path));
   return completed(previous);
