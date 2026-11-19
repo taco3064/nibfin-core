@@ -4,9 +4,9 @@ import { chmod, mkdir, readFile, readdir, rename, unlink, writeFile }
   from 'node:fs/promises';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { deliverRecoveryFixture } from './deliver-recovery-fixture.mjs';
+import { deliverRecoveryFixture, writeSyntheticRecoveryFence }
+  from './deliver-recovery-fixture.mjs';
 import { continueStages } from '../src/stage-continuation.mjs';
-import { acquireHostFence } from '../src/host-fence.mjs';
 import { digest } from '../src/identity.mjs';
 import { claimMcpJob } from '../src/mcp-job.mjs';
 import { makeBlockerReport } from '../src/blocker-report.mjs';
@@ -46,7 +46,7 @@ for (const outer of ['deliver', 'shape']) {
         } });
       assert.deepEqual(calls, ['deliver']);
       assert.equal(result.code, 'ADMISSION_RECHECK');
-      await acquireHostFence(f.issueRoot, { fresh: true });
+      await writeSyntheticRecoveryFence(f.issueRoot, { fresh: true });
       assert.equal((await f.recover()).status, 'pending');
       assert.equal(JSON.parse(await readFile(f.fencePath)).binding.fresh, true);
     });
@@ -190,12 +190,10 @@ async function unrelatedRelay(f) {
   const directory = join(f.root, 'issue-10-3');
   await mkdir(directory, { mode: 0o700 });
   const path = join(directory, 'stage.lock');
-  await acquireHostFence(directory, { host: digest(f.context.hostBytes),
+  const fence = await writeSyntheticRecoveryFence(directory, {
+    host: digest(f.context.hostBytes),
     issueId: 'I_other', execution: { jobId: 31 } },
-  async () => JSON.parse(f.fenceBytes).bootId);
-  const fence = JSON.parse(await readFile(path, 'utf8'));
-  Object.assign(fence, { pid: 7001, startTicks: '1' });
-  await writeFile(path, JSON.stringify(fence));
+  { bootId: JSON.parse(f.fenceBytes).bootId, pid: 7001, startTicks: '1' });
   f.processes.push({ pid: 7001, state: 'S', startTicks: '1', parent: 1,
     command: ['node', '/opt/nibfin/core/bin/nibfin-controller.mjs'] },
   { pid: 7002, state: 'S', startTicks: '2', parent: 7001, command: ['helper'] });

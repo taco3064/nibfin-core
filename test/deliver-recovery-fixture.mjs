@@ -1,6 +1,7 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { acquireHostFence, issueStatePath } from '../src/host-fence.mjs';
+import { randomUUID } from 'node:crypto';
+import { issueStatePath, privateHostDirectory } from '../src/host-fence.mjs';
 import { digest } from '../src/identity.mjs';
 import { hostExecution } from '../src/host-launcher.mjs';
 import { EvidenceStore } from '../src/evidence-store.mjs';
@@ -11,6 +12,20 @@ import { proveDeliverProcesses } from '../src/deliver-recovery-processes.mjs';
 import { recoveryFixtureRoot } from './recovery-fixture-root.mjs';
 
 export const boot = '11111111-1111-4111-8111-111111111111';
+
+// Recovery consumes synthetic historical owners, not this test process. Native
+// fence acquisition and /proc identity remain covered by host-fence.test.mjs.
+export async function writeSyntheticRecoveryFence(directory, binding, {
+  pid = 900001, bootId = boot, startTicks,
+} = {}) {
+  await privateHostDirectory(directory);
+  const fence = { nonce: randomUUID(), binding, pid, bootId,
+    ...(startTicks === undefined ? {} : { startTicks }) };
+  await writeFile(join(directory, 'stage.lock'), JSON.stringify(fence), {
+    flag: 'wx', mode: 0o600,
+  });
+  return fence;
+}
 
 export async function deliverRecoveryFixture(t, outer = 'deliver', rootOptions = {}) {
   const { root, environment } = await recoveryFixtureRoot(t, rootOptions);
@@ -78,14 +93,9 @@ export async function deliverRecoveryFixture(t, outer = 'deliver', rootOptions =
   await journal.run(request, { admit: async () => request.bindingHash,
     perform: async () => { effects++; return { id: 1 }; },
     readBack: async () => request.bindingHash });
-  await acquireHostFence(issueRoot, { host: digest(hostBytes), issueId: subject.id,
-    execution: hostExecution(runner, outer) }, async () => boot);
+  await writeSyntheticRecoveryFence(issueRoot, { host: digest(hostBytes),
+    issueId: subject.id, execution: hostExecution(runner, outer) });
   const fencePath = join(issueRoot, 'stage.lock');
-  // Synthetic legacy owner, with no historical start or termination fields.
-  const fence = JSON.parse(await readFile(fencePath, 'utf8'));
-  fence.pid = 900001;
-  delete fence.startTicks;
-  await writeFile(fencePath, JSON.stringify(fence));
   const fenceBytes = await readFile(fencePath, 'utf8');
   const processes = [];
   let observations = 0;
