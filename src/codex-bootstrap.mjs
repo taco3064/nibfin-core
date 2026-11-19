@@ -82,7 +82,11 @@ setTimeout(() => { socket.destroy(); passed(); }, 1500);
 // Both bootstrap and real CLI diagnostics use these exact argument recipes.
 export function sandboxProbeArguments(plan, proxyHost, controllerPid, jobVm = false) {
   return [
-    ...plan.settings, 'sandbox', '--permissions-profile', 'nibfin',
+    ...plan.settings,
+    // Startup runs in the model container, before any project command. In VM
+    // mode its /work copy is read-only; Core's private probe uses private tmp.
+    '-c', 'shell_environment_policy.set.TMPDIR="/tmp/tool-home"',
+    'sandbox', '--permissions-profile', 'nibfin',
     '--include-managed-config', '--cd', '/tmp/tool-home', '--',
     '/usr/local/bin/node', '-e', denialProbe, proxyHost,
     ...(controllerPid === undefined ? [] : [String(controllerPid)]),
@@ -178,6 +182,10 @@ socket.pipe(process.stdout);
     'default = "job"', 'include_local = false', '[[environments]]', 'id = "job"',
     'program = "/usr/local/bin/node"', 'args = ' + JSON.stringify(['-e', relay]),
   ].join('\n'), { flag: 'wx', mode: 0o600 });
+  return forwardJobVmArguments(args);
+}
+
+export function forwardJobVmArguments(args) {
   return args.filter(arg => arg !== '--ignore-user-config').flatMap(arg =>
     arg === 'exec' ? [
     '-c', 'shell_environment_policy.set.NO_PROXY="127.0.0.1,localhost"',
@@ -200,6 +208,10 @@ export async function bootstrap() {
   if (!match || Number(match[1]) === 0 && Number(match[2]) < 138)
     throw new Error('MANAGED_PROFILE_UNSUPPORTED');
   await mkdir('/tmp/tool-home', { recursive: true, mode: 0o700 });
+  if (!jobVm) {
+    for (const directory of plan.toolDirectories)
+      await mkdir(directory, { recursive: true, mode: 0o700 });
+  }
   await copyFile('/auth/auth.json', '/agent-home/auth.json');
   if (plan.mcpPolicyHash) {
     await copyFile('/auth/mcp.toml', '/agent-home/config.toml');

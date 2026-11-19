@@ -9,6 +9,8 @@ import { digest, requireThat } from './identity.mjs';
 import { shareAgentMount, privateMountParent } from './agent-mounts.mjs';
 import { verifyWorkEgress } from './claude-work-egress.mjs';
 import { roleCapabilities } from './provider-contract.mjs';
+import { projectToolDirectories } from './project-tool-paths.mjs';
+import { prepareToolOutput } from './project-tool-output.mjs';
 import {
   claudeWorkChannel, claudeWorkSocket, claudeTools, bindClaudeWorkChannel,
 } from './claude-work-channel.mjs';
@@ -39,6 +41,7 @@ export class ClaudeWorkWorker {
   #deferDisposal;
   #containerId;
   #signal;
+  #toolOutput;
   constructor(config, admission, { run = command, host, backend, egress,
     deferDisposal = false } = {}) {
     this.#deferDisposal = deferDisposal;
@@ -97,6 +100,7 @@ export class ClaudeWorkWorker {
         args => this.#docker(args));
       check();
       const writable = roleCapabilities(a.stage).workspace === 'write';
+      if (writable) this.#toolOutput = await prepareToolOutput(a.work, a.executionId);
       for (const [path, write] of [[a.work, writable], [a.main, false],
         [a.input, false]]) await shareAgentMount(path, write);
       // The controller owns the private 0700 parent. Only this execution's
@@ -116,7 +120,9 @@ export class ClaudeWorkWorker {
         executionId: a.executionId, stage: a.stage,
         peer: [a.peer.uid - n.uidStart, a.peer.gid - n.gidStart],
         operations,
-        environment: Object.fromEntries(workEnvironment(egress).map(value => {
+        toolDirectories: projectToolDirectories(writable, a.executionId),
+        environment: Object.fromEntries(workEnvironment(egress, writable,
+          a.executionId).map(value => {
           const split = value.indexOf('=');
           return [value.slice(0, split), value.slice(split + 1)];
         })),
@@ -141,14 +147,15 @@ export class ClaudeWorkWorker {
       check();
       this.#active = true;
       const id = (await this.#docker(workContainerArgs(
-        this.#config, this.#name, this.#mounts, writable, inherited, egress)))
+        this.#config, this.#name, this.#mounts, writable, inherited, egress,
+        a.executionId)))
         .stdout.toString().trim();
       requireThat(/^[a-f0-9]{64}$/.test(id), 'CLAUDE_WORK_UNKNOWN_CONTAINER');
       const observed = JSON.parse((await this.#docker(['inspect', id])).stdout);
       requireThat(Array.isArray(observed) && observed.length === 1,
         'CLAUDE_WORK_AMBIGUOUS_CONTAINER');
       inspectWorkContainer(observed[0], { config: this.#config, name: this.#name,
-        id, mounts: this.#mounts, writable, egress });
+        id, mounts: this.#mounts, writable, egress, executionId: a.executionId });
       check();
       this.#containerId = id;
       await this.#docker(['start', id]);
@@ -204,7 +211,17 @@ export class ClaudeWorkWorker {
           await this.#docker(['rm', '--force', this.#name]);
         }
         requireThat(!await remaining(), 'CLAUDE_WORK_STILL_PRESENT');
+        if (this.#toolOutput?.owned) {
+          await this.#docker([
+            'run', '--rm', '--network=none', '--read-only', '--cap-drop=ALL',
+            '--security-opt=no-new-privileges', '--user=1000:1000',
+            '--mount', `type=bind,src=${this.#admission.work},dst=/work,` +
+              'bind-recursive=disabled', '--entrypoint', '/usr/local/bin/node',
+            this.#config.image, '-e', this.#toolOutput.cleanupScript,
+          ]);
+        }
       }
+      await this.#toolOutput?.dispose();
       const settled = { status: 'terminated', executionId: this.#admission.executionId,
         terminationHash: digest({ name: this.#name, absent: true }) };
       this.#settled = settled;

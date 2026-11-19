@@ -9,6 +9,7 @@ import {
   jobVmExecutorFailures, openJobVmExecRelay, probeJobVmExecutor,
 } from './job-vm-exec-relay.mjs';
 import { snapshotJobVmWorkspace } from './job-vm-workspace.mjs';
+import { projectToolDirectories, projectToolRoot } from './project-tool-paths.mjs';
 import { installJobVmWorkspace } from './job-vm-install.mjs';
 import { archiveJobVmTools } from './job-vm-tools.mjs';
 import { deliveryRoleTimeout } from './process.mjs';
@@ -135,7 +136,13 @@ async function runWriter(connect, directory, input, execute, signal) {
   const request = payload => transfer(connect, payload, signal);
   for (const name of ['work', 'main', 'input']) {
     const files = await snapshotJobVmWorkspace(input[name]);
-    const setup = await request({ operation: 'prepare', name, files });
+    const setup = await request({ operation: 'prepare', name, files,
+      ...(name === 'work' ? {
+        toolDirectories: (input.plan?.toolDirectories ??
+          projectToolDirectories(true)).map(path => path.slice(6)),
+        toolRoot: (input.plan?.toolRoot ?? projectToolRoot(true)).slice(6),
+      } : {}),
+    });
     requireThat(setup?.ready === true, 'JOB_VM_WORKSPACE_TRANSFER_FAILED');
   }
   const relay = join(directory, 'exec.sock');

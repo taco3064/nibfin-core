@@ -43,8 +43,8 @@ test('candidate text cannot change command, configuration or role boundaries', (
   assert.equal(filesystem['/usr/bin'], 'read');
   assert.equal(filesystem['/work'], 'write');
   const shell = plan.config['shell_environment_policy.set'];
-  assert.equal(shell.npm_config_cache, '/tmp/tool-home/.cache/npm');
-  assert.equal(shell.GOCACHE, '/tmp/tool-home/.cache/go-build');
+  assert.equal(shell.npm_config_cache, '/work/.nibfin-cache/tools/cache/npm');
+  assert.equal(shell.GOCACHE, '/work/.nibfin-cache/tools/cache/go-build');
   assert.match(plan.settings.join('\n'), /"\/proc" = "read"/);
   for (const path of ['/auth', '/agent-home', '/io']) {
     assert.equal(plan.config['permissions.nibfin.filesystem'][path], 'deny');

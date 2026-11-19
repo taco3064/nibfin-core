@@ -9,3 +9,4 @@ website/dist/
 .npm/
 .nibfin-rollout-resume-*/
 /.deliver-test-tmp/
+/.nibfin-cache/
