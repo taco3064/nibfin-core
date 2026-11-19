@@ -3,6 +3,7 @@ export { observeLocalWork } from './local-work-observation.mjs';
 import { managedPreparationCapability } from './managed-resource-contract.mjs';
 import { managedSharedAdmission } from './shared-admission-policy.mjs';
 import { claudeModelComponent } from './claude-model-runner.mjs';
+import { coreMaintenanceContract } from './core-maintenance-contract.mjs';
 export { createClaudePrivateRunner } from './claude-model-runner.mjs';
 
 // Versioned public exports. Thin consumers call Core; they must not copy its
@@ -56,6 +57,14 @@ export const consumerContract = Object.freeze({
     retry: 'same explicit target; authoritative readback before repeating writes',
     installation: Object.freeze(['complete', 'pending']),
     continuation: Object.freeze(['dispatched', 'paused', 'pending']),
+  }),
+  coreOnlyRollout: Object.freeze({ ...coreMaintenanceContract,
+    command: 'rollout-core-only', input: 'native CD run ID and activation artifact ID',
+    preparationCommand: 'install-core-rollout-manager',
+    listenerActions: 'none', runtimeReplacement: false,
+    unsupported: 'CORE_ONLY_MAINTENANCE_REQUIRED',
+    maintenanceAuthorization: 'signed GitHub OIDC and exact native assigned Job',
+    consumer: 'separate fixed administrator bridge; ordinary Issue jobs are denied',
   }),
   installedLifecycleCompletion: Object.freeze({
     schemaVersion: 1, command: 'complete-installed-lifecycle', input: 'none',

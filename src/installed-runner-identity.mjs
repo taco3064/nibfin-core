@@ -80,8 +80,9 @@ export async function deriveOfficialRunnerIdentity(path, release, arch, local, {
 
 // Compatibility is attested by the already trusted bootstrap package contract,
 // never by ownership alone. A newer package uses deriveOfficialRunnerIdentity.
-export function legacyRunnerIdentity(local, target) {
-  const release = `v${sharedPlatforms.runnerVersion}`;
+export function legacyRunnerIdentity(local, target,
+  bootstrapVersion = sharedPlatforms.runnerVersion) {
+  const release = `v${bootstrapVersion}`;
   return facts({ name: target.runnerArchive,
     url: `https://github.com/actions/runner/releases/download/${release}/` +
       target.runnerArchive, sha256: target.runnerArchiveSha256 }, release,

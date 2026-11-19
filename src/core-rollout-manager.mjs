@@ -109,14 +109,15 @@ export async function installCoreRolloutManager() {
   } finally { await gate.close(); }
 }
 
-export async function runCoreRollout(run, artifact) {
+export async function runCoreRollout(run, artifact, { coreOnly = false } = {}) {
   const target = administratorTarget(run, artifact);
   await installedAdministrator();
   await rootOwnedPath(managerRoot);
   await rootOwnedPath(managerPin);
   const pin = JSON.parse(await readFile(managerPin, 'utf8'));
   await verifyOwnedSourcePackage(managerRoot, pin);
-  return runManagerProcess([String(target.runId), String(target.artifactId)]);
+  return runManagerProcess([...(coreOnly ? ['--core-only'] : []),
+    String(target.runId), String(target.artifactId)]);
 }
 
 function runManagerProcess(args) {
@@ -134,7 +135,9 @@ function runManagerProcess(args) {
     child.once('close', code => {
       try {
         const result = JSON.parse(Buffer.concat(chunks).toString());
-        requireThat([0, 2].includes(code), 'CORE_ROLLOUT_OPERATION_FAILED');
+        requireThat([0, 2].includes(code) ||
+          code === 1 && result.status === 'unsupported',
+          'CORE_ROLLOUT_OPERATION_FAILED');
         resolve(result);
       } catch (error) { reject(error); }
     });

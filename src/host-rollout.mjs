@@ -20,6 +20,11 @@ import { rootOwnedPath } from './host-paths.mjs';
 import { digest, isSha, requireThat } from './identity.mjs';
 import { verifyInstalledSource } from './source-package.mjs';
 import { sharedSlotIsolation } from './shared-runner.mjs';
+import { coreOnlyMaintenanceScope, requireCoreOnlyCompatibility }
+  from './core-only-policy.mjs';
+import { requireCoreOnlyPromotion } from './core-only-settlement.mjs';
+import { GitHubReader } from './github-read.mjs';
+import { readPrivate } from './managed-credential-files.mjs';
 
 const coreRoot = '/opt/nibfin/core';
 const planPath = '/etc/nibfin/rollout-plan.json';
@@ -162,7 +167,7 @@ export async function promoteHost(context) {
         finally { await file.close(); }
       }
       try {
-        const action = scope => promoteLockedHost(scope);
+        const action = scope => promoteLockedHost(scope, context);
         return context ? await withManagerAdmission(context, action) :
           await withManagedAdmission(action);
       }
@@ -171,16 +176,35 @@ export async function promoteHost(context) {
   } finally { await gate.close(); }
 }
 
-async function promoteLockedHost(credentialScope) {
+async function requirePromotionPolicy(plan, credentialScope, context) {
+  if (plan.mode !== 'core-only') return requirePromotionSettlement(plan, credentialScope);
+  requireManagerContext(context);
+  const primary = plan.binding.adoptions.find(item => item.path ===
+    '/etc/nibfin/host.json');
+  requireThat(primary, 'ROLLOUT_ADOPTION_CHANGED');
+  const host = JSON.parse(primary.bytes);
+  const token = (await readPrivate(host.tokenFile, host, 16384)).trim();
+  const reader = new GitHubReader(token);
+  const maintenance = await coreOnlyMaintenanceScope(plan, context, host, reader);
+  await requireCoreOnlyPromotion(plan, context, credentialScope, maintenance);
+  if (plan.apply) await requireCoreOnlyCompatibility(plan, context);
+}
+
+async function promoteLockedHost(credentialScope, context) {
   await requireNoRetirement({ rollout: true });
   const { value: plan } = await readTrusted(planPath, 4 * 1024 * 1024);
   requireThat(isSha(plan.pin?.commit) && isSha(plan.actionCommit) &&
     plan.pin.repository === 'taco3064/nibfin-core', 'INVALID_ROLLOUT_PLAN');
   await requireRolloutClosure(plan);
-  await requirePromotionSettlement(plan, credentialScope);
+  requireThat(plan.mode === undefined || plan.mode === 'core-only',
+    'INVALID_ROLLOUT_MODE');
+  await requirePromotionPolicy(plan, credentialScope, context);
+  const resume = applying => resumeHostApply(applying, plan.mode === 'core-only' ? {
+    beforeMutation: () => requirePromotionPolicy(applying, credentialScope, context),
+  } : {});
   if (plan.apply) {
     validateApplyIntent(plan);
-    return resumeHostApply(plan);
+    return resume(plan);
   }
   const staged = `/opt/nibfin/core-staged-${plan.pin.commit}`;
   await rootOwnedPath(coreRoot);
@@ -238,8 +262,9 @@ async function promoteLockedHost(credentialScope) {
   const applying = { ...plan, apply, phase: 'applying',
     pending: 'ROLLOUT_APPLY_REQUIRED' };
   validateApplyIntent(applying);
+  await requirePromotionPolicy(applying, credentialScope, context);
   await writeRetirementFile(planPath, applying);
-  return resumeHostApply(applying);
+  return resume(applying);
 }
 
 function validateApplyIntent(plan) {

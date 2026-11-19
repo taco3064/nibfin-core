@@ -6,8 +6,10 @@ import { pathToFileURL } from 'node:url';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { providerHost } from './provider-fixture.mjs';
+import { checkCoreMaintenance } from './core-maintenance-native-fixture.mjs';
+import { checkCoreOnlyRuntime } from './core-only-runtime-native-fixture.mjs';
 
-export async function checkInstalledObservation(manager, live, oldPin) {
+export async function checkInstalledObservation(manager, live, oldPin, manifestSource) {
   const mount = spawnSync('/usr/bin/mount',
     ['-t', 'tmpfs', '-o', 'mode=755', 'tmpfs', '/var/lib'], { encoding: 'utf8' });
   assert.equal(mount.status, 0, mount.stderr);
@@ -121,11 +123,16 @@ export async function checkInstalledObservation(manager, live, oldPin) {
     for (let attempt = 0; attempt < 3; attempt++) {
       const result = await withManagerAdmission(context, scope =>
         observeInstalledManager(context, scope, ports));
-      assert.deepEqual(result, { status: 'observed', pin: newPin });
+      const { currentPoolRuntime } = await module('core-only-runtime.mjs');
+      const runtime = await currentPoolRuntime(context);
+      assert.deepEqual(result, { status: 'observed', pin: newPin,
+        runtime: { nodePath: runtime.target.nodePath } });
       await assertNoCredentialConsumers(host);
     }
     assert.equal(calls.filter(call => call === 'taco3064/nibfin-e2e').length, 3);
     const binding = await bindRolloutPool(host, context, ports.identity);
+    await checkCoreMaintenance(module, context, host, binding);
+    await checkCoreOnlyRuntime(module, context, host, binding, manifestSource);
     const releasePlan = { pin: newPin, binding,
       originalServices: [{ slot: 1, running: true }, { slot: 2, running: false }],
       apply: { targets: binding.adoptions.map(item => ({

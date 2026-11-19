@@ -9,6 +9,7 @@ import { digest, sha256 } from '../src/identity.mjs';
 import { checkInstalledObservation } from './rollout-manager-observation-fixture.mjs';
 
 const source = resolve('.');
+const nodeBytes = await readFile(process.execPath);
 const parentNamespace = process.argv[2];
 assert.equal(process.getuid(), 0);
 assert.notEqual(await readlink('/proc/self/ns/mnt'), parentNamespace,
@@ -30,6 +31,17 @@ await mkdir('/opt/nibfin', { recursive: true });
 await cp(join(source, 'src'), join(manager, 'src'), { recursive: true });
 await cp(join(source, 'bin'), join(manager, 'bin'), { recursive: true });
 await cp(join(source, '.node-version'), join(manager, '.node-version'));
+// This is an isolated executable-byte fixture, not a claim that another Node
+// version was executed. The package manifest below authenticates its test data.
+const platformPath = join(manager, 'src/shared-platform.json');
+const platform = JSON.parse(await readFile(platformPath, 'utf8'));
+const arch = process.arch === 'x64' ? 'amd64' : 'arm64';
+platform.targets[arch].nodeSha256 = sha256(nodeBytes);
+await writeFile(platformPath, JSON.stringify(platform));
+const poolNode = `/opt/nibfin/tools/node-v${platform.nodeVersion}-linux-` +
+  `${platform.targets[arch].artifactArch}/bin/node`;
+await mkdir(resolve(poolNode, '..'), { recursive: true });
+await writeFile(poolNode, nodeBytes, { mode: 0o755 });
 await mkdir(join(manager, 'scripts'));
 for (const file of ['host-auto-rollout.py', 'core-rollout-admin.py',
   'core_rollout_coordinator.py'])
@@ -74,7 +86,8 @@ await writeFile('/usr/local/libexec/nibfin/core-rollout/source-pin.json',
   JSON.stringify(oldPin));
 const url = path => pathToFileURL(join(manager, 'src', path)).href;
 const { admitRolloutManager } = await import(url('rollout-manager-context.mjs'));
-const { applyRolloutTransaction } = await import(url('rollout-apply.mjs'));
+const { applyRolloutTransaction, resumeHostApply } =
+  await import(url('rollout-apply.mjs'));
 const { verifyInstalledSource } = await import(url('source-package.mjs'));
 const { sharedTarget } = await import(url('shared-platform.mjs'));
 const runtimePath = '/usr/local/libexec/nibfin/core-rollout/runtime.json';
@@ -121,6 +134,14 @@ for (const interruption of [1, 2, 3, 4]) {
     installation: { directory: live, pin: oldPin },
   }));
   const context = await admitRolloutManager();
+  // The actual publisher re-enters policy immediately before a mutation.
+  // A failed fresh policy check cannot rename the source or write a config.
+  await assert.rejects(resumeHostApply(plan, { beforeMutation: async () => {
+    throw new Error('fresh compatibility or settlement changed');
+  } }), /fresh compatibility or settlement changed/);
+  assert.equal(await context.installationPath(oldPin), live);
+  for (const target of targets)
+    assert.equal(await readFile(target.path, 'utf8'), target.current);
   const paths = { live, staged, backup };
   const writes = new Map();
   let count = 0;
@@ -158,13 +179,17 @@ for (const interruption of [1, 2, 3, 4]) {
   await applyRolloutTransaction(plan, ports);
   assert.ok([...writes.values()].every(value => value === 1));
   assert.equal(writes.size, 4);
+  const confirmed = JSON.parse(await readFile(planPath, 'utf8'));
+  await resumeHostApply(confirmed, { beforeMutation: async () => {
+    throw new Error('confirmed writes must not be repeated');
+  } });
   assert.equal(await context.installationPath(newPin), live);
   await assert.rejects(context.verifyInstallation({ ...newPin,
     manifestHash: 'f'.repeat(64) }),
   { code: 'ROLLOUT_MANAGER_HOST_SOURCE_MISMATCH' });
 }
 
-await checkInstalledObservation(manager, live, oldPin);
+await checkInstalledObservation(manager, live, oldPin, manifest);
 
 const protectedFile = join(manager, 'src/identity.mjs');
 const originalBytes = await readFile(protectedFile);

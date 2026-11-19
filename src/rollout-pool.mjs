@@ -31,6 +31,10 @@ import { settlePoolWork, observeRetirementUnit, assertRetirementCgroups,
   observeRetirementRegistrations, slotUnit, disabledRetirementUnit,
 } from './retirement-observe.mjs';
 import { command } from './process.mjs';
+import { coreOnlyMaintenanceScope, inspectCoreOnlyCompatibility,
+  requireCoreOnlyCompatibility } from './core-only-policy.mjs';
+import { requireCoreOnlyPromotion, verifyCoreOnlyInstalled }
+  from './core-only-settlement.mjs';
 import { rolloutPlanPath, rolloutClosurePath, rolloutMarker,
   requireRolloutClosure, publishRolloutClosure, removeRolloutClosure,
 } from './rollout-admission.mjs';
@@ -104,7 +108,7 @@ async function inspectBinding(plan) {
 // prerequisite replaced by the independent rollout closure. No retirement effects.
 export async function settleRolloutWork(host, reader, binding, {
   relayGateHeld = false, legacyReplacement, credentialScope,
-} = {}) {
+} = {}, ports) {
   const wakeRoot = join(host.stateRoot, 'wake');
   if (await optionalStat(wakeRoot)) {
     const { requireLegacyReplacementsSettled } =
@@ -121,7 +125,7 @@ export async function settleRolloutWork(host, reader, binding, {
   }
   await inspectRetirementSessions(host);
   await settlePoolWork(host, reader, binding, undefined,
-    { legacyReplacement, credentialScope });
+    { legacyReplacement, credentialScope }, ports);
 }
 
 export async function advanceRolloutPool(operation, context, credentialScope) {
@@ -133,7 +137,7 @@ export async function advanceRolloutPool(operation, context, credentialScope) {
     return recoverInstalledLegacyWakes();
   }
   const operations = ['legacy', 'prepare', 'close', 'stop', 'verify', 'release',
-    ...(context ? ['restore'] : [])];
+    ...(context ? ['restore', 'settle'] : [])];
   requireThat(operations.includes(operation),
     'INVALID_ROLLOUT_OPERATION');
   await rootOwnedPath(root);
@@ -142,6 +146,11 @@ export async function advanceRolloutPool(operation, context, credentialScope) {
     plan.pin.repository === 'taco3064/nibfin-core', 'INVALID_ROLLOUT_PLAN');
   const host = await readHost(join(root, rolloutHostNames[0]));
   await requireNoRetirement({ rollout: true });
+  const coreOnly = plan.mode === 'core-only';
+  requireThat(plan.mode === undefined || coreOnly, 'INVALID_ROLLOUT_MODE');
+  if (coreOnly) requireManagerContext(context);
+  const maintenanceScope = async () => coreOnlyMaintenanceScope(plan, context, host,
+    new GitHubReader((await readPrivate(host.tokenFile, host, 16384)).trim()));
   if (operation === 'legacy') {
     requireThat(plan.schemaVersion !== 2, 'ROLLOUT_PHASE_CHANGED');
     const { schemaVersion: unused, ...pool } = sharedHostRegistrations(host);
@@ -203,6 +212,12 @@ export async function advanceRolloutPool(operation, context, credentialScope) {
     const extras = await rolloutPeerTargets(binding, provisional, validateRolloutHost,
       plan.pin, source, plan.actionCommit);
     const resources = await prepareRolloutRelay(provisional);
+    if (coreOnly) {
+      const compatible = await inspectCoreOnlyCompatibility({ ...plan, binding,
+        compatibilityTargets: [...provisional, ...extras] }, context,
+      { prepareIdentity: true });
+      if (compatible.status !== 'compatible') return compatible;
+    }
     const originalServices = plan.originalServices ?? [];
     for (const slot of [1, 2]) {
       if (!context)
@@ -264,7 +279,21 @@ export async function advanceRolloutPool(operation, context, credentialScope) {
     plan = { ...plan, phase: 'verifying' };
   }
   await requireRolloutClosure(plan);
+  if (operation === 'settle') {
+    requireThat(coreOnly, 'CORE_ONLY_MODE_REQUIRED');
+    await inspectBinding(plan);
+    await requireCoreOnlyPromotion(plan, context, credentialScope,
+      await maintenanceScope());
+    await requireCoreOnlyCompatibility({ ...plan,
+      compatibilityTargets: await Promise.all(rolloutHostNames.map(async name => ({
+        path: join(root, name), current: await boundedHostFile(join(root, name), 262144),
+        next: await boundedHostFile(join(root, 'rollout', name), 262144),
+      }))) }, context);
+    await save({ phase: 'applying', pending: 'ROLLOUT_APPLY_REQUIRED' });
+    return { status: 'settled' };
+  }
   if (operation === 'stop') {
+    requireThat(!coreOnly, 'CORE_ONLY_LISTENER_STOP_FORBIDDEN');
     await inspectBinding(plan);
     const reader = new GitHubReader((await readPrivate(host.tokenFile, host, 16384))
       .trim());
@@ -290,6 +319,7 @@ export async function advanceRolloutPool(operation, context, credentialScope) {
   requireThat(plan.phase === 'verifying' && plan.apply?.completed,
     'ROLLOUT_APPLY_PENDING');
   if (operation === 'restore') {
+    requireThat(!coreOnly, 'CORE_ONLY_LISTENER_RESTART_FORBIDDEN');
     requireThat(plan.originalServices?.length === 2,
       'ROLLOUT_ORIGINAL_SERVICE_STATE_MISSING');
     await verifyInstalledSource('/opt/nibfin/core', plan.pin);
@@ -313,16 +343,24 @@ export async function advanceRolloutPool(operation, context, credentialScope) {
   if (operation === 'release') return withRolloutGates(host, async () => {
       await requireNoRetirement({ rollout: true });
       await requireRolloutClosure(plan);
-      await verifyInstalledRollout(plan, host, context, credentialScope);
+      if (coreOnly) {
+        await verifyCoreOnlyInstalled(plan, host, context, credentialScope,
+          await maintenanceScope());
+        await requireCoreOnlyCompatibility(plan, context);
+      } else await verifyInstalledRollout(plan, host, context, credentialScope);
       await save({ phase: 'complete', pending: null });
       await removeRolloutClosure(plan);
       return { status: 'complete' };
     });
-  await verifyInstalledRollout(plan, host, context, credentialScope);
+  if (coreOnly) {
+    await verifyCoreOnlyInstalled(plan, host, context, credentialScope,
+      await maintenanceScope());
+    await requireCoreOnlyCompatibility(plan, context);
+  } else await verifyInstalledRollout(plan, host, context, credentialScope);
   return { status: 'verified' };
 }
 
-async function readInstalledFacts(plan, host, context, {
+export async function readInstalledRolloutFacts(plan, host, context, {
   reader: createReader = token => new GitHubReader(token),
   enrollments = verifyRolloutEnrollments, workflow = sharedDispatchWorkflow,
   registrations: readRegistrations = observeRetirementRegistrations,
@@ -375,7 +413,7 @@ async function readInstalledFacts(plan, host, context, {
 // work must never be treated as an installation-observation failure.
 export async function verifyInstalledRollout(plan, host, context, credentialScope,
   ports = {}) {
-  const units = await readInstalledFacts(plan, host, context, ports);
+  const units = await readInstalledRolloutFacts(plan, host, context, ports);
   const supervisors = ports.supervisors ?? ((slot, plan, unit) =>
     new RetirementServices().supervisors(slot, plan, unit));
   const cgroups = ports.cgroups ?? assertRetirementCgroups;
@@ -413,18 +451,20 @@ export async function observeInstalledManager(context, credentialScope, ports = 
   const plan = { pin: host.installation.pin, binding, originalServices,
     apply: { targets: binding.adoptions.map(item => ({ path: item.path,
       current: item.bytes, next: item.bytes })) } };
-  await readInstalledFacts(plan, host, context, ports, true);
+  await readInstalledRolloutFacts(plan, host, context, ports, true);
+  const { currentPoolRuntime } = await import('./core-only-runtime.mjs');
+  const runtime = await currentPoolRuntime(context);
   requireThat(!await optionalStat(rolloutPlanPath), 'ROLLOUT_OPERATION_ACTIVE');
   requireThat(!await optionalStat(rolloutClosurePath), 'ROLLOUT_CLOSURE_CHANGED');
   await requireNoRetirement({ rollout: true });
-  return { status: 'observed', pin: host.installation.pin };
+  return { status: 'observed', pin: host.installation.pin,
+    runtime: { nodePath: runtime.target.nodePath } };
 }
 
-export async function requirePromotionSettlement(plan, credentialScope, {
+export async function requirePromotionWork(plan, credentialScope, {
   closure = requireRolloutClosure,
   reader = token => new GitHubReader(token),
-  settle = settleRolloutWork, unit = observeRetirementUnit,
-  cgroups = assertRetirementCgroups,
+  settle = settleRolloutWork,
 } = {}) {
   await closure(plan);
   const primary = plan.binding.adoptions.find(item => item.path === root + '/host.json');
@@ -432,6 +472,12 @@ export async function requirePromotionSettlement(plan, credentialScope, {
   const host = JSON.parse(primary.bytes);
   const provider = reader((await readPrivate(host.tokenFile, host, 16384)).trim());
   await settle(host, provider, plan.binding, { credentialScope });
+}
+
+export async function requirePromotionSettlement(plan, credentialScope, ports = {}) {
+  await requirePromotionWork(plan, credentialScope, ports);
+  const unit = ports.unit ?? observeRetirementUnit;
+  const cgroups = ports.cgroups ?? assertRetirementCgroups;
   for (const slot of [1, 2]) await unit(slot);
   await cgroups();
 }

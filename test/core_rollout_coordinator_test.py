@@ -1,5 +1,9 @@
 """Controlled native provider/filesystem ports; all fixtures stay in this repo."""
 import importlib.util
+import errno
+import stat
+import subprocess
+import sys
 import json
 from pathlib import Path
 import tempfile
@@ -204,6 +208,199 @@ class CoordinatorReplay(unittest.TestCase):
             {"id": 789, "name": "nibfin-activate-" + "a" * 40}])
         with self.assertRaises(RuntimeError):
             ADMIN.chosen_target(self.runtime, target, host)
+
+    def test_core_only_settles_without_stopping_or_restoring_listeners(self):
+        operations = []
+        original = self.runtime.pool_step
+
+        def pool(operation):
+            operations.append(operation)
+            return original(operation)
+
+        self.runtime.pool_step = pool
+        self.runtime.prepare_plan = lambda plan: {**plan, "mode": "core-only"}
+        self.replay()
+        self.assertIn("settle", operations)
+        self.assertNotIn("stop", operations)
+        self.assertNotIn("restore", operations)
+
+    def test_core_only_unsupported_preparation_has_no_apply_or_close(self):
+        self.runtime.prepare_plan = lambda plan: {**plan, "mode": "core-only"}
+        self.runtime.pool_step = lambda operation: {
+            "status": "unsupported", "code": "CORE_ONLY_MAINTENANCE_REQUIRED"}
+        result = COORDINATOR.rollout(self.runtime, {"core": {}},
+                                     (123, self.pins, []))
+        self.assertEqual(result["status"], "unsupported")
+        self.assertEqual(self.writes, [])
+        self.assertEqual(json.loads(self.path.read_text())["phase"], "prepared")
+
+    def test_core_only_completed_prepared_record_reuses_actual_result(self):
+        target = {"runId": 123, "artifactId": 456}
+        self.runtime.CORE = "core"
+        self.runtime.HOSTS = {"core": "host.json"}
+        self.runtime.sync_directory = lambda path: None
+        self.save(self.config / "host.json", {"installation": {
+            "pin": self.pins["core"]}})
+        self.save(self.path, {"mode": "core-only", "phase": "prepared",
+                              "administratorTarget": target})
+        self.merged = {"core", "e2e"}
+        with patch.object(ADMIN, "chosen_target", return_value=(123, self.pins, [])), \
+                patch.object(ADMIN, "bridge", return_value={
+                    "status": "observed", "pin": self.pins["core"]}), \
+                patch.object(ADMIN, "continuation", return_value={
+                    "status": "paused", "results": []}):
+            result = ADMIN.operation(self.runtime, target, core_only=True)
+        self.assertEqual(result["installation"], "complete")
+        self.assertFalse(self.path.exists())
+        self.assertEqual(self.writes, [])
+
+    def test_completion_uses_observed_pool_node_not_management_node(self):
+        observed = {"status": "observed", "runtime": {
+            "nodePath": "/opt/nibfin/tools/pool-P/bin/node"}}
+        result = SimpleNamespace(returncode=0, stdout=json.dumps({
+            "status": "paused", "results": []}).encode())
+        with patch.object(ADMIN, "bridge", return_value=observed), \
+                patch.object(ADMIN, "node_path", return_value="manager-M"), \
+                patch.object(ADMIN.subprocess, "run", return_value=result) as run:
+            self.assertEqual(ADMIN.continuation()["status"], "paused")
+        self.assertEqual(run.call_args.args[0][0], observed["runtime"]["nodePath"])
+        with patch.object(ADMIN, "bridge", side_effect=OSError("read unavailable")), \
+                patch.object(ADMIN.subprocess, "run") as run:
+            with self.assertRaises(OSError):
+                ADMIN.continuation()
+            run.assert_not_called()
+
+    def test_management_bridge_retains_manager_node(self):
+        result = SimpleNamespace(returncode=0, stdout=b'{"status":"admitted"}')
+        with patch.object(ADMIN, "node_path", return_value="manager-M"), \
+                patch.object(ADMIN.subprocess, "run", return_value=result) as run:
+            ADMIN.bridge("admit")
+        self.assertEqual(run.call_args.args[0][0], "manager-M")
+
+    def test_existing_internal_directory_descriptor_is_reused(self):
+        current = self.config.stat()
+        inherited = SimpleNamespace(st_dev=current.st_dev, st_ino=current.st_ino,
+                                    st_uid=0, st_mode=stat.S_IFDIR | 0o755)
+        with patch.object(ADMIN.os, "fstat", return_value=inherited), \
+                patch.object(type(self.config), "lstat", return_value=inherited), \
+                patch.object(ADMIN.os, "open") as opened:
+            self.assertEqual(ADMIN.operation_gate(self.config), (3, True))
+            opened.assert_not_called()
+        inherited.st_ino += 1
+        with patch.object(ADMIN.os, "fstat", return_value=inherited):
+            with self.assertRaises(RuntimeError):
+                ADMIN.operation_gate(self.config)
+        with patch.object(ADMIN.os, "fstat", side_effect=OSError(errno.EBADF, "fd")), \
+                patch.object(ADMIN.os, "open", return_value=17):
+            self.assertEqual(ADMIN.operation_gate(self.config), (17, False))
+
+    def test_inherited_installation_returns_before_any_continuation_dispatch(self):
+        target = {"runId": 123, "artifactId": 456}
+        self.runtime.CORE = "core"
+        self.runtime.HOSTS = {"core": "host.json"}
+        self.merged = {"core", "e2e"}
+        self.save(self.config / "host.json", {"installation": {
+            "pin": self.pins["core"]}})
+        observed = {"status": "observed", "pin": self.pins["core"],
+                    "runtime": {"nodePath": "/opt/nibfin/tools/pool-P/bin/node"}}
+        with patch.object(ADMIN, "chosen_target", return_value=(123, self.pins, [])), \
+                patch.object(ADMIN, "bridge", return_value=observed), \
+                patch.object(ADMIN, "continuation") as complete:
+            result = ADMIN.operation(self.runtime, target, defer_continuation=True)
+        complete.assert_not_called()
+        self.assertEqual(result["installation"], "complete")
+        self.assertEqual(result["completion"], observed)
+        self.assertEqual(result["continuation"]["status"], "pending")
+        self.assertEqual(self.writes, [])
+
+    def test_shared_gate_precedes_completion_and_failed_conversion_stays_pending(self):
+        installed = {"status": "installed", "installation": "complete",
+                     "completion": {"runtime": {"nodePath": "stale"}}}
+        sequence = []
+
+        def lock(handle, mode):
+            self.assertEqual(handle, 17)
+            self.assertEqual(mode, ADMIN.fcntl.LOCK_SH | ADMIN.fcntl.LOCK_NB)
+            sequence.append("shared")
+
+        def complete():
+            self.assertEqual(sequence, ["shared"])
+            sequence.append("fresh completion")
+            return {"status": "paused", "results": []}
+
+        with patch.object(ADMIN.fcntl, "flock", side_effect=lock), \
+                patch.object(ADMIN, "continuation", side_effect=complete):
+            result = ADMIN.continue_after_gate(installed, 17)
+        self.assertEqual(result["installation"], "complete")
+        self.assertEqual(result["continuation"]["status"], "paused")
+        self.assertNotIn("completion", result)
+        with patch.object(ADMIN.fcntl, "flock", side_effect=BlockingIOError()), \
+                patch.object(ADMIN, "continuation") as complete:
+            result = ADMIN.continue_after_gate(installed, 17)
+            complete.assert_not_called()
+        self.assertEqual(result["installation"], "complete")
+        self.assertEqual(result["continuation"]["status"], "pending")
+
+    def test_different_signed_operation_target_cannot_reuse_closed_plan(self):
+        self.runtime.CORE = "core"
+        self.runtime.HOSTS = {"core": "host.json"}
+        self.save(self.config / "host.json", {})
+        self.save(self.path, {"mode": "core-only", "phase": "draining",
+                              "administratorTarget": {"runId": 123, "artifactId": 456}})
+        with self.assertRaises(RuntimeError):
+            ADMIN.operation(self.runtime, {"runId": 123, "artifactId": 457},
+                            core_only=True, provenance={"jobId": 999})
+        self.assertEqual(self.writes, [])
+
+    def test_fresh_same_target_reuses_confirmed_apply_without_previous_provenance(self):
+        target = {"runId": 123, "artifactId": 456}
+        fresh = {"jobId": 999, "runId": 888}
+        self.runtime.CORE = "core"
+        self.runtime.HOSTS = {"core": "host.json"}
+        self.save(self.config / "host.json", {})
+        self.save(self.path, {"mode": "core-only", "phase": "verifying",
+                              "administratorTarget": target,
+                              "apply": {"completed": True}})
+
+        def finish(runtime, services):
+            plan = json.loads(self.path.read_text())
+            self.assertEqual(plan["phase"], "verifying")
+            self.assertEqual(plan["maintenanceInvocation"], fresh)
+            self.path.unlink()
+
+        with patch.object(ADMIN, "finish", side_effect=finish), \
+                patch.object(ADMIN, "bridge") as bridge, \
+                patch.object(ADMIN, "continuation", return_value={
+                    "status": "paused", "results": []}):
+            result = ADMIN.operation(self.runtime, target, core_only=True,
+                                     provenance=fresh)
+        bridge.assert_not_called()
+        self.assertEqual(result["installation"], "complete")
+        self.assertEqual(self.writes, [])
+
+    def test_actual_shared_conversion_permits_preworker_and_excludes_replacement(self):
+        script = ("import fcntl,os,sys; h=os.open(sys.argv[1],os.O_RDONLY); "
+                  "fcntl.flock(h,int(sys.argv[2])|fcntl.LOCK_NB)")
+
+        def child(mode):
+            return subprocess.run([sys.executable, "-B", "-c", script,
+                                   str(self.config), str(mode)], capture_output=True)
+
+        handle = ADMIN.os.open(self.config, ADMIN.os.O_RDONLY | ADMIN.os.O_DIRECTORY)
+        try:
+            ADMIN.fcntl.flock(handle, ADMIN.fcntl.LOCK_EX | ADMIN.fcntl.LOCK_NB)
+            self.assertNotEqual(child(ADMIN.fcntl.LOCK_SH).returncode, 0)
+
+            def complete():
+                self.assertEqual(child(ADMIN.fcntl.LOCK_SH).returncode, 0)
+                self.assertNotEqual(child(ADMIN.fcntl.LOCK_EX).returncode, 0)
+                return {"status": "paused", "results": []}
+
+            with patch.object(ADMIN, "continuation", side_effect=complete):
+                result = ADMIN.continue_after_gate({"installation": "complete"}, handle)
+            self.assertEqual(result["continuation"]["status"], "paused")
+        finally:
+            ADMIN.os.close(handle)
 
 
 if __name__ == "__main__":

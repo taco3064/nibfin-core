@@ -43,13 +43,15 @@ def rollout(runtime, hosts, selected):
                 json.loads(runtime.LAST_PR_CLEANUP.read_text()) != run_id):
             runtime.close_superseded_rollouts(core)
             runtime.write_config(runtime.LAST_PR_CLEANUP, run_id)
-        runtime.pool_step("prepare")
+        preparation = runtime.pool_step("prepare")
+        if preparation.get("status") == "unsupported":
+            return preparation
         prepared = json.loads(path.read_text())
         if prepared.get("apply", {}).get("completed"):
             runtime.finish(runtime.runner_services(hosts))
             return {"status": "installed"}
         runtime.pool_step("close")
-    runtime.pool_step("stop")
+    runtime.pool_step("settle" if plan.get("mode") == "core-only" else "stop")
     plan = json.loads(path.read_text())
     for repo, (_, pr) in consumers.items():
         if not pr:

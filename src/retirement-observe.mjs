@@ -81,14 +81,18 @@ export async function observeRetirementRegistrations(reader, pool, {
       matches[0].labels?.some(label => label.name === 'nibfin-shared') &&
       matches[0].labels.some(label => label.name === `nibfin-user-${pool.memberId}`),
     'RETIREMENT_NATIVE_IDENTITY_CHANGED');
-    requireThat((matches[0].busy === false || allowBusy && matches[0].busy === true) &&
+    const busyAllowed = typeof allowBusy === 'function' ?
+      allowBusy(matches[0]) : allowBusy;
+    requireThat((matches[0].busy === false || busyAllowed && matches[0].busy === true) &&
       (matches[0].status === 'offline' || allowOnline && matches[0].status === 'online'),
       'RETIREMENT_NATIVE_BUSY');
     return 'present';
   });
 }
 
-export async function assertRetirementJobs(reader, repositories, pool) {
+export async function assertRetirementJobs(reader, repositories, pool, {
+  allowJob = () => false,
+} = {}) {
   for (const repository of repositories) {
     const path = repoPath(repository.repository);
     const native = await reader.get(path);
@@ -100,7 +104,8 @@ export async function assertRetirementJobs(reader, repositories, pool) {
       const jobs = await reader.list(path + `/actions/runs/${run.id}/jobs`, 'jobs');
       requireThat(!jobs.some(job => job.status !== 'completed' &&
         pool.runners.some(runner => job.runner_id === runner.id ||
-          job.runner_name === runner.name)), 'RETIREMENT_JOB_PENDING');
+          job.runner_name === runner.name) &&
+        !allowJob(repository.repository, run, job)), 'RETIREMENT_JOB_PENDING');
     }
   }
 }

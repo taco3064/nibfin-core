@@ -49,7 +49,7 @@ export async function applyRolloutTransaction(plan, ports) {
       JSON.parse(target.next).repository.runner.repository) };
 }
 
-export async function resumeHostApply(plan) {
+export async function resumeHostApply(plan, { beforeMutation } = {}) {
   requireThat(digest(await readRetirementFile(rolloutPlanPath)) === digest(plan),
     'ROLLOUT_PLAN_CHANGED');
   const paths = { live: '/opt/nibfin/core',
@@ -68,6 +68,7 @@ export async function resumeHostApply(plan) {
       return digest(pin) === digest(plan.pin) ? 'new' : 'old';
     },
     move: async (from, to) => {
+      await beforeMutation?.();
       requireThat(!await optionalStat(paths[to]), 'ROLLOUT_PACKAGE_STATE_UNKNOWN');
       await rename(paths[from], paths[to]);
       await syncRecoveryDirectory('/opt/nibfin');
@@ -78,6 +79,7 @@ export async function resumeHostApply(plan) {
       return boundedHostFile(path, 262144);
     },
     replace: async (path, bytes) => {
+      await beforeMutation?.();
       // Reuse the crash-durable host-owned publisher. It accepts JSON values.
       await writeRetirementFile(path, JSON.parse(bytes));
       // Store its canonical representation in the intent before any mutation.

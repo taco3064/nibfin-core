@@ -41,6 +41,8 @@ async function main(args) {
     return installCoreRolloutManager();
   if (command === 'rollout-core' && values.length === 2)
     return runCoreRollout(values[0], values[1]);
+  if (command === 'rollout-core-only' && values.length === 2)
+    return runCoreRollout(values[0], values[1], { coreOnly: true });
   if (command === 'request-local-diagnosis' && values.length === 0)
     return readDiagnosisInput(process.stdin);
   if (command === 'observe-local-work' && values.length === 0)
@@ -104,6 +106,9 @@ async function main(args) {
     return {
       commands: [
         'contract',
+        'install-core-rollout-manager (installed administrator, no arguments)',
+        'rollout-core RUN_ID ARTIFACT_ID (external administrator)',
+        'rollout-core-only RUN_ID ARTIFACT_ID (administrator)',
         'complete-installed-lifecycle (installed administrator, no input or arguments)',
         'managed-credentials <intake|replace|status|disconnect> (local admin)',
         'inspect-shared-host',
