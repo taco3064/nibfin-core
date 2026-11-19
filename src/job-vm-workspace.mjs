@@ -10,7 +10,7 @@ const maxTreeBytes = 64 * 1024 * 1024;
 
 // Send regular files only. The guest receives neither Git metadata nor a
 // writable host mount. Keep the same file and tree bounds as Core capture.
-export async function snapshotJobVmWorkspace(root) {
+export async function snapshotJobVmWorkspace(root, { temporaryDirectory } = {}) {
   requireThat(await realpath(root) === resolve(root), 'UNSAFE_JOB_VM_WORKSPACE');
   const files = [];
   let size = 0, entries = 0;
@@ -45,6 +45,16 @@ export async function snapshotJobVmWorkspace(root) {
     }
   }
   await visit(root);
+  // The existing guest protocol restores files and creates their parents. Send
+  // a regular marker so older adopted guest images also have the tool TMPDIR
+  // before Codex starts; empty host directories are otherwise not transferred.
+  if (temporaryDirectory) {
+    requireThat(safeCandidatePath(temporaryDirectory), 'UNSAFE_JOB_VM_WORKSPACE');
+    const path = temporaryDirectory + '/.nibfin-directory';
+    if (!files.some(file => file.path === path))
+      files.push({ path, executable: false, content: '' });
+    validateJobVmWorkspace(files);
+  }
   return files;
 }
 
