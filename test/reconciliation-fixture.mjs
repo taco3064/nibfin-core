@@ -1,3 +1,8 @@
+import { mkdtemp, mkdir, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { issueStatePath } from '../src/host-fence.mjs';
+import { ControllerResult, controllerRequest } from '../src/controller-result.mjs';
 import { digest } from '../src/identity.mjs';
 import { stages } from '../src/stages.mjs';
 import { stageSuccess } from '../src/stage-runtime.mjs';
@@ -39,6 +44,7 @@ export function reconciliationFixture() {
       outcome: stageSuccess[stage], findings: [], references: ['synthetic'] }];
   }));
   const store = {
+    put: async value => put(value),
     load: async () => structuredClone(receipts),
     get: async hash => {
       const value = objects.get(hash);
@@ -95,4 +101,38 @@ export function reconciliationFixture() {
   };
   return { input, dependencies, receipts, objects, put, live, pr, commit, reads,
     counts, store, binding, candidate, merge, preview };
+}
+
+export async function premergeFixture(t, stage = 'continue') {
+  const f = reconciliationFixture();
+  delete f.receipts.merge;
+  delete f.receipts.close;
+  f.receipts['review-pr'].outcome = 'changes_required';
+  f.receipts['review-pr'].findings = ['synthetic correction'];
+  f.live.state = 'open';
+  f.live.labels = [];
+  f.pr.state = 'open';
+  f.pr.merged = false;
+  f.input.stage = stage;
+  f.input.execution = hostExecution(f.input.runner,
+    stage === 'continue' ? 'shape' : stage);
+  const stateRoot = await mkdtemp(join(tmpdir(), 'nibfin-premerge-'));
+  t.after(() => rm(stateRoot, { recursive: true, force: true }));
+  f.input.context.host.stateRoot = stateRoot;
+  const root = issueStatePath(stateRoot, f.input.approval.record.issue);
+  await mkdir(root, { mode: 0o700 });
+  f.evidence = new ControllerResult(root,
+    controllerRequest({ ...f.input, binding: f.binding }), f.store);
+  f.result = { schemaVersion: 1, stage: 'review-pr', status: 'denied',
+    code: 'STAGE_REQUIRES_CORRECTION',
+    receiptHash: digest(f.receipts['review-pr']) };
+  f.save = async (result = f.result, execution = f.receipts['review-pr'].execution,
+    iteration = 0) => {
+    await f.evidence.begin();
+    const hash = await f.evidence.record(result, execution, iteration);
+    await f.evidence.settle(hash);
+    return hash;
+  };
+  await f.save();
+  return f;
 }

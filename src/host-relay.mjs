@@ -1,3 +1,4 @@
+import { premergeResult } from './premerge-result.mjs';
 import { rootOwnedPath } from './host-paths.mjs';
 import { hostFile, coreRoot } from './host-adoption.mjs';
 import { boundedHostFile } from './host-adoption.mjs';
@@ -87,6 +88,22 @@ export async function relayControllerRequest(request, uid, run = command) {
           request.stage === 'continue' && observed.stage === 'continue' &&
           observed.terminalStage === 'close' &&
           /^[a-f0-9]{64}$/.test(observed.receiptHash ?? '')) return observed;
+      if (observed.schemaVersion === 1 && observed.recoveredResult === true &&
+          observed.stage === request.stage &&
+          ['completed', 'denied', 'pending'].includes(observed.status) &&
+          /^[a-f0-9]{64}$/.test(observed.resultHash ?? '') &&
+          (observed.receiptHash === undefined ||
+            /^[a-f0-9]{64}$/.test(observed.receiptHash)) &&
+          /^[A-Z][A-Z0-9_]{0,127}$/.test(observed.code ?? '') &&
+          premergeResult(observed.terminalStage, observed.status) &&
+          (request.stage === 'continue' ||
+            request.stage === observed.terminalStage)) return {
+        schemaVersion: 1, stage: observed.stage, status: observed.status,
+        code: observed.code, terminalStage: observed.terminalStage,
+        ...(observed.receiptHash ? { receiptHash: observed.receiptHash } : {}),
+        resultHash: observed.resultHash,
+        recoveredResult: true,
+      };
       reconciliationFailure = 'COMPLETION_UNPROVEN';
     } catch (error) { reconciliationFailure = error.message; }
   }

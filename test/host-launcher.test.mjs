@@ -156,6 +156,8 @@ test(
     const root = await directory(t);
     await chmod(root, 0o755);
     await assert.rejects(acquireHostFence(root, {}), /UNTRUSTED_HOST_STATE/);
+    // Exercise a writable ancestor independently of the temporary base path.
+    await chmod(root, 0o777);
     await writeFile(join(root, 'host.json'), '{}');
     await assert.rejects(
       rootOwnedPath(join(root, 'host.json')),

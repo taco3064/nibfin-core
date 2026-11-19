@@ -6,7 +6,7 @@ import {
   githubApiWaiting, githubReadWaiting, githubReadWait, observationFailureCode,
 } from './observation-failure.mjs';
 
-export async function settleHostStage(run, release, report) {
+export async function settleHostStage(run, release, report, currentStage = () => null) {
   let result;
   try {
     result = await run();
@@ -16,6 +16,9 @@ export async function settleHostStage(run, release, report) {
     report('execution', code);
     result = { schemaVersion: 1, ...(waiting ?? { status: 'denied', code }) };
   }
+  // Continuation owns stage selection; the request name is not a terminal stage.
+  const stage = result.stage ?? currentStage();
+  if (!result.stage && stage) result = { ...result, stage };
   const retryableRead = result.status === 'pending' &&
     (result.code === githubReadWaiting || result.code === githubApiWaiting ||
       result.code === ciCorrectionWaiting ||

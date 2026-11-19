@@ -98,20 +98,28 @@ test('abruptly terminated lock holder releases the kernel gate on restart', asyn
   const modulePath = fileURLToPath(new URL('../src/relay-state.mjs', import.meta.url));
   const script = `import {withRelayGate} from ${JSON.stringify(modulePath)};\n` +
     `await withRelayGate(${JSON.stringify(fixture.root)}, async () => {\n` +
-    'process.stdout.write("ready\\n"); setInterval(() => {}, 1000);\n' +
-    'await new Promise(() => {}); });';
-  const child = spawn(process.execPath, ['--input-type=module', '-e', script],
-    { stdio: ['ignore', 'pipe', 'pipe'] });
+    // A live listener retains the resolver and the suspended lock scope. An
+    // unreachable, never-resolving promise lets GC close the lock's FileHandle.
+    'const disconnected = new Promise(resolve => ' +
+    'process.once("disconnect", resolve));\n' +
+    'setImmediate(() => { global.gc(); process.send("ready"); });\n' +
+    'await disconnected; });';
+  const child = spawn(process.execPath,
+    ['--expose-gc', '--input-type=module', '-e', script],
+    { stdio: ['ignore', 'ignore', 'pipe', 'ipc'] });
   const closed = new Promise(resolve => child.once('close', resolve));
-  t.after(() => { if (child.exitCode === null) child.kill('SIGKILL'); });
-  await new Promise((resolve, reject) => {
-    child.stdout.once('data', resolve); child.once('error', reject);
-    child.once('exit', code => { if (code) reject(new Error('holder exited')); });
-  });
-  const concurrent = await withRelayGate(fixture.root, () => 'impossible');
-  assert.equal(concurrent.code, 'RELAY_BUSY');
-  child.kill('SIGKILL');
-  await closed;
+  try {
+    const ready = await new Promise((resolve, reject) => {
+      child.once('message', resolve); child.once('error', reject);
+      child.once('exit', () => reject(new Error('holder exited before readiness')));
+    });
+    assert.equal(ready, 'ready');
+    const concurrent = await withRelayGate(fixture.root, () => 'impossible');
+    assert.equal(concurrent.code, 'RELAY_BUSY');
+  } finally {
+    if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
+    await closed;
+  }
   assert.equal(await withRelayGate(fixture.root, () => 'recovered'), 'recovered');
 });
 

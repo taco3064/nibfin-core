@@ -1,3 +1,4 @@
+import { reconciledResult } from './reconciled-result.mjs';
 import { join } from 'node:path';
 import { digest } from './identity.mjs';
 import { acquireHostFence, issueStatePath } from './host-fence.mjs';
@@ -24,7 +25,6 @@ export async function reconcileDelivery(input, dependencies = {}) {
     new OperationJournal(join(root, 'receipts'), issue);
   const pending = { schemaVersion: 1, stage, status: 'pending',
     code: 'CONTROLLER_RECONCILIATION_UNPROVEN' };
-  if (stage !== 'continue') return pending;
   let fence;
   try {
     fence = await acquire(root, { execution, issueId: issue.id,
@@ -39,9 +39,17 @@ export async function reconcileDelivery(input, dependencies = {}) {
   try {
     await settled();
     const selected = await progress(root, approval);
-    result = await retryGitHubObservation(() => reconciledEvidence({
-      ...selected, approval, runner, closeExecution, reader,
-    }));
+    const receipts = await selected.store.load();
+    // Completed delivery keeps its independent proof path. Never downgrade a
+    // failed delivery proof into a pre-merge interpretation.
+    if (receipts.merge || receipts.close) {
+      if (stage === 'continue') result = await retryGitHubObservation(() =>
+        reconciledEvidence({ ...selected, approval, runner, closeExecution, reader }));
+    } else {
+      result = await retryGitHubObservation(() => reconciledResult({
+        ...selected, root, approval, runner, stage, execution, reader,
+      }));
+    }
   } catch { result = pending; }
   try {
     // A failed proof may release only our own fence, after settlement is proven.

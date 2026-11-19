@@ -1,4 +1,9 @@
 import { retainHostOutcome } from './blocker-native-report.mjs';
+import { hostExecution } from './host-execution.mjs';
+export { hostExecution, hostWakeExecution } from './host-execution.mjs';
+import {
+  ControllerResult, controllerRequest, releaseControllerResult,
+} from './controller-result.mjs';
 import { requirePoolOpen } from './retirement-admission.mjs';
 import { withManagedAdmission } from './managed-credential-admission.mjs';
 import { ProjectConfigError } from './project-config.mjs';
@@ -109,46 +114,6 @@ export async function readSelectedHost(reader, runner) {
   return digest(matches);
 }
 
-export function hostExecution(runner, stage, iteration = 0) {
-  return nativeExecution(runner, stage, stages[stage].role, iteration);
-}
-
-export function hostWakeExecution(runner) {
-  return nativeExecution(runner, 'wake', 'publisher');
-}
-
-function nativeExecution(runner, stage, role, iteration = 0) {
-  const native = {
-    repositoryId: runner.repositoryId,
-    runId: runner.runId,
-    attempt: runner.attempt,
-    jobId: runner.jobId,
-    memberId: runner.memberId,
-    sourceCommit: runner.sourceCommit,
-    stage,
-    ...(iteration ? { iteration } : {}),
-  };
-  const uuid = (kind) => {
-    const hash = digest({ kind, native });
-    return [
-      hash.slice(0, 8),
-      hash.slice(8, 12),
-      hash.slice(12, 16),
-      hash.slice(16, 20),
-      hash.slice(20, 32),
-    ].join('-');
-  };
-  return {
-    id: uuid('execution'),
-    sessionId: uuid('session'),
-    role,
-    actorId: runner.memberId,
-    runId: runner.runId,
-    attempt: runner.attempt,
-    jobId: runner.jobId,
-  };
-}
-
 // Fixed CLI path: no config flag, environment override, adapter module, shell
 // command, credential or execution identity can be provided by a request.
 function requireStageRequest(issueNumber, stage) {
@@ -242,7 +207,12 @@ async function launchAdmittedStage(issueNumber, stage, env, runnerUid,
         { schemaVersion: 1, stage, status: 'pending', code: error.code });
     throw error;
   }
-  let mcpJob, release, preparation;
+  let mcpJob, release, preparation, resultEvidence;
+  let executionIteration = 0;
+  let executionStage = stage === 'continue' ? 'shape' : stage;
+  let terminalStage = executionStage;
+  let resultEvidenceReady = false;
+  const requestExecution = structuredClone(execution);
   let mcpEntered = false, executorEntered = false;
   let progress;
   try {
@@ -267,6 +237,8 @@ async function launchAdmittedStage(issueNumber, stage, env, runnerUid,
     const openPr = (context.targetHost ?? host).openPrHandoffs?.[issueNumber];
     const journal = new OperationJournal(join(root, 'receipts'), approval.record.issue);
     release = async (result) => {
+      requireThat(!resultEvidence || resultEvidenceReady,
+        'HOST_EXECUTION_UNRESOLVED');
       // Release only after local termination and external writes are settled.
       await assertHostSettlement(journal, () =>
         idleContainers(adopted.isolation, issue));
@@ -277,7 +249,11 @@ async function launchAdmittedStage(issueNumber, stage, env, runnerUid,
           console.error('Nibfin retained the closed Issue work directory');
         });
       }
-      await fence.release();
+      if (resultEvidence) await releaseControllerResult({
+        evidence: resultEvidence, result, execution, iteration: executionIteration,
+        executionStage, release: () => fence.release(),
+      });
+      else await fence.release();
     };
     const report = (phase, code) =>
       console.error(`Nibfin host stage ${phase}: ${code}`);
@@ -289,6 +265,11 @@ async function launchAdmittedStage(issueNumber, stage, env, runnerUid,
     });
     await privateHostDirectory(join(root, 'agent'));
     progress = await issueProgress(root, approval);
+    resultEvidence = new ControllerResult(root, controllerRequest({
+      approval, runner, stage, execution: requestExecution, binding: progress.binding,
+    }), progress.store);
+    await resultEvidence.begin();
+    resultEvidenceReady = true;
     // Adoption/container inspection itself can launch host commands. A failed
     // observation does not prove those processes stopped. Everything beyond
     // this checkpoint stays unclassified without its normal lifecycle proof.
@@ -375,6 +356,8 @@ async function launchAdmittedStage(issueNumber, stage, env, runnerUid,
       const iteration = invocations.get(current) ?? 0;
       invocations.set(current, iteration + 1);
       execution = hostExecution(runner, current, iteration);
+      executionIteration = iteration;
+      executionStage = current;
       requireThat(
         approval.record.roles[execution.role] === runner.memberId,
         'HOST_APPROVAL_MISMATCH',
@@ -424,6 +407,7 @@ async function launchAdmittedStage(issueNumber, stage, env, runnerUid,
         ? continueStages({
             store,
             execute,
+            onStage: current => { terminalStage = current; },
             refreshRequirements: async receipts => {
               if (!receipts.shape || receipts.merge) return false;
               const shape = digest(receipts.shape);
@@ -437,7 +421,8 @@ async function launchAdmittedStage(issueNumber, stage, env, runnerUid,
           })
         : execute(stage);
     const settled = await settleHostStage(run, release,
-      (phase, code) => console.error(`Nibfin host stage ${phase}: ${code}`));
+      (phase, code) => console.error(`Nibfin host stage ${phase}: ${code}`),
+      () => terminalStage);
     const result = await retainHostOutcome(root, { approval, runner, execution },
       settled.stage ?? stage, settled);
     return stage === 'continue'
@@ -454,7 +439,7 @@ async function launchAdmittedStage(issueNumber, stage, env, runnerUid,
     const waiting = githubReadWait(error, undefined, { stage: true });
     if (waiting && release && !mcpEntered && !executorEntered) {
       const result = await settleHostStage(async () => ({
-        schemaVersion: 1, stage, ...waiting,
+        schemaVersion: 1, stage: terminalStage, ...waiting,
       }), release, (phase, code) => console.error(`Nibfin host stage ${phase}: ${code}`));
       return { ...result, ...(result.retrySettled && runner.target ? {
         retryRun: runner.runId, retryAttempt: runner.attempt,
@@ -464,7 +449,7 @@ async function launchAdmittedStage(issueNumber, stage, env, runnerUid,
       // No role has started. Still prove prior writes and containers settled
       // before retiring prepared MCP resources and allowing a corrected retry.
       return await settleHostStage(async () => ({
-        schemaVersion: 1, stage, status: 'denied', code: error.code,
+        schemaVersion: 1, stage: terminalStage, status: 'denied', code: error.code,
         configurationError: error.message,
       }), release,
       (phase, code) => console.error(`Nibfin host stage ${phase}: ${code}`));
@@ -472,7 +457,7 @@ async function launchAdmittedStage(issueNumber, stage, env, runnerUid,
     // Do not turn partial preparation or an unknown container/write into a retry.
     const result = {
       schemaVersion: 1,
-      stage,
+      stage: terminalStage,
       status: 'pending',
       code: observationFailureCode(error),
     };

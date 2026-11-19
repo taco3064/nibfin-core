@@ -101,6 +101,7 @@ async function canReuseReview(store) {
 export async function continueStages({
   store,
   execute,
+  onStage = () => {},
   refreshRequirements = async () => false,
   inspect,
   wait,
@@ -109,6 +110,7 @@ export async function continueStages({
   repairIntegration = true,
   correctionRepairs = 2,
 }) {
+  onStage('shape');
   const previous = await store.load();
   const inspectCurrent = () => retryGitHubObservation(inspect,
     { wait, clock, timeout: ciTimeout });
@@ -117,6 +119,7 @@ export async function continueStages({
   const initial = changed ? {} :
     await currentReceipts(store, previous, correctionRepairs > 0);
   const repairCandidate = async (rejected, ciFailure) => {
+    onStage('deliver');
     await inspectCurrent();
     const repaired = await execute('deliver', ciFailure);
     if (repaired.status !== 'completed') return resumableCorrection(store, repaired);
@@ -127,7 +130,7 @@ export async function continueStages({
         code: 'CORRECTION_DID_NOT_CHANGE_CANDIDATE' };
     }
     return continueStages({
-      store, execute, refreshRequirements, inspect, wait, clock, ciTimeout,
+      store, execute, onStage, refreshRequirements, inspect, wait, clock, ciTimeout,
       repairIntegration, correctionRepairs: correctionRepairs - 1,
     });
   };
@@ -168,8 +171,9 @@ export async function continueStages({
     return { schemaVersion: 1, status: 'denied', code: 'DELIVERY_ALREADY_RECORDED' };
   let result;
   for (const stage of Object.keys(stages)) {
-    if (initial[stage] || stage === 'review-pr' && await canReuseReview(store))
-      continue;
+    if (initial[stage]) continue;
+    onStage(stage);
+    if (stage === 'review-pr' && await canReuseReview(store)) continue;
     await inspectCurrent();
     const deadline = clock() + ciTimeout;
     let retriedIdle = false;
@@ -206,11 +210,12 @@ export async function continueStages({
     }
     if (['review-pr', 'merge'].includes(stage) && repairIntegration &&
       integrationRepairRequired(result.code)) {
+      onStage('deliver');
       await inspectCurrent();
       const repaired = await execute('deliver');
       if (repaired.status !== 'completed') return repaired;
       return continueStages({
-        store, execute, refreshRequirements, inspect, wait, clock, ciTimeout,
+        store, execute, onStage, refreshRequirements, inspect, wait, clock, ciTimeout,
         repairIntegration: false,
         correctionRepairs,
       });

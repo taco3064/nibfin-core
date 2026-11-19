@@ -113,3 +113,46 @@ test('stage responses pass through and failed events do not reconcile', async ()
     async () => { calls++; throw new Error('transport'); });
   assert.equal(calls, 1);
 });
+
+test('lost review correction response returns the verified bounded result', async t => {
+  const { premergeFixture } = await import('./reconciliation-fixture.mjs');
+  const { reconcileDelivery } = await import('../src/stage-reconciliation.mjs');
+  const f = await premergeFixture(t);
+  const request = { command: 'stage', stage: 'continue', issue: '443',
+    context: { unchanged: 'synthetic' } };
+  const calls = [];
+  const result = await relayControllerRequest(request, 999, async (_, __, options) => {
+    const value = JSON.parse(options.input);
+    calls.push(value);
+    if (calls.length === 1) throw new Error('response lost');
+    return { stdout: Buffer.from(JSON.stringify(
+      await reconcileDelivery(f.input, f.dependencies))) };
+  });
+  assert.equal(result.status, 'denied');
+  assert.equal(result.code, 'STAGE_REQUIRES_CORRECTION');
+  assert.equal(result.terminalStage, 'review-pr');
+  assert.equal(result.resultHash, (await f.evidence.read()).hash);
+  assert.equal(result.retrySettled, undefined);
+  assert.deepEqual(calls, [request, { ...request, command: 'reconcile-stage' }]);
+});
+
+test('recovered results require an explicit validated form', async () => {
+  const valid = { schemaVersion: 1, stage: 'continue', terminalStage: 'review-pr',
+    status: 'denied', code: 'STAGE_REQUIRES_CORRECTION', recoveredResult: true,
+    resultHash: 'a'.repeat(64), receiptHash: 'b'.repeat(64) };
+  for (const change of [
+    { recoveredResult: undefined }, { resultHash: 'invalid' },
+    { stage: 'review-pr' }, { terminalStage: 'merge', status: 'completed' },
+    { terminalStage: 'close' },
+    { terminalStage: 'unknown' }, { status: 'scheduled' }, { code: 'private text' },
+    { receiptHash: 'invalid' },
+  ]) {
+    let calls = 0;
+    const result = await relayControllerRequest({ command: 'stage', stage: 'continue' },
+      999, async () => {
+        if (++calls === 1) throw new Error('lost');
+        return { stdout: Buffer.from(JSON.stringify({ ...valid, ...change })) };
+      });
+    assert.equal(result.code, 'CONTROLLER_HANDOFF_UNRESOLVED');
+  }
+});

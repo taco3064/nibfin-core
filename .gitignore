@@ -8,3 +8,4 @@ website/.astro/
 website/dist/
 .npm/
 .nibfin-rollout-resume-*/
+.deliver-tmp/
