@@ -239,7 +239,7 @@ test('closed delivery removes only the recorded working files', async t => {
     'Passed\n');
 });
 
-test('closed delivery removes ignored dependencies and generated build output', async t => {
+test('closed delivery removes ignored dependencies and build output', async t => {
   const { workspace } = await fixture(t);
   await writeFile(join(workspace.work, '.gitignore'), 'node_modules/\ndist/\n');
   await writeFile(join(workspace.work, 'source.txt'), 'Delivered\n');
