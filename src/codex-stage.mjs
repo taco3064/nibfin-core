@@ -51,6 +51,9 @@ export async function codexStageExecutor({
   requireThat(typeof inspectWriter === 'function', 'SUPPORTED_HOST_PROOF_REQUIRED');
   const coreRoot = resolve(installed.directory);
   await verifyInstalledSource(coreRoot, installed.pin);
+  // Capture under the verified composition's existing source lifetime.
+  const executorSnapshot = jobVm && actor.role === 'writer'
+    ? await readFile(join(coreRoot, 'src/security/job-vm-executor.py')) : undefined;
   // Do not permit separately configured executable/Skill trees: all runtime
   // files used by this adapter must come from the verified installation.
   const skills = {};
@@ -92,6 +95,7 @@ export async function codexStageExecutor({
       return agentSandbox.preflight(...args);
     },
     execute: input => runJobVmWriter(jobVm, { ...input,
+      executorSnapshot: Buffer.from(executorSnapshot),
       ...(Object.keys(project?.tools ?? {}).length ? { tools: {
         image, endpoint: profile.agent, label: issueContainerLabel(profile.issue),
       } } : {}),

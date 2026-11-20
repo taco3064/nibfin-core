@@ -29,15 +29,19 @@ async function checkAsset(path) {
 
 const parentGuard = '/usr/bin/setpriv';
 
-function startGuest(executable, config, directory, log) {
+function startGuest(executable, config, directory, log, observeConsole) {
   const child = spawn(parentGuard, [
     '--pdeathsig', 'SIGKILL', '--no-new-privs', '--',
     executable, '--no-api', '--config-file', config,
   ], {
     cwd: directory,
     env: { PATH: '/usr/bin:/bin', LANG: 'C.UTF-8' },
-    stdio: ['ignore', log.fd, log.fd],
+    stdio: observeConsole ? ['ignore', 'pipe', 'pipe'] : ['ignore', log.fd, log.fd],
   });
+  if (observeConsole) {
+    child.stdout.on('data', bytes => observeConsole('stdout', bytes));
+    child.stderr.on('data', bytes => observeConsole('stderr', bytes));
+  }
   const identity = processIdentityNow(child.pid);
   let exited = false;
   const done = new Promise(resolve => {
@@ -125,7 +129,8 @@ export async function preflightJobVm(config) {
 // Boot a prepared image with a private writable disk. The caller owns the Job
 // lifetime. The guest can receive connections through its private vsock endpoint.
 export async function runJobVm({ executable, kernel, rootDisk, stateRoot, memoryMiB },
-  { signal, log, useGuest, prepareTools, onProcess, onRetired, retainWorkspace }) {
+  { signal, log, useGuest, prepareTools, onProcess, onRetired, retainWorkspace,
+    observeConsole }) {
   requireThat(signal, 'INVALID_JOB_VM_CONFIGURATION');
   signal.throwIfAborted();
   await preflightJobVm({ executable, kernel, rootDisk, stateRoot, memoryMiB });
@@ -165,7 +170,7 @@ export async function runJobVm({ executable, kernel, rootDisk, stateRoot, memory
       } } : {}),
     }), { flag: 'wx', mode: 0o600 });
     signal.throwIfAborted();
-    guest = startGuest(executable, config, directory, log);
+    guest = startGuest(executable, config, directory, log, observeConsole);
     await onProcess?.(guest.identity);
     if (signal.aborted) abort();
     if (useGuest) {

@@ -4,22 +4,20 @@ import { open } from 'node:fs/promises';
 import { join } from 'node:path';
 import { createProxy, toolDownloadHosts, projectDomains } from './egress-proxy.mjs';
 import { runJobVm } from './job-vm.mjs';
-import { exchangeJobVmFrame } from './job-vm-channel.mjs';
+import { guestWorkspace } from './job-vm-guest-workspace.mjs';
 import {
   jobVmExecutorFailures, openJobVmExecRelay, probeJobVmExecutor,
 } from './job-vm-exec-relay.mjs';
-import { snapshotJobVmWorkspace, requireJobVmToolOutput }
-  from './job-vm-workspace.mjs';
+import { snapshotJobVmWorkspace } from './job-vm-workspace.mjs';
 import { projectToolDirectories, projectToolRoot } from './project-tool-paths.mjs';
 import { installJobVmWorkspace } from './job-vm-install.mjs';
-import { archiveJobVmTools } from './job-vm-tools.mjs';
+import { buildJobVmPayload } from './job-vm-tools.mjs';
 import { deliveryRoleTimeout } from './process.mjs';
 import { digest, isDigest, requireThat } from './identity.mjs';
 import {
   acquireWriterCapacity, noteWriterTimeout, writerInitializeTimeout, writerPressureWait,
 } from './job-vm-pressure.mjs';
 
-const workspacePort = 4020;
 const egressPort = 4022;
 
 async function openJobVmEgress(directory, domains) {
@@ -44,12 +42,6 @@ async function openJobVmEgress(directory, domains) {
     for (const client of clients) client.destroy();
     server.close(error => error ? reject(error) : resolve());
   });
-}
-
-async function transfer(connect, payload, signal) {
-  const timeout = AbortSignal.timeout(60_000);
-  const deadline = AbortSignal.any([signal, timeout]);
-  return exchangeJobVmFrame(await connect(workspacePort, deadline), payload, deadline);
 }
 
 export async function runJobVmWriter(config, input, execute, {
@@ -89,8 +81,8 @@ export async function runJobVmWriter(config, input, execute, {
       onProcess: process => process && monitor.own(process.pid, process.startTicks),
       onRetired: discard => { retired = true; discardWorkspace = discard; },
       retainWorkspace: () => agentEntered,
-      prepareTools: input.tools && (directory => archiveJobVmTools(
-        input.tools.endpoint, input.tools.image, directory, input.tools.label)),
+      prepareTools: directory => buildJobVmPayload(
+        directory, input.executorSnapshot, input.tools),
       async useGuest(connect, directory) {
         const domains = input.plan?.additionalDomains;
         const closeEgress = await openJobVmEgress(directory, domains);
@@ -141,19 +133,15 @@ export async function runJobVmWriter(config, input, execute, {
 }
 
 async function runWriter(connect, directory, input, execute, signal) {
-  const request = payload => transfer(connect, payload, signal);
+  const workspace = guestWorkspace(connect, signal);
+  const output = {
+    directories: (input.plan?.toolDirectories ??
+      projectToolDirectories(true)).map(path => path.slice(6)),
+    root: (input.plan?.toolRoot ?? projectToolRoot(true)).slice(6),
+  };
   for (const name of ['work', 'main', 'input']) {
     const files = await snapshotJobVmWorkspace(input[name]);
-    const directories = (input.plan?.toolDirectories ??
-      projectToolDirectories(true)).map(path => path.slice(6));
-    const toolRoot = (input.plan?.toolRoot ?? projectToolRoot(true)).slice(6);
-    const setup = await request({ operation: 'prepare', name, files,
-      ...(name === 'work' ? {
-        toolDirectories: directories, toolRoot,
-      } : {}),
-    });
-    requireThat(setup?.ready === true, 'JOB_VM_WORKSPACE_TRANSFER_FAILED');
-    if (name === 'work') requireJobVmToolOutput(setup, toolRoot, directories);
+    await workspace.prepare(name, files, name === 'work' ? output : undefined);
   }
   const relay = join(directory, 'exec.sock');
   const close = await openJobVmExecRelay(relay, connect);
@@ -162,9 +150,7 @@ async function runWriter(connect, directory, input, execute, signal) {
     const result = await execute({ ...input, jobVmSocket: relay });
     signal.throwIfAborted();
     if (result.status !== 'completed') return { result };
-    const output = await request({ operation: 'collect' });
-    requireThat(Array.isArray(output?.files), 'JOB_VM_WORKSPACE_TRANSFER_FAILED');
-    return { result, files: output.files };
+    return { result, files: await workspace.collect() };
   } finally { await close(); }
 }
 

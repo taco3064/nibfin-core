@@ -16,6 +16,10 @@ import { writeCommandResult } from './command-result.mjs';
 import { installCoreMaintenanceEntries, observeMaintenancePrograms }
   from './core-maintenance-install.mjs';
 import { rolloutFailure, readRolloutProcessResult } from './core-rollout-result.mjs';
+import { observeUpgradeWorker } from './upgrade-continuation-identity.mjs';
+import { upgradeManagerRequest } from './upgrade-continuation-manager.mjs';
+import upgrade from './upgrade-continuation-contract.json' with { type: 'json' };
+import { requireNoRetirement, requirePoolOpen } from './retirement-admission.mjs';
 
 function execute(program, arguments_, input,
   { inherited = false, legacyDiagnostic = false } = {}) {
@@ -62,6 +66,11 @@ async function preWorker(context, host, supplied, uid) {
   if (message.jobDisplayName === 'core-maintenance') {
     await observeCoreMaintenanceWorker(context, host, message, uid,
       sharedWorkerReader(message.variables?.['system.github.token']));
+  } else if (message.jobDisplayName === upgrade.execution.job) {
+    await requireNoRetirement({ rollout: true });
+    await requirePoolOpen();
+    await observeUpgradeWorker(context, host, message, uid,
+      sharedWorkerReader(message.variables?.['system.github.token']));
   } else {
     // Ordinary issue admission stays with the actual installed Core and its
     // original Runner identity. Root does not turn a maintenance flag into access.
@@ -98,6 +107,8 @@ async function main() {
   const uid = rawUid === '' ? 0 : Number(rawUid);
   requireThat(uid === 0 || isId(uid), 'CORE_MAINTENANCE_INVOKER_CHANGED');
   if (supplied.kind === 'pre-worker') return preWorker(context, host, supplied, uid);
+  if (typeof supplied.kind === 'string' && supplied.kind.startsWith('upgrade-'))
+    return upgradeManagerRequest(context, host, supplied, uid, execute);
   let request;
   let arguments_;
   if (supplied.kind === 'maintenance') {
