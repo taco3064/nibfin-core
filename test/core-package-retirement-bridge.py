@@ -1,5 +1,6 @@
 """Controlled fixed-bridge/legacy ports; no installed host resources are used."""
 import importlib.util
+from contextlib import nullcontext
 import json
 import os
 from pathlib import Path
@@ -18,7 +19,6 @@ def load(name, relative):
 
 bridge = load('package_bridge', 'scripts/core-maintenance-bridge.py')
 events = []
-mode = bridge.fcntl.LOCK_SH
 report = [{'package': 'core-staged-' + 'a' * 40,
            'status': 'removed', 'code': 'PACKAGE_REMOVED'}]
 
@@ -33,7 +33,7 @@ class Admin:
     RESULTS = Results
 
     @staticmethod
-    def continue_after_gate(value, handle):
+    def continue_installed(value):
         events.append('continuation')
         return {**value, 'continuation': {'status': 'paused', 'results': []}}
 
@@ -43,47 +43,38 @@ bridge.fresh_manager_result = lambda *args: (
                                      'installation': 'complete'}, 0)
 
 
-def gate(_handle, operation):
-    global mode
-    mode = operation & ~bridge.fcntl.LOCK_NB
-    events.append({bridge.fcntl.LOCK_EX: 'exclusive', bridge.fcntl.LOCK_SH: 'shared',
-                   bridge.fcntl.LOCK_UN: 'unlocked'}[mode])
-
-
-def retire(_handle):
-    assert mode == bridge.fcntl.LOCK_UN
+def retire():
     events.append('retire')
     return report
 
 
 native_retire = bridge.retire_packages
-bridge.fcntl.flock = gate
 bridge.retire_packages = retire
-bridge.normal_installer = lambda handle: events.append('refresh') or {
+bridge.normal_installer = lambda: events.append('refresh') or {
     'status': 'installed'}
 bridge.module_at = lambda *args: Admin
-value, status = bridge.run(b'{}', 3, 'administrator')
-assert events == ['child-exited', 'exclusive', 'refresh', 'continuation',
-                  'unlocked', 'retire']
+bridge.manager_package = lambda: nullcontext(Path('/manager'))
+value, status = bridge.run(b'{}', 'administrator')
+assert events == ['child-exited', 'refresh', 'continuation', 'retire']
 assert status == 0 and value['cleanup'] == report
 assert value['continuation']['status'] == 'paused'
 
 events.clear()
-bridge.normal_installer = lambda handle: events.append('refresh') or {
+bridge.normal_installer = lambda: events.append('refresh') or {
     'status': 'pending', 'code': 'PUBLICATION_RETRY'}
-value, status = bridge.run(b'{}', 3, 'administrator')
-assert events == ['child-exited', 'exclusive', 'refresh', 'unlocked', 'retire']
+value, status = bridge.run(b'{}', 'administrator')
+assert events == ['child-exited', 'refresh', 'retire']
 assert status == 0 and value['installation'] == 'complete'
 assert value['cleanup'] == report and value['continuation']['status'] == 'pending'
 
 events.clear()
-bridge.normal_installer = lambda _handle: {'status': 'installed'}
-bridge.retire_packages = lambda _handle: [
-    {'status': 'retained', 'code': 'PACKAGE_GATE_PENDING'}]
-value, status = bridge.run(b'{}', 3, 'administrator')
+bridge.normal_installer = lambda: {'status': 'installed'}
+bridge.retire_packages = lambda: [
+    {'status': 'retained', 'code': 'PACKAGE_OBSERVATION_UNAVAILABLE'}]
+value, status = bridge.run(b'{}', 'administrator')
 assert status == 0 and value['installation'] == 'complete'
 assert value['continuation']['status'] == 'paused'
-assert value['cleanup'][0]['code'] == 'PACKAGE_GATE_PENDING'
+assert value['cleanup'][0]['code'] == 'PACKAGE_OBSERVATION_UNAVAILABLE'
 
 events.clear()
 bridge.retire_packages = retire
@@ -95,19 +86,20 @@ def unexpected_failure(*_args):
 
 bridge.continue_installed = unexpected_failure
 try:
-    bridge.run(b'{}', 3, 'administrator')
+    bridge.run(b'{}', 'administrator')
 except RuntimeError as error:
     assert str(error) == 'unexpected completion failure'
 else:
     raise AssertionError('unexpected completion failure was swallowed')
-assert events == ['child-exited', 'exclusive', 'unlocked', 'retire']
+assert events == ['child-exited', 'retire']
 
 
 events.clear()
 bridge.runtime_node = lambda _root: '/node'
-bridge.command = lambda *_: {'status': 'verified'}
+bridge.command = lambda *_, **_options: {'status': 'verified'}
 bridge.process_result = lambda _root, result: result
 bridge.installer_results = lambda _root: 'verified decoder'
+bridge.owned = lambda _path: None
 
 
 def decode(decoder, result):
@@ -123,14 +115,11 @@ with TemporaryDirectory(dir=scratch) as directory:
     bridge.LIVE = base / 'live'
     bridge.LIVE.mkdir()
     expected = bridge.LIVE.stat().st_ino
-    management = os.open(base, os.O_RDONLY | os.O_DIRECTORY)
 
     def standalone(arguments, **options):
-        assert mode == bridge.fcntl.LOCK_UN
         bridge.LIVE.rename(base / 'verified')
         bridge.LIVE.mkdir()
         (source,) = options['pass_fds']
-        assert source != management
         pinned = Path('/proc/self/fd') / str(source)
         assert options['cwd'] == pinned
         entry = pinned / 'src/core-package-retirement-entry.mjs'
@@ -140,19 +129,16 @@ with TemporaryDirectory(dir=scratch) as directory:
         return {'status': 'complete', 'cleanup': report}
 
     bridge.subprocess.run = standalone
-    try:
-        assert native_retire(management) == report
-    finally:
-        os.close(management)
-assert events == ['shared', 'unlocked', 'standalone']
+    assert native_retire() == report
+assert events == ['standalone']
 
 admin = load('package_admin', 'scripts/core-rollout-admin.py')
 deferred = [{'status': 'retained', 'code': 'PACKAGE_GATE_PENDING'}]
 admin.continuation = lambda: {'status': 'paused', 'results': [], 'cleanup': deferred}
-value = admin.continue_after_gate({'installation': 'complete', 'cleanup': report}, 3)
+value = admin.continue_installed({'installation': 'complete', 'cleanup': report})
 assert value['cleanup'] == report
 assert value['continuation'] == {'status': 'paused', 'results': []}
-value = admin.continue_after_gate({'installation': 'complete'}, 3)
+value = admin.continue_installed({'installation': 'complete'})
 assert value['continuation']['cleanup'] == deferred
 
 legacy = load('package_legacy', 'scripts/host-auto-rollout.py')

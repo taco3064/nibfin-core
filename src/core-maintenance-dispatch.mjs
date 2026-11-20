@@ -5,7 +5,7 @@ const repository = 'taco3064/nibfin-core';
 const workflow = '.github/workflows/core-maintenance.yml';
 
 // A completed producer event locates one operation. It never discovers "latest".
-export async function maintenanceTarget(reader, runId) {
+export async function maintenanceTarget(reader, runId, { includeSource = false } = {}) {
   requireThat(isId(runId), 'CORE_MAINTENANCE_CD_RUN_REQUIRED');
   const root = repoPath(repository);
   const [repo, run, producer] = await Promise.all([
@@ -31,7 +31,9 @@ export async function maintenanceTarget(reader, runId) {
   requireThat(matches.length === 1 && isId(matches[0].id) &&
     matches[0].workflow_run?.id === runId, 'CORE_MAINTENANCE_CD_TARGET_AMBIGUOUS');
   return { status: 'ready', runId, artifactId: matches[0].id,
-    repository, ref: repo.default_branch, workflow };
+    repository, ref: repo.default_branch, workflow, ...(includeSource ? {
+      commit: matches[0].name.slice('nibfin-activate-'.length), since: run.created_at,
+    } : {}) };
 }
 
 export async function dispatchMaintenance(reader, runId, dispatch) {

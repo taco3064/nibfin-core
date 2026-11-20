@@ -21,6 +21,7 @@
   "recordIntegerFields": ["repositoryId", "number", "runId", "httpStatus"],
   "recordStatuses": ["pending", "dispatched", "paused", "completed", "denied"],
   "codePattern": "^[A-Z][A-Z0-9_]*$",
+  "coreRunURLPattern": "^https://github\\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/actions/runs/[1-9][0-9]*$",
   "deniedCodes": [
     "CORE_MAINTENANCE_ADMINISTRATOR_REQUIRED", "CORE_MAINTENANCE_FIXED_BOOTSTRAP_REQUIRED",
     "CORE_MAINTENANCE_BOOTSTRAP_HAS_NO_ARGUMENTS", "CORE_MAINTENANCE_RESOURCE_UNKNOWN",

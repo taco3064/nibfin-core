@@ -144,8 +144,8 @@ async function removeAndReadBack(path, directory, effect) {
   await syncRecoveryDirectory(dirname(path));
 }
 
-// The caller owns the existing exclusive source-lifetime gate. No recursive
-// removal: each remaining entry must still match its verified attribution.
+// Native maintenance owns cleanup after release. Each remaining entry must
+// still match its verified attribution, including on an interrupted sweep.
 export async function removeRetirementPackage(candidate, recheck, {
   effect = (path, directory) => directory ? rmdir(path) : unlink(path),
 } = {}) {

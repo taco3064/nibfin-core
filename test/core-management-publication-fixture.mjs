@@ -8,6 +8,7 @@ import { managerRecoveryPackages, cleanupManagerRecovery }
 import { publishMaintenanceFile } from '../src/core-maintenance-files.mjs';
 import { verifyOwnedSourcePackage } from '../src/owned-source-package.mjs';
 import { inspectAdoptedSource } from '../src/adopted-source-path.mjs';
+import { selectedManager } from '../src/core-manager-generation.mjs';
 
 // Only called after the launcher mounted private /etc, /opt and /usr/local.
 export async function checkManagementPublication(manager, oldPin, nodePath, manifest) {
@@ -26,12 +27,11 @@ export async function checkManagementPublication(manager, oldPin, nodePath, mani
   const reset = async () => {
     for (const name of await readdir(base))
       if (name === 'manager' || name.startsWith('.previous-') ||
-        ['source-pin.json', 'runtime.json'].includes(name))
+        name.startsWith('generation-') ||
+        ['source-pin.json', 'runtime.json', 'current-manager.json'].includes(name))
         await rm(join(base, name), { recursive: true, force: true });
     await cp(sources[0], manager, { recursive: true });
     await writeFile(join(base, 'source-pin.json'), JSON.stringify(pins[0]));
-    // Missing optional runtime publication exercises an actual pending write;
-    // confirmed identical metadata must keep its zero-write reuse behavior.
   };
   const pinPath = join(base, 'source-pin.json');
   for (const metadata of [undefined, '{malformed', 'null', '[]', '{}',
@@ -39,15 +39,10 @@ export async function checkManagementPublication(manager, oldPin, nodePath, mani
     await reset();
     if (metadata === undefined) await rm(pinPath);
     else await writeFile(pinPath, metadata);
-    await installVerifiedRolloutManager(sources[1], pins[1], runtime);
-    await verifyOwnedSourcePackage(manager, pins[1]);
-    const observed = await managerRecoveryPackages();
-    assert.equal(observed.packages.length, 0);
-    assert.equal(observed.retained.length, 1);
-    const old = observed.retained[0];
-    assert.deepEqual(await readdir(old), ['package']);
-    assert.equal(await readFile(join(old, 'package/src/publication-fixture.mjs'),
-      'utf8'), "export const fixture = 'B';\n");
+    const installed = await installVerifiedRolloutManager(sources[1], pins[1], runtime);
+    assert.equal(await selectedManager(), installed.directory);
+    await verifyOwnedSourcePackage(installed.directory, pins[1]);
+    await verifyOwnedSourcePackage(manager, pins[0]);
     let writes = 0;
     await installVerifiedRolloutManager(sources[1], pins[1], runtime,
       { published: async () => { writes++; } });
@@ -66,16 +61,18 @@ export async function checkManagementPublication(manager, oldPin, nodePath, mani
     { code: 'UNTRUSTED_ADOPTION_PATH' });
   await verifyOwnedSourcePackage(manager, pins[0]);
   assert.deepEqual(JSON.parse(await readFile(foreignPin)), pins[0]);
-  for (const phase of ['prepared', 'previous', 'manager', 'pin', 'runtime']) {
+  for (const phase of ['prepared', 'generation', 'selected']) {
     await reset();
     await assert.rejects(installVerifiedRolloutManager(sources[1], pins[1], runtime,
       { published: async observed => {
         if (observed === phase) throw new Error('fixture interruption');
       } }), /fixture interruption/);
-    await installVerifiedRolloutManager(sources[2], pins[2], runtime);
-    await verifyOwnedSourcePackage(manager, pins[2]);
-    assert.deepEqual(JSON.parse(await readFile(join(base, 'source-pin.json'))), pins[2]);
-    assert.deepEqual(JSON.parse(await readFile(join(base, 'runtime.json'))), runtime);
+    const current = await installVerifiedRolloutManager(sources[2], pins[2], runtime);
+    await verifyOwnedSourcePackage(current.directory, pins[2]);
+    assert.deepEqual(JSON.parse(await readFile(join(dirname(current.directory),
+      'source-pin.json'))), pins[2]);
+    assert.deepEqual(JSON.parse(await readFile(join(dirname(current.directory),
+      'runtime.json'))), runtime);
     let writes = 0;
     await installVerifiedRolloutManager(sources[2], pins[2], runtime,
       { published: async () => { writes++; } });
@@ -95,7 +92,7 @@ export async function checkManagementPublication(manager, oldPin, nodePath, mani
     await Promise.all(recovery.packages.map(pair =>
       readFile(join(pair.root, 'src/publication-fixture.mjs')))), 0o755);
   assert.deepEqual(await readFile(entry), await bytes(2));
-  assert.deepEqual(await cleanupManagerRecovery(recovery.packages), []);
+  assert.deepEqual(await cleanupManagerRecovery(recovery.packages), [manager]);
   await mkdir(join(base, '.previous-unknown'));
   await writeFile(join(base, '.previous-unknown/foreign'), 'retain');
   await installVerifiedRolloutManager(sources[2], pins[2], runtime);
@@ -104,6 +101,24 @@ export async function checkManagementPublication(manager, oldPin, nodePath, mani
   await assert.rejects(publishMaintenanceFile(entry, await bytes(2), [], 0o755),
     { code: 'CORE_MAINTENANCE_RESOURCE_UNKNOWN' });
   assert.equal(await readFile(entry, 'utf8'), 'foreign user content');
+
+  // The older installer loses its publication authority when another
+  // operation publishes newer verified live code while it is staged.
+  await reset();
+  let reached, release;
+  const stagedPublication = new Promise(resolve => { reached = resolve; });
+  const resume = new Promise(resolve => { release = resolve; });
+  const earlier = installVerifiedRolloutManager(sources[1], pins[1], runtime, {
+    published: async phase => {
+      if (phase === 'generation') { reached(); await resume; }
+    },
+  });
+  await stagedPublication;
+  const newer = await installVerifiedRolloutManager(sources[2], pins[2], runtime);
+  release();
+  await assert.rejects(earlier, { code: 'ROLLOUT_MANAGER_SOURCE_CHANGED' });
+  assert.equal(await selectedManager(), newer.directory);
+  await verifyOwnedSourcePackage(newer.directory, pins[2]);
 
   const live = '/opt/nibfin/core';
   await cp(sources[2], live, { recursive: true });

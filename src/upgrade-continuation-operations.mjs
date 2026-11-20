@@ -31,7 +31,9 @@ function reply(operation, extra = {}) {
     executionRepository: operation.execution.repository,
     executionRepositoryId: operation.execution.repositoryId,
     proposals, consumers, ...operation.progress, ...(operation.coreRunId ?
-      { coreRunId: operation.coreRunId } : {}), ...extra,
+      { coreRunId: operation.coreRunId,
+        ...(operation.coreRunURL ? { coreRunURL: operation.coreRunURL } : {}) } : {}),
+    ...extra,
   } };
 }
 
@@ -53,8 +55,8 @@ export function sameUpgradeSource(left, right) {
   return sameIntent(upgradeSourcePin(left), upgradeSourcePin(right));
 }
 
-// Existing management admission serializes the write, not the VM or provider
-// observations. Reconcile unrelated operations and preserve changed approvals.
+// The store transaction serializes only the write. Reconcile unrelated
+// operations without replacing another caller's changed approvals.
 export function mergeUpgradeOperations(current, initial, next) {
   const changes = new Map(next.flatMap(value => {
     const before = initial.find(previous => previous.id === value.id);
@@ -255,6 +257,7 @@ export async function completeUpgrade(binding, ports) {
   if (installed.status !== 'installed') {
     progress.installation = installed.status;
     if (installed.coreRunId) operation.coreRunId = installed.coreRunId;
+    if (installed.coreRunURL) operation.coreRunURL = installed.coreRunURL;
     progress.installationCause = { code: installed.code };
     if (consumer) consumer.installationCause = progress.installationCause;
     await ports.write(records);

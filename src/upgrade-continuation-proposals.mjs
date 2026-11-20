@@ -1,6 +1,6 @@
 import { gitBlob, isId, isSha, requireThat } from './identity.mjs';
 import { repoPath } from './github-read.mjs';
-import { upgradeContinuationContract as contract, upgradeRecipeVariants }
+import { upgradeContinuationContract as contract, upgradeRecipe, upgradeRecipeVariants }
   from './upgrade-continuation-contract.mjs';
 
 export async function upgradeRepository(reader, { repository, repositoryId }) {
@@ -20,7 +20,7 @@ export async function upgradeRepository(reader, { repository, repositoryId }) {
     head: branch.commit.sha, protected: branch.protected === true };
 }
 
-export async function upgradeWorkflowSource(reader, repository, commit, kind,
+async function inspectUpgradeWorkflowSource(reader, repository, commit, kind,
   memberId) {
   const path = contract.recipes[kind];
   requireThat(['notification', 'execution'].includes(kind) && isSha(commit),
@@ -33,7 +33,14 @@ export async function upgradeWorkflowSource(reader, repository, commit, kind,
   requireThat(file.sha === gitBlob(bytes) &&
     upgradeRecipeVariants(kind, memberId).includes(text),
   'UPGRADE_WORKFLOW_NOT_MAINTAINED');
-  return file.sha;
+  return { blob: file.sha,
+    maintenance: kind === 'execution' && text === upgradeRecipe(kind, memberId) };
+}
+
+export async function upgradeWorkflowSource(reader, repository, commit, kind,
+  memberId) {
+  return (await inspectUpgradeWorkflowSource(reader, repository, commit, kind,
+    memberId)).blob;
 }
 
 export async function observeUpgradeWorkflow(reader, repository, kind, memberId) {
@@ -41,9 +48,16 @@ export async function observeUpgradeWorkflow(reader, repository, kind, memberId)
   const workflow = await reader.get(`${repository.root}/actions/workflows/${file}`);
   requireThat(workflow.path === contract.recipes[kind] && isId(workflow.id) &&
     workflow.state === 'active', 'UPGRADE_WORKFLOW_UNAVAILABLE');
-  const blob = await upgradeWorkflowSource(reader, repository, repository.head,
+  const source = await inspectUpgradeWorkflowSource(reader, repository, repository.head,
     kind, memberId);
-  return { id: workflow.id, path: workflow.path, blob };
+  return { id: workflow.id, path: workflow.path, ...source };
+}
+
+export async function requireAdoptedMaintenanceSource(reader, repository, commit,
+  memberId) {
+  const source = await inspectUpgradeWorkflowSource(reader, repository, commit,
+    'execution', memberId);
+  requireThat(source.maintenance, 'UPGRADE_CORE_EXECUTION_ROUTE_REQUIRED');
 }
 
 export async function observeUpgradeProposal(reader, consumer, pullNumber, memberId) {

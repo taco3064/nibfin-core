@@ -49,6 +49,13 @@ const root = '/etc/nibfin';
 export const rolloutHostNames = ['host.json', 'host.nibfin-act.json',
   'host.gh-nibfin.json', 'host.nibfin-e2e.json'];
 
+export function requireRolloutEnrollments(repositories) {
+  requireThat(repositories.length === 4 && new Set(repositories.map(r =>
+    r.repository)).size === 4 && ['nibfin-core', 'nibfin-act', 'gh-nibfin', 'nibfin-e2e']
+    .every(name => repositories.some(r => r.repository === 'taco3064/' + name)),
+  'ROLLOUT_ENROLLMENTS_CHANGED');
+}
+
 async function readHost(path) {
   await rootOwnedPath(path);
   return JSON.parse(await boundedHostFile(path, 262144));
@@ -76,10 +83,7 @@ export async function bindRolloutPool(host, context,
     repositories.push({ repository: peer.repository.approval.repository,
       repositoryId: id });
   }
-  requireThat(repositories.length === 4 && new Set(repositories.map(r =>
-    r.repository)).size === 4 && ['nibfin-core', 'nibfin-act', 'gh-nibfin', 'nibfin-e2e']
-    .every(name => repositories.some(r => r.repository === 'taco3064/' + name)),
-  'ROLLOUT_ENROLLMENTS_CHANGED');
+  requireRolloutEnrollments(repositories);
   // Include the primary even when sharedRepository returned it without a read.
   await read(join(root, rolloutHostNames[0]));
   for (const name of rolloutHostNames) {

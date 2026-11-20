@@ -66,7 +66,9 @@ writeCommandResult({...frame.result,token:'secret-token',requestUrl:'secret-url'
     [{ status: 'pending', code: 'GITHUB_API_ERROR',
       githubApi: { kind: 'http', httpStatus: 422, body: 'secret-body' } }, 2],
     [{ status: 'denied', code: 'CORE_MAINTENANCE_INVOKER_CHANGED' }, 1],
-    [{ status: 'pending', code: 'CORE_MANAGEMENT_OPERATION_PENDING' }, 2],
+    [{ status: 'pending', code: 'UPGRADE_CORE_ACTIVATION_QUEUED',
+      coreRunId: 89, coreRunURL: 'https://github.com/example/execution/actions/runs/89',
+      installation: 'pending' }, 2],
     [{ status: 'admitted' }, 0],
   ];
   for (const [result, expectedExit] of cases) {
@@ -81,19 +83,22 @@ writeCommandResult({...frame.result,token:'secret-token',requestUrl:'secret-url'
     assert.equal(value.status, result.status);
     if (result.githubApi) assert.deepEqual(value.githubApi,
       { kind: 'http', httpStatus: 422 });
+    if (result.coreRunId) {
+      assert.equal(value.coreRunId, result.coreRunId);
+      assert.equal(value.coreRunURL, result.coreRunURL);
+    }
     assert.ok(!/secret-/.test(executed.stdout + executed.stderr));
     if (expectedExit) assert.equal(JSON.parse(executed.stderr).code, result.code);
   }
   const ordinary = Buffer.from(JSON.stringify({ result: { status: 'admitted' } }),
     'utf16le').toString('base64');
-  for (const [kind, expected] of [['maintenance', 0], ['administrator', 2]]) {
+  for (const kind of ['maintenance', 'administrator']) {
     const executed = spawnSync(bridge, [], { encoding: 'utf8', env,
       input: JSON.stringify({ kind, frame: ordinary }) });
-    assert.equal(executed.status, expected, executed.stdout + executed.stderr);
+    assert.equal(executed.status, 0, executed.stdout + executed.stderr);
     assert.ok(executed.stdout, executed.stderr);
     const value = JSON.parse(executed.stdout);
-    if (expected === 0) assert.equal(value.status, 'admitted');
-    else assert.equal(value.code, 'CORE_MANAGEMENT_OPERATION_PENDING');
+    assert.equal(value.status, 'admitted');
   }
   for (const flag of ['malformed', 'mismatch']) {
     const frame = Buffer.from(JSON.stringify({ [flag]: true }), 'utf16le');

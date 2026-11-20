@@ -1,9 +1,5 @@
 """Controlled native provider/filesystem ports; all fixtures stay in this repo."""
 import importlib.util
-import errno
-import os
-import stat
-import subprocess
 import sys
 import json
 from pathlib import Path
@@ -235,87 +231,6 @@ class CoordinatorReplay(unittest.TestCase):
         self.assertEqual(self.writes, [])
         self.assertEqual(json.loads(self.path.read_text())["phase"], "prepared")
 
-    @unittest.skipUnless(sys.platform == "linux", "Uses Linux flock")
-    def test_native_preflight_shares_source_gate_and_unsupported_has_no_effect(self):
-        import fcntl
-        shared = os.open(self.config, os.O_DIRECTORY)
-        peer = os.open(self.config, os.O_DIRECTORY)
-        try:
-            fcntl.flock(shared, fcntl.LOCK_SH)
-            self.runtime.prepare_plan = lambda plan: {**plan, "mode": "core-only"}
-            self.runtime.promote_gate = lambda: self.writes.append(("promote", "core"))
-
-            def preflight(operation):
-                self.assertEqual(operation, "preflight")
-                fcntl.flock(peer, fcntl.LOCK_SH | fcntl.LOCK_NB)
-                return {"status": "unsupported", "code": "CORE_ONLY_MAINTENANCE_REQUIRED"}
-
-            self.runtime.pool_step = preflight
-            result = COORDINATOR.rollout(self.runtime, {"core": {}},
-                                         (123, self.pins, []))
-            self.assertEqual(result["status"], "unsupported")
-            self.assertFalse(self.runtime.LAST_PR_CLEANUP.exists())
-            self.assertEqual(self.writes, [])
-        finally:
-            os.close(peer)
-            os.close(shared)
-
-    @unittest.skipUnless(sys.platform == "linux", "Uses Linux flock")
-    def test_active_preworker_wins_over_compatible_promotion(self):
-        import fcntl
-        shared = os.open(self.config, os.O_DIRECTORY)
-        peer = os.open(self.config, os.O_DIRECTORY)
-        try:
-            fcntl.flock(shared, fcntl.LOCK_SH)
-            self.runtime.prepare_plan = lambda plan: {**plan, "mode": "core-only"}
-            self.runtime.promote_gate = lambda: ADMIN.claim_promotion(shared)
-
-            def pool(operation):
-                self.assertEqual(operation, "preflight")
-                fcntl.flock(peer, fcntl.LOCK_SH | fcntl.LOCK_NB)
-                return self.pool(operation)
-
-            self.runtime.pool_step = pool
-            with self.assertRaises(ADMIN.RESULTS.CoreRolloutFailure) as caught:
-                self.replay()
-            self.assertEqual(caught.exception.result["code"],
-                             "CORE_MANAGEMENT_OPERATION_PENDING")
-            self.assertEqual(json.loads(self.path.read_text())["phase"], "prepared")
-            self.assertEqual(self.writes, [])
-            self.assertFalse(self.runtime.LAST_PR_CLEANUP.exists())
-        finally:
-            os.close(peer)
-            os.close(shared)
-
-    @unittest.skipUnless(sys.platform == "linux", "Uses Linux flock")
-    def test_compatible_promotion_holds_the_gate_only_after_preflight(self):
-        import fcntl
-        shared = os.open(self.config, os.O_DIRECTORY)
-        peer = os.open(self.config, os.O_DIRECTORY)
-        operations = []
-        try:
-            fcntl.flock(shared, fcntl.LOCK_SH)
-            self.runtime.prepare_plan = lambda plan: {**plan, "mode": "core-only"}
-            self.runtime.promote_gate = lambda: ADMIN.claim_promotion(shared)
-
-            def pool(operation):
-                operations.append(operation)
-                if operation == "preflight":
-                    fcntl.flock(peer, fcntl.LOCK_SH | fcntl.LOCK_NB)
-                    fcntl.flock(peer, fcntl.LOCK_UN)
-                else:
-                    with self.assertRaises(BlockingIOError):
-                        fcntl.flock(peer, fcntl.LOCK_SH | fcntl.LOCK_NB)
-                return self.pool(operation)
-
-            self.runtime.pool_step = pool
-            self.replay()
-            self.assertEqual(operations, ["preflight", "close", "settle"])
-            self.assertIn(("apply", "core"), self.writes)
-        finally:
-            os.close(peer)
-            os.close(shared)
-
     def test_core_only_completed_prepared_record_reuses_actual_result(self):
         target = {"runId": 123, "artifactId": 456}
         self.runtime.CORE = "core"
@@ -359,23 +274,6 @@ class CoordinatorReplay(unittest.TestCase):
             ADMIN.bridge("admit")
         self.assertEqual(run.call_args.args[0][0], "manager-M")
 
-    def test_existing_internal_directory_descriptor_is_reused(self):
-        current = self.config.stat()
-        inherited = SimpleNamespace(st_dev=current.st_dev, st_ino=current.st_ino,
-                                    st_uid=0, st_mode=stat.S_IFDIR | 0o755)
-        with patch.object(ADMIN.os, "fstat", return_value=inherited), \
-                patch.object(type(self.config), "lstat", return_value=inherited), \
-                patch.object(ADMIN.os, "open") as opened:
-            self.assertEqual(ADMIN.operation_gate(self.config), (3, True))
-            opened.assert_not_called()
-        inherited.st_ino += 1
-        with patch.object(ADMIN.os, "fstat", return_value=inherited):
-            with self.assertRaises(RuntimeError):
-                ADMIN.operation_gate(self.config)
-        with patch.object(ADMIN.os, "fstat", side_effect=OSError(errno.EBADF, "fd")), \
-                patch.object(ADMIN.os, "open", return_value=17):
-            self.assertEqual(ADMIN.operation_gate(self.config), (17, False))
-
     def test_inherited_installation_returns_before_any_continuation_dispatch(self):
         target = {"runId": 123, "artifactId": 456}
         self.runtime.CORE = "core"
@@ -395,31 +293,17 @@ class CoordinatorReplay(unittest.TestCase):
         self.assertEqual(result["continuation"]["status"], "pending")
         self.assertEqual(self.writes, [])
 
-    def test_shared_gate_precedes_completion_and_failed_conversion_stays_pending(self):
+    def test_fresh_installed_readback_does_not_reuse_stale_completion(self):
         installed = {"status": "installed", "installation": "complete",
                      "completion": {"runtime": {"nodePath": "stale"}}}
-        sequence = []
-
-        def lock(handle, mode):
-            self.assertEqual(handle, 17)
-            self.assertEqual(mode, ADMIN.fcntl.LOCK_SH | ADMIN.fcntl.LOCK_NB)
-            sequence.append("shared")
-
-        def complete():
-            self.assertEqual(sequence, ["shared"])
-            sequence.append("fresh completion")
-            return {"status": "paused", "results": []}
-
-        with patch.object(ADMIN.fcntl, "flock", side_effect=lock), \
-                patch.object(ADMIN, "continuation", side_effect=complete):
-            result = ADMIN.continue_after_gate(installed, 17)
-        self.assertEqual(result["installation"], "complete")
+        with patch.object(ADMIN, "continuation", return_value={
+                "status": "paused", "results": []}) as continuation:
+            result = ADMIN.continue_installed(installed)
+        continuation.assert_called_once_with()
         self.assertEqual(result["continuation"]["status"], "paused")
         self.assertNotIn("completion", result)
-        with patch.object(ADMIN.fcntl, "flock", side_effect=BlockingIOError()), \
-                patch.object(ADMIN, "continuation") as complete:
-            result = ADMIN.continue_after_gate(installed, 17)
-            complete.assert_not_called()
+        with patch.object(ADMIN, "continuation", side_effect=OSError("read failed")):
+            result = ADMIN.continue_installed(installed)
         self.assertEqual(result["installation"], "complete")
         self.assertEqual(result["continuation"]["status"], "pending")
 
@@ -459,31 +343,6 @@ class CoordinatorReplay(unittest.TestCase):
         bridge.assert_not_called()
         self.assertEqual(result["installation"], "complete")
         self.assertEqual(self.writes, [])
-
-    def test_actual_shared_conversion_permits_preworker_and_excludes_replacement(self):
-        script = ("import fcntl,os,sys; h=os.open(sys.argv[1],os.O_RDONLY); "
-                  "fcntl.flock(h,int(sys.argv[2])|fcntl.LOCK_NB)")
-
-        def child(mode):
-            return subprocess.run([sys.executable, "-B", "-c", script,
-                                   str(self.config), str(mode)], capture_output=True)
-
-        handle = ADMIN.os.open(self.config, ADMIN.os.O_RDONLY | ADMIN.os.O_DIRECTORY)
-        try:
-            ADMIN.fcntl.flock(handle, ADMIN.fcntl.LOCK_EX | ADMIN.fcntl.LOCK_NB)
-            self.assertNotEqual(child(ADMIN.fcntl.LOCK_SH).returncode, 0)
-
-            def complete():
-                self.assertEqual(child(ADMIN.fcntl.LOCK_SH).returncode, 0)
-                self.assertNotEqual(child(ADMIN.fcntl.LOCK_EX).returncode, 0)
-                return {"status": "paused", "results": []}
-
-            with patch.object(ADMIN, "continuation", side_effect=complete):
-                result = ADMIN.continue_after_gate({"installation": "complete"}, handle)
-            self.assertEqual(result["continuation"]["status"], "paused")
-        finally:
-            ADMIN.os.close(handle)
-
 
 if __name__ == "__main__":
     unittest.main()

@@ -39,12 +39,9 @@ def rollout(runtime, hosts, selected):
     if plan["phase"] == "prepared":
         # Validate prospective bindings and permissions before closing admission.
         runtime.stage_bindings(hosts, consumers, pins, source, preflight=True)
-        promote_gate = getattr(runtime, "promote_gate", None)
-        preparation = runtime.pool_step("preflight" if promote_gate else "prepare")
+        preparation = runtime.pool_step("prepare")
         if preparation.get("status") == "unsupported":
             return preparation
-        if promote_gate:
-            promote_gate()
         if (not runtime.LAST_PR_CLEANUP.exists() or
                 json.loads(runtime.LAST_PR_CLEANUP.read_text()) != run_id):
             runtime.close_superseded_rollouts(core)

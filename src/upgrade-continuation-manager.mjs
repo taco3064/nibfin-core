@@ -18,9 +18,7 @@ async function requireLocalAdministrator(host, uid) {
 }
 
 export async function upgradeManagerRequest(context, host, supplied, uid, execute) {
-  const shared = ['upgrade-receive', 'upgrade-complete',
-    'upgrade-installed'].includes(supplied.kind);
-  const ports = await upgradeHostPorts(context, host, execute, { shared });
+  const ports = await upgradeHostPorts(context, host, execute);
   // The fixed bridge never exposes these post-install methods to its caller.
   if (supplied.kind === 'upgrade-installed') {
     exactUpgradeFields(supplied, ['kind', 'activation']);

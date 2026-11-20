@@ -9,6 +9,8 @@ import { managerHostRegistrations } from './shared-host-inspect.mjs';
 import { coreMaintenanceContract as contract } from './core-maintenance-contract.mjs';
 import { readRetirementFile } from './retirement-files.mjs';
 import { rolloutPlanPath } from './rollout-admission.mjs';
+import { upgradeContinuationContract } from './upgrade-continuation-contract.mjs';
+import { requireAdoptedMaintenanceSource } from './upgrade-continuation-proposals.mjs';
 
 const scopes = new WeakMap();
 const requiredLabels = ['self-hosted', 'nibfin-shared'];
@@ -44,18 +46,23 @@ async function observeNativeJob(context, host, request, invokerUid, reader) {
   requireManagerContext(context);
   nativeIds(request);
   const pool = managerHostRegistrations(host, context);
-  requireThat(pool.repository === 'taco3064/nibfin-core',
-    'CORE_MAINTENANCE_REPOSITORY_CHANGED');
   const selected = invokerRunner(pool, host, invokerUid);
   requireThat(selected.id === request.runnerId,
     'CORE_MAINTENANCE_INVOKER_CHANGED');
   const root = repoPath(pool.repository);
-  const [repository, run, job, workflow] = await Promise.all([
+  const [repository, run, job] = await Promise.all([
     reader.get(root),
     reader.get(`${root}/actions/runs/${request.runId}/attempts/${request.attempt}`),
     reader.get(`${root}/actions/jobs/${request.jobId}`),
-    reader.get(`${root}/actions/workflows/core-maintenance.yml`),
   ]);
+  const adoptedRoute = run.path === upgradeContinuationContract.recipes.execution;
+  requireThat(adoptedRoute ||
+    pool.repository === contract.producer && run.path === contract.workflowPath,
+  'CORE_MAINTENANCE_RUN_UNTRUSTED');
+  const workflowPath = adoptedRoute
+    ? upgradeContinuationContract.recipes.execution : contract.workflowPath;
+  const filename = workflowPath.split('/').at(-1);
+  const workflow = await reader.get(`${root}/actions/workflows/${filename}`);
   const branch = repository.default_branch;
   const ref = `refs/heads/${branch}`;
   const adopted = host.sharedRunner.caller;
@@ -70,11 +77,11 @@ async function observeNativeJob(context, host, request, invokerUid, reader) {
   requireThat(isId(run.actor?.id) && isId(run.triggering_actor?.id) &&
     run.id === request.runId && run.run_attempt === request.attempt &&
     run.status === 'in_progress' && run.conclusion === null &&
-    run.event === contract.eventName && run.path === contract.workflowPath &&
+    run.event === contract.eventName && run.path === workflowPath &&
     run.head_branch === branch && isSha(run.head_sha) &&
     run.repository?.id === pool.repositoryId &&
     run.head_repository?.id === pool.repositoryId &&
-    run.workflow_id === workflow.id && workflow.path === contract.workflowPath &&
+    run.workflow_id === workflow.id && workflow.path === workflowPath &&
     workflow.state === 'active' && isId(workflow.id) &&
     Array.isArray(run.pull_requests) && run.pull_requests.length === 0,
   'CORE_MAINTENANCE_RUN_UNTRUSTED');
@@ -83,6 +90,13 @@ async function observeNativeJob(context, host, request, invokerUid, reader) {
       head.commit.sha);
     requireThat(['identical', 'ahead'].includes(comparison.status),
       'CORE_MAINTENANCE_SOURCE_UNTRUSTED');
+  }
+  if (adoptedRoute) {
+    const observed = { root };
+    await requireAdoptedMaintenanceSource(reader, observed, run.head_sha, pool.memberId);
+    if (run.head_sha !== head.commit.sha)
+      await requireAdoptedMaintenanceSource(reader, observed, head.commit.sha,
+        pool.memberId);
   }
   requireThat(job.id === request.jobId && job.run_id === request.runId &&
     job.run_attempt === request.attempt && job.head_sha === run.head_sha &&
@@ -101,6 +115,7 @@ async function observeNativeJob(context, host, request, invokerUid, reader) {
     jobId: job.id, runnerId: selected.id, runnerName: selected.name, invokerUid,
     actorId: run.actor.id, triggeringActorId: run.triggering_actor.id,
     sourceCommit: run.head_sha, workflowId: workflow.id, checkRunId,
+    ...(adoptedRoute ? { workflowPath } : {}),
     ref, subject: adopted.subject };
 }
 
@@ -148,9 +163,14 @@ export async function observeCoreMaintenanceFrame(context, host, message,
     frame.github.get('ref') === provenance.ref &&
     frame.github.get('event_name') === contract.eventName &&
     frame.github.get('workflow_ref') ===
-      `${provenance.repository}/${contract.workflowPath}@${provenance.ref}` &&
+      workflowReference(provenance) &&
     frame.jobName === contract.jobName, 'CORE_MAINTENANCE_FRAME_CHANGED');
   return provenance;
+}
+
+function workflowReference(provenance) {
+  const path = provenance.workflowPath ?? contract.workflowPath;
+  return `${provenance.repository}/${path}@${provenance.ref}`;
 }
 
 function mint(context, provenance, target) {
@@ -173,7 +193,7 @@ export async function admitCoreMaintenance(context, host, request, invokerUid, r
     reader);
   await verifyActionsIdentity(request.token, { ...provenance,
     audience: contract.audience, eventName: contract.eventName,
-    workflowRef: `${provenance.repository}/${contract.workflowPath}@${provenance.ref}`,
+    workflowRef: workflowReference(provenance),
   }, identityOptions);
   const confirmed = await observeAuthorizedRunner(context, host, request, invokerUid,
     reader);

@@ -34,14 +34,27 @@ async function requireProgram(path, expected, mode) {
     ((await lstat(path)).mode & 0o777) === mode, 'CORE_MAINTENANCE_ENTRY_PENDING');
 }
 
-export async function observeMaintenancePrograms(context, slots = []) {
+export async function observeMaintenancePrograms(context, slots = [],
+  { transition } = {}) {
   const admitted = requireManagerContext(context);
+  let observed;
+  const predecessors = () => transition
+    ? observed ??= managerRecoveryPackages().then(value =>
+      value.packages.map(pair => pair.root)) : [];
   for (const [path, source] of programs)
-    await requireProgram(path, await readFile(join(admitted.codeRoot, source)), 0o755);
+    await requireProgramFromSources(path, source, admitted.codeRoot, predecessors);
   await requireProgram(contract.sudoers, maintenanceSudoers(), 0o440);
-  const bytes = await readFile(join(admitted.codeRoot, shim));
   for (const slot of slots)
-    await requireProgram(join(slot, 'bin/Runner.Worker'), bytes, 0o755);
+    await requireProgramFromSources(join(slot, 'bin/Runner.Worker'), shim,
+      admitted.codeRoot, predecessors);
+}
+
+async function requireProgramFromSources(destination, source, selected, predecessors) {
+  const expected = await readFile(join(selected, source));
+  const actual = await maintenanceFile(destination);
+  requireThat(actual && ((await lstat(destination)).mode & 0o777) === 0o755 &&
+    (actual.equals(expected) || (await knownBytes(await predecessors(), source))
+      .some(bytes => actual.equals(bytes))), 'CORE_MAINTENANCE_ENTRY_PENDING');
 }
 
 async function knownBytes(roots, path) {
@@ -56,7 +69,7 @@ async function knownBytes(roots, path) {
   return result;
 }
 
-// Runs in the admitted manager under the existing exclusive management gate.
+// Runs from the admitted immutable manager package.
 // This changes Nibfin entry programs only, never official runtime or registration.
 export async function installCoreMaintenanceEntries(context,
   { inspectOnly = false } = {}) {
@@ -98,7 +111,7 @@ export async function installCoreMaintenanceEntries(context,
   const cleanup = inspectOnly ? undefined :
     await retireInstalledRolloutTimer([...sources, runtime.directory]);
   // Every owned entry now agrees with the current complete management package.
-  // No reader can still use the predecessor while this exclusive gate is held.
+  // An active predecessor stays installed until its process references end.
   const retained = [...recovery.retained, ...(inspectOnly ? [] :
     await cleanupManagerRecovery(recovery.packages))];
   return { schemaVersion: 1, status: 'installed', capability: contract.kind,

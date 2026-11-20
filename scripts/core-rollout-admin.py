@@ -4,14 +4,11 @@ sys.dont_write_bytecode = True
 
 import base64
 import contextlib
-import errno
-import fcntl
 import importlib.util
 import json
 import os
 from pathlib import Path
 import re
-import stat
 import subprocess
 
 
@@ -144,7 +141,7 @@ def continuation():
 
 
 def operation(runtime, target, core_only=False, provenance=None,
-              defer_continuation=False, promote_gate=None):
+              defer_continuation=False):
     path = runtime.CONFIG / "rollout-plan.json"
     hosts = {repo: json.loads((runtime.CONFIG / name).read_text())
              for repo, name in runtime.HOSTS.items()}
@@ -155,11 +152,6 @@ def operation(runtime, target, core_only=False, provenance=None,
     runtime.require(not plan or (plan.get("mode") == "core-only") == core_only,
                     "Another rollout mode owns the current operation")
     closure = runtime.CONFIG / "rollout-admission.json"
-    if promote_gate and (closure.exists() or
-                         plan and (plan.get("phase") != "prepared" or
-                                   plan.get("apply"))):
-        promote_gate()
-        promote_gate = None
     if (core_only and plan and plan.get("phase") == "prepared"
             and not plan.get("apply") and not closure.exists()):
         # Before admission closes there are no installation effects. Retire
@@ -201,12 +193,6 @@ def operation(runtime, target, core_only=False, provenance=None,
                             for repo in (*hosts, runtime.E2E)]
                 complete = all(pr is None for _, pr in observed)
         if not complete:
-            if promote_gate and hosts[runtime.CORE]["installation"]["pin"] == \
-                    selected[1]["core"]:
-                # Same-source recovery can write release/verification state.
-                promote_gate()
-                promote_gate = None
-            runtime.promote_gate = promote_gate
             outcome = runtime.rollout(hosts, selected)
             if outcome and outcome.get("status") == "unsupported":
                 # No installation or closure exists yet. A prepared local record
@@ -244,32 +230,11 @@ def operation(runtime, target, core_only=False, provenance=None,
             "continuation": result}
 
 
-def operation_gate(config):
-    # The fixed Root bridge may pass its existing directory open-description in
-    # fd 3. Reopening the directory while its parent holds the exclusive flock
-    # would contend with the operation itself. No public path/flag selects this.
-    try:
-        inherited = os.fstat(3)
-    except OSError as error:
-        if error.errno != errno.EBADF:
-            raise
-        return os.open(config, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW), False
-    expected = config.lstat()
-    if (inherited.st_dev != expected.st_dev or inherited.st_ino != expected.st_ino
-            or inherited.st_uid != 0 or expected.st_uid != 0
-            or not stat.S_ISDIR(inherited.st_mode) or not stat.S_ISDIR(expected.st_mode)
-            or (inherited.st_mode | expected.st_mode) & 0o022):
-        raise RuntimeError("Inherited rollout gate does not match fixed configuration")
-    return 3, True
-
-
-def continue_after_gate(result, handle):
-    # flock conversion is not assumed atomic. Only a successful shared lock
-    # permits fresh observation; old completion facts never select executable code.
+def continue_installed(result):
+    # Old completion facts never select executable code.
     completed = {**result}
     completed.pop("completion", None)
     try:
-        fcntl.flock(handle, fcntl.LOCK_SH | fcntl.LOCK_NB)
         completed["continuation"] = continuation()
     except (OSError, ValueError, RuntimeError) as error:
         completed["continuation"] = RESULTS.failure_result(error, continuation=True)
@@ -277,14 +242,6 @@ def continue_after_gate(result, handle):
         # The fixed bridge owns the independent cleanup attempt and report.
         completed["continuation"].pop("cleanup", None)
     return completed
-
-
-def claim_promotion(handle):
-    try:
-        fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except BlockingIOError as error:
-        value = {"status": "pending", "code": "CORE_MANAGEMENT_OPERATION_PENDING"}
-        raise RESULTS.CoreRolloutFailure(value) from error
 
 
 def main():
@@ -310,31 +267,17 @@ def main():
         if authorization.get("status") != "authorized":
             raise RuntimeError("Native maintenance authorization is unavailable")
         provenance = authorization["provenance"]
-    if in_pool and not (core_only and provenance):
+    if core_only and not provenance or in_pool and not core_only:
         raise RESULTS.CoreRolloutFailure({"status": "denied",
             "code": "CORE_MAINTENANCE_IDENTITY_REQUIRED"})
+    if not core_only:
+        bridge("admit-offline")
     runtime = load_runtime()
-    handle, inherited = operation_gate(runtime.CONFIG)
-    try:
-        def promote_gate():
-            claim_promotion(handle)
-
-        # The signed serving Job is serialized by the fixed GitHub workflow.
-        # The inherited shared source lease excludes direct administrators,
-        # while permitting ordinary Worker admission during staging/inspection.
-        shared_preflight = inherited and provenance is not None
-        if not shared_preflight:
-            promote_gate()
-        with contextlib.redirect_stdout(sys.stderr):
-            result = operation(runtime, target, core_only, provenance,
-                               defer_continuation=True,
-                               promote_gate=promote_gate if shared_preflight else None)
-            if result.get("installation") == "complete" and not inherited:
-                result = continue_after_gate(result, handle)
-        print(json.dumps(result))
-        sys.exit(RESULTS.result_exit(result))
-    finally:
-        os.close(handle)
+    with contextlib.redirect_stdout(sys.stderr):
+        result = operation(runtime, target, core_only, provenance,
+                           defer_continuation=True)
+    print(json.dumps(result))
+    sys.exit(RESULTS.result_exit(result))
 
 
 if __name__ == "__main__":
