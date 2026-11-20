@@ -91,7 +91,9 @@ node /opt/nibfin/core/bin/nibfin-core.mjs install-core-rollout-manager
 ```
 
 Select one successful native Core CD run and that run's `nibfin-activate-*`
-artifact ID. Preserve those native identities on retry:
+artifact ID. On a serving pool, this requests maintenance in the adopted GitHub
+execution repository. A queued result includes the native run link. Reuse those
+same native target IDs to read back the result on retry:
 
 ```sh
 node /opt/nibfin/core/bin/nibfin-core.mjs rollout-core-only RUN_ID ARTIFACT_ID
@@ -118,10 +120,10 @@ printf '%s\n' '{"kind":"administrator","coreOnly":true,"target":{
   sudo /usr/local/libexec/nibfin/core-rollout/bridge.py
 ```
 
-Replace the example IDs with the actual selected native objects. No input chooses
-a filesystem path or executable. `inspect` requests read actual capability and
-entry state; `prepare` repairs only that already verified management installation.
-These normal administrator operations are refused to Runner invokers.
+Replace the example IDs with the actual selected native objects. An installed
+result requires verified host readback. `inspect` reads capability and entry
+state. `prepare` repairs the verified management installation. The bridge limits
+these administrator requests to the local administrator.
 
 To retry automatic CD, use GitHub's **Re-run jobs** on the original authorized CD
 run. This preserves its original event and source. The existing manual draft-only
@@ -133,13 +135,10 @@ chain is involved.
 
 ## Interruption, source lifetime and completion
 
-The stable bridge takes the existing `/etc/nibfin` directory gate before loading
-management code. Read-only pre-Worker admission holds a shared source lease;
-manager publication and installation use the existing exclusive operation.
-Inherited descriptor handoff refers to the same open description and actual
-directory inode. It is serialization, not execution authorization. A competing
-operation reports pending through its normal retry path; no elapsed-time cutoff
-or additional execution lock is used.
+GitHub schedules serving-pool maintenance in the adopted execution repository.
+The fixed bridge selects a verified management package for each process. It
+keeps that package available while the process uses it, so pre-Worker admission
+can safely observe a deployment in progress and retry when needed.
 
 Source verification is independent of the live transaction. Actual adopted LIVE
 readback works without an old response or unrelated planning receipt. A valid
@@ -149,20 +148,16 @@ treated as successful absence. Confirmed provider writes, consumer merges and
 installation effects are reused; successful reads finding unfinished work enter
 the same operation again.
 
-After installation, the old management child exits before its management code
-can be replaced. The normal installer publishes the current verified management
-package and stable entries. A verified predecessor is retained only while needed
-to reconcile owned entry publication, then removed after readback. Missing pin
-or runtime publication metadata is repaired against the actual complete package.
-Unknown files remain available for an Owner decision.
+The normal installer publishes the verified management package and stable
+entries. It retains a predecessor while a process uses it or entry publication
+requires it. Missing publication metadata is repaired against the actual
+complete package. Unknown files remain available for an Owner decision.
 
-After successful source and entry readback, the bridge converts the existing
-gate to shared mode, freshly observes the current installation and invokes the
-fixed new Core's `complete-installed-lifecycle`. The shared lease admits newly
-dispatched pre-Workers while excluding another source writer. A failed conversion
-or observation preserves `installation: complete` and a pending continuation.
-Retrying this outcome does not repeat promotion, registration or replacement.
-Owner pauses and originally stopped services retain their existing meanings.
+After source and entry readback, the bridge invokes the installed Core's
+`complete-installed-lifecycle`. A failed observation preserves
+`installation: complete` with a pending continuation. Retry reuses confirmed
+promotion, registration and replacement. Owner pauses and originally stopped
+services still apply during continuation.
 
 The retired rollout units and their recognized installed script are cleaned up
 after native entry readback. Cleanup preserves plans, closures, credentials,
