@@ -1,6 +1,6 @@
 import { gitBlob, isId, isSha, requireThat } from './identity.mjs';
 import { repoPath } from './github-read.mjs';
-import { upgradeContinuationContract as contract, upgradeRecipe }
+import { upgradeContinuationContract as contract, upgradeRecipeVariants }
   from './upgrade-continuation-contract.mjs';
 
 export async function upgradeRepository(reader, { repository, repositoryId }) {
@@ -29,8 +29,9 @@ export async function upgradeWorkflowSource(reader, repository, commit, kind,
   requireThat(file.type === 'file' && file.path === path && file.encoding === 'base64' &&
     typeof file.content === 'string', 'UPGRADE_WORKFLOW_INVALID');
   const bytes = Buffer.from(file.content, 'base64');
+  const text = bytes.toString('utf8').replaceAll('\r\n', '\n');
   requireThat(file.sha === gitBlob(bytes) &&
-    bytes.toString('utf8').replaceAll('\r\n', '\n') === upgradeRecipe(kind, memberId),
+    upgradeRecipeVariants(kind, memberId).includes(text),
   'UPGRADE_WORKFLOW_NOT_MAINTAINED');
   return file.sha;
 }

@@ -94,6 +94,29 @@ test('unavailable remote reads never become proof of abandonment or a refused PR
       error => error === unavailable);
   });
 
+test('existing maintained callers stay valid while native run names are adopted',
+  async () => {
+    for (const [which, kind] of [[consumer, 'notification'], [execution, 'execution']]) {
+      const named = upgradeRecipe(kind, memberId);
+      assert.match(named, /\nrun-name: Nibfin upgrade/);
+      const original = named.split('\n').filter(line => !line.startsWith('run-name: '));
+      const root = `/repos/${which.repository}`;
+      const previous = fixture(which, {
+        [`${root}/contents/${contract.recipes[kind]}?ref=${head}`]:
+          file(kind, Buffer.from(original.join('\n'))),
+      });
+      if (kind === 'notification') {
+        const observed = await observeUpgradeProposal(previous.reader, which,
+          pullNumber, memberId);
+        assert.equal(observed.merged, true);
+      } else {
+        const observed = await observeUpgradeExecutionRun(previous.reader, which,
+          host, { runId: run.id, attempt: run.run_attempt });
+        assert.equal(observed.workflowId, workflow);
+      }
+    }
+  });
+
 test('native workflow rejects unrelated or modified upgrade source', async () => {
   const { reader, root } = fixture(execution);
   const request = { runId: run.id, attempt: run.run_attempt };
