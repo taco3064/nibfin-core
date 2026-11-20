@@ -144,7 +144,7 @@ def continuation():
 
 
 def operation(runtime, target, core_only=False, provenance=None,
-              defer_continuation=False):
+              defer_continuation=False, promote_gate=None):
     path = runtime.CONFIG / "rollout-plan.json"
     hosts = {repo: json.loads((runtime.CONFIG / name).read_text())
              for repo, name in runtime.HOSTS.items()}
@@ -155,6 +155,11 @@ def operation(runtime, target, core_only=False, provenance=None,
     runtime.require(not plan or (plan.get("mode") == "core-only") == core_only,
                     "Another rollout mode owns the current operation")
     closure = runtime.CONFIG / "rollout-admission.json"
+    if promote_gate and (closure.exists() or
+                         plan and (plan.get("phase") != "prepared" or
+                                   plan.get("apply"))):
+        promote_gate()
+        promote_gate = None
     if (core_only and plan and plan.get("phase") == "prepared"
             and not plan.get("apply") and not closure.exists()):
         # Before admission closes there are no installation effects. Retire
@@ -196,6 +201,12 @@ def operation(runtime, target, core_only=False, provenance=None,
                             for repo in (*hosts, runtime.E2E)]
                 complete = all(pr is None for _, pr in observed)
         if not complete:
+            if promote_gate and hosts[runtime.CORE]["installation"]["pin"] == \
+                    selected[1]["core"]:
+                # Same-source recovery can write release/verification state.
+                promote_gate()
+                promote_gate = None
+            runtime.promote_gate = promote_gate
             outcome = runtime.rollout(hosts, selected)
             if outcome and outcome.get("status") == "unsupported":
                 # No installation or closure exists yet. A prepared local record
@@ -265,6 +276,14 @@ def continue_after_gate(result, handle):
     return completed
 
 
+def claim_promotion(handle):
+    try:
+        fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError as error:
+        value = {"status": "pending", "code": "CORE_MANAGEMENT_OPERATION_PENDING"}
+        raise RESULTS.CoreRolloutFailure(value) from error
+
+
 def main():
     values = sys.argv[1:]
     core_only = bool(values and values[0] == "--core-only")
@@ -294,10 +313,19 @@ def main():
     runtime = load_runtime()
     handle, inherited = operation_gate(runtime.CONFIG)
     try:
-        fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        def promote_gate():
+            claim_promotion(handle)
+
+        # The signed serving Job is serialized by the fixed GitHub workflow.
+        # The inherited shared source lease excludes direct administrators,
+        # while permitting ordinary Worker admission during staging/inspection.
+        shared_preflight = inherited and provenance is not None
+        if not shared_preflight:
+            promote_gate()
         with contextlib.redirect_stdout(sys.stderr):
             result = operation(runtime, target, core_only, provenance,
-                               defer_continuation=True)
+                               defer_continuation=True,
+                               promote_gate=promote_gate if shared_preflight else None)
             if result.get("installation") == "complete" and not inherited:
                 result = continue_after_gate(result, handle)
         print(json.dumps(result))

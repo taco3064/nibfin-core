@@ -34,9 +34,11 @@ import { settlePoolWork, observeRetirementUnit, assertRetirementCgroups,
 import { command } from './process.mjs';
 import { coreOnlyMaintenanceScope, inspectCoreOnlyCompatibility,
   requireCoreOnlyCompatibility } from './core-only-policy.mjs';
+import { currentPoolRuntime, prepareCoreOnlyRunnerIdentity }
+  from './core-only-runtime.mjs';
 import { requireCoreOnlyPromotion, verifyCoreOnlyInstalled }
   from './core-only-settlement.mjs';
-import { rolloutPlanPath, rolloutClosurePath, rolloutMarker,
+import { rolloutPlanPath, rolloutClosurePath, rolloutMarker, requireNoRollout,
   requireRolloutClosure, publishRolloutClosure, removeRolloutClosure,
 } from './rollout-admission.mjs';
 import { prepareStorageReclamation } from './storage-reclamation-install.mjs';
@@ -134,7 +136,7 @@ export async function advanceRolloutPool(operation, context, credentialScope) {
     return recoverInstalledLegacyWakes();
   }
   const operations = ['legacy', 'prepare', 'close', 'stop', 'verify', 'release',
-    ...(context ? ['restore', 'settle'] : [])];
+    ...(context ? ['restore', 'settle', 'preflight'] : [])];
   requireThat(operations.includes(operation),
     'INVALID_ROLLOUT_OPERATION');
   await rootOwnedPath(root);
@@ -144,6 +146,7 @@ export async function advanceRolloutPool(operation, context, credentialScope) {
   const host = await readHost(join(root, rolloutHostNames[0]));
   await requireNoRetirement({ rollout: true });
   const coreOnly = plan.mode === 'core-only';
+  const preflight = operation === 'preflight';
   requireThat(plan.mode === undefined || coreOnly, 'INVALID_ROLLOUT_MODE');
   if (coreOnly) requireManagerContext(context);
   const maintenanceScope = async () => coreOnlyMaintenanceScope(plan, context, host,
@@ -167,8 +170,13 @@ export async function advanceRolloutPool(operation, context, credentialScope) {
     plan = { ...plan, ...changes };
     await writeRetirementFile(rolloutPlanPath, plan);
   };
-  if (operation === 'prepare') {
+  if (operation === 'prepare' || preflight) {
     requireThat(plan.phase === 'prepared', 'ROLLOUT_PHASE_CHANGED');
+    if (preflight) {
+      requireThat(coreOnly && digest(host.installation.pin) !== digest(plan.pin),
+        'CORE_ONLY_PREFLIGHT_REQUIRES_NEW_SOURCE');
+      await requireNoRollout();
+    }
     if (context) await inspectManagerHost(context);
     else await inspectSharedHost();
     const reader = new GitHubReader(
@@ -212,7 +220,7 @@ export async function advanceRolloutPool(operation, context, credentialScope) {
     if (coreOnly) {
       const compatible = await inspectCoreOnlyCompatibility({ ...plan, binding,
         compatibilityTargets: [...provisional, ...extras] }, context,
-      { prepareIdentity: true });
+      { prepareIdentity: !preflight });
       if (compatible.status !== 'compatible') return compatible;
     }
     const originalServices = plan.originalServices ?? [];
@@ -225,6 +233,11 @@ export async function advanceRolloutPool(operation, context, credentialScope) {
     }
     await save({ binding, pending: null,
       ...(context ? { originalServices } : {}) });
+    if (preflight) {
+      await requireCoreOnlyPromotion(plan, context, credentialScope,
+        await maintenanceScope(), { closure: () => requireNoRollout() });
+      return { status: 'prepared' };
+    }
     const closure = await readRetirementFile(rolloutClosurePath);
     if (closure?.legacy) {
       requireThat(digest(closure.pin) === digest(plan.pin) &&
@@ -262,6 +275,14 @@ export async function advanceRolloutPool(operation, context, credentialScope) {
   requireThat(plan.binding?.slots?.length === 2, 'INVALID_ROLLOUT_BINDING');
   if (operation === 'close') {
     await inspectBinding(plan);
+    if (coreOnly && !await readRetirementFile(rolloutClosurePath)) {
+      // Defer before publishing a closure if the other Runner took work
+      // after preflight. Real mutations keep the existing closure checks.
+      await requireCoreOnlyPromotion(plan, context, credentialScope,
+        await maintenanceScope(), { closure: () => requireNoRollout() });
+      const runtime = await currentPoolRuntime(context);
+      await prepareCoreOnlyRunnerIdentity(plan.binding, runtime);
+    }
     // Relay holds its gate around admission and POST. Acquire in this order:
     // relay then pool. A busy gate returns pending without publishing closure.
     return withRolloutGates(host, async () => {
@@ -453,7 +474,6 @@ export async function observeInstalledManager(context, credentialScope, ports = 
     apply: { targets: binding.adoptions.map(item => ({ path: item.path,
       current: item.bytes, next: item.bytes })) } };
   await readInstalledRolloutFacts(plan, host, context, ports, true);
-  const { currentPoolRuntime } = await import('./core-only-runtime.mjs');
   const runtime = await currentPoolRuntime(context);
   requireThat(!await optionalStat(rolloutPlanPath), 'ROLLOUT_OPERATION_ACTIVE');
   requireThat(!await optionalStat(rolloutClosurePath), 'ROLLOUT_CLOSURE_CHANGED');

@@ -1,6 +1,7 @@
 """Controlled native provider/filesystem ports; all fixtures stay in this repo."""
 import importlib.util
 import errno
+import os
 import stat
 import subprocess
 import sys
@@ -67,7 +68,7 @@ class CoordinatorReplay(unittest.TestCase):
 
     def pool(self, operation):
         plan = json.loads(self.path.read_text())
-        if operation == "prepare":
+        if operation in ("prepare", "preflight"):
             plan["binding"] = {}
         if operation == "close":
             plan["phase"] = "draining"
@@ -233,6 +234,87 @@ class CoordinatorReplay(unittest.TestCase):
         self.assertEqual(result["status"], "unsupported")
         self.assertEqual(self.writes, [])
         self.assertEqual(json.loads(self.path.read_text())["phase"], "prepared")
+
+    @unittest.skipUnless(sys.platform == "linux", "Uses Linux flock")
+    def test_native_preflight_shares_source_gate_and_unsupported_has_no_effect(self):
+        import fcntl
+        shared = os.open(self.config, os.O_DIRECTORY)
+        peer = os.open(self.config, os.O_DIRECTORY)
+        try:
+            fcntl.flock(shared, fcntl.LOCK_SH)
+            self.runtime.prepare_plan = lambda plan: {**plan, "mode": "core-only"}
+            self.runtime.promote_gate = lambda: self.writes.append(("promote", "core"))
+
+            def preflight(operation):
+                self.assertEqual(operation, "preflight")
+                fcntl.flock(peer, fcntl.LOCK_SH | fcntl.LOCK_NB)
+                return {"status": "unsupported", "code": "CORE_ONLY_MAINTENANCE_REQUIRED"}
+
+            self.runtime.pool_step = preflight
+            result = COORDINATOR.rollout(self.runtime, {"core": {}},
+                                         (123, self.pins, []))
+            self.assertEqual(result["status"], "unsupported")
+            self.assertFalse(self.runtime.LAST_PR_CLEANUP.exists())
+            self.assertEqual(self.writes, [])
+        finally:
+            os.close(peer)
+            os.close(shared)
+
+    @unittest.skipUnless(sys.platform == "linux", "Uses Linux flock")
+    def test_active_preworker_wins_over_compatible_promotion(self):
+        import fcntl
+        shared = os.open(self.config, os.O_DIRECTORY)
+        peer = os.open(self.config, os.O_DIRECTORY)
+        try:
+            fcntl.flock(shared, fcntl.LOCK_SH)
+            self.runtime.prepare_plan = lambda plan: {**plan, "mode": "core-only"}
+            self.runtime.promote_gate = lambda: ADMIN.claim_promotion(shared)
+
+            def pool(operation):
+                self.assertEqual(operation, "preflight")
+                fcntl.flock(peer, fcntl.LOCK_SH | fcntl.LOCK_NB)
+                return self.pool(operation)
+
+            self.runtime.pool_step = pool
+            with self.assertRaises(ADMIN.RESULTS.CoreRolloutFailure) as caught:
+                self.replay()
+            self.assertEqual(caught.exception.result["code"],
+                             "CORE_MANAGEMENT_OPERATION_PENDING")
+            self.assertEqual(json.loads(self.path.read_text())["phase"], "prepared")
+            self.assertEqual(self.writes, [])
+            self.assertFalse(self.runtime.LAST_PR_CLEANUP.exists())
+        finally:
+            os.close(peer)
+            os.close(shared)
+
+    @unittest.skipUnless(sys.platform == "linux", "Uses Linux flock")
+    def test_compatible_promotion_holds_the_gate_only_after_preflight(self):
+        import fcntl
+        shared = os.open(self.config, os.O_DIRECTORY)
+        peer = os.open(self.config, os.O_DIRECTORY)
+        operations = []
+        try:
+            fcntl.flock(shared, fcntl.LOCK_SH)
+            self.runtime.prepare_plan = lambda plan: {**plan, "mode": "core-only"}
+            self.runtime.promote_gate = lambda: ADMIN.claim_promotion(shared)
+
+            def pool(operation):
+                operations.append(operation)
+                if operation == "preflight":
+                    fcntl.flock(peer, fcntl.LOCK_SH | fcntl.LOCK_NB)
+                    fcntl.flock(peer, fcntl.LOCK_UN)
+                else:
+                    with self.assertRaises(BlockingIOError):
+                        fcntl.flock(peer, fcntl.LOCK_SH | fcntl.LOCK_NB)
+                return self.pool(operation)
+
+            self.runtime.pool_step = pool
+            self.replay()
+            self.assertEqual(operations, ["preflight", "close", "settle"])
+            self.assertIn(("apply", "core"), self.writes)
+        finally:
+            os.close(peer)
+            os.close(shared)
 
     def test_core_only_completed_prepared_record_reuses_actual_result(self):
         target = {"runId": 123, "artifactId": 456}
