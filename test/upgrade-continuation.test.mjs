@@ -221,6 +221,24 @@ test('ready no-change consumer independently settles while another PR is reviewe
     assert.deepEqual(installed, [3, 1]);
   });
 
+test('bootstrap resumes a selected bound PR after the execution caller is available',
+  async () => {
+    const { ports, state } = fixture();
+    const { upgrade: original } = await prepareUpgrade({
+      ...requested(), repositories: [1, 3],
+    }, ports);
+    state.route = false;
+    await bindUpgrade(requestToBind(original.operationId), ports);
+    state.route = true;
+    const { upgrade: resumed } = await prepareUpgrade(requested(), ports);
+    assert.equal(resumed.operationId, original.operationId);
+    assert.equal(resumed.proposals[0].pullId, 80);
+    assert.equal((await ports.read()).length, 1);
+    state.disposition = 'abandoned';
+    const { upgrade: replacement } = await prepareUpgrade(requested(), ports);
+    assert.notEqual(replacement.operationId, original.operationId);
+  });
+
 test('confirmed abandoned proposal is dropped after positive no-change observation',
   async () => {
     const { ports, state } = fixture();

@@ -71,7 +71,7 @@ export function mergeUpgradeOperations(current, initial, next) {
   return [...merged, ...changes.values()];
 }
 
-function priorUpgrade(records, binding, intent) {
+async function priorUpgrade(records, binding, intent, ports) {
   const sameSource = records.filter(record => record.memberId === binding.memberId &&
     sameIntent(record.execution, binding.execution) &&
     sameUpgradeSource(record.intent.source, intent.source));
@@ -83,13 +83,29 @@ function priorUpgrade(records, binding, intent) {
     !sameUpgradeSource(binding.host.installation.pin, intent.source)) return exact;
   // A completed promotion no longer needs activation to prove current source.
   // Recover the original intent rather than requiring its old CD artifact again.
-  const promoted = candidates.length ? candidates : sameSource.filter(record =>
-    record.intent.activation && intent.repositories.every(id =>
+  const matching = candidates.length ? candidates : sameSource.filter(record =>
+    intent.repositories.every(id =>
       record.intent.repositories.includes(id)) && record.consumers.every(consumer =>
       binding.consumers.some(adopted => adopted.repositoryId === consumer.repositoryId &&
         adopted.repository === consumer.repository)));
-  requireThat(promoted.length <= 1, 'UPGRADE_OPERATION_AMBIGUOUS');
-  return promoted[0];
+  const recoverable = [];
+  for (const record of matching) {
+    if (candidates.includes(record) || record.intent.activation) {
+      recoverable.push(record);
+      continue;
+    }
+    // The execution caller can finish first during same-source bootstrap.
+    // Recover earlier selected proposals only from their current native identity.
+    for (const consumer of record.consumers) {
+      if (intent.repositories.includes(consumer.repositoryId) && consumer.proposal &&
+        await ports.disposition(consumer, consumer.proposal) === 'current') {
+        recoverable.push(record);
+        break;
+      }
+    }
+  }
+  requireThat(recoverable.length <= 1, 'UPGRADE_OPERATION_AMBIGUOUS');
+  return recoverable[0];
 }
 
 export async function prepareUpgrade(request, ports) {
@@ -104,7 +120,7 @@ export async function prepareUpgrade(request, ports) {
   const intent = { repositories, source: value.source, activation: value.activation };
   await ports.sourceIntent(intent, binding);
   const records = await ports.read();
-  const existing = priorUpgrade(records, binding, intent);
+  const existing = await priorUpgrade(records, binding, intent, ports);
   if (existing) return reply(existing);
   const operation = { id: randomUUID(), memberId: binding.memberId,
     execution: binding.execution, intent, consumers, progress: initial(),
