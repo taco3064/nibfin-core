@@ -109,6 +109,11 @@ test('a single consumer resumes its own part of the original installed promotion
       ...requested(next, activation), repositories: [1, 3],
     }, ports);
     state.source = next;
+    ports.sourceIntent = async ({ repositories }) => {
+      if (repositories.includes(3)) throw Object.assign(new Error('Revoked'), {
+        code: 'UPGRADE_CONSUMER_ADMIN_REQUIRED',
+      });
+    };
     const { upgrade: resumed } = await prepareUpgrade(requested(next), ports);
     assert.equal(resumed.operationId, original.operationId);
     assert.equal((await ports.read()).length, 1);
@@ -116,6 +121,11 @@ test('a single consumer resumes its own part of the original installed promotion
     ports.noProposal = async (_operation, candidate) =>
       inspected.push(candidate.repositoryId);
     const complete = { kind: 'upgrade-complete', operationId: original.operationId };
+    await assert.rejects(completeUpgradeWithoutProposal(complete, ports), {
+      code: 'UPGRADE_CONSUMER_ADMIN_REQUIRED',
+    });
+    await assert.rejects(bindUpgrade({ ...requestToBind(original.operationId),
+      repositoryId: 3 }, ports), { code: 'UPGRADE_CONSUMER_ADMIN_REQUIRED' });
     await assert.rejects(completeUpgradeWithoutProposal({ ...complete,
       repositories: [8] }, ports), { code: 'UPGRADE_CONSUMER_NOT_ADOPTED' });
     const { upgrade } = await completeUpgradeWithoutProposal({ ...complete,

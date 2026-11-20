@@ -135,10 +135,13 @@ function diagnostics(error, fallback) {
 export async function bindUpgrade(request, ports) {
   const value = upgradeBinding(request);
   const records = await ports.read();
-  const { operation } = await selectedOperation(records, value.operationId, ports);
+  const { operation, adoption } = await selectedOperation(
+    records, value.operationId, ports);
   const consumer = operation.consumers.find(item =>
     item.repositoryId === value.repositoryId);
   requireThat(consumer, 'UPGRADE_CONSUMER_NOT_ADOPTED');
+  await ports.sourceIntent({ ...operation.intent, repositories: [value.repositoryId] },
+    adoption);
   const owner = records.find(record => record.consumers.some(item =>
     item.repositoryId === value.repositoryId && item.proposal?.pullNumber ===
       value.pullNumber));
@@ -294,19 +297,20 @@ export async function recordUnsupportedUpgradeActivation(activation, ports) {
 export async function completeUpgradeWithoutProposal(request, ports) {
   const value = upgradeCompletion(request);
   return completeDirectUpgrades(value.operationId, ports,
-    { repositories: value.repositories });
+    { repositories: value.repositories, authorize: true });
 }
 
 export async function completeDirectUpgrades(operationId, ports, {
-  allowNoEligible = false, repositories,
+  allowNoEligible = false, repositories, authorize = false,
 } = {}) {
   const records = await ports.read();
   const { operation, adoption } = await selectedOperation(
     records, operationId, ports);
-  if (repositories) {
-    requireThat(repositories.every(id => operation.intent.repositories.includes(id)),
+  if (authorize) {
+    const selected = repositories ?? operation.intent.repositories;
+    requireThat(selected.every(id => operation.intent.repositories.includes(id)),
       'UPGRADE_CONSUMER_NOT_ADOPTED');
-    await ports.sourceIntent({ ...operation.intent, repositories }, adoption);
+    await ports.sourceIntent({ ...operation.intent, repositories: selected }, adoption);
   }
   let considered = false, observedError, changed = false, eligible = false;
   for (const consumer of operation.consumers) {

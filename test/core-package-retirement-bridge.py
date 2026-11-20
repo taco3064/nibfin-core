@@ -1,8 +1,10 @@
 """Controlled fixed-bridge/legacy ports; no installed host resources are used."""
 import importlib.util
 import json
+import os
 from pathlib import Path
 import subprocess
+from tempfile import TemporaryDirectory
 
 ROOT = Path.cwd()
 
@@ -101,21 +103,47 @@ else:
 assert events == ['child-exited', 'exclusive', 'unlocked', 'retire']
 
 
-def standalone(arguments, **options):
-    assert mode == bridge.fcntl.LOCK_UN
-    assert 'pass_fds' not in options
-    assert options['cwd'] == bridge.LIVE
-    assert arguments == ['/node', 'src/core-package-retirement-entry.mjs']
-    events.append('standalone')
-    return {'status': 'complete', 'cleanup': report}
-
-
 events.clear()
 bridge.runtime_node = lambda _root: '/node'
 bridge.command = lambda *_: {'status': 'verified'}
 bridge.process_result = lambda _root, result: result
-bridge.subprocess.run = standalone
-assert native_retire(3) == report
+bridge.installer_results = lambda _root: 'verified decoder'
+
+
+def decode(decoder, result):
+    assert decoder == 'verified decoder'
+    return result
+
+
+bridge.decode_result = decode
+scratch = ROOT / '.deliver-test-tmp'
+scratch.mkdir(exist_ok=True)
+with TemporaryDirectory(dir=scratch) as directory:
+    base = Path(directory)
+    bridge.LIVE = base / 'live'
+    bridge.LIVE.mkdir()
+    expected = bridge.LIVE.stat().st_ino
+    management = os.open(base, os.O_RDONLY | os.O_DIRECTORY)
+
+    def standalone(arguments, **options):
+        assert mode == bridge.fcntl.LOCK_UN
+        bridge.LIVE.rename(base / 'verified')
+        bridge.LIVE.mkdir()
+        (source,) = options['pass_fds']
+        assert source != management
+        pinned = Path('/proc/self/fd') / str(source)
+        assert options['cwd'] == pinned
+        entry = pinned / 'src/core-package-retirement-entry.mjs'
+        assert arguments == ['/node', str(entry)]
+        assert pinned.stat().st_ino == expected != bridge.LIVE.stat().st_ino
+        events.append('standalone')
+        return {'status': 'complete', 'cleanup': report}
+
+    bridge.subprocess.run = standalone
+    try:
+        assert native_retire(management) == report
+    finally:
+        os.close(management)
 assert events == ['shared', 'unlocked', 'standalone']
 
 admin = load('package_admin', 'scripts/core-rollout-admin.py')
