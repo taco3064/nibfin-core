@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, unlink, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { EvidenceStore } from '../src/evidence-store.mjs';
 import { stageFixture } from './stage-fixture.mjs';
 import { digest } from '../src/identity.mjs';
@@ -50,4 +50,14 @@ test('malformed selection metadata cannot silently hide a receipt', linux, async
   pointer.supersedes = { close: true };
   await writeFile(path, JSON.stringify(pointer));
   await assert.rejects(f.store.load(), { code: 'EVIDENCE_OBJECT_CORRUPT' });
+});
+
+test('retired non-publication evidence is skipped before dereference', linux, async t => {
+  const f = await fixture(t);
+  await f.store.append(f.shape);
+  const retired = await f.store.append(stageFixture().receipts.deliver);
+  const revised = { ...f.shape, execution: { ...f.shape.execution, runId: 2 } };
+  await f.store.append(revised);
+  await unlink(join(dirname(f.pointer('shape')), retired));
+  assert.deepEqual(await f.store.load(), { shape: revised });
 });

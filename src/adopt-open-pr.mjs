@@ -1,17 +1,18 @@
 import { repoPath } from './github-read.mjs';
-import { isDigest, isId, isSha, requireThat } from './identity.mjs';
+import { isDigest, isSha, requireThat } from './identity.mjs';
+import { abandonedPullRequest, readBoundPullRequest } from './publication-target.mjs';
 
 // The pin comes only from the root-owned host adoption. This establishes a
 // publication target. New Core still obtains its own Shape, Accept and Review.
-export async function readAdoptedOpenPr(reader, issue, pin, actorId) {
-  requireThat(pin.issueId === issue.id && isId(pin.number) &&
-    typeof pin.id === 'string' && isSha(pin.head) && isSha(pin.tree) &&
+export async function readAdoptedOpenPr(reader, issue, pin, actorId, observed) {
+  requireThat(pin.issueId === issue.id, 'INVALID_OPEN_PR_ADOPTION');
+  const pr = observed ?? await readBoundPullRequest(reader, issue, pin.number, pin.id);
+  if (abandonedPullRequest(pr)) return null;
+  requireThat(pr.state === 'open', 'OPEN_PR_ADOPTION_CHANGED');
+  requireThat(isSha(pin.head) && isSha(pin.tree) &&
     isSha(pin.parent) && isDigest(pin.candidateHash), 'INVALID_OPEN_PR_ADOPTION');
   const root = repoPath(issue.repository);
-  const [pr, commit] = await Promise.all([
-    reader.get(`${root}/pulls/${pin.number}`),
-    reader.get(`${root}/git/commits/${pin.head}`),
-  ]);
+  const commit = await reader.get(`${root}/git/commits/${pin.head}`);
   const branch = pr.head?.ref;
   requireThat(
     pr.node_id === pin.id && pr.number === pin.number && pr.user?.id === actorId &&

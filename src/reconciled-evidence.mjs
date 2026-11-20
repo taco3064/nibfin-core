@@ -4,6 +4,7 @@ import { stageSuccess } from './stage-runtime.mjs';
 import { equivalentCandidate } from './candidate-evidence.mjs';
 import { issuePath, repoPath } from './github-read.mjs';
 import { readMergeIdentity } from './github-merge.mjs';
+import { readBoundPullRequest } from './publication-target.mjs';
 
 const proven = value => requireThat(value, 'RECONCILIATION_EVIDENCE_UNPROVEN');
 
@@ -35,6 +36,11 @@ export async function reconciledEvidence({
     isId(artifacts.prNumber) && typeof artifacts.prId === 'string' &&
     artifacts.prId.length > 0 && isSha(artifacts.head) && isSha(artifacts.base) &&
     isSha(artifacts.mergeCommit));
+  const pr = await readBoundPullRequest(reader, issue,
+    artifacts.prNumber, artifacts.prId);
+  proven(pr.state === 'closed' && pr.merged === true &&
+    pr.head?.repo?.id === issue.repositoryId && pr.head.sha === artifacts.head &&
+    pr.merge_commit_sha === artifacts.mergeCommit);
   const candidate = await store.get(artifacts.candidateHash);
   proven(candidate.repositoryId === issue.repositoryId &&
     candidate.repository === issue.repository && candidate.issueId === issue.id &&
@@ -78,14 +84,6 @@ export async function reconciledEvidence({
     live.url === `https://api.github.com${issuePath(issue)}` && !live.pull_request &&
     live.state === 'closed' &&
     live.labels?.some(label => label.name === 'delivered'));
-  const pr = await reader.get(
-    `${repoPath(issue.repository)}/pulls/${artifacts.prNumber}`);
-  proven(pr.node_id === artifacts.prId && pr.number === artifacts.prNumber &&
-    pr.base?.repo?.id === issue.repositoryId &&
-    pr.head?.repo?.id === issue.repositoryId &&
-    pr.state === 'closed' && pr.merged === true &&
-    pr.head.sha === artifacts.head &&
-    pr.merge_commit_sha === artifacts.mergeCommit);
   // A merged PR's live base can advance. Prove the original base from commits.
   await readMergeIdentity(reader, repoPath(issue.repository), {
     head: artifacts.head, base: artifacts.base, merge: artifacts.mergeCommit,

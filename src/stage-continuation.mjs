@@ -99,8 +99,8 @@ async function currentReceipts(store, previous, repairDelivery) {
   return current;
 }
 
-async function canReuseReview(store) {
-  const receipts = await store.load();
+async function canReuseReview(store, readReceipts) {
+  const receipts = await readReceipts();
   const review = receipts['review-pr'];
   const published = receipts['commit-pr'];
   const delivered = receipts.deliver?.artifacts;
@@ -115,6 +115,7 @@ async function canReuseReview(store) {
 
 export async function continueStages({
   store,
+  readReceipts = () => store.load(),
   execute,
   refreshRequirements = async () => false,
   resumeClosed = async () => false,
@@ -125,7 +126,7 @@ export async function continueStages({
   repairIntegration = true,
   correctionRepairs = 2,
 }) {
-  const previous = await store.load();
+  const previous = await retryGitHubObservation(readReceipts, { wait, clock });
   const inspectCurrent = () => retryGitHubObservation(inspect,
     { wait, clock, timeout: ciTimeout });
   const changed = await retryGitHubObservation(() => refreshRequirements(previous),
@@ -145,7 +146,8 @@ export async function continueStages({
         code: 'CORRECTION_DID_NOT_CHANGE_CANDIDATE' };
     }
     return continueStages({
-      store, execute, refreshRequirements, resumeClosed, inspect, wait, clock, ciTimeout,
+      store, readReceipts, execute, refreshRequirements, resumeClosed, inspect, wait,
+        clock, ciTimeout,
       repairIntegration, correctionRepairs: correctionRepairs - 1,
     });
   };
@@ -193,7 +195,8 @@ export async function continueStages({
   }
   let result;
   for (const stage of Object.keys(stages)) {
-    if (initial[stage] || stage === 'review-pr' && await canReuseReview(store))
+    if (initial[stage] ||
+      stage === 'review-pr' && await canReuseReview(store, readReceipts))
       continue;
     await inspectCurrent();
     const deadline = clock() + ciTimeout;
@@ -251,7 +254,8 @@ export async function continueStages({
       const repaired = await execute('deliver');
       if (repaired.status !== 'completed') return repaired;
       return continueStages({
-        store, execute, refreshRequirements, resumeClosed, inspect, wait, clock,
+        store, readReceipts, execute, refreshRequirements, resumeClosed, inspect, wait,
+        clock,
         ciTimeout,
         repairIntegration: false,
         correctionRepairs,
@@ -259,7 +263,7 @@ export async function continueStages({
     }
     if (['review-pr', 'merge'].includes(stage) && result.status === 'denied' &&
       result.code === requiredCheckFailed && result.failure && correctionRepairs > 0) {
-      const published = (await store.load())['commit-pr'];
+      const published = (await readReceipts())['commit-pr'];
       if (published?.outcome === 'published')
         return repairCandidate(published, result.failure);
     }

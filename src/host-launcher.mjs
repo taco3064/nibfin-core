@@ -19,6 +19,7 @@ import { issueProgress } from './issue-progress.mjs';
 import { refreshShapeWorkspace } from './host-shape-workspace.mjs';
 import { cleanClosedWorkspace } from './closed-workspace.mjs';
 import { readReopenedDelivery } from './reopened-delivery.mjs';
+import { observePublication } from './publication-target.mjs';
 import { continueStages } from './stage-continuation.mjs';
 import { observeStageProgress } from './stage-presentation.mjs';
 import { setTimeout } from 'node:timers/promises';
@@ -266,7 +267,7 @@ async function launchAdmittedStage(issueNumber, stage, env, runnerUid,
       if (error.code !== 'EEXIST') throw error;
     });
     await privateHostDirectory(join(root, 'receipts'));
-    const openPr = (context.targetHost ?? host).openPrHandoffs?.[issueNumber];
+    const handoff = (context.targetHost ?? host).openPrHandoffs?.[issueNumber];
     const journal = new OperationJournal(join(root, 'receipts'), approval.record.issue);
     release = async (result) => {
       // Release only after local termination and external writes are settled.
@@ -290,14 +291,18 @@ async function launchAdmittedStage(issueNumber, stage, env, runnerUid,
       if (error.code !== 'EEXIST') throw error;
     });
     await privateHostDirectory(join(root, 'agent'));
-    progress = await issueProgress(root, approval);
+    progress = await issueProgress(root, approval, reader);
     // Adoption/container inspection itself can launch host commands. A failed
     // observation does not prove those processes stopped. Everything beyond
     // this checkpoint stays unclassified without its normal lifecycle proof.
     preparation.enterOwnedWork();
     await retryGitHubObservation(inspectWriter);
-    if (openPr) await journal.assertIdle();
     const { workspaceRoot, binding, store, marker: workspaceBinding } = progress;
+    const readPublication = async () => observePublication(reader, issue,
+      await store.load(), handoff);
+    const publication = await retryGitHubObservation(readPublication);
+    const openPr = publication.handoff;
+    if (openPr) await journal.assertIdle();
     const workspace = new CandidateWorkspace(workspaceRoot, issue);
     let observedMain;
     let resumeClosed = false;
@@ -345,8 +350,13 @@ async function launchAdmittedStage(issueNumber, stage, env, runnerUid,
         previous && digest(previous) === digest(workspaceBinding),
         'WORKSPACE_ADOPTION_UNRESOLVED',
       );
-      if (stage === 'continue' || stage === 'shape') {
-        const receipts = await store.load();
+      const restart = publication.restartCandidate &&
+        ['continue', 'shape', 'deliver'].includes(stage);
+      if (restart) {
+        await journal.assertIdle();
+        await workspace.refreshForShape((await observeMain()).head, null);
+      } else if (stage === 'continue' || stage === 'shape') {
+        const { receipts } = publication;
         restartedShape = await refreshShapeWorkspace({
           workspace, stage, receipts, openPr, observeMain,
           requirementsChanged: async () => {
@@ -436,9 +446,13 @@ async function launchAdmittedStage(issueNumber, stage, env, runnerUid,
       stage === 'continue'
         ? continueStages({
             store,
+            readReceipts: async () => (await readPublication()).receipts,
             execute,
             resumeClosed: async () => resumeClosed,
             refreshRequirements: async receipts => {
+              if (publication.restartCandidate &&
+                receipts.shape?.execution.id === publication.receipts.shape?.execution.id)
+                return true;
               if (!receipts.shape) return false;
               const shape = digest(receipts.shape);
               if (shape === restartedShape) return true;

@@ -44,3 +44,14 @@ test('adoption rejects changes in owner, repository, Candidate or ref', async ()
       { code: 'OPEN_PR_ADOPTION_CHANGED' });
   }
 });
+
+test('closed unmerged handoff needs no old commit or branch', async () => {
+  const { pr } = fixture();
+  const reads = [];
+  const reader = { get: async path => {
+    reads.push(path);
+    return { ...pr, state: 'closed', head: { repo: null } };
+  } };
+  assert.equal(await readAdoptedOpenPr(reader, issue, pin, 12), null);
+  assert.deepEqual(reads, ['/repos/example/core/pulls/125']);
+});
