@@ -151,7 +151,12 @@ export async function bindUpgrade(request, ports) {
   // Save the native PR identity before verifying the route. The merge can reach
   // an already authorized continuation even when the caller's response is lost.
   await ports.write(records);
-  await ports.route(operation, consumer);
+  try { await ports.route(operation, consumer); }
+  catch (error) {
+    return reply(operation, {
+      handoffCause: diagnostics(error, 'UPGRADE_HANDOFF_ROUTE_UNVERIFIED'),
+    });
+  }
   consumer.proposal.handoff = 'confirmed';
   confirmHandoff(operation);
   await ports.write(records);

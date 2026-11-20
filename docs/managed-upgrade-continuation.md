@@ -43,6 +43,8 @@ activation. The original active proposal and phase results are preserved.
   repository ID, PR number, native PR ID, node ID and read-back URL.
 - `handoff` distinguishes pending, review-pending and confirmed routing.
   A prepared review route does not imply the PR merged or its execution ran.
+  A bound proposal remains in the response with `handoffCause` if the route
+  cannot be confirmed. Rebinding the same native PR checks the route again.
 - `installation` reports confirmed adoption independently of other work.
   `consumers` reports adoption and handoff per repository, including mixed
   operations where a ready no-change consumer completes while another PR is
