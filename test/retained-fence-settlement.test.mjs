@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFile, unlink } from 'node:fs/promises';
+import { readFile, unlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { deliverRecoveryFixture } from './deliver-recovery-fixture.mjs';
 import { digest } from '../src/identity.mjs';
@@ -49,6 +49,17 @@ test('settlement does not require a completed historical Shape publication', asy
   assert.equal((await f.recover()).status, 'completed');
   assert.deepEqual(await f.store.load(), before);
 });
+
+test('native settlement identity does not depend on historical host metadata',
+  async t => {
+    const f = await deliverRecoveryFixture(t, 'shape');
+    const fence = JSON.parse(f.fenceBytes);
+    delete fence.binding.host;
+    f.fenceBytes = JSON.stringify(fence);
+    await writeFile(f.fencePath, f.fenceBytes);
+    reviseCurrentRequirements(f);
+    assert.equal((await f.recover()).status, 'completed');
+  });
 
 for (const failure of ['member', 'slot', 'journal', 'current-adoption']) {
   test(`changed requirements cannot conceal an unsettled ${failure}`, async t => {

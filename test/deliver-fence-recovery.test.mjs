@@ -216,13 +216,13 @@ test('actual relay and descendants use private unrelated-Issue attribution', asy
 test('another Issue remains attributable after a legitimate host update', async t => {
   const f = await deliverRecoveryFixture(t);
   const { path, fence } = await unrelatedRelay(f);
-  fence.binding.host = digest('current host after a source update');
+  delete fence.binding.host;
   await writeFile(path, JSON.stringify(fence));
   assert.equal((await f.recover()).status, 'completed');
   assert.deepEqual(JSON.parse(await readFile(path)), fence);
 });
 
-for (const mismatch of ['missing', 'legacy', 'pid', 'boot', 'host', 'issue', 'actor',
+for (const mismatch of ['missing', 'legacy', 'pid', 'boot', 'issue', 'actor',
   'detached', 'entry', 'permissions', 'replacement']) {
   test(`unrelated relay attribution fails closed: ${mismatch}`, async t => {
     const f = await deliverRecoveryFixture(t);
@@ -230,7 +230,6 @@ for (const mismatch of ['missing', 'legacy', 'pid', 'boot', 'host', 'issue', 'ac
     if (mismatch === 'legacy') delete fence.startTicks;
     if (mismatch === 'pid') fence.startTicks = '99';
     if (mismatch === 'boot') fence.bootId = 'other-boot';
-    if (mismatch === 'host') fence.binding.host = 'invalid historical identity';
     if (mismatch === 'actor') fence.binding.execution.actorId++;
     if (mismatch === 'issue') fence.binding.issueId = f.subject.id;
     if (mismatch === 'detached') f.processes[1].parent = 1;
