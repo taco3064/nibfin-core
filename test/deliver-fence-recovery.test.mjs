@@ -64,8 +64,6 @@ const failures = [
   ['wrong repository', f => { f.data['/repos/example/core'].id++; },
     'RECOVERY_EXECUTION_MISMATCH'],
   ['wrong Issue', f => { f.issue.node_id = 'I_other'; }, 'RECOVERY_ISSUE_CHANGED'],
-  ['pause', f => { f.issue.labels.push({ name: 'pause' }); }, 'RECOVERY_ISSUE_CHANGED'],
-  ['edited requirements', f => { f.issue.body = 'Changed'; }, 'RECOVERY_ISSUE_CHANGED'],
   ['boot changed', f => { f.options.observeBoot = async () => 'different'; },
     'RECOVERY_BOOT_MISMATCH'],
   ['missing native observation', f => { f.context.reader.get = async () => {
@@ -199,7 +197,7 @@ async function unrelatedRelay(f) {
   const path = join(directory, 'stage.lock');
   const fence = await writeSyntheticRecoveryFence(directory, {
     host: digest(f.context.hostBytes),
-    issueId: 'I_other', execution: { jobId: 31 } },
+    issueId: 'I_other', execution: { jobId: 31, actorId: f.runner.memberId } },
   { bootId: original.bootId, pid: relayPid, startTicks: '1' });
   f.processes.push({ pid: relayPid, state: 'S', startTicks: '1', parent: 1,
     command: ['node', '/opt/nibfin/core/bin/nibfin-controller.mjs'] },
@@ -215,7 +213,16 @@ test('actual relay and descendants use private unrelated-Issue attribution', asy
   assert.equal(await readFile(path, 'utf8'), bytes);
 });
 
-for (const mismatch of ['missing', 'legacy', 'pid', 'boot', 'host', 'issue',
+test('another Issue remains attributable after a legitimate host update', async t => {
+  const f = await deliverRecoveryFixture(t);
+  const { path, fence } = await unrelatedRelay(f);
+  fence.binding.host = digest('current host after a source update');
+  await writeFile(path, JSON.stringify(fence));
+  assert.equal((await f.recover()).status, 'completed');
+  assert.deepEqual(JSON.parse(await readFile(path)), fence);
+});
+
+for (const mismatch of ['missing', 'legacy', 'pid', 'boot', 'host', 'issue', 'actor',
   'detached', 'entry', 'permissions', 'replacement']) {
   test(`unrelated relay attribution fails closed: ${mismatch}`, async t => {
     const f = await deliverRecoveryFixture(t);
@@ -223,7 +230,8 @@ for (const mismatch of ['missing', 'legacy', 'pid', 'boot', 'host', 'issue',
     if (mismatch === 'legacy') delete fence.startTicks;
     if (mismatch === 'pid') fence.startTicks = '99';
     if (mismatch === 'boot') fence.bootId = 'other-boot';
-    if (mismatch === 'host') fence.binding.host = digest('other-host');
+    if (mismatch === 'host') fence.binding.host = 'invalid historical identity';
+    if (mismatch === 'actor') fence.binding.execution.actorId++;
     if (mismatch === 'issue') fence.binding.issueId = f.subject.id;
     if (mismatch === 'detached') f.processes[1].parent = 1;
     if (mismatch === 'entry')

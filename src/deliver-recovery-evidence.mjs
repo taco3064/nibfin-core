@@ -2,7 +2,7 @@ import { join } from 'node:path';
 import { hostExecution } from './host-launcher.mjs';
 import { digest, isId, isSha, requireThat } from './identity.mjs';
 import { repoPath } from './github-read.mjs';
-import { evidenceBinding, executionIdentity, samePublishedRequirements,
+import { evidenceBinding, executionIdentity,
   stageAdmissionFields, stages } from './stages.mjs';
 import { issueProgress } from './issue-progress.mjs';
 import { RecoveryEvidenceSnapshot } from './recovery-evidence-snapshot.mjs';
@@ -129,9 +129,6 @@ export async function deliverExecutionEvidence(context, fence, run, approval, st
     const input = retained.find(entry => entry.execution?.id === receipt.execution.id);
     requireThat(!input?.stage || input.stage === stage, 'RECOVERY_EXECUTION_MISMATCH');
   }
-  requireThat(receipts['publish-shape']?.outcome === 'published',
-    'RECOVERY_RECEIPTS_MISSING');
-  const shape = await store.get(receipts['publish-shape'].artifacts.shapeHash);
   const progress = await issueProgress(issueRoot, approval);
   const selection = digest({ binding: progress.binding,
     workspaceRoot: progress.workspaceRoot });
@@ -148,11 +145,10 @@ export async function deliverExecutionEvidence(context, fence, run, approval, st
       digest(await selected.store.load()) === digest(receipts),
     'RECOVERY_PROGRESS_CHANGED');
     const issue = await context.reader.issue(subject);
-    requireThat(issue.node_id === subject.id && issue.state === 'open' &&
-      issue.labels?.some(label => label.name === 'scope') &&
-      issue.labels.some(label => label.name === 'shaped') &&
-      !issue.labels.some(label => label.name === 'pause') &&
-      samePublishedRequirements(issue.body, shape), 'RECOVERY_ISSUE_CHANGED');
+    // This retires an old execution, without admitting work under today's
+    // requirements. Re-Shape, Pause and closure must not prevent settlement.
+    requireThat(issue.node_id === subject.id &&
+      ['open', 'closed'].includes(issue.state), 'RECOVERY_ISSUE_CHANGED');
   };
   await confirm();
   // Preserve the complete Deliver route's recorded identity where it is proven.
