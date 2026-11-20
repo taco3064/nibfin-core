@@ -14,6 +14,8 @@ import sys
 import tempfile
 from unittest.mock import patch
 
+sys.dont_write_bytecode = True
+
 
 WORKER = r"""import os
 import sys
@@ -54,7 +56,7 @@ def probe(directory, launch, dispatcher, mode):
         os.write(author, cancellation)
     try:
         with subprocess.Popen(
-            [sys.executable, "-I", launch, dispatcher, "spawnclient",
+            [sys.executable, "-I", "-B", launch, dispatcher, "spawnclient",
              str(source), str(reply)],
             cwd=directory, pass_fds=[source, reply],
             env={**os.environ, "TEST_MODE": mode},
@@ -120,7 +122,7 @@ def probe_diagnostics(dispatcher):
 
 
 probe_diagnostics(sys.argv[1])
-with tempfile.TemporaryDirectory() as directory:
+with tempfile.TemporaryDirectory(prefix='worker-probe-', dir=Path.cwd()) as directory:
     temp = Path(directory)
     worker = temp / "Runner.Worker.official"
     worker.write_text(f"#!{sys.executable}\n" + WORKER, encoding="utf-8")
