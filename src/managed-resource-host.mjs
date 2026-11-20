@@ -20,6 +20,8 @@ import {
 import { browserRuntimeProbe } from './browser-runtime-inputs.mjs';
 import { versionProbe } from './tool-recipe.mjs';
 import { syncRecoveryDirectory } from './recovery-lock.mjs';
+import { installStorageReclamation, prepareStorageReclamation }
+  from './storage-reclamation-install.mjs';
 
 const security = join(coreRoot, 'src/security');
 const journal = `${resources.state}/state.json`;
@@ -45,7 +47,10 @@ async function kernelPolicy() {
 }
 
 // The fixed installed composition supplies no overrides; tests use a local IO double.
-export function managedResourceHost(confirmSource, engine = engineHost()) {
+export function managedResourceHost(confirmSource, engine = engineHost(), {
+  prepareController = prepareSharedAccounts,
+  installReclamation = installStorageReclamation,
+} = {}) {
   const docker = (args, options) => engine.docker(true, args, options);
   const io = {
     ...engine,
@@ -111,7 +116,8 @@ export function managedResourceHost(confirmSource, engine = engineHost()) {
       await syncRecoveryDirectory('/etc/nibfin');
     },
     async controller() {
-      await prepareSharedAccounts(managedPaths, { preparation: true });
+      await prepareController(managedPaths, { preparation: true });
+      await prepareStorageReclamation(installReclamation);
     },
     async image(kind, state, inputs, observe) {
       const marker = digest({ owner: state.owner, inputs: state.inputs, kind });

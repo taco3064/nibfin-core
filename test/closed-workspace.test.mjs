@@ -36,8 +36,16 @@ async function fixture(t) {
 test('settled closure removes Git/artifacts/agent data and tolerates a cleanup retry',
   linux, async t => {
     const f = await fixture(t);
-    await cleanClosedWorkspace(f.config);
-    await cleanClosedWorkspace(f.config);
+    let requests = 0;
+    const reclaim = async () => {
+      requests++;
+      for (const path of [f.workspaceRoot, f.agent])
+        await assert.rejects(access(path), { code: 'ENOENT' });
+      throw Error('unavailable discard');
+    };
+    await cleanClosedWorkspace(f.config, reclaim);
+    await cleanClosedWorkspace(f.config, reclaim);
+    assert.equal(requests, 2);
     for (const path of [f.workspaceRoot, f.agent])
       await assert.rejects(access(path), { code: 'ENOENT' });
     assert.equal(await readFile(f.receipt, 'utf8'), 'native closure reference');
@@ -49,7 +57,7 @@ test('legacy published Shape content remains usable for completed cleanup', linu
     f.receipts['publish-shape'] = { artifacts: { shapeHash: 'legacy-shape' } };
     f.config.progress.store.get = async reference => reference === 'legacy-shape'
       ? 'Delivered Shape' : {};
-    await cleanClosedWorkspace(f.config);
+    await cleanClosedWorkspace(f.config, false);
     await assert.rejects(access(f.workspaceRoot), { code: 'ENOENT' });
     await assert.rejects(access(f.agent), { code: 'ENOENT' });
   });
@@ -60,7 +68,7 @@ test('settled cleanup does not depend on an obsolete local workspace marker', li
     f.config.progress.store.get = async () => {
       throw Object.assign(new Error('missing historical marker'), { code: 'ENOENT' });
     };
-    await cleanClosedWorkspace(f.config);
+    await cleanClosedWorkspace(f.config, false);
     await assert.rejects(access(f.workspaceRoot), { code: 'ENOENT' });
     await assert.rejects(access(f.agent), { code: 'ENOENT' });
   });
@@ -71,7 +79,9 @@ for (const state of ['open', 'not-delivered', 'unsettled']) {
     if (state === 'open') f.live.state = 'open';
     if (state === 'not-delivered') f.live.labels = [];
     if (state === 'unsettled') f.receipts.merge.outcome = 'pending';
-    await cleanClosedWorkspace(f.config);
+    let requests = 0;
+    await cleanClosedWorkspace(f.config, async () => { requests++; });
+    assert.equal(requests, 0);
     await access(f.workspaceRoot);
     await access(f.agent);
   });

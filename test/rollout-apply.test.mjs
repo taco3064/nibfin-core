@@ -21,6 +21,7 @@ function fixture(crashAt = Infinity) {
     },
     read: async path => files.get(path) ?? null,
     replace: async (path, value) => { files.set(path, value); crash(); },
+    installReclamation: async () => {},
     save: async value => { saved = value; crash(); },
   };
   return { plan, ports, packages, files, saved: () => saved };
@@ -53,3 +54,19 @@ test('unknown package or binding contents remain pending without overwrite', asy
   assert.equal(badBinding.files.get('one'), 'unknown');
   assert.equal(badBinding.saved(), undefined);
 });
+
+test('permission response loss never blocks promotion and retry observes again',
+  async () => {
+    const f = fixture();
+    let installed = false, attempts = 0;
+    f.ports.installReclamation = async () => {
+      assert.equal(f.packages.live, 'new');
+      attempts++;
+      if (!installed) { installed = true; throw Error('permission reply lost'); }
+    };
+    assert.equal((await applyRolloutTransaction(f.plan, f.ports)).status, 'installed');
+    assert.equal(f.saved().apply.completed, true);
+    assert.equal((await applyRolloutTransaction(f.plan, f.ports)).status, 'installed');
+    assert.equal(attempts, 2);
+    assert.equal(f.saved().apply.completed, true);
+  });
