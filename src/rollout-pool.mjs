@@ -42,6 +42,8 @@ import { rolloutPlanPath, rolloutClosurePath, rolloutMarker, requireNoRollout,
   requireRolloutClosure, publishRolloutClosure, removeRolloutClosure,
 } from './rollout-admission.mjs';
 import { prepareStorageReclamation } from './storage-reclamation-install.mjs';
+import { inspectRolloutServiceTemplate, restoreRolloutServiceTemplate }
+  from './rollout-service-template.mjs';
 
 const root = '/etc/nibfin';
 export const rolloutHostNames = ['host.json', 'host.nibfin-act.json',
@@ -187,8 +189,10 @@ export async function advanceRolloutPool(operation, context, credentialScope) {
     const binding = await bindRolloutPool(host, context);
     requireThat(!plan.binding || digest(plan.binding) === digest(binding),
       'ROLLOUT_ADOPTION_CHANGED');
-    const source = await verifyInstalledSource(
-      `/opt/nibfin/core-staged-${plan.pin.commit}`, plan.pin);
+    const staged = `/opt/nibfin/core-staged-${plan.pin.commit}`;
+    const source = await verifyInstalledSource(staged, plan.pin);
+    if (context && !coreOnly)
+      await inspectRolloutServiceTemplate(staged, host.installation.pin);
     const { validateRolloutHosts, validateRolloutHost,
       validateE2eRollout, validateRolloutIsolation } =
       await import('./host-rollout.mjs');
@@ -345,6 +349,7 @@ export async function advanceRolloutPool(operation, context, credentialScope) {
     for (const target of [...plan.apply.targets, ...(plan.apply.resources ?? [])])
       requireThat(await boundedHostFile(target.path, 262144) === target.next,
         'ROLLOUT_HOST_READBACK_MISMATCH');
+    await restoreRolloutServiceTemplate(plan);
     for (const state of plan.originalServices) {
       requireThat([1, 2].includes(state.slot) && typeof state.running === 'boolean',
         'ROLLOUT_ORIGINAL_SERVICE_STATE_MISSING');

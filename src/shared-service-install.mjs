@@ -2,7 +2,7 @@ import { withReplacementAwareAdoptionLock } from './retirement-lock.mjs';
 import { requireNoRetirement } from './retirement-admission.mjs';
 import { pendingReplacement } from './retirement-rebind.mjs';
 import { withManagedAdmission } from './managed-credential-admission.mjs';
-import { link, lstat, open, readFile, unlink } from 'node:fs/promises';
+import { link, lstat, open, readFile, rename, unlink } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import { boundedHostFile, coreRoot, hostFile } from './host-adoption.mjs';
@@ -23,31 +23,43 @@ import { machine } from 'node:os';
 const templatePath = 'src/security/nibfin-shared-runner.service.template';
 const wslPath = 'src/security/runner-wsl-host.conf';
 const unitName = 'nibfin-shared-runner@.service';
-const unitDirectory = '/etc/systemd/system';
+export const unitDirectory = '/etc/systemd/system';
 
-export async function writeSharedServiceTemplate(directory, content, inspect) {
+export async function readSharedServiceUnit(directory, inspect) {
+  const target = join(directory, unitName);
+  await inspect(target);
+  requireThat((await lstat(target)).isFile(), 'SHARED_SERVICE_TEMPLATE_CONFLICT');
+  return boundedHostFile(target, 16384);
+}
+
+export async function writeSharedServiceTemplate(directory, content, inspect, previous) {
   const target = join(directory, unitName);
   const temp = join(directory, `.nibfin-unit-${randomUUID()}`);
-  const confirm = async () => {
-    await inspect(target);
-    requireThat((await lstat(target)).isFile(), 'SHARED_SERVICE_TEMPLATE_CONFLICT');
-    requireThat(await boundedHostFile(target, 16384) === content,
-      'SHARED_SERVICE_TEMPLATE_CONFLICT');
-  };
+  const read = () => readSharedServiceUnit(directory, inspect);
+  const confirm = async () => requireThat(await read() === content,
+    'SHARED_SERVICE_TEMPLATE_CONFLICT');
   const existing = await lstat(target).catch(error => {
     if (error.code !== 'ENOENT') throw error;
     return null;
   });
   if (existing) {
-    await confirm();
-    return 'unchanged';
-  }
+    const actual = await read();
+    if (actual === content) return 'unchanged';
+    requireThat(actual === previous, 'SHARED_SERVICE_TEMPLATE_CONFLICT');
+  } else requireThat(previous === undefined, 'SHARED_SERVICE_TEMPLATE_CONFLICT');
   const file = await open(temp, 'wx', 0o644);
   try {
     try {
       await file.writeFile(content);
       await file.sync();
     } finally { await file.close(); }
+    if (existing) {
+      requireThat(await read() === previous, 'SHARED_SERVICE_TEMPLATE_CONFLICT');
+      await rename(temp, target);
+      await syncRecoveryDirectory(directory);
+      await confirm();
+      return 'updated';
+    }
     try { await link(temp, target); }
     catch (error) {
       if (error.code !== 'EEXIST') throw error;
@@ -83,18 +95,12 @@ export async function requireSharedServicePreparation() {
 export async function installLockedSharedTemplate(sources = [], owner) {
   requireThat(process.platform === 'linux' && process.getuid() === 0 &&
     coreRoot === '/opt/nibfin/core', 'SHARED_SERVICE_REQUIRES_INSTALLED_CORE');
-  const template = join(coreRoot, templatePath);
-  await Promise.all([hostFile, template, unitDirectory].map(rootOwnedPath));
+  await Promise.all([hostFile, unitDirectory].map(rootOwnedPath));
   const hostBytes = await boundedHostFile(hostFile, 256 * 1024);
   const host = JSON.parse(hostBytes);
   const { repository, runners } = sharedHostRegistrations(host);
-  const wsl = /microsoft.*wsl2/i.test(
-    await readFile('/proc/sys/kernel/osrelease', 'utf8'));
-  const profile = join(coreRoot, wslPath);
-  if (wsl) await rootOwnedPath(profile);
-  const content = await boundedHostFile(template, 16384);
-  const restrictions = wsl ? await boundedHostFile(profile, 16384) : '';
   await verifyInstalledSource(coreRoot, host.installation.pin);
+  const unit = await readSharedServiceSource(coreRoot);
   requireThat(sources.length === 0 || sources.length === 2 && sources[0] !== sources[1],
     'INVALID_SHARED_SLOT_INPUT');
   const target = await installedSharedRuntime();
@@ -116,12 +122,21 @@ export async function installLockedSharedTemplate(sources = [], owner) {
     await checkSharedRunnerSlot(directory, runner, repository, { checkAccess: false });
   }
   requireThat(await boundedHostFile(hostFile, 256 * 1024) === hostBytes &&
-    await boundedHostFile(template, 16384) === content &&
-    (!wsl || await boundedHostFile(profile, 16384) === restrictions),
+    await readSharedServiceSource(coreRoot) === unit,
     'HOST_ADOPTION_CHANGED');
-  const unit = sharedServiceTemplate(content, restrictions);
   const status = await writeSharedServiceTemplate(unitDirectory, unit, rootOwnedPath);
   return { status, unit: unitName, servicesStarted: false };
+}
+
+export async function readSharedServiceSource(source) {
+  const read = async path => {
+    await rootOwnedPath(path);
+    return boundedHostFile(path, 16384);
+  };
+  const wsl = /microsoft.*wsl2/i.test(
+    await readFile('/proc/sys/kernel/osrelease', 'utf8'));
+  return sharedServiceTemplate(await read(join(source, templatePath)),
+    wsl ? await read(join(source, wslPath)) : '');
 }
 
 export function sharedServiceTemplate(template, restrictions) {
