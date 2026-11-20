@@ -9,6 +9,7 @@ export const jobVmExecutorFailures = Object.freeze([
   'JOB_VM_EXEC_INITIALIZE_TIMEOUT',
   'JOB_VM_EXEC_INITIALIZE_INVALID',
   'JOB_VM_EXEC_INITIALIZE_UNAVAILABLE',
+  'JOB_VM_TOOL_OUTPUT_UNAVAILABLE',
 ]);
 
 export async function probeJobVmExecutor(path, signal, attemptTimeout = 10_000) {

@@ -8,6 +8,18 @@ const maxFiles = 10000;
 const maxFileBytes = 16 * 1024 * 1024;
 const maxTreeBytes = 64 * 1024 * 1024;
 
+// The installed guest is a separate asset. A successful old file transfer does
+// not establish that it prepared the requested runtime directories or owns them.
+export function requireJobVmToolOutput(reply, root, directories) {
+  const output = reply?.toolOutput;
+  requireThat(output?.root === root &&
+    output.collection === 'preserve-source-omit-owned-output' &&
+    Array.isArray(output.directories) &&
+    output.directories.length === directories.length &&
+    directories.every(path => output.directories.includes(path)),
+  'JOB_VM_TOOL_OUTPUT_UNAVAILABLE');
+}
+
 // Send regular files only. The guest receives neither Git metadata nor a
 // writable host mount. Keep the same file and tree bounds as Core capture.
 export async function snapshotJobVmWorkspace(root) {

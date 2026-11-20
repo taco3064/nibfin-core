@@ -158,6 +158,13 @@ def workspace(client):
                     root, request["toolRoot"], request["toolDirectories"])
             Path(ENV["HOME"]).mkdir(parents=True, exist_ok=True)
             result = {"ready": True}
+            if name == "work" and "toolRoot" in request:
+                result["toolOutput"] = {
+                    "root": request["toolRoot"],
+                    "directories": [directory for directory in request["toolDirectories"]
+                                    if (root / directory).is_dir()],
+                    "collection": "preserve-source-omit-owned-output",
+                }
         elif request["operation"] == "collect":
             result = {"files": snapshot(Path("/work"), TOOL_OUTPUT.get("work"))}
         else:
