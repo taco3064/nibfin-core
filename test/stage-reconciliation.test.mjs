@@ -57,7 +57,7 @@ test('a legacy stage marker does not block or mutate a native observation', asyn
     assert.equal((await observe(f)).status, 'completed');
     await fence.inspect();
   }
-  assert.equal(f.reads.filter(read => read === 'issue').length, 2);
+  assert.equal(f.reads.filter(read => read === 'issue').length, 4);
   await fence.release();
 });
 

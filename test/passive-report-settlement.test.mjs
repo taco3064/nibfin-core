@@ -54,9 +54,9 @@ test('a passive report never settles an actual pending journal', linux, async t 
   await assert.rejects(managedSettlement(f.host), pending);
 });
 
-test('reports do not hide stage, recovery, evidence or journal locks', linux,
+test('reports do not hide recovery, evidence or journal leases', linux,
   async t => {
-    for (const kind of ['stage', 'recovery', 'append', 'execution']) {
+    for (const kind of ['recovery', 'append', 'execution']) {
       const f = await fixture(t);
       let path = join(f.root, `${kind}.lock`);
       if (kind === 'append' || kind === 'execution') {

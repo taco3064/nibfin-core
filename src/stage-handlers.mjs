@@ -13,6 +13,7 @@ import { writerPressureWait } from './job-vm-pressure.mjs';
 import { alignDelivery, handoffDelivery } from './deliver-freshness.mjs';
 import { ciCorrectionFindings } from './ci-recovery.mjs';
 import { issueRequirementsChanged } from './stages.mjs';
+import { matchesDeliveryCheckpoint } from './delivery-checkpoint.mjs';
 
 // Only installed adapters enter this factory; the external stage request cannot
 // supply functions, commands, paths, credentials, source pins or role identities.
@@ -143,9 +144,12 @@ export function stageHandlers({
           : deliveryFindings ?? (restricted.length
             ? pathFindings(restricted) : correction?.findings));
         const saveExisting = stage === 'deliver' && checkpoint && context.candidate &&
-          previousDelivery?.outcome === 'ready' && !context.receipts['commit-pr'];
+          previousDelivery?.outcome === 'ready' && !previousDelivery.deliveryCheckpoint &&
+          !context.receipts['commit-pr'];
+        const retainedRemote = !checkpoint || !previousDelivery?.deliveryCheckpoint ||
+          (context.candidate && matchesDeliveryCheckpoint(checkpoint, context.candidate));
         const retain = reference || saveExisting ||
-          (context.candidate && rebase?.status === 'rebased');
+          (retainedRemote && context.candidate && rebase?.status === 'rebased');
         if (!findings && retain && rebase &&
           ['unchanged', 'rebased'].includes(rebase.status) && !rebase.contentChanged) {
           return { retainedCandidate: rebase?.candidate ?? candidate,
