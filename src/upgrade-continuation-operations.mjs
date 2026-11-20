@@ -3,7 +3,7 @@ import { isDeepStrictEqual } from 'node:util';
 import { requireThat } from './identity.mjs';
 import { githubReadDiagnostic } from './github-read-cause.mjs';
 import { workflowDispatchFailure } from './native-workflow-dispatch.mjs';
-import { upgradePreparation, upgradeBinding, upgradeObservation }
+import { upgradePreparation, upgradeBinding, upgradeObservation, upgradeCompletion }
   from './upgrade-continuation-contract.mjs';
 
 const initial = () => ({
@@ -72,18 +72,24 @@ export function mergeUpgradeOperations(current, initial, next) {
 }
 
 function priorUpgrade(records, binding, intent) {
-  const candidates = records.filter(record => record.memberId === binding.memberId &&
+  const sameSource = records.filter(record => record.memberId === binding.memberId &&
     sameIntent(record.execution, binding.execution) &&
-    sameIntent(record.intent.repositories, intent.repositories) &&
     sameUpgradeSource(record.intent.source, intent.source));
+  const candidates = sameSource.filter(record =>
+    sameIntent(record.intent.repositories, intent.repositories));
   const exact = candidates.find(record =>
     sameIntent(record.intent.activation, intent.activation));
   if (exact || intent.activation !== null ||
     !sameUpgradeSource(binding.host.installation.pin, intent.source)) return exact;
   // A completed promotion no longer needs activation to prove current source.
   // Recover the original intent rather than requiring its old CD artifact again.
-  requireThat(candidates.length <= 1, 'UPGRADE_OPERATION_AMBIGUOUS');
-  return candidates[0];
+  const promoted = candidates.length ? candidates : sameSource.filter(record =>
+    record.intent.activation && intent.repositories.every(id =>
+      record.intent.repositories.includes(id)) && record.consumers.every(consumer =>
+      binding.consumers.some(adopted => adopted.repositoryId === consumer.repositoryId &&
+        adopted.repository === consumer.repository)));
+  requireThat(promoted.length <= 1, 'UPGRADE_OPERATION_AMBIGUOUS');
+  return promoted[0];
 }
 
 export async function prepareUpgrade(request, ports) {
@@ -286,18 +292,25 @@ export async function recordUnsupportedUpgradeActivation(activation, ports) {
 }
 
 export async function completeUpgradeWithoutProposal(request, ports) {
-  const value = upgradeObservation(request);
-  return completeDirectUpgrades(value.operationId, ports);
+  const value = upgradeCompletion(request);
+  return completeDirectUpgrades(value.operationId, ports,
+    { repositories: value.repositories });
 }
 
 export async function completeDirectUpgrades(operationId, ports, {
-  allowNoEligible = false,
+  allowNoEligible = false, repositories,
 } = {}) {
   const records = await ports.read();
   const { operation, adoption } = await selectedOperation(
     records, operationId, ports);
+  if (repositories) {
+    requireThat(repositories.every(id => operation.intent.repositories.includes(id)),
+      'UPGRADE_CONSUMER_NOT_ADOPTED');
+    await ports.sourceIntent({ ...operation.intent, repositories }, adoption);
+  }
   let considered = false, observedError, changed = false, eligible = false;
   for (const consumer of operation.consumers) {
+    if (repositories && !repositories.includes(consumer.repositoryId)) continue;
     try {
       if (consumer.proposal &&
         await ports.disposition(consumer, consumer.proposal) !== 'abandoned') continue;

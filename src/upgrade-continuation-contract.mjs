@@ -28,10 +28,7 @@ export function upgradeExecutionTarget(value) {
 
 export function upgradePreparation(value) {
   exactUpgradeFields(value, ['kind', 'repositories', 'source', 'activation']);
-  requireThat(Array.isArray(value.repositories) && value.repositories.length > 0 &&
-    value.repositories.every(isId) &&
-    new Set(value.repositories).size === value.repositories.length,
-  'UPGRADE_REPOSITORIES_INVALID');
+  requireUpgradeRepositories(value.repositories);
   exactUpgradeFields(value.source, ['repository', 'commit', 'manifestHash']);
   requireThat(isInstallationPin(value.source), 'UPGRADE_SOURCE_INVALID');
   if (value.activation !== null) {
@@ -54,6 +51,20 @@ export function upgradeObservation(value) {
   exactUpgradeFields(value, ['kind', 'operationId']);
   upgradeOperationId(value.operationId);
   return value;
+}
+
+export function upgradeCompletion(value) {
+  if (!Object.hasOwn(value ?? {}, 'repositories')) return upgradeObservation(value);
+  exactUpgradeFields(value, ['kind', 'operationId', 'repositories']);
+  upgradeOperationId(value.operationId);
+  requireUpgradeRepositories(value.repositories);
+  return value;
+}
+
+function requireUpgradeRepositories(repositories) {
+  requireThat(Array.isArray(repositories) && repositories.length > 0 &&
+    repositories.every(isId) && new Set(repositories).size === repositories.length,
+  'UPGRADE_REPOSITORIES_INVALID');
 }
 
 // Existing caller-recipes.json has strict consumers. Upgrade uses its own
