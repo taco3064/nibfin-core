@@ -8,6 +8,7 @@ import { join } from 'node:path';
 import {
   sharedServiceTemplate, writeSharedServiceTemplate,
 } from '../src/shared-service-install.mjs';
+import { restoreRolloutServiceTemplate } from '../src/rollout-service-template.mjs';
 
 test('the WSL service includes the reviewed mount restrictions', () => {
   const template = '[Service]\nExecStart=/usr/bin/true\n\n[Install]\n';
@@ -57,9 +58,46 @@ test('install shared service template once and refuse changes or links', {
   await assert.rejects(writeSharedServiceTemplate(directory, 'other', inspect),
     { code: 'SHARED_SERVICE_TEMPLATE_CONFLICT' });
   assert.equal(await readFile(path, 'utf8'), content);
+  await assert.rejects(writeSharedServiceTemplate(directory, 'new', inspect, 'foreign'),
+    { code: 'SHARED_SERVICE_TEMPLATE_CONFLICT' });
+  assert.equal(await writeSharedServiceTemplate(directory, 'new', inspect, content),
+    'updated');
+  assert.equal(await writeSharedServiceTemplate(directory, 'new', inspect, content),
+    'unchanged');
+  assert.equal(await readFile(path, 'utf8'), 'new');
   await rm(path);
   await symlink('/nonexistent', path);
   await assert.rejects(writeSharedServiceTemplate(directory, content, inspect),
     { code: 'SHARED_SERVICE_TEMPLATE_CONFLICT' });
   assert.deepEqual(await readdir(directory), [unit]);
 });
+
+test('stopped-pool restore updates a known unit and resumes after reload failure',
+  async () => {
+    let actual = 'previous', failReload = true;
+    const events = [];
+    const ports = {
+      read: async () => actual,
+      desired: async () => 'current',
+      previous: async () => 'previous',
+      stopped: async () => { events.push('stopped'); },
+      write: async (next, prior) => {
+        assert.equal(actual, prior);
+        events.push('updated');
+        actual = next;
+      },
+      reload: async () => {
+        events.push('reload');
+        if (failReload) throw new Error('systemd unavailable');
+      },
+    };
+    await assert.rejects(restoreRolloutServiceTemplate({}, ports), /systemd unavailable/);
+    failReload = false;
+    await restoreRolloutServiceTemplate({}, ports);
+    assert.deepEqual(events, ['stopped', 'updated', 'reload', 'reload']);
+    actual = 'operator-customized';
+    await assert.rejects(restoreRolloutServiceTemplate({}, ports),
+      { code: 'SHARED_SERVICE_TEMPLATE_CONFLICT' });
+    assert.equal(actual, 'operator-customized');
+    assert.deepEqual(events, ['stopped', 'updated', 'reload', 'reload']);
+  });
