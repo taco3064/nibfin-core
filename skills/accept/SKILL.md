@@ -10,6 +10,15 @@ Read the current authorized Issue, independently published Shape, current produc
 authority and full changed-path inventory.
 Use historical Scope only where it resolves a concrete discrepancy or the
 applicable runtime explicitly requires it.
+Review the exact completed Candidate supplied by Core from the Issue's bound
+GitHub work branch against observed current main. Wait for Core to read
+back that branch save before beginning Acceptance. A saved branch is a
+handoff; independently check its contents and readiness. If main moved,
+Core aligns the Candidate before Acceptance verifies the resulting content.
+Report incompatible changes without doing the alignment yourself. If Core
+has no authorized saved Candidate, use the existing incomplete-input route
+so Deliver can run normally. A stale local receipt or abandoned branch does
+not prove delivery. Preserve the normal retry if GitHub observation fails.
 Check the supplied artifact identities, required hook evidence and current
 prerequisites. Do not accept the writer's confidence or summary as proof.
 
@@ -60,7 +69,7 @@ identities for independent diagnosis; authority gaps and inaccessible evidence
 remain blocked. Do not create work, widen scope or decide new product semantics.
 
 Return only the supplied structured schema, with evidence-backed findings and
-references. Use `accepted` only for this exact pre-commit Candidate with no
+references. Use `accepted` only for the exact supplied Candidate with no
 blocking findings. Acceptance is neither permission to mutate GitHub nor proof
 that future PR head/CI, final Shape fidelity review, merge or closure succeeded.
 Any material Candidate change requires fresh independent Acceptance.
