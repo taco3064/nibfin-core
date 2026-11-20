@@ -12,6 +12,12 @@ export async function managedSettlement(host, { legacyReplacement } = {}) {
     for (const name of await readdir(directory)) {
       if (wake && await inspectLegacyWakeEntry(directory, name, host.uid,
         legacyReplacement, inspectJournal)) continue;
+      if (name === 'reports') {
+        // Diagnostic contents never authorize or represent pending effects.
+        // The report reader validates them independently of source deployment.
+        await privateResource(join(directory, name), host.uid, true);
+        continue;
+      }
       if (/^evidence-[a-f0-9]{64}$/.test(name)) {
         const evidence = join(directory, name);
         await privateResource(evidence, host.uid, true);

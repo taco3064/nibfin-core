@@ -18,6 +18,57 @@ function hosts() {
   return [{ current, next }];
 }
 
+function enrolledHosts() {
+  const inputs = hosts();
+  const primary = inputs[0];
+  for (const host of [primary.current, primary.next])
+    host.sharedRunner.repositories = [1, 2, 3, 4];
+  for (const [index, name] of ['cli', 'act', 'e2e'].entries()) {
+    const current = structuredClone(primary.current);
+    delete current.sharedRunner;
+    current.repository.approval.repositoryId = index + 2;
+    current.repository.runner.repository = `example/${name}`;
+    current.repository.runner.repositoryId = index + 2;
+    if (name === 'e2e') {
+      delete current.model;
+      delete current.runnerUid;
+    }
+    const next = structuredClone(current);
+    next.installation = structuredClone(primary.next.installation);
+    inputs.push({ current, next });
+  }
+  return inputs;
+}
+
+test('unchanged enrolled CLI, Action and E2E views reuse the primary provider', () => {
+  const inputs = enrolledHosts();
+  assert.deepEqual(classifyCoreOnlyUpdate(inputs, runtime, runtime, observations),
+    { status: 'compatible', mode: 'core-only' });
+  for (const input of inputs) input.next = structuredClone(input.current);
+  assert.deepEqual(classifyCoreOnlyUpdate(inputs, runtime, runtime, observations),
+    { status: 'compatible', mode: 'core-only' });
+});
+
+test('peer views cannot change identity or override the installed provider', () => {
+  for (const index of [1, 2, 3]) {
+    for (const change of [
+      next => { next.provider = 'claude'; },
+      next => { next.model = 'different-model'; },
+      next => { next.tokenFile = '/different/token'; },
+      next => { next.repository.isolation.agent.image = 'sha256:' + 'e'.repeat(64); },
+    ]) {
+      const inputs = enrolledHosts();
+      change(inputs[index].next);
+      assert.equal(classifyCoreOnlyUpdate(inputs, runtime, runtime,
+        observations).status, 'unsupported');
+    }
+  }
+  const inputs = enrolledHosts();
+  inputs[0].current.sharedRunner.repositories = [1];
+  assert.equal(classifyCoreOnlyUpdate(inputs, runtime, runtime,
+    observations).status, 'unsupported');
+});
+
 test('compatible Core source changes do not select Runner maintenance', () => {
   assert.deepEqual(classifyCoreOnlyUpdate(hosts(), runtime, runtime, observations),
     { status: 'compatible', mode: 'core-only' });
