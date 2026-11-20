@@ -3,7 +3,7 @@ import { open, readdir, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { privateHostDirectory } from './host-fence.mjs';
 import { recoveryFile, inspectRecoveryFile } from './recovery-lock.mjs';
-import { digest, isDigest, isId, requireThat } from './identity.mjs';
+import { digest, isId, requireThat } from './identity.mjs';
 
 // Deliberately stricter than the activity observer: unreadable is never absent.
 async function kernelFile(pid, name) {
@@ -137,8 +137,7 @@ async function unrelatedControllers(live, target, {
       command[1] === `${installation}/bin/nibfin-core.mjs` &&
       command[2] === 'stage' && command[3] === name.split('-')[2];
     if ((relay || stage) && fence.bootId === target.bootId &&
-      isDigest(fence.binding?.host) &&
-      fence.binding.execution?.actorId === target.binding.execution.actorId &&
+      fence.binding?.execution?.actorId === target.binding.execution.actorId &&
       typeof fence.binding.issueId === 'string' &&
       fence.binding.issueId !== subject.id &&
       isId(fence.binding.execution?.jobId) &&

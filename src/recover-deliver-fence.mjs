@@ -9,7 +9,7 @@ import { rootOwnedPath } from './host-paths.mjs';
 import { targetContextKey } from './controller-contract.mjs';
 import { issueStatePath, privateHostDirectory } from './host-fence.mjs';
 import { linuxBootId, isBootId } from './linux-boot.mjs';
-import { digest, isDigest, isId, requireThat } from './identity.mjs';
+import { digest, isId, requireThat } from './identity.mjs';
 import { readProtectedApproval } from './github-approval.mjs';
 import { issueProgress } from './issue-progress.mjs';
 import { OperationJournal } from './operation-journal.mjs';
@@ -140,8 +140,8 @@ async function reconcile(context, approval, root, path, snapshot, observers) {
   // The private fence records a historical installation. Current trusted host
   // admission and native member/slot/Issue identity authorize only settlement;
   // an ordinary source/configuration update must not strand the old resource.
-  requireThat(isDigest(fence.binding?.host) &&
-    fence.binding.issueId === subject.id && typeof fence.nonce === 'string' &&
+  requireThat(fence.binding?.issueId === subject.id &&
+    typeof fence.nonce === 'string' &&
     isId(fence.pid) && isId(prior?.runId) && isId(prior.jobId) &&
     isId(prior.attempt) && isBootId(fence.bootId), 'INVALID_RECOVERY_FENCE');
   const native = await terminalDeliverJob(context, fence, approval);
