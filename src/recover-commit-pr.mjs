@@ -189,6 +189,7 @@ async function reconcileOperation({ host, hostBytes, adopted, reader },
         'RECOVERY_CANDIDATE_MISMATCH');
       const related = checkpoint.head === expectedHead ? checkpoint :
         await readDeliveryPublication(reader, record.issue, expectedHead);
+      requireThat(!related.mergedPublication, 'RECOVERY_PUBLICATION_ALREADY_MERGED');
       if (checkpoint.head !== expectedHead && !related.publication) {
         const commit = await reader.get(root + '/git/commits/' + expectedHead);
         requireThat(commit.sha === expectedHead && commit.tree?.sha === candidate.tree &&

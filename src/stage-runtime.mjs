@@ -11,6 +11,7 @@ import { codexIdle, codexPreflightExits } from './codex-bootstrap.mjs';
 import { jobVmExecutorFailures } from './job-vm-exec-relay.mjs';
 import { writerPressureWait } from './job-vm-pressure.mjs';
 import { ciFailureResult } from './ci-recovery.mjs';
+import { missingMergedClosure } from './delivery-checkpoint.mjs';
 
 export const stageSuccess = Object.freeze({
   shape: 'ready',
@@ -277,8 +278,9 @@ export class StageRuntime {
         Object.hasOwn(codexPreflightExits, result?.code) ||
         jobVmExecutorFailures.includes(result?.code) ||
         result?.code === writerPressureWait;
-      const code = result?.status === 'interrupted' && knownInterruption
-        ? result.code : 'STAGE_REQUIRES_CORRECTION';
+      let code = 'STAGE_REQUIRES_CORRECTION';
+      if (result?.status === 'interrupted' && knownInterruption) code = result.code;
+      if (receipt.report?.code === missingMergedClosure) code = missingMergedClosure;
       return {
         schemaVersion: 1,
         stage,

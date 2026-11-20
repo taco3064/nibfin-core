@@ -13,7 +13,8 @@ import { writerPressureWait } from './job-vm-pressure.mjs';
 import { alignDelivery, handoffDelivery } from './deliver-freshness.mjs';
 import { ciCorrectionFindings } from './ci-recovery.mjs';
 import { issueRequirementsChanged } from './stages.mjs';
-import { matchesDeliveryCheckpoint } from './delivery-checkpoint.mjs';
+import { matchesDeliveryCheckpoint, missingMergedClosure }
+  from './delivery-checkpoint.mjs';
 
 // Only installed adapters enter this factory; the external stage request cannot
 // supply functions, commands, paths, credentials, source pins or role identities.
@@ -97,6 +98,8 @@ export function stageHandlers({
         let reference;
         const checkpoint = stage === 'deliver' && observeDeliver
           ? await observeDeliver(context) : null;
+        if (checkpoint?.mergedPublication)
+          return { mergedCheckpoint: checkpoint.mergedPublication };
         const resumedDelivery = context.receipts.deliver?.artifacts.shapeHash ===
           context.shape?.hash;
         if (stage === 'deliver' && context.adoptedCandidate && !resumedDelivery &&
@@ -170,6 +173,22 @@ export function stageHandlers({
         };
       },
       readBack: async (context, execution, decision) => {
+        if (stage === 'deliver' && execution.mergedCheckpoint) {
+          const { number, mergeCommit } = execution.mergedCheckpoint;
+          const repository = context.approval.record.issue.repository;
+          const references = [`https://github.com/${repository}/pull/${number}`];
+          const findings = [
+            `GitHub already merged PR #${number} (${mergeCommit}).`,
+            'Resume closure from the original independent review and CI records.',
+          ];
+          const report = makeBlockerReport(context, stage, { producer: 'core-native',
+            code: missingMergedClosure, agentStarted: false,
+            result: { blockingFindings: findings, evidenceReferences: references },
+          });
+          await persistReport(report);
+          return { outcome: 'blocked', findings, references, report,
+            artifacts: { shapeHash: context.shape.hash } };
+        }
         if (stage === 'deliver' && execution.freshnessBlocked)
           return { outcome: 'blocked', findings: execution.freshnessBlocked,
             references: [context.issue.url],

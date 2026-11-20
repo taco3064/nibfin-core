@@ -2,6 +2,8 @@ import { repoPath } from './github-read.mjs';
 import { digest, isId, isSha, requireThat } from './identity.mjs';
 import { requirementsText, samePublishedRequirements } from './stages.mjs';
 
+export const missingMergedClosure = 'MERGED_DELIVERY_CLOSURE_EVIDENCE_MISSING';
+
 export function deliveryBranch(issue) {
   return `nibfin/deliver-${issue.number}`;
 }
@@ -18,7 +20,15 @@ export async function readDeliveryPublication(reader, issue, head) {
     encodeURIComponent(`${owner}:${branch}`));
   const matching = related.filter(pr => pr.head?.sha === head &&
     pr.head.repo?.id === issue.repositoryId && pr.base?.repo?.id === issue.repositoryId &&
-    pr.head.ref === branch);
+    pr.head.ref === branch && pr.base.ref === 'main');
+  const merged = matching.find(pr => pr.state === 'closed' &&
+    Number.isFinite(Date.parse(pr.merged_at)) && isSha(pr.merge_commit_sha));
+  if (merged) {
+    requireThat(isId(merged.number) && typeof merged.node_id === 'string',
+      'DELIVER_BRANCH_UNAVAILABLE');
+    return { mergedPublication: { id: merged.node_id, number: merged.number,
+      mergeCommit: merged.merge_commit_sha } };
+  }
   if (matching.some(pr => pr.state === 'closed' && pr.merged_at === null))
     return { retired: true };
   const existing = matching.filter(pr => pr.state === 'open' && pr.draft === false);
