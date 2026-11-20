@@ -288,6 +288,7 @@ test('filesystem-relative bind roots retain only the referenced package', async 
     '21 20 8:2 /volume / rw - ext4 /dev/y rw', host),
   { code: 'RETIREMENT_RESOURCE_MOUNTED' });
   requireNoMountReferences(path, host.replace('11 1', '31 1'), host);
+  requireNoMountReferences(path, '21 20 8:2 / /alias rw - ext4 /dev/y rw', host);
   requireNoMountReferences(path,
     [host, '21 20 0:4 net:[40] /run/netns/x rw shared:1 - nsfs nsfs rw'].join('\n'));
   requireNoMountReferences(path, bind('8:3', root), host);
