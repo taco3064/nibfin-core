@@ -1,6 +1,5 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { issueStatePath } from '../src/host-fence.mjs';
 import { acquireHostFence } from './legacy-stage-fence-fixture.mjs';
 import { digest } from '../src/identity.mjs';
@@ -9,12 +8,17 @@ import { evidenceBinding, stageRequestHash } from '../src/stages.mjs';
 import { hostExecution } from '../src/host-launcher.mjs';
 import { OperationJournal } from '../src/operation-journal.mjs';
 import { recoverAdoptedOperation } from '../src/recover-commit-pr.mjs';
+import { checkpointMessage } from '../src/delivery-checkpoint.mjs';
 
 export const oldBoot = '11111111-1111-4111-8111-111111111111';
 export const newBoot = '22222222-2222-4222-8222-222222222222';
 
-export async function rebootFixture(t, stage = 'commit-pr') {
-  const root = await mkdtemp(join(tmpdir(), 'nibfin-reboot-'));
+export async function rebootFixture(t, stage = 'commit-pr', {
+  native = false, initialPublication = false, providerApplied = true,
+} = {}) {
+  const scratch = resolve('.deliver-test-tmp');
+  await mkdir(scratch, { recursive: true, mode: 0o700 });
+  const root = await mkdtemp(join(scratch, 'nibfin-reboot-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   const subject = { id: 'I_target', repository: 'example/core',
     repositoryId: 10, number: 2 };
@@ -52,7 +56,8 @@ export async function rebootFixture(t, stage = 'commit-pr') {
   ]) await append(stage, outcome);
   const prArtifacts = { ...artifacts, prId: 'PR_target', prNumber: 9, head,
     base: candidate.base };
-  await append('commit-pr', 'published', { artifacts: prArtifacts });
+  if (!initialPublication)
+    await append('commit-pr', 'published', { artifacts: prArtifacts });
   const previous = { schemaVersion: 1, stage: 'review-pr', binding, execution,
     artifacts: { ...prArtifacts, head: 'f'.repeat(40) }, outcome: 'approved' };
   if (stage === 'review-pr') {
@@ -83,14 +88,30 @@ export async function rebootFixture(t, stage = 'commit-pr') {
     ['/repos/example/core/git/commits/' + head]: commit,
     '/repos/example/core/git/ref/heads/candidate': { object: { sha: head } },
   };
+  if (initialPublication) {
+    pr.head.ref = `nibfin/issue-${subject.number}-${head.slice(0, 12)}`;
+    pr.title = `Deliver #${subject.number}`;
+    pr.body = `Implements #${subject.number}.\n\nCandidate: ${artifacts.candidateHash}`;
+    Object.assign(pr, { user: { id: 3 }, draft: false });
+    commit.message = checkpointMessage(subject,
+      { lifecycle: 0, shape: artifacts.shapeHash }, candidate);
+    data['/repos/example/core/branches/nibfin%2Fdeliver-2'] = {
+      name: 'nibfin/deliver-2', commit,
+    };
+    data['/repos/example/core/git/ref/heads/' + pr.head.ref] = { object: { sha: head } };
+  }
   let writes = 0, observations = 0;
   context.reader = {
     get: async path => {
       if (!Object.hasOwn(data, path)) throw new Error('Unexpected read: ' + path);
       return structuredClone(data[path]);
     },
-    list: async () => [{ id: 40, status: 'offline', busy: false,
-      labels: [{ name: 'nibfin-user-3' }] }],
+    list: async path => {
+      if (path.endsWith('/issues/2/events')) return [];
+      if (path.endsWith(`/commits/${head}/pulls`)) return providerApplied ? [pr] : [];
+      return [{ id: 40, status: native ? 'online' : 'offline', busy: false,
+        labels: [{ name: 'nibfin-user-3' }] }];
+    },
     issue: async () => structuredClone(issue),
     write: async () => { writes++; throw new Error('Recovery must never write'); },
   };
@@ -102,6 +123,7 @@ export async function rebootFixture(t, stage = 'commit-pr') {
   const request = { operation: stage, bindingHash: requestHash };
   const journal = new OperationJournal(receiptsRoot, subject);
   await journal.run(request, { admit: async () => requestHash,
+    ...(native ? { recovery: { execution, runnerId: runner.runnerId } } : {}),
     perform: async () => { writes++; }, readBack: async () => undefined });
   const decision = digest(request);
   const journalRoot = join(receiptsRoot, digest({ issueId: subject.id,
@@ -109,15 +131,19 @@ export async function rebootFixture(t, stage = 'commit-pr') {
   const lockPath = join(journalRoot, 'execution.lock');
   await writeFile(lockPath, JSON.stringify({ pid: process.pid, decision }),
     { mode: 0o600 });
-  await acquireHostFence(issueRoot, { host: digest(hostBytes), issueId: subject.id,
-    execution: { runId: 20, jobId: 30, attempt: 1, actorId: 3 } }, async () => oldBoot);
+  if (!native) await acquireHostFence(issueRoot, { host: digest(hostBytes),
+    issueId: subject.id, execution: { runId: 20, jobId: 30, attempt: 1, actorId: 3 },
+  }, async () => oldBoot);
   const fencePath = join(issueRoot, 'stage.lock');
-  const fenceBytes = await readFile(fencePath, 'utf8');
-  const options = { observeBoot: async () => newBoot,
+  const fenceBytes = native ? null : await readFile(fencePath, 'utf8');
+  const origin = native ? (await journal.pendingStageRecovery(stage)).pendingRecovery
+    : null;
+  const options = { observeBoot: async () => origin?.bootId ?? newBoot,
+    ...(native ? { processes: async () => [] } : {}),
     containers: async () => { observations++; }, approvalReader: async () => approval };
   return { context, options, root, issueRoot, journalRoot, lockPath, fencePath,
     fenceBytes, store, journal, decision, previous, data, issue, pr, commit, run, job,
-    binding, execution, artifacts, writes: () => writes,
+    binding, execution, artifacts, origin, writes: () => writes,
     observations: () => observations,
     recover: () => recoverAdoptedOperation(context, head, stage, options),
     changeFence: async change => {

@@ -133,6 +133,9 @@ export class StageRuntime {
         { operation: decision.operation, bindingHash: decision.requestHash },
         {
           localDeliver: stage === 'deliver',
+          ...(['commit-pr', 'review-pr'].includes(stage) ? { recovery: {
+            execution: context.execution, runnerId: context.runner.runnerId,
+          } } : {}),
           admit: async () => {
             let fresh, observation;
             try {
