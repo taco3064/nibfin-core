@@ -1,9 +1,9 @@
 # Deployment package retirement
 
 Core reconsiders obsolete `core-staged-<commit>` and `core-before-<target>`
-packages during installed lifecycle completion and after the administrator's
-management child exits. The fixed bridge attempts refresh and continuation
-before the independent cleanup sweep. A failed refresh or continuation still
+packages after a verified native maintenance installation or an explicit
+stopped-pool administrator rollout. The fixed bridge attempts refresh and
+continuation before the cleanup sweep. A failed refresh or continuation still
 permits cleanup and preserves the confirmed installation result.
 The legacy staged cleanup delegates to this same implementation.
 
@@ -35,12 +35,10 @@ inactive services. Each check reads the effective properties of the enumerated
 units together and verifies that each unit is represented. Failed observations
 preserve affected material.
 
-Removal acquires the existing exclusive configuration-directory kernel gate for
-each package, with fresh observations after acquiring it. Core releases the
-gate between packages. If the gate is busy, Core reports completed removals and
-defers the remaining sweep to normal lifecycle retry. An inherited gate defers
-cleanup without changing the caller's lock. The fixed bridge releases its gate
-before launching the sweep. Executing package source remains protected.
+The maintenance operation owns the sweep. GitHub orders serving-pool
+maintenance jobs, and explicit offline rollout requires the pool to be stopped.
+Each removal uses fresh package and usage observations. The running sweep
+retains a reference to the executable package it uses.
 
 After complete verification, Core durably records a per-package deletion intent
 beside the package as `.retiring-core-<kind>-<commit>.json`. This contains its
