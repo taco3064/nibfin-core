@@ -62,7 +62,12 @@ export function nativeObserver({
     }
     if (receipts.deliver?.artifacts.candidateHash &&
       receipts.deliver.artifacts.shapeHash === context.shape?.hash)
-      context.candidate = await store.get(receipts.deliver.artifacts.candidateHash);
+      context.candidate = await store.get(receipts.deliver.artifacts.candidateHash)
+        .catch(error => {
+          if (stage === 'deliver' && !receipts['commit-pr'] && error.code === 'ENOENT')
+            return undefined;
+          throw error;
+        });
     if (context.candidate) {
       context.equivalentCandidates = [];
       const reusable = ['pre-accept-hooks', 'accept', 'post-accept-hooks', 'review-pr'];
@@ -74,27 +79,31 @@ export function nativeObserver({
         }
       }
     }
+    if (['pre-accept-hooks', 'accept'].includes(stage) &&
+        receipts.deliver?.outcome === 'ready' && !receipts['commit-pr'])
+      requireThat(isSha(receipts.deliver.deliveryCheckpoint?.head),
+        'DELIVER_CHECKPOINT_REQUIRED');
     if (stage === 'deliver' && pinned.openPr && !context.candidate &&
       !receipts['commit-pr']) {
-      await readAdoptedOpenPr(reader, record.issue, pinned.openPr,
-        record.roles.publisher);
+      const adopted = await readAdoptedOpenPr(reader, record.issue, pinned.openPr,
+        record.roles.publisher, { ignoreAbandoned: true });
       const handoff = pinned.openPr.localCandidate;
-      if (handoff) {
+      if (adopted && handoff) {
         requireThat(handoff.issueId === record.issue.id &&
           handoff.shapeHash === context.shape?.hash &&
           typeof handoff.workspace === 'string' &&
           /^workspace-[a-f0-9]{64}$/.test(handoff.workspace),
         'INVALID_HANDOFF_WORKSPACE');
       }
-      context.adoptedCandidate = handoff
+      if (adopted) context.adoptedCandidate = handoff
         ? { ...handoff, number: pinned.openPr.number } : pinned.openPr;
     }
     if (stage === 'deliver') context.rebaseTarget = main.head;
     if (stage === 'commit-pr' && pinned.openPr &&
       receipts['commit-pr']?.outcome !== 'published') {
       context.pr = await readAdoptedOpenPr(reader, record.issue, pinned.openPr,
-        record.roles.publisher);
-      context.adoptedOpenPr = true;
+        record.roles.publisher, { ignoreAbandoned: true });
+      if (context.pr) context.adoptedOpenPr = true;
     }
     if (receipts['commit-pr']?.outcome === 'published') {
       const saved = receipts['commit-pr'].artifacts;

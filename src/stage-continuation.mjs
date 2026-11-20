@@ -78,11 +78,15 @@ async function sameShape(store, left, right) {
 async function currentReceipts(store, previous, repairDelivery) {
   const shape = previous.shape?.artifacts?.shapeHash;
   const candidate = previous.deliver?.artifacts?.candidateHash;
-  const snapshot = candidate ? await store.get(candidate) : null;
+  const snapshot = candidate ? await store.get(candidate).catch(error => {
+    if (!previous['commit-pr'] && error.code === 'ENOENT') return null;
+    throw error;
+  }) : null;
   const reusable = ['pre-accept-hooks', 'accept', 'post-accept-hooks'];
   const current = {};
   for (const stage of Object.keys(stages)) {
     const entry = previous[stage];
+    if (stage === 'deliver' && candidate && !snapshot) break;
     if (stage === 'deliver' && repairDelivery &&
       (entry?.outcome === 'changes_required' ||
         (entry?.outcome === 'blocked' &&
@@ -124,6 +128,7 @@ export async function continueStages({
   ciTimeout = 600000,
   repairIntegration = true,
   correctionRepairs = 2,
+  saveDeliverCheckpoint = false,
 }) {
   const previous = await store.load();
   const inspectCurrent = () => retryGitHubObservation(inspect,
@@ -132,6 +137,13 @@ export async function continueStages({
     { wait, clock, timeout: ciTimeout });
   let initial = changed ? {} :
     await currentReceipts(store, previous, correctionRepairs > 0);
+  if (saveDeliverCheckpoint && !initial['commit-pr'] &&
+      initial.deliver?.outcome === 'ready' && !initial.deliver.deliveryCheckpoint) {
+    // Older installed Core recorded Deliver locally. Bring its saved work
+    // through normal handoff before any verification on the new route.
+    for (const name of Object.keys(stages).slice(Object.keys(stages).indexOf('deliver')))
+      delete initial[name];
+  }
   // A saved rejection returns to its author, including after process restart.
   if (initial['validate-shape']?.outcome === 'changes_required') initial = {};
   const repairCandidate = async (rejected, ciFailure) => {
@@ -146,7 +158,7 @@ export async function continueStages({
     }
     return continueStages({
       store, execute, refreshRequirements, resumeClosed, inspect, wait, clock, ciTimeout,
-      repairIntegration, correctionRepairs: correctionRepairs - 1,
+      repairIntegration, correctionRepairs: correctionRepairs - 1, saveDeliverCheckpoint,
     });
   };
   let gap = false;
@@ -255,6 +267,7 @@ export async function continueStages({
         ciTimeout,
         repairIntegration: false,
         correctionRepairs,
+        saveDeliverCheckpoint,
       });
     }
     if (['review-pr', 'merge'].includes(stage) && result.status === 'denied' &&

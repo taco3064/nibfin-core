@@ -29,7 +29,7 @@ function unfinished() {
   return f;
 }
 
-async function relay(f, enter, fault = 'transport') {
+async function relay(f, enter, fault = 'json') {
   const request = { schemaVersion: 1, command: 'stage', issue: '443',
     stage: f.input.stage, context: { GITHUB_REPOSITORY: 'owner/repo' } };
   const calls = [];
@@ -42,16 +42,16 @@ async function relay(f, enter, fault = 'transport') {
     }
     if (value.command === 'reconcile-stage') return output(await observe(f));
     assert.deepEqual(value, request);
-    assert.equal(f.counts.released, 1, 'observation fence released before admission');
+    assert.equal(f.counts.settled, 2, 'completed observation before admission');
     return output(await enter(value));
   });
   return { result, calls };
 }
 
-test('lost and malformed responses re-enter the exact original stage request',
+test('malformed responses after transport exit enter the same stage',
   async () => {
     for (const stage of ['continue', 'deliver', 'review-pr']) {
-      for (const fault of ['transport', 'json', 'status']) {
+      for (const fault of ['json', 'status']) {
         const f = unfinished();
         f.input.stage = stage;
         const expected = { schemaVersion: 1, status: 'denied', stage,
@@ -65,6 +65,14 @@ test('lost and malformed responses re-enter the exact original stage request',
       }
     }
   });
+
+test('unknown transport termination cannot start a second Controller', async () => {
+  const f = unfinished();
+  const { result, calls } = await relay(f, () => assert.fail('Prior process unknown'),
+    'transport');
+  assert.equal(result.code, 'CONTROLLER_HANDOFF_UNRESOLVED');
+  assert.deepEqual(calls.map(value => value.command), ['stage', 'reconcile-stage']);
+});
 
 test('normal continuation reuses confirmed publication and finishes remaining stages',
   async () => {
@@ -199,7 +207,6 @@ test('missing optional records and directories permit real initial-state observa
     t.after(() => rm(root, { recursive: true, force: true }));
     f.input.context.host.stateRoot = root;
     f.input.approval.scopeBinding = f.binding.scopeHash;
-    delete f.dependencies.acquire;
     delete f.dependencies.journal;
     delete f.dependencies.progress;
     assert.ok(isUnfinishedObservation(await observe(f), 'continue'));
@@ -225,7 +232,6 @@ test('inaccessible or corrupt initial bookkeeping is not ordinary absence', asyn
       await mkdir(directory, { mode: 0o700 });
       await writeFile(join(directory, 'shape.json'), '{', { mode: 0o600 });
     }
-    delete f.dependencies.acquire;
     delete f.dependencies.journal;
     delete f.dependencies.progress;
     const result = await observe(f);
@@ -324,19 +330,12 @@ test('exhausted read waits preserve diagnostics and trusted settlement retry bin
     assert.equal(Object.hasOwn(unproven, 'retrySettled'), false);
   });
 
-test('final settlement or fence release failure withholds unfinished disposition',
-  async () => {
-    for (const fault of ['settlement', 'release', 'fence']) {
-      const f = unfinished();
-      if (fault === 'settlement') f.dependencies.containers = async () => {
-        if (++f.counts.settled === 2) throw new Error('container appeared');
-      };
-      else f.dependencies.acquire = async () => ({
-        inspect: async () => { if (fault === 'fence') throw new Error('changed'); },
-        release: async () => { throw new Error('release failed'); },
-      });
-      const { result, calls } = await relay(f, () => assert.fail('not settled'));
-      assert.equal(result.code, 'CONTROLLER_HANDOFF_UNRESOLVED');
-      assert.equal(calls.length, 2);
-    }
-  });
+test('final settlement failure withholds unfinished disposition', async () => {
+  const f = unfinished();
+  f.dependencies.containers = async () => {
+    if (++f.counts.settled === 2) throw new Error('container appeared');
+  };
+  const { result, calls } = await relay(f, () => assert.fail('not settled'));
+  assert.equal(result.code, 'CONTROLLER_HANDOFF_UNRESOLVED');
+  assert.equal(calls.length, 2);
+});

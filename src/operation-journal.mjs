@@ -6,6 +6,7 @@ import { digest, isDigest, isId, requireThat } from './identity.mjs';
 import { operations } from './approval-record.mjs';
 import { MergeBeforeWrite } from './github-write.mjs';
 import { localDeliverInterruption } from './local-deliver-interruption.mjs';
+import { githubReadWait } from './observation-failure.mjs';
 import {
   retainedRecovery, recoveryFile, inspectRecoveryFile,
   syncRecoveryDirectory as syncDirectory,
@@ -182,6 +183,25 @@ export class OperationJournal {
     );
     requireThat((await this.#read()).pending === null, 'EXTERNAL_EFFECT_UNKNOWN');
   }
+  async retireStoppedLease() {
+    await this.#prepare();
+    const path = join(this.#directory, 'execution.lock');
+    const snapshot = await recoveryFile(path, 16384, this.#uid).catch(error => {
+      if (error.code === 'ENOENT') return null;
+      throw error;
+    });
+    if (!snapshot) return;
+    const { pid, decision } = JSON.parse(snapshot.bytes);
+    requireThat(isId(pid) && isDigest(decision), 'UNTRUSTED_JOURNAL_FILE');
+    const exited = await lstat(`/proc/${pid}`).then(() => false, error => {
+      if (error.code === 'ENOENT') return true;
+      throw error;
+    });
+    if (!exited || (await this.#read()).pending !== null) return;
+    await inspectRecoveryFile(path, snapshot, 16384, this.#uid);
+    await unlink(path);
+    await syncDirectory(this.#directory);
+  }
   async run(request, { admit, perform, readBack, localDeliver = false }) {
     // The binding identifies immutable approval, Scope/Shape, candidate, source,
     // role/session and operation target. All three callbacks belong to trusted
@@ -197,7 +217,7 @@ export class OperationJournal {
     const decision = digest({
       operation: request.operation, bindingHash: request.bindingHash,
     });
-    return this.#withLock(decision, async state => {
+    const execute = async state => {
       if (state.pending !== null) {
         if (request.operation === 'wake' && state.pending === decision && state.wakeRunId)
           return this.#finishWake(state, decision, state.wakeRunId, request, readBack);
@@ -209,7 +229,8 @@ export class OperationJournal {
         requireThat(await admit() === request.bindingHash, 'ADMISSION_BINDING_CHANGED');
       }
       catch { return { status: 'denied', code: 'ADMISSION_FAILED' }; }
-      // Local Deliver has no publisher; external effects retain durable intent.
+      // Deliver's work-branch save is conditional and reads its exact GitHub
+      // ref before retry. Other external writes still keep durable intent.
       if (!localDeliver) await this.#write({ ...state, pending: decision,
         ...(request.operation === 'wake' && request.observation
           ? { wakeObservation: request.observation } : {}) });
@@ -238,6 +259,9 @@ export class OperationJournal {
         phase = 'complete';
         await this.#complete(state, decision);
       } catch (error) {
+        const waiting = localDeliver ? githubReadWait(error, undefined, { stage: true })
+          : null;
+        if (waiting) return waiting;
         return { status: 'pending', code: localDeliver ?
           'LOCAL_DELIVER_INTERRUPTED' : 'EXTERNAL_EFFECT_UNKNOWN',
         ...(localDeliver ? {
@@ -245,7 +269,12 @@ export class OperationJournal {
         } : {}) };
       }
       return { status: 'completed', decisionId: decision };
-    });
+    };
+    if (!localDeliver) return this.#withLock(decision, execute);
+    // The native Actions job serializes Deliver. Its only external write is
+    // conditional on the bound work ref, so a local lease adds no protection.
+    await this.#prepare();
+    return execute(await this.#read());
   }
   async settleInterruptedLocalDeliver(decisions, prove) {
     requireThat(Array.isArray(decisions) && decisions.every(isDigest) &&

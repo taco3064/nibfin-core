@@ -7,7 +7,7 @@ import { join, resolve } from 'node:path';
 import { localDeliverSettlement } from '../src/local-deliver-settlement.mjs';
 import { settleHostStage, assertHostSettlement }
   from '../src/host-stage-settlement.mjs';
-import { acquireHostFence } from '../src/host-fence.mjs';
+import { acquireHostFence } from './legacy-stage-fence-fixture.mjs';
 import { OperationJournal } from '../src/operation-journal.mjs';
 import { CodexRoleAgent } from '../src/codex-agent.mjs';
 import { withUserMcp } from '../src/mcp-agent.mjs';
@@ -26,7 +26,7 @@ async function fixture(t) {
   t.after(() => rm(root, { recursive: true, force: true }));
   const context = stageFixture('deliver');
   const fence = await acquireHostFence(root, { execution: context.execution });
-  const lifecycle = localDeliverSettlement(fence);
+  const lifecycle = localDeliverSettlement();
   const invocation = lifecycle.invocation('deliver', context.execution);
   invocation.composed();
   return { root, context, fence, lifecycle, invocation };
@@ -61,20 +61,17 @@ test('local journal failure settles a never-entered Writer and preserves edits',
     assert.equal(writes, 1);
   });
 
-test('partial composition, owners, foreign executions and changed fence retain Pending',
+test('partial composition, owners and foreign executions retain Pending',
   async t => {
-    for (const fault of ['composition', 'role', 'backend/workspace', 'mcp', 'fence']) {
+    for (const fault of ['composition', 'role', 'backend/workspace', 'mcp']) {
       const f = await fixture(t);
       if (fault === 'composition') f.lifecycle.invocation('deliver', { id: 'next' });
-      else if (fault === 'fence')
-        await writeFile(join(f.root, 'stage.lock'), 'changed fence');
       else f.invocation.enter(fault);
       let releases = 0;
       const result = await settleHostStage(async () => pending,
         async () => { releases++; }, quiet, () => f.lifecycle.assertSettled());
       assert.equal(result.status, 'pending');
       assert.equal(result.retrySettled, undefined);
-      if (fault === 'fence') assert.equal(result.code, 'HOST_FENCE_CHANGED');
       assert.equal(releases, 0);
     }
     const f = await fixture(t);

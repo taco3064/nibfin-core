@@ -23,6 +23,10 @@ export function stageHandlers({
   sandbox,
   writerFor,
   publishCommit,
+  observeDeliver,
+  restoreDeliver,
+  saveDeliver,
+  reuseDeliverCommit,
   deliverBlockedGuidance,
   persistReport = async report => store.put(report),
   observeMain,
@@ -30,7 +34,11 @@ export function stageHandlers({
 }) {
   const pathFindings = paths => paths.map(path =>
     `Restore ${path} to the workspace base. Changes require separate approval.`);
-  const captureDelivery = async (context, candidate, references) => {
+  const checkpointURL = (context, head) =>
+    `https://github.com/${context.approval.record.issue.repository}/commit/${head}`;
+  const captureDelivery = async (
+    context, decision, candidate, references, checkpoint,
+  ) => {
     const shapeHash = context.shape.hash;
     const restricted = enforcementPaths(candidate.paths);
     if (restricted.length) {
@@ -47,7 +55,13 @@ export function stageHandlers({
         artifacts: { shapeHash, ...(handoff.candidate ? {
           candidateHash: await store.put(handoff.candidate),
         } : {}) } };
-    return { outcome: 'ready', findings: [], references,
+    const saved = saveDeliver && await saveDeliver(context, decision,
+      handoff.candidate, checkpoint);
+    return { outcome: 'ready', findings: [], references: saved
+      ? [...new Set([...references, checkpointURL(context, saved.head)])] : references,
+      ...(saved ? {
+        deliveryCheckpoint: { branch: saved.branch, head: saved.head },
+      } : {}),
       artifacts: { shapeHash, candidateHash: await store.put(handoff.candidate) } };
   };
   const handlers = {};
@@ -80,6 +94,8 @@ export function stageHandlers({
           );
         let candidate = context.candidate;
         let reference;
+        const checkpoint = stage === 'deliver' && observeDeliver
+          ? await observeDeliver(context) : null;
         const resumedDelivery = context.receipts.deliver?.artifacts.shapeHash ===
           context.shape?.hash;
         if (stage === 'deliver' && context.adoptedCandidate && !resumedDelivery &&
@@ -88,6 +104,16 @@ export function stageHandlers({
           candidate = await workspace.restoreAdoptedCandidate(pin,
             context.shape.body);
           reference = context.issue.url.replace(/\/issues\/\d+$/, `/pulls/${pin.number}`);
+        }
+        const hasCorrection = ['deliver', 'accept', 'review-pr'].some(name => {
+          const receipt = context.receipts[name];
+          return receipt?.outcome === 'changes_required' &&
+            receipt.artifacts.shapeHash === context.shape?.hash;
+        });
+        if (checkpoint?.candidateHash && !candidate && !context.adoptedCandidate &&
+            !context.ciFailure && !hasCorrection) {
+          candidate = await restoreDeliver(checkpoint, context.shape.body);
+          if (candidate) reference = checkpointURL(context, checkpoint.head);
         }
         let rebase;
         const restricted = stage === 'deliver' && candidate?.paths
@@ -116,11 +142,14 @@ export function stageHandlers({
           ? ciCorrectionFindings(context.ciFailure)
           : deliveryFindings ?? (restricted.length
             ? pathFindings(restricted) : correction?.findings));
-        const retain = reference ||
+        const saveExisting = stage === 'deliver' && checkpoint && context.candidate &&
+          previousDelivery?.outcome === 'ready' && !context.receipts['commit-pr'];
+        const retain = reference || saveExisting ||
           (context.candidate && rebase?.status === 'rebased');
         if (!findings && retain && rebase &&
           ['unchanged', 'rebased'].includes(rebase.status) && !rebase.contentChanged) {
-          return { retainedCandidate: rebase?.candidate ?? candidate, reference };
+          return { retainedCandidate: rebase?.candidate ?? candidate,
+            reference, checkpoint };
         }
         const execution = await agent.run(stage, {
           ...context,
@@ -131,11 +160,12 @@ export function stageHandlers({
           return { ...execution, artifacts: decision.artifacts };
         return {
           ...execution,
+          ...(checkpoint ? { checkpoint } : {}),
           ...(rebase ? { rebaseStatus: rebase.status,
             rebaseTarget: rebase.latestMain ?? context.main.head } : {}),
         };
       },
-      readBack: async (context, execution) => {
+      readBack: async (context, execution, decision) => {
         if (stage === 'deliver' && execution.freshnessBlocked)
           return { outcome: 'blocked', findings: execution.freshnessBlocked,
             references: [context.issue.url],
@@ -155,8 +185,9 @@ export function stageHandlers({
           const candidate = await workspace.capture(context.shape.body);
           requireThat(sameCandidate(candidate, execution.retainedCandidate),
             'REBASED_WORKTREE_CHANGED');
-          return captureDelivery(context, candidate,
-            [execution.reference ?? 'evidence:' + digest(context.candidate)]);
+          return captureDelivery(context, decision, candidate,
+            [execution.reference ?? 'evidence:' + digest(context.candidate)],
+            execution.checkpoint);
         }
         requireThat(
           execution?.executionId === context.execution.id &&
@@ -257,7 +288,8 @@ export function stageHandlers({
             );
           }
           const candidate = await workspace.capture(context.shape.body);
-          return captureDelivery(context, candidate, result.evidenceReferences);
+          return captureDelivery(context, decision, candidate,
+            result.evidenceReferences, execution.checkpoint);
         }
         const blockedGuidance = stage === 'deliver' && result.outcome === 'blocked'
           ? await deliverBlockedGuidance?.(
@@ -366,7 +398,10 @@ export function stageHandlers({
   }
   handlers['commit-pr'] = {
     perform: async (context, decision) => {
-      const committed = await workspace.commit(
+      const saved = await reuseDeliverCommit?.(context);
+      if (saved) requireThat(sameCandidate(await workspace.capture(context.shape.body),
+        context.candidate), 'CANDIDATE_CHANGED_AFTER_ACCEPT');
+      const committed = saved ?? await workspace.commit(
         context.candidate,
         context.shape.body,
         new Date(clock()).toISOString(),

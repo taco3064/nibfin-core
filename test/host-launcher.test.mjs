@@ -4,7 +4,7 @@ import { mkdtemp, rm, chmod, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { acquireHostFence } from '../src/host-fence.mjs';
+import { acquireHostFence } from './legacy-stage-fence-fixture.mjs';
 import {
   resolveHostJob,
   rootOwnedPath,
@@ -133,7 +133,7 @@ test(
     'new process cannot reclaim it',
   async (t) => {
     const root = await directory(t);
-    const module = new URL('../src/host-fence.mjs', import.meta.url).href;
+    const module = new URL('./legacy-stage-fence-fixture.mjs', import.meta.url).href;
     const child = spawnSync(process.execPath, [
       '--input-type=module',
       '-e',

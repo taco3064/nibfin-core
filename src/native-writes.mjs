@@ -2,8 +2,10 @@ import { issuePath, GitHubReader } from './github-read.mjs';
 import { integrationRepairRequired, pendingCIObservation } from './github-ci.mjs';
 import { GitHubWriter, MergeBeforeWrite } from './github-write.mjs';
 import { decideStage } from './stages.mjs';
-import { digest, isDigest, requireThat } from './identity.mjs';
+import { digest, isDigest, isId, requireThat } from './identity.mjs';
 import { setTimeout } from 'node:timers/promises';
+import { deliveryLifecycle, matchesDeliveryCheckpoint, readDeliveryCheckpoint }
+  from './delivery-checkpoint.mjs';
 
 // Installed Core assembly. Neither credentials nor the observer are provided by
 // a stage request. Re-admit separately before every remote mutation, including
@@ -84,8 +86,47 @@ export function nativeWrites({
       fetcher,
       guard: guardFor(stage, context, decision),
     });
+  const checkpointBinding = context => ({
+    shape: context.shape.hash, lifecycle: deliveryLifecycle(context),
+  });
+  const observeDeliver = context => readDeliveryCheckpoint(reader,
+    context.approval.record.issue, checkpointBinding(context));
   return Object.freeze({
     writerFor,
+    observeDeliver,
+    restoreDeliver: (checkpoint, shape) =>
+      workspace.restoreDeliveryCheckpoint(checkpoint, shape, token),
+    saveDeliver: async (context, decision, candidate, checkpoint) => {
+      requireThat(context.approval.record.operations.includes('commit-pr') &&
+        context.approval.record.roles.publisher === context.execution.actorId,
+      'DELIVER_CHECKPOINT_PUBLICATION_NOT_APPROVED');
+      const read = () => observeDeliver(context);
+      const observed = await read();
+      if (matchesDeliveryCheckpoint(observed, candidate)) return observed;
+      requireThat(observed.head === checkpoint.head, 'DELIVER_BRANCH_ADVANCED');
+      const committed = await workspace.commit(candidate, context.shape.body,
+        new Date(clock()).toISOString(), false, checkpointBinding(context));
+      const guard = async write => {
+        const admission = await guardFor('deliver', context, decision)(write);
+        const fresh = await observe('deliver');
+        requireThat(deliveryLifecycle(fresh) === deliveryLifecycle(context),
+          'DELIVER_LIFECYCLE_CHANGED');
+        return admission;
+      };
+      let writeError;
+      try {
+        await workspace.push(committed.head, observed.branch, token, guard,
+          observed.head, 'deliver');
+      } catch (error) { writeError = error; }
+      // Native readback also covers a push that landed but lost its local reply.
+      const actual = await read();
+      if (matchesDeliveryCheckpoint(actual, candidate)) return actual;
+      if (writeError && writeError.code !== 'PROCESS_FAILED') throw writeError;
+      if (writeError) throw Object.assign(new Error('DELIVER_CHECKPOINT_PUSH_FAILED'), {
+        code: 'DELIVER_CHECKPOINT_PUSH_FAILED', cause: writeError,
+      });
+      requireThat(false, 'DELIVER_CHECKPOINT_READBACK_PENDING');
+    },
     publishCommit: async (context, decision, committed) => {
       requireThat(
         committed.tree === context.candidate.tree &&
@@ -147,13 +188,34 @@ export function nativeWrites({
           reference: `https://github.com/${issue.repository}/pull/${existing.number}`,
         };
       }
-      await workspace.push(committed.head, branch, token, guard);
       const repository = await reader.repository(issue.repository);
       requireThat(
         repository.id === issue.repositoryId &&
           typeof repository.default_branch === 'string',
         'PUBLICATION_REPOSITORY_CHANGED',
       );
+      const title = `Deliver #${issue.number}`;
+      const body = ['Implements #' + issue.number + '.', '',
+        'Candidate: ' + digest(context.candidate)].join('\n');
+      if (committed.saved) {
+        const checkpointPr = committed.saved.publication;
+        if (checkpointPr?.actorId === context.execution.actorId &&
+            checkpointPr.baseBranch === repository.default_branch &&
+            checkpointPr.title === title && checkpointPr.body === body &&
+            typeof checkpointPr.id === 'string' && isId(checkpointPr.number)) {
+          const { id, number } = checkpointPr;
+          return { id, number, head: committed.head, base: committed.base,
+            reference: `https://github.com/${issue.repository}/pull/${number}` };
+        }
+        const ref = await reader.get(`/repos/${issue.repository}/branches/` +
+          encodeURIComponent(branch)).catch(error => {
+          if (error.status === 404 && error.githubApiRead === true) return null;
+          throw error;
+        });
+        requireThat(!ref || ref.commit?.sha === committed.head,
+          'PR_REPAIR_HEAD_CHANGED');
+        if (!ref) await workspace.push(committed.head, branch, token, guard);
+      } else await workspace.push(committed.head, branch, token, guard);
       return new GitHubWriter({
         reader,
         token,
@@ -166,13 +228,18 @@ export function nativeWrites({
         head: committed.head,
         baseBranch: repository.default_branch,
         base: committed.base,
-        title: `Deliver #${issue.number}`,
-        body: [
-          'Implements #' + issue.number + '.',
-          '',
-          'Candidate: ' + digest(context.candidate),
-        ].join('\n'),
+        title,
+        body,
       });
+    },
+    reuseDeliverCommit: async context => {
+      if (!context.receipts.deliver?.deliveryCheckpoint) return null;
+      const checkpoint = await observeDeliver(context);
+      if (matchesDeliveryCheckpoint(checkpoint, context.candidate)) return {
+        head: checkpoint.head, tree: checkpoint.tree, base: checkpoint.parent,
+        saved: checkpoint,
+      };
+      return null;
     },
   });
 }

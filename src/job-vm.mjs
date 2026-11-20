@@ -10,6 +10,18 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { privateHostDirectory } from './host-fence.mjs';
 import { rootOwnedPath } from './host-paths.mjs';
 import { requireThat } from './identity.mjs';
+import { recoveryProcessCensus } from './recovery-process-census.mjs';
+
+// A retained VM directory contains possible recovery data, not a live guest.
+// The configured Firecracker and disk-preparation commands name their private
+// Issue directory in argv. Recheck actual processes before reusing that work.
+export async function idleIssueJobVms(issueRoot, census = recoveryProcessCensus) {
+  const prefix = join(issueRoot, 'job-vm-');
+  const observed = await census(process.pid);
+  requireThat(!observed.some(item => !['Z', 'X'].includes(item.state) &&
+    item.command?.some(arg => arg.startsWith(prefix))),
+  'PREVIOUS_HOST_PROCESS_UNRESOLVED');
+}
 
 async function copyDisk(source, destination, signal) {
   // The immutable backing file stays outside the VM. Reflinks avoid copying

@@ -186,6 +186,7 @@ export class StageRuntime {
             const verified = await handler.readBack(
               structuredClone(context),
               structuredClone(result),
+              structuredClone(decision),
             );
             requireThat(
               verified &&
@@ -232,6 +233,9 @@ export class StageRuntime {
               } : {}),
               findings: verified.findings,
               references: verified.references,
+              ...(stage === 'deliver' && verified.deliveryCheckpoint ? {
+                deliveryCheckpoint: verified.deliveryCheckpoint,
+              } : {}),
             };
             receiptHash = await this.#receipts.append(receipt);
             requireThat(receiptHash === digest(receipt), 'RECEIPT_PERSISTENCE_FAILED');
