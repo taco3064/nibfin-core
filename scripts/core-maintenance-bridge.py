@@ -166,6 +166,7 @@ def selected_manager():
     selected = json.loads(pointer.read_text())
     pattern = r'generation-[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}'
     if (not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or
+            not isinstance(selected, dict) or
             selected.get('schemaVersion') != 1 or
             not re.fullmatch(pattern, selected.get('generation', ''))):
         raise ValueError('Untrusted management selection')

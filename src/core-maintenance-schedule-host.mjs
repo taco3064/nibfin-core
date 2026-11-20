@@ -10,6 +10,9 @@ import { rolloutPlanPath, rolloutClosurePath } from './rollout-admission.mjs';
 import { scheduleCoreMaintenance } from './core-maintenance-schedule.mjs';
 import { requireThat } from './identity.mjs';
 import { bindRolloutPool } from './rollout-pool.mjs';
+import { isDeepStrictEqual } from 'node:util';
+
+const operationReceipt = '/etc/nibfin/core-rollout-operation.json';
 
 export function withUpgradeMember(context, memberId, action) {
   return withManagerAdmission(context, async () => {
@@ -32,15 +35,20 @@ export async function scheduleAdministratorMaintenance(context, host, target) {
       `${root}/collaborators/${actor.login}/permission`);
     requireThat(permission.user?.id === actor.id && permission.permission === 'admin',
       'UPGRADE_CONSUMER_ADMIN_REQUIRED');
+    const hasInstalled = async matches => {
+      if (await readRetirementFile(rolloutPlanPath) ||
+        await readRetirementFile(rolloutClosurePath)) return false;
+      const current = await managerCredentialHost(context);
+      if (!matches(current.installation.pin)) return false;
+      return (await currentPoolRuntime(context)).directory === installationRoot;
+    };
+    const prior = await readRetirementFile(operationReceipt);
+    if (isDeepStrictEqual(prior?.target, target) &&
+      await hasInstalled(pin => isDeepStrictEqual(pin, prior.pin)))
+      return { schemaVersion: 1, status: 'installed', installation: 'complete' };
     return scheduleCoreMaintenance(reader, token, execution, pool.memberId, target, {
       admit: () => bindRolloutPool(host, context),
-      installed: async activation => {
-        if (await readRetirementFile(rolloutPlanPath) ||
-          await readRetirementFile(rolloutClosurePath)) return false;
-        const current = await managerCredentialHost(context);
-        if (current.installation.pin.commit !== activation.commit) return false;
-        return (await currentPoolRuntime(context)).directory === installationRoot;
-      },
+      installed: ({ commit }) => hasInstalled(pin => pin.commit === commit),
     });
   });
 }

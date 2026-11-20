@@ -48,7 +48,8 @@ export async function scheduleCoreMaintenance(reader, token, execution,
   if (typeof target.since === 'string') query.set('created', `>=${target.since}`);
   const runs = await reader.list(`${path}/runs?${query}`, 'workflow_runs');
   const title = `Core maintenance · CD ${target.runId} · artifact ${target.artifactId}`;
-  const same = runs.filter(run => isId(run.id) && run.workflow_id === workflow.id &&
+  const same = runs.filter(run => isId(run.id) && isId(run.run_attempt) &&
+    run.event === 'workflow_dispatch' && run.workflow_id === workflow.id &&
     run.repository?.id === repository.id && run.head_repository?.id === repository.id &&
     run.path === workflow.path && run.head_branch === repository.branch &&
     run.display_title === title);

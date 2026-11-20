@@ -44,7 +44,8 @@ function fixture({ repository = 'example/execution', state = {}, legacy = false 
     sha: gitBlob(source),
   };
   const native = {
-    id: 88, workflow_id: 29, repository: { id: repositoryId },
+    id: 88, run_attempt: 1, event: 'workflow_dispatch', workflow_id: 29,
+    repository: { id: repositoryId },
     head_repository: { id: repositoryId }, path, head_branch: branch,
     display_title: 'Core maintenance · CD 31 · artifact 44', status: 'queued',
     ...state,

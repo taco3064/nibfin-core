@@ -117,14 +117,12 @@ await replace('../src/rollout-resume.mjs', {
     return { status: 'paused', results: [] };
   },
 });
-mock.module('../src/core-package-retirement-host.mjs', { namedExports: {
-  retireInstalledCorePackages: async () => { events.push('retire'); return []; },
-} });
 const { completeInstalledLifecycle } = await import('../src/installed-lifecycle.mjs');
 loseReply = true;
 for (let attempt = 0; attempt < 2; attempt++) {
+  const prior = events.length;
   assert.deepEqual(await completeInstalledLifecycle(),
     { status: 'paused', results: [], cleanup: [] });
-  assert.deepEqual(events.slice(-3), ['source', 'permission', 'retire']);
+  assert.deepEqual(events.slice(prior), ['source', 'permission']);
 }
 console.log('Controlled installed lifecycle preparation and retry passed');

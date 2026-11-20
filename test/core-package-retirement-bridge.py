@@ -2,7 +2,6 @@
 import importlib.util
 from contextlib import nullcontext
 import json
-import os
 from pathlib import Path
 import subprocess
 from tempfile import TemporaryDirectory
