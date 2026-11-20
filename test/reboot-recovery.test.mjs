@@ -39,7 +39,36 @@ for (const stage of ['commit-pr', 'review-pr']) {
     assert.deepEqual(await f.recover(), result);
     assert.equal(f.writes(), 1);
   });
+
+  test(`${stage}: native journal reconciles without a stage lock`, async t => {
+    const f = await rebootFixture(t, stage, { native: true });
+    f.options.processes = async () => [{ ...f.origin, state: 'S' }];
+    await assertPending(f.recover(), /RECOVERY_CONTROLLER_UNRESOLVED/);
+    f.options.processes = async () => [{ ...f.origin, state: 'S', startTicks: '1' }];
+    const completed = await f.recover();
+    assert.equal(completed.status, 'completed');
+    assert.equal(completed.decisionId, f.decision);
+    assert.equal(f.writes(), 1);
+    assert.equal(await f.journal.pendingStageRecovery(stage), null);
+    await assert.rejects(readFile(f.fencePath), { code: 'ENOENT' });
+  });
 }
+
+for (const providerApplied of [false, true])
+  test(`native first publication recovery, provider effect: ${providerApplied}`,
+    async t => {
+      const f = await rebootFixture(t, 'commit-pr', {
+        native: true, initialPublication: true, providerApplied,
+      });
+      const result = await f.recover();
+      assert.equal(result.status, 'completed');
+      assert.equal(f.writes(), 1);
+      await f.journal.assertIdle();
+      const active = await f.store.load();
+      if (providerApplied) assert.equal(active['commit-pr'].artifacts.prId, f.pr.node_id);
+      else assert.equal(active['commit-pr'], undefined);
+      await assert.rejects(readFile(f.fencePath), { code: 'ENOENT' });
+    });
 
 test('same boot, legacy and malformed boot identity retain all recovery evidence',
   async t => {

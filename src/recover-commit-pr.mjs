@@ -5,6 +5,7 @@ import { boundedHostFile, coreRoot, loadHostAdoption } from './host-adoption.mjs
 import { rootOwnedPath } from './host-paths.mjs';
 import { hostExecution } from './host-launcher.mjs';
 import { idleContainers } from './host-containers.mjs';
+import { idleIssueJobVms } from './job-vm.mjs';
 import { readProtectedApproval } from './github-approval.mjs';
 import { issueProgress } from './issue-progress.mjs';
 import { OperationJournal } from './operation-journal.mjs';
@@ -12,10 +13,13 @@ import {
   samePublishedRequirements, stageRequestHash,
 } from './stages.mjs';
 import { digest, isId, isSha, requireThat } from './identity.mjs';
-import { repoPath } from './github-read.mjs';
+import { issuePath, repoPath } from './github-read.mjs';
 import { issueStatePath, privateHostDirectory } from './host-fence.mjs';
 import { targetContextKey } from './controller-contract.mjs';
 import { linuxBootId, proveDifferentBoot } from './linux-boot.mjs';
+import { recoveryProcessCensus } from './recovery-process-census.mjs';
+import { deliveryLifecycle, matchesDeliveryCheckpoint, readDeliveryCheckpoint }
+  from './delivery-checkpoint.mjs';
 import {
   exclusiveRecovery, recoveryFile, inspectRecoveryFile, syncRecoveryDirectory,
 } from './recovery-lock.mjs';
@@ -46,7 +50,7 @@ async function recover(issueNumber, expectedHead, stage) {
 // Private dependency seams for local fixtures; CLI always uses trusted defaults.
 export async function recoverAdoptedOperation(context, expectedHead, stage, {
   observeBoot = linuxBootId, containers = idleContainers,
-  approvalReader = readProtectedApproval,
+  approvalReader = readProtectedApproval, processes = recoveryProcessCensus,
 } = {}) {
   requireThat(isSha(expectedHead) && ['commit-pr', 'review-pr'].includes(stage),
     'INVALID_RECOVERY_REQUEST');
@@ -55,7 +59,7 @@ export async function recoverAdoptedOperation(context, expectedHead, stage, {
       context.adopted.isolation.issue);
     await privateHostDirectory(issueRoot);
     return await exclusiveRecovery(issueRoot, () => reconcileOperation(context,
-      expectedHead, stage, { observeBoot, containers, approvalReader }));
+      expectedHead, stage, { observeBoot, containers, approvalReader, processes }));
   } catch (error) {
     // Failure to settle this execution is unresolved recovery, never permission
     // to launch again. Expose only a bounded, credential-free diagnostic.
@@ -66,12 +70,8 @@ export async function recoverAdoptedOperation(context, expectedHead, stage, {
   }
 }
 
-async function reconcileOperation({ host, hostBytes, adopted, reader },
-  expectedHead, stage, { observeBoot, containers, approvalReader }) {
-  const subject = adopted.isolation.issue;
-  const issueRoot = issueStatePath(host.stateRoot, subject);
-  const scopedFence = join(issueRoot, 'stage.lock');
-  let fencePath = scopedFence;
+async function readLegacyOrigin(host, hostBytes, issueRoot, subject) {
+  let fencePath = join(issueRoot, 'stage.lock');
   const fenceBytes = await boundedHostFile(fencePath, 16384, true).catch(error => {
     if (error.code !== 'ENOENT') throw error;
     fencePath = join(host.stateRoot, 'stage.lock');
@@ -85,23 +85,52 @@ async function reconcileOperation({ host, hostBytes, adopted, reader },
     fence.binding.issueId === subject.id &&
     isId(fence.pid) && isId(priorJob?.runId) && isId(priorJob.jobId) &&
     isId(priorJob.attempt), 'INVALID_RECOVERY_FENCE');
+  return { fence, priorJob, fencePath, fenceBytes, fenceSnapshot };
+}
+
+async function reconcileOperation({ host, hostBytes, adopted, reader },
+  expectedHead, stage, { observeBoot, containers, approvalReader, processes }) {
+  const subject = adopted.isolation.issue;
+  const issueRoot = issueStatePath(host.stateRoot, subject);
+  const receiptsRoot = join(issueRoot, 'receipts');
+  const journal = new OperationJournal(receiptsRoot, subject);
+  const native = await journal.pendingStageRecovery(stage);
+  const legacy = native ? null :
+    await readLegacyOrigin(host, hostBytes, issueRoot, subject);
+  const recorded = native?.pendingRecovery;
+  const priorJob = recorded?.execution ?? legacy.priorJob;
+  const pid = recorded?.pid ?? legacy.fence.pid;
   const runner = adopted.runner;
   const root = repoPath(subject.repository);
   const executionRoot = repoPath(runner.repository);
-  const checkQuiescence = async () => {
+  const checkQuiescence = async (verifyOriginal = true) => {
     await privateHostDirectory(host.stateRoot);
     await privateHostDirectory(issueRoot);
-    await privateHostDirectory(dirname(fencePath));
-    await proveDifferentBoot(fence.bootId, observeBoot);
+    if (legacy) {
+      await privateHostDirectory(dirname(legacy.fencePath));
+      await proveDifferentBoot(legacy.fence.bootId, observeBoot);
+    } else {
+      requireThat(recorded.runnerId === runner.runnerId, 'RECOVERY_EXECUTION_MISMATCH');
+      if (await observeBoot() === recorded.bootId) {
+        const owner = (await processes(pid)).find(item => item.pid === pid);
+        requireThat(!owner || ['Z', 'X'].includes(owner.state) ||
+          owner.startTicks !== recorded.startTicks, 'RECOVERY_CONTROLLER_UNRESOLVED');
+      }
+    }
     const runners = await reader.list(executionRoot + '/actions/runners', 'runners');
     const label = 'nibfin-user-' + host.memberId;
     const routes = runners.filter(r =>
       (!runner.target || r.id === runner.runnerId) &&
       r.labels?.some(l => l.name === label));
     requireThat(routes.length === 1 && routes[0].id === runner.runnerId &&
-      routes[0].status === 'offline' && !routes[0].busy, 'RECOVERY_RUNNER_NOT_OFFLINE');
+      (!legacy || routes[0].status === 'offline') && !routes[0].busy,
+    'RECOVERY_RUNNER_NOT_OFFLINE');
     await containers(adopted.isolation, subject);
-    await inspectRecoveryFile(fencePath, fenceSnapshot);
+    if (host.jobVm) await idleIssueJobVms(issueRoot, processes);
+    if (!verifyOriginal) return;
+    if (legacy) await inspectRecoveryFile(legacy.fencePath, legacy.fenceSnapshot);
+    else requireThat(digest(await journal.pendingStageRecovery(stage)) === digest(native),
+      'RECOVERY_JOURNAL_CHANGED');
   };
   await checkQuiescence();
   const [approval, run, job, actor] = await Promise.all([
@@ -122,11 +151,12 @@ async function reconcileOperation({ host, hostBytes, adopted, reader },
     job.name === runner.jobName && job.runner_id === runner.runnerId,
   'RECOVERY_EXECUTION_MISMATCH');
   requireThat(record.issue.id === subject.id, 'RECOVERY_ISSUE_CHANGED');
-  const receiptsRoot = join(issueRoot, 'receipts');
   const { binding, store } = await issueProgress(issueRoot, approval);
   const receipts = await store.load();
   const prior = receipts['commit-pr'], deliver = receipts.deliver;
-  requireThat(prior?.outcome === 'published' && deliver?.outcome === 'ready' &&
+  const initialPublication = native && stage === 'commit-pr' && !prior;
+  requireThat((initialPublication || prior?.outcome === 'published') &&
+    deliver?.outcome === 'ready' &&
     receipts.accept?.outcome === 'accepted' &&
     receipts['post-accept-hooks']?.outcome === 'passed', 'RECOVERY_RECEIPTS_MISSING');
   const artifacts = { shapeHash: deliver.artifacts.shapeHash,
@@ -139,16 +169,36 @@ async function reconcileOperation({ host, hostBytes, adopted, reader },
       !receipts.merge && !receipts.close &&
       actor.id === record.roles.author, 'RECOVERY_REVIEW_NOT_ELIGIBLE');
   }
-  const readBack = async () => {
-    const [pr, commit, issue] = await Promise.all([
-      reader.get(root + '/pulls/' + prior.artifacts.prNumber),
-      reader.get(root + '/git/commits/' + expectedHead),
-      reader.issue(record.issue),
-    ]);
+  const readIssue = async () => {
+    const issue = await reader.issue(record.issue);
     requireThat(issue.node_id === record.issue.id && issue.state === 'open' &&
       issue.labels.some(l => l.name === 'shaped') &&
       samePublishedRequirements(issue.body, shape), 'RECOVERY_ISSUE_CHANGED');
-    requireThat(pr.node_id === prior.artifacts.prId && pr.state === 'open' &&
+    return issue;
+  };
+  const readBack = async () => {
+    const issue = await readIssue();
+    let reference = prior?.artifacts;
+    if (initialPublication) {
+      const events = await reader.list(`${issuePath(record.issue)}/events`);
+      const checkpoint = await readDeliveryCheckpoint(reader, record.issue, {
+        shape: artifacts.shapeHash, lifecycle: deliveryLifecycle({ pause: { events } }),
+      });
+      requireThat(checkpoint?.head === expectedHead &&
+        matchesDeliveryCheckpoint(checkpoint, candidate), 'RECOVERY_CANDIDATE_MISMATCH');
+      const published = checkpoint.publication;
+      if (!published) return { pr: null, issue };
+      requireThat(published.actorId === actor.id && published.baseBranch === 'main' &&
+        published.title === `Deliver #${record.issue.number}` &&
+        published.body === `Implements #${record.issue.number}.\n\n` +
+          `Candidate: ${artifacts.candidateHash}`, 'RECOVERY_CANDIDATE_MISMATCH');
+      reference = { prId: published.id, prNumber: published.number };
+    }
+    const [pr, commit] = await Promise.all([
+      reader.get(root + '/pulls/' + reference.prNumber),
+      reader.get(root + '/git/commits/' + expectedHead),
+    ]);
+    requireThat(pr.node_id === reference.prId && pr.state === 'open' &&
       pr.head.sha === expectedHead && pr.head.repo.id === record.issue.repositoryId &&
       pr.base.repo.id === record.issue.repositoryId && pr.base.ref === 'main' &&
       commit.sha === expectedHead && commit.tree.sha === candidate.tree &&
@@ -160,12 +210,13 @@ async function reconcileOperation({ host, hostBytes, adopted, reader },
     return { pr, issue };
   };
   const { issue } = await readBack();
-  const journal = new OperationJournal(receiptsRoot, record.issue);
   let result;
-  for (const sourceCommit of new Set([run.head_sha, adopted.runner.sourceCommit])) {
-    const execution = hostExecution({ ...adopted.runner, sourceCommit,
+  const executions = recorded ? [recorded.execution] :
+    [...new Set([run.head_sha, adopted.runner.sourceCommit])].map(sourceCommit =>
+      hostExecution({ ...adopted.runner, sourceCommit,
       runId: priorJob.runId, jobId: priorJob.jobId, attempt: priorJob.attempt },
-    stage);
+      stage));
+  for (const execution of executions) {
     const review = stage === 'review-pr';
     const requestArtifacts = review
       ? { ...artifacts, prId: prior.artifacts.prId, prNumber: prior.artifacts.prNumber,
@@ -178,6 +229,8 @@ async function reconcileOperation({ host, hostBytes, adopted, reader },
       const confirm = async () => {
         const { pr } = await readBack();
         await checkQuiescence();
+        if (!pr) return store.put({ stage, decision, executionId: execution.id,
+          disposition: 'publication-unfinished', head: expectedHead });
         if (review) {
           const previous = (await store.load())['review-pr'];
           requireThat(previous?.outcome === 'approved' &&
@@ -203,9 +256,9 @@ async function reconcileOperation({ host, hostBytes, adopted, reader },
         });
       };
       result = review ? await journal.recoverReview(requestHash, confirm,
-        { pid: fence.pid, prove: checkQuiescence })
+        { pid, prove: checkQuiescence })
         : await journal.recoverCommitPr(decision, confirm,
-          { pid: fence.pid, prove: checkQuiescence });
+          { pid, prove: checkQuiescence });
       break;
     } catch (error) {
       if (error.code !== 'RECOVERY_DECISION_MISMATCH') throw error;
@@ -213,7 +266,12 @@ async function reconcileOperation({ host, hostBytes, adopted, reader },
   }
   requireThat(result, 'RECOVERY_DECISION_MISMATCH');
   if (result.status !== 'completed') return result;
+  if (!legacy) {
+    await checkQuiescence(false);
+    return result;
+  }
   await checkQuiescence();
+  const { fenceBytes, fencePath } = legacy;
   const archive = join(host.stateRoot,
     `reconciled-${stage}-${priorJob.runId}-${priorJob.attempt}.json`);
   const file = await open(archive, 'wx', 0o600).catch(error => {

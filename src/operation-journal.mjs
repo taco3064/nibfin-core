@@ -7,6 +7,8 @@ import { operations } from './approval-record.mjs';
 import { MergeBeforeWrite } from './github-write.mjs';
 import { localDeliverInterruption } from './local-deliver-interruption.mjs';
 import { githubReadWait } from './observation-failure.mjs';
+import { isBootId, linuxBootId } from './linux-boot.mjs';
+import { processIdentityNow } from './host-memory-pressure.mjs';
 import {
   retainedRecovery, recoveryFile, inspectRecoveryFile,
   syncRecoveryDirectory as syncDirectory,
@@ -18,6 +20,13 @@ async function privateDirectory(path, uid = process.getuid()) {
         stat.uid === uid &&
     (stat.mode & 0o077) === 0 && await realpath(path) === resolve(path),
   'UNTRUSTED_JOURNAL_DIRECTORY');
+}
+
+function validRecoveryProvenance(value) {
+  return ['commit-pr', 'review-pr'].includes(value?.operation) &&
+    isId(value.pid) && isBootId(value.bootId) && /^[1-9]\d*$/.test(value.startTicks) &&
+    isId(value.runnerId) && ['runId', 'attempt', 'jobId', 'actorId']
+      .every(field => isId(value.execution?.[field]));
 }
 
 // Durable local execution receipts, never a copy of Issue/dependency state.
@@ -76,6 +85,9 @@ export class OperationJournal {
         record.payload.completed.every(isDigest) &&
         new Set(record.payload.completed).size === record.payload.completed.length &&
         (record.payload.pending === null || isDigest(record.payload.pending)) &&
+        (record.payload.pendingRecovery === undefined ||
+          isDigest(record.payload.pending) &&
+          validRecoveryProvenance(record.payload.pendingRecovery)) &&
         (record.payload.wakeReceipts === undefined ||
           Array.isArray(record.payload.wakeReceipts) &&
           record.payload.wakeReceipts.every(receipt =>
@@ -202,7 +214,12 @@ export class OperationJournal {
     await unlink(path);
     await syncDirectory(this.#directory);
   }
-  async run(request, { admit, perform, readBack, localDeliver = false }) {
+  async pendingStageRecovery(operation) {
+    await this.#prepare();
+    const { pendingRecovery, pending } = await this.#read();
+    return pendingRecovery?.operation === operation ? { pendingRecovery, pending } : null;
+  }
+  async run(request, { admit, perform, readBack, localDeliver = false, recovery }) {
     // The binding identifies immutable approval, Scope/Shape, candidate, source,
     // role/session and operation target. All three callbacks belong to trusted
     // Core; none can be supplied by an Agent/worktree or external JSON request.
@@ -231,7 +248,15 @@ export class OperationJournal {
       catch { return { status: 'denied', code: 'ADMISSION_FAILED' }; }
       // Deliver's work-branch save is conditional and reads its exact GitHub
       // ref before retry. Other external writes still keep durable intent.
+      let pendingRecovery;
+      if (recovery) {
+        const identity = processIdentityNow(process.pid);
+        pendingRecovery = { ...identity, pid: process.pid, bootId: await linuxBootId(),
+          operation: request.operation, ...recovery };
+        requireThat(validRecoveryProvenance(pendingRecovery), 'INVALID_RECOVERY_PROOF');
+      }
       if (!localDeliver) await this.#write({ ...state, pending: decision,
+        ...(pendingRecovery ? { pendingRecovery } : {}),
         ...(request.operation === 'wake' && request.observation
           ? { wakeObservation: request.observation } : {}) });
       let phase = 'perform';
@@ -364,8 +389,9 @@ export class OperationJournal {
     return this.#withLock(decision, state => reconcile(state, proof?.prove));
   }
   async #complete(state, decision) {
-    const { wakeRunId: _, wakeObservation: unused, ...prior } = state;
+    const { wakeRunId: _, wakeObservation: unused, pendingRecovery, ...prior } = state;
     void unused;
+    void pendingRecovery;
     await this.#write({
       ...prior, pending: null, completed: [...state.completed, decision],
     });
