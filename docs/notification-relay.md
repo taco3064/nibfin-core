@@ -176,6 +176,10 @@ credentials, state paths, repositories or bypass options. Discover this additive
 contract as `consumerContract.installedLifecycleCompletion` or through `contract`
 and `help` in the installed CLI; consumers do not implement Issue scanning.
 
+Local [package retirement](package-retirement.md) runs independently before remote
+continuation and adds a sanitized `cleanup` result. Uncertainty defers cleanup
+without changing continuation status or its existing exit conventions.
+
 Exactly one JSON result describes continuation: `status` is `dispatched`, `paused`
 or `pending`, `results` holds actual reported outcomes and a safe diagnostic
 `code` may explain a pending observation. Exit status is 0 for a successful scan

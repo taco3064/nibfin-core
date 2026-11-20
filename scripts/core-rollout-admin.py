@@ -120,7 +120,7 @@ def finish(runtime, services):
         directory.rmdir()
 
 
-def continuation():
+def continuation(handle=None):
     # Only after release: execute the new installed Core in a separate process.
     observed = bridge("observe-installed")
     runtime = observed.get("runtime", {}).get("nodePath")
@@ -129,6 +129,7 @@ def continuation():
         raise RuntimeError("Installed pool runtime observation needs normal retry")
     result = subprocess.run([runtime, str(LIVE_CLI),
                              "complete-installed-lifecycle"], capture_output=True,
+                            pass_fds=() if handle is None else (handle,),
                             env={"PATH": "/usr/bin:/bin", "LANG": "C"})
     value = RESULTS.read_result(result)
     if value["status"] in ("denied", "pending"):
@@ -263,14 +264,36 @@ def operation_gate(config):
     return 3, True
 
 
+def retire_after_gate(handle):
+    # Advisory, after apply release. The child reuses this validated gate.
+    try:
+        observed = bridge("observe-installed")
+        runtime = observed.get("runtime", {}).get("nodePath")
+        if (observed.get("status") != "observed" or not isinstance(runtime, str)
+                or not runtime.startswith("/opt/nibfin/tools/")):
+            raise ValueError("Installed runtime unavailable")
+        result = subprocess.run([runtime, str(LIVE_CLI.parent.parent /
+                                "src/package-retirement-entry.mjs")],
+                                capture_output=True, pass_fds=(handle,),
+                                env={"PATH": "/usr/bin:/bin", "LANG": "C"})
+        if result.returncode != 0:
+            raise ValueError("Retirement entry unavailable")
+        return json.loads(result.stdout)
+    except (OSError, ValueError, RuntimeError):
+        return {"retired": [], "retained": [],
+                "deferred": "PACKAGE_ENTRY_UNAVAILABLE"}
+
+
 def continue_after_gate(result, handle):
     # flock conversion is not assumed atomic. Only a successful shared lock
     # permits fresh observation; old completion facts never select executable code.
     completed = {**result}
     completed.pop("completion", None)
+    if "cleanup" not in completed:
+        completed["cleanup"] = retire_after_gate(handle)
     try:
         fcntl.flock(handle, fcntl.LOCK_SH | fcntl.LOCK_NB)
-        completed["continuation"] = continuation()
+        completed["continuation"] = continuation(handle)
     except (OSError, ValueError, RuntimeError) as error:
         completed["continuation"] = RESULTS.failure_result(error, continuation=True)
     return completed

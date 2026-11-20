@@ -165,9 +165,28 @@ def fresh_manager_result(payload, handle, kind):
     return manager_result(payload, handle)
 
 
+def retire_packages(handle):
+    # The management child has exited. Cleanup is independent of publication
+    # and remote continuation; source integrity still precedes execution.
+    try:
+        node = runtime_node(LIVE)
+        checked = command([node, '--input-type=module', '-e', LIVE_CHECK], handle)
+        if process_result(LIVE, checked).get('status') != 'verified':
+            raise ValueError('Live source unavailable')
+        completed = command([node, str(LIVE / 'src/package-retirement-entry.mjs')],
+                            handle)
+        if completed.returncode != 0:
+            raise ValueError('Retirement unavailable')
+        return json.loads(completed.stdout)
+    except (OSError, ValueError, KeyError, subprocess.SubprocessError):
+        return {'retired': [], 'retained': [],
+                'deferred': 'PACKAGE_ENTRY_UNAVAILABLE'}
+
+
 def run(payload, handle, kind):
     value, code = fresh_manager_result(payload, handle, kind)
     if value.get('installation') == 'complete':
+        value = {**value, 'cleanup': retire_packages(handle)}
         # The old management child has exited. The live source is already
         # adopted and verified; its same installer updates management code,
         # without running Core promotion or Runner registration again.

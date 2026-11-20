@@ -117,10 +117,16 @@ await replace('../src/rollout-resume.mjs', {
     return { status: 'paused', results: [] };
   },
 });
+const cleanup = { retired: [], retained: [] };
+await replace('../src/package-retirement.mjs', {
+  retireInstalledPackages: async () => { events.push('cleanup'); return cleanup; },
+});
 const { completeInstalledLifecycle } = await import('../src/installed-lifecycle.mjs');
 loseReply = true;
 for (let attempt = 0; attempt < 2; attempt++) {
-  assert.deepEqual(await completeInstalledLifecycle(), { status: 'paused', results: [] });
-  assert.equal(events.at(-1), 'permission');
+  const start = events.length;
+  assert.deepEqual(await completeInstalledLifecycle(),
+    { status: 'paused', results: [], cleanup });
+  assert.deepEqual(events.slice(start), ['cleanup', 'source', 'permission']);
 }
 console.log('Controlled installed lifecycle preparation and retry passed');

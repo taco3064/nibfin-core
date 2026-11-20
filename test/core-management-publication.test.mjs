@@ -10,7 +10,7 @@ test('management publication reenters each interruption and newer mixed entries'
   const parent = await readlink('/proc/self/ns/mnt');
   const result = spawnSync('/usr/bin/unshare', ['--mount', '--fork', process.execPath,
     'test/rollout-manager-native-fixture.mjs', parent, 'maintenance-publication'], {
-    encoding: 'utf8', env: { PATH: '/usr/bin:/bin', LANG: 'C' },
+    encoding: 'utf8', env: { PATH: process.env.PATH, LANG: 'C' },
   });
   assert.ifError(result.error);
   assert.equal(result.status, 0, result.stderr + result.stdout);

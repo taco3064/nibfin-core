@@ -23,16 +23,22 @@ export async function withReplacementAwareAdoptionLock(action) {
 // guard can recover, after acquiring the kernel lock held by every retirement.
 // The state machine must still reconcile every uncertain effect from readback.
 export async function withRetirementLock(action) {
+  return withRetirementGate(async directory => {
+    await recoverRetirementGuard(directory);
+    return withSharedAdoptionLock(action, { retirement: true });
+  });
+}
+
+// Reuse the retirement kernel boundary without publishing an operation marker.
+// Package cleanup must not leave an adoption guard behind after interruption.
+export async function withRetirementGate(action) {
   const directory = dirname(hostFile), root = join(directory, 'retirement');
   await rootOwnedPath(directory);
   await mkdir(root, { mode: 0o700 }).catch(error => {
     if (error.code !== 'EEXIST') throw error;
   });
   await rootOwnedPath(root);
-  return withRelayGate(root, async () => {
-    await recoverRetirementGuard(directory);
-    return withSharedAdoptionLock(action, { retirement: true });
-  });
+  return withRelayGate(root, () => action(directory));
 }
 
 // Recovery seam shared by controlled guard tests and the fixed installed entry.

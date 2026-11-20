@@ -10,7 +10,7 @@ test('real admission failures survive transport; production Python preserves pac
   const parent = await readlink('/proc/self/ns/mnt');
   const child = spawnSync('/usr/bin/unshare', ['--mount', '--fork', process.execPath,
     'test/rollout-manager-native-fixture.mjs', parent, 'admission-only'], {
-    encoding: 'utf8', env: { PATH: '/usr/bin:/bin', LANG: 'C' },
+    encoding: 'utf8', env: { PATH: process.env.PATH, LANG: 'C' },
   });
   assert.ifError(child.error);
   assert.equal(child.status, 0, child.stderr + child.stdout);

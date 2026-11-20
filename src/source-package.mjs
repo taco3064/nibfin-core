@@ -30,7 +30,7 @@ export const includesPackagePath = (path) =>
     'README.md',
     'LICENSE',
   ].includes(path);
-const safe = (path) =>
+export const isPackageSourcePath = (path) =>
   typeof path === 'string' &&
   path.length <= 100 &&
   /^[A-Za-z0-9._/-]+$/.test(path) &&
@@ -40,7 +40,8 @@ const safe = (path) =>
 function tar(files) {
   const chunks = [];
   for (const file of files) {
-    requireThat(safe(file.path) && Buffer.isBuffer(file.bytes), 'INVALID_PACKAGE_ENTRY');
+    requireThat(isPackageSourcePath(file.path) && Buffer.isBuffer(file.bytes),
+      'INVALID_PACKAGE_ENTRY');
     const header = Buffer.alloc(512);
     const string = (value, offset, length) =>
       header.write(value, offset, length, 'ascii');
@@ -110,7 +111,7 @@ export async function packageSource(
       continue;
     }
     const [, mode, blob, path] = match;
-    requireThat(isSourceMode(mode) && safe(path), 'UNSAFE_PACKAGE_SOURCE');
+    requireThat(isSourceMode(mode) && isPackageSourcePath(path), 'UNSAFE_PACKAGE_SOURCE');
     const bytes = await readGit(['cat-file', 'blob', blob]);
     size += bytes.length;
     requireThat(size <= 32 * 1024 * 1024 && files.length < 1000, 'PACKAGE_SIZE_LIMIT');
@@ -182,7 +183,8 @@ export async function verifyInstalledSource(directory, expected) {
   );
   const read = async (path) => {
     requireThat(
-      safe(path) && (await realpath(join(root, path))) === join(root, path),
+      isPackageSourcePath(path) &&
+        (await realpath(join(root, path))) === join(root, path),
       'UNSAFE_INSTALLED_PATH',
     );
     const handle = await open(
@@ -219,7 +221,8 @@ export async function verifyInstalledSource(directory, expected) {
   const walk = async (prefix) => {
     for (const entry of await readdir(join(root, prefix), { withFileTypes: true })) {
       const path = prefix ? `${prefix}/${entry.name}` : entry.name;
-      requireThat(safe(path) && !entry.isSymbolicLink(), 'UNSAFE_INSTALLED_PATH');
+      requireThat(isPackageSourcePath(path) && !entry.isSymbolicLink(),
+        'UNSAFE_INSTALLED_PATH');
       if (entry.isDirectory()) {
         requireThat(
           (await lstat(join(root, path))).isDirectory(),

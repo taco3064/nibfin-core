@@ -29,8 +29,8 @@ export async function checkAdmissionAndFootprint(manager, pin, node) {
   await verifyInstalledSource(manager, pin);
   const before = await inventory(manager);
   // Production argv/env: no -B, no PYTHONDONTWRITEBYTECODE, no test import wrapper.
-  const execution = spawnSync('/usr/bin/python3', [cli], { encoding: 'utf8',
-    env: { PATH: '/usr/bin:/bin', LANG: 'C' } });
+  const execution = spawnSync('python3', [cli], { encoding: 'utf8',
+    env: { PATH: process.env.PATH, LANG: 'C' } });
   assert.equal(execution.status, 2, execution.stderr);
   assert.equal(JSON.parse(execution.stdout).status, 'pending');
   assert.deepEqual(await inventory(manager), before);
@@ -58,7 +58,7 @@ export async function checkAdmissionAndFootprint(manager, pin, node) {
     const published = spawnSync(node, ['--input-type=module', '-e', script],
       { encoding: 'utf8' });
     assert.equal(published.status, 1, published.stderr);
-    const carried = spawnSync('/usr/bin/python3', ['-B', '-c', python, '1'],
+    const carried = spawnSync('python3', ['-B', '-c', python, '1'],
       { input: published.stdout, encoding: 'utf8' });
     assert.equal(carried.status, 1, carried.stderr);
     assert.deepEqual(readRolloutProcessResult(carried.stdout, carried.stderr,

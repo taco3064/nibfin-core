@@ -1,4 +1,5 @@
 import { prepareStorageReclamation } from './storage-reclamation-install.mjs';
+import { retireInstalledPackages } from './package-retirement.mjs';
 import { continuationOutcome } from './continuation-state.mjs';
 import { coreRoot } from './host-adoption.mjs';
 import { requireThat } from './identity.mjs';
@@ -13,6 +14,20 @@ import { githubReadDiagnostic } from './github-read-cause.mjs';
 export async function completeInstalledLifecycle() {
   requireThat(process.platform === 'linux' && process.getuid() === 0 &&
     coreRoot === '/opt/nibfin/core', 'CONTINUATION_REQUIRES_INSTALLED_ADMINISTRATOR');
+  return completeLocalLifecycle(retireInstalledPackages, continueInstalledLifecycle);
+}
+
+// Internal composition seam: retirement precedes remote continuation even when
+// continuation is paused or pending. The public entry still accepts no options.
+export async function completeLocalLifecycle(retire, resume) {
+  let cleanup;
+  try { cleanup = await retire(); }
+  catch { cleanup = { retired: [], retained: [],
+    deferred: 'PACKAGE_OBSERVATION_OR_REMOVAL_UNCERTAIN' }; }
+  return { ...await resume(), cleanup };
+}
+
+async function continueInstalledLifecycle() {
   try {
     const result = await withManagedAdmission(async () => {
       const context = await loadAdoptedHost({ verifyRemote: false });

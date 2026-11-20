@@ -60,7 +60,7 @@ writeCommandResult({...frame.result,token:'secret-token',requestUrl:'secret-url'
   await writeFile(join(base, 'source-pin.json'), JSON.stringify(pin));
   await writeFile(join(base, 'runtime.json'), JSON.stringify({ nodePath }));
   const before = await inventory(manager);
-  const env = { PATH: '/usr/bin:/bin', LANG: 'C',
+  const env = { PATH: process.env.PATH, LANG: 'C',
     PYTHONDONTWRITEBYTECODE: '1', SUDO_UID: '1001' };
   const cases = [
     [{ status: 'pending', code: 'GITHUB_API_ERROR',
@@ -114,7 +114,7 @@ writeCommandResult({...frame.result,token:'secret-token',requestUrl:'secret-url'
     const header = Buffer.alloc(8);
     header.writeInt32LE(1); header.writeInt32LE(body.length, 4);
     const frame = Buffer.concat([header, body]);
-    const executed = spawnSync('/usr/bin/python3', ['-c', dispatchProbe],
+    const executed = spawnSync('python3', ['-c', dispatchProbe],
       { input: frame, env, encoding: null });
     if (status === 0) {
       assert.equal(executed.status, 0, executed.stderr.toString());

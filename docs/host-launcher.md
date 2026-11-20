@@ -262,3 +262,8 @@ After establishing the target development workspace, the launcher selects option
 stage compositions reuse that selection, while custom Skill content remains a
 later consumer responsibility. Invalid configuration reports
 `PROJECT_CONFIG_INVALID` with a sanitized file/field diagnostic.
+
+Explicit installed completion and coordinator retry use the shared
+[package retirement policy](package-retirement.md). Disposable staged and rollback
+copies can be retired; installed, executing, mounted and recovery-referenced copies
+remain available. Uncertain cleanup preserves deployment and continuation status.

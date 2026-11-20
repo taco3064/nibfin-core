@@ -1,4 +1,5 @@
 import { rename, realpath } from 'node:fs/promises';
+import { rolloutPackagePaths } from './rollout-package-paths.mjs';
 import { digest, requireThat } from './identity.mjs';
 import { verifyInstalledSource } from './source-package.mjs';
 import { readRetirementFile, writeRetirementFile, optionalStat }
@@ -56,9 +57,7 @@ export async function applyRolloutTransaction(plan, ports) {
 export async function resumeHostApply(plan, { beforeMutation } = {}) {
   requireThat(digest(await readRetirementFile(rolloutPlanPath)) === digest(plan),
     'ROLLOUT_PLAN_CHANGED');
-  const paths = { live: '/opt/nibfin/core',
-    staged: `/opt/nibfin/core-staged-${plan.pin.commit}`,
-    backup: `/opt/nibfin/core-before-${plan.pin.commit}` };
+  const paths = rolloutPackagePaths(plan);
   return applyRolloutTransaction(plan, {
     backup: paths.backup,
     installReclamation: async () => {

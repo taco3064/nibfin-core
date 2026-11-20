@@ -67,7 +67,7 @@ export async function checkMaintenanceInstallation(manager, node, manifest) {
   await writeFile('/etc/nibfin/rollout-plan.json', '{unrelated stale plan');
   const installed = spawnSync(node,
     [join(live, 'bin/nibfin-core.mjs'), 'install-core-rollout-manager'],
-    { encoding: 'utf8', env: { PATH: '/usr/bin:/bin', LANG: 'C' } });
+    { encoding: 'utf8', env: { PATH: process.env.PATH, LANG: 'C' } });
   assert.equal(installed.status, 0, installed.stdout + installed.stderr);
   const receipt = JSON.parse(installed.stdout);
   assert.equal(receipt.status, 'installed');
@@ -85,7 +85,7 @@ export async function checkMaintenanceInstallation(manager, node, manifest) {
   const bridge = '/usr/local/libexec/nibfin/core-rollout/bridge.py';
   const invoke = uid => spawnSync(bridge, [], { encoding: 'utf8',
     input: JSON.stringify({ kind: 'inspect' }),
-    env: { PATH: '/usr/bin:/bin', LANG: 'C', SUDO_UID: String(uid) } });
+    env: { PATH: process.env.PATH, LANG: 'C', SUDO_UID: String(uid) } });
   const inspect = invoke(0);
   assert.equal(inspect.status, 0, inspect.stdout + inspect.stderr);
   assert.equal(JSON.parse(inspect.stdout).status, 'installed');
@@ -96,7 +96,7 @@ export async function checkMaintenanceInstallation(manager, node, manifest) {
   const base = '/usr/local/libexec/nibfin/core-rollout';
   const prepare = () => spawnSync(bridge, [], { encoding: 'utf8',
     input: JSON.stringify({ kind: 'prepare' }),
-    env: { PATH: '/usr/bin:/bin', LANG: 'C', SUDO_UID: '0' } });
+    env: { PATH: process.env.PATH, LANG: 'C', SUDO_UID: '0' } });
   for (const path of ['runtime.json', 'source-pin.json', 'client.py']) {
     await rm(join(base, path));
     const repaired = prepare();
@@ -116,9 +116,9 @@ export async function checkMaintenanceInstallation(manager, node, manifest) {
     'p=subprocess.run(sys.argv[1:],pass_fds=(3,))',
     'sys.exit(p.returncode)',
   ].join(';');
-  const bootstrapped = spawnSync('/usr/bin/python3', ['-c', inheritedBootstrap, node,
+  const bootstrapped = spawnSync('python3', ['-c', inheritedBootstrap, node,
     join(bootstrap, 'scripts/core-maintenance-bootstrap.mjs')], { encoding: 'utf8',
-    env: { PATH: '/usr/bin:/bin', LANG: 'C' } });
+    env: { PATH: process.env.PATH, LANG: 'C' } });
   assert.equal(bootstrapped.status, 0, bootstrapped.stdout + bootstrapped.stderr);
   assert.equal(JSON.parse(bootstrapped.stdout).status, 'installed');
   await rm('/etc/nibfin/rollout-plan.json');
@@ -128,7 +128,7 @@ export async function checkMaintenanceInstallation(manager, node, manifest) {
   for (const file of ['source-pin.json', 'runtime.json']) await rm(join(base, file));
   const fresh = spawnSync(node,
     [join(live, 'bin/nibfin-core.mjs'), 'install-core-rollout-manager'],
-    { encoding: 'utf8', env: { PATH: '/usr/bin:/bin', LANG: 'C' } });
+    { encoding: 'utf8', env: { PATH: process.env.PATH, LANG: 'C' } });
   assert.equal(fresh.status, 0, fresh.stdout + fresh.stderr);
   assert.equal(JSON.parse(fresh.stdout).status, 'installed');
   await checkGenericMaintenancePool(manager, live, node, pin);

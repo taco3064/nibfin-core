@@ -118,8 +118,8 @@ const expectedNode = sharedTarget(process.arch === 'x64' ? 'amd64' : 'arm64').no
 const runtimeProbe = 'import runpy; m=runpy.run_path(' +
   JSON.stringify(join(manager, 'scripts/core-rollout-admin.py')) +
   '); print(m["node_path"]())';
-const probe = () => spawnSync('/usr/bin/python3', ['-B', '-c', runtimeProbe],
-  { encoding: 'utf8', env: { PATH: '/usr/bin:/bin', LANG: 'C' } });
+const probe = () => spawnSync('python3', ['-B', '-c', runtimeProbe],
+  { encoding: 'utf8', env: { PATH: process.env.PATH, LANG: 'C' } });
 await writeFile(runtimePath, JSON.stringify({ nodePath: expectedNode }));
 assert.equal(probe().status, 0);
 await chmod(runtimePath, 0o666);
