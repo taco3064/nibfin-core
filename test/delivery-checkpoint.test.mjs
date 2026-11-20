@@ -95,6 +95,7 @@ function fixture() {
   return { context, candidate, calls, reader, native, install,
     loseResponse: () => { loseResponse = true; },
     knownPublication: value => { publication = value; },
+    replaceMessage: message => { commit.message = message; },
     closePr: () => { closed = true; }, failRead: code => { status = code; },
     start: async () => {
       const decision = decideStage('deliver', context, now);
@@ -141,6 +142,14 @@ test('an unavailable GitHub ref is distinct from a ref that is absent', async ()
   const saved = await readDeliveryCheckpoint(f.reader, f.context.approval.record.issue,
     { shape: f.context.shape.hash, lifecycle: 0 });
   assert.deepEqual(saved, { branch, head: null });
+});
+
+test('the work branch is never overwritten when its ownership is unproven', async () => {
+  const f = fixture();
+  f.install();
+  f.replaceMessage('Maintainer-owned branch');
+  await assert.rejects(f.start(), { code: 'DELIVER_BRANCH_OWNERSHIP_UNPROVEN' });
+  assert.deepEqual(f.calls, ['writer', 'cleanup']);
 });
 
 test('publication reuses the exact open PR after controller loss', async () => {

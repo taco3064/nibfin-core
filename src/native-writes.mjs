@@ -104,6 +104,8 @@ export function nativeWrites({
       const observed = await read();
       if (matchesDeliveryCheckpoint(observed, candidate)) return observed;
       requireThat(observed.head === checkpoint.head, 'DELIVER_BRANCH_ADVANCED');
+      requireThat(observed.head === null || observed.owned,
+        'DELIVER_BRANCH_OWNERSHIP_UNPROVEN');
       const committed = await workspace.commit(candidate, context.shape.body,
         new Date(clock()).toISOString(), false, checkpointBinding(context));
       const guard = async write => {

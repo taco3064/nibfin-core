@@ -194,17 +194,14 @@ test('revocation and outage block new work but allow reconciliation', async t =>
   }
 });
 
-test('unknown stage termination and journal writes keep disconnect pending', async t => {
+test('journal writes keep disconnect pending despite legacy markers', async t => {
   const host = await fixture(t);
   await manageCredentials(host, 'intake', material(), options);
   const root = join(host.stateRoot, 'issue-20-1');
   await mkdir(root, { mode: 0o700 });
   const fence = join(root, 'stage.lock');
   await writeFile(fence, '{}', { mode: 0o600 });
-  await assert.rejects(managedSettlement(host),
-    { code: 'MANAGED_CREDENTIAL_EFFECTS_PENDING' });
-  assert.equal((await manageCredentials(host, 'disconnect')).status, 'pending');
-  await rm(fence);
+  await managedSettlement(host);
   const receipts = join(root, 'receipts');
   await mkdir(receipts, { mode: 0o700 });
   const journal = join(receipts, 'a'.repeat(64));

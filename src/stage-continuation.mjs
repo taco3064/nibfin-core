@@ -270,6 +270,14 @@ export async function continueStages({
         saveDeliverCheckpoint,
       });
     }
+    if (saveDeliverCheckpoint && result.code === 'DELIVER_CHECKPOINT_REQUIRED') {
+      await inspectCurrent();
+      const delivered = await execute('deliver');
+      if (delivered.status !== 'completed') return delivered;
+      return continueStages({ store, execute, refreshRequirements, resumeClosed,
+        inspect, wait, clock, ciTimeout, repairIntegration, correctionRepairs,
+        saveDeliverCheckpoint });
+    }
     if (['review-pr', 'merge'].includes(stage) && result.status === 'denied' &&
       result.code === requiredCheckFailed && result.failure && correctionRepairs > 0) {
       const published = (await store.load())['commit-pr'];

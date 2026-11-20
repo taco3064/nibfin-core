@@ -10,6 +10,8 @@ import { equivalentCandidate } from './candidate-evidence.mjs';
 import { repoPath } from './github-read.mjs';
 import { digest, isDigest, isId, isSha, requireThat } from './identity.mjs';
 import { readAdoptedOpenPr } from './adopt-open-pr.mjs';
+import { deliveryLifecycle, matchesDeliveryCheckpoint, readDeliveryCheckpoint }
+  from './delivery-checkpoint.mjs';
 
 // Wiring belongs to installed Core. Config and inspection functions are never
 // selected by the public stage request. Neither GitHub events nor local JSON
@@ -79,10 +81,17 @@ export function nativeObserver({
         }
       }
     }
-    if (['pre-accept-hooks', 'accept'].includes(stage) &&
-        receipts.deliver?.outcome === 'ready' && !receipts['commit-pr'])
-      requireThat(isSha(receipts.deliver.deliveryCheckpoint?.head),
+    const beforePublication = ['pre-accept-hooks', 'accept', 'post-accept-hooks',
+      'commit-pr'].includes(stage);
+    if (beforePublication &&
+        receipts.deliver?.outcome === 'ready' && !receipts['commit-pr']) {
+      const checkpoint = receipts.deliver.deliveryCheckpoint &&
+        await readDeliveryCheckpoint(reader, record.issue,
+          { shape: context.shape.hash, lifecycle: deliveryLifecycle(context) });
+      requireThat(context.candidate &&
+        matchesDeliveryCheckpoint(checkpoint, context.candidate),
         'DELIVER_CHECKPOINT_REQUIRED');
+    }
     if (stage === 'deliver' && pinned.openPr && !context.candidate &&
       !receipts['commit-pr']) {
       const adopted = await readAdoptedOpenPr(reader, record.issue, pinned.openPr,

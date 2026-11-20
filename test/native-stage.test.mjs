@@ -164,7 +164,8 @@ for (const boundary of ['entry', 'handoff'])
       f.data['/git/ref/heads/main'].object.sha = '9'.repeat(40);
     const actions = [];
     let current = prior.candidate;
-    const checkpoint = 'f'.repeat(40), branch = 'nibfin/deliver-2';
+    const checkpoint = 'fedcba98765432100123456789abcdef01234567';
+    const branch = 'nibfin/deliver-2';
     const originalGet = f.adapters.reader.get;
     f.adapters.reader.get = async path => {
       if (path.endsWith('/branches/nibfin%2Fdeliver-2') &&
