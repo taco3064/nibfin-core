@@ -1,4 +1,4 @@
-import { rename } from 'node:fs/promises';
+import { rename, realpath } from 'node:fs/promises';
 import { digest, requireThat } from './identity.mjs';
 import { verifyInstalledSource } from './source-package.mjs';
 import { readRetirementFile, writeRetirementFile, optionalStat }
@@ -7,6 +7,9 @@ import { boundedHostFile } from './host-adoption.mjs';
 import { rootOwnedPath } from './host-paths.mjs';
 import { syncRecoveryDirectory } from './recovery-lock.mjs';
 import { rolloutPlanPath } from './rollout-admission.mjs';
+import { command } from './process.mjs';
+import { prepareStorageReclamation } from './storage-reclamation-install.mjs';
+import { reclamationEnvironment } from './storage-reclamation.mjs';
 
 // Maintained filesystem transaction seam. Each interruption point has a positive
 // readback; unknown contents stop the transaction without overwriting evidence.
@@ -41,6 +44,7 @@ export async function applyRolloutTransaction(plan, ports) {
   for (const target of targets)
     requireThat(await ports.read(target.path) === target.next,
       'ROLLOUT_HOST_READBACK_MISMATCH');
+  await prepareStorageReclamation(ports.installReclamation);
   await ports.save({ ...plan, apply: { ...apply, completed: true },
     phase: 'verifying', pending: 'ROLLOUT_RESTART_REQUIRED' });
   return { status: 'installed', source: apply.source,
@@ -57,6 +61,16 @@ export async function resumeHostApply(plan, { beforeMutation } = {}) {
     backup: `/opt/nibfin/core-before-${plan.pin.commit}` };
   return applyRolloutTransaction(plan, {
     backup: paths.backup,
+    installReclamation: async () => {
+      // Execute the promoted package, not modules cached from the old package.
+      const python = '/usr/bin/python3';
+      const runtime = paths.live + '/src/security/shared-runtime.py';
+      await rootOwnedPath('/usr/bin');
+      await rootOwnedPath(await realpath(python));
+      await rootOwnedPath(runtime);
+      await command(python, ['-I', runtime, 'reclaim-install'],
+        { env: reclamationEnvironment });
+    },
     package: async name => {
       const path = paths[name];
       if (!await optionalStat(path)) return 'absent';

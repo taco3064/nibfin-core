@@ -22,11 +22,12 @@ export class CodexRoleAgent {
   constructor(config, isolator, { prepareMain = async (root, issue, head) => {
     await mkdir(root, { mode: 0o700 });
     return new CandidateWorkspace(root, issue).prepare(head);
-  }, upstream } = {}) {
+  }, upstream, reclaim } = {}) {
     requireThat(config && typeof config.model === 'string' && config.skills &&
       typeof isolator?.execute === 'function', 'INVALID_AGENT_ADAPTER');
     this.#config = structuredClone(config); this.#isolator = isolator;
-    this.#sessions = new RoleSessions(config.stateRoot); this.#prepareMain = prepareMain;
+    this.#sessions = new RoleSessions(config.stateRoot, reclaim);
+    this.#prepareMain = prepareMain;
     this.#upstream = upstream;
   }
   async run(stage, context, comparisonBase = context.main.head) {
@@ -94,7 +95,7 @@ export class CodexRoleAgent {
         } : undefined });
       requireModelTermination(execution, context.execution.id, plan.policyHash);
       if (execution.status === 'interrupted') {
-        await discardRoleSources(io);
+        await discardRoleSources(io, false);
         return execution;
       }
       requireThat(typeof execution.stdout === 'string' &&
@@ -118,7 +119,8 @@ export class CodexRoleAgent {
       // Both MCP and model credential scans precede Job-copy retirement.
       await execution.retireMcp?.();
       await execution.applyWorkspace?.();
-      await discardRoleSources(io);
+      // RoleSessions aggregates source and private-home retirement in one request.
+      await discardRoleSources(io, false);
       return { executionId: context.execution.id,
         terminationHash: execution.terminationHash,
         terminationObservation: execution.terminationObservation,

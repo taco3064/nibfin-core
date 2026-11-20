@@ -1,3 +1,4 @@
+import { prepareStorageReclamation } from './storage-reclamation-install.mjs';
 import { continuationOutcome } from './continuation-state.mjs';
 import { coreRoot } from './host-adoption.mjs';
 import { requireThat } from './identity.mjs';
@@ -15,6 +16,7 @@ export async function completeInstalledLifecycle() {
   try {
     const result = await withManagedAdmission(async () => {
       const context = await loadAdoptedHost({ verifyRemote: false });
+      await prepareStorageReclamation();
       return pendingInstalledContinuation({ load: async () => context });
     }, { pool: true });
     return continuationOutcome(result);

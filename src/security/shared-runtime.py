@@ -186,6 +186,17 @@ def main():
         environment['PATH'] = str(Path(node).parent) + ':' + environment['PATH']
         environment['NIBFIN_INVOKER_UID'] = os.environ.get('SUDO_UID', '')
         entry = 'bin/nibfin-controller.mjs'
+    elif mode in ('reclaim', 'reclaim-install'):
+        require(not args and os.getuid() == 0)
+        owned(CORE / 'package.json')
+        # These root entries must never import a writable repository module.
+        # Check the complete installed source tree before starting Node.
+        for directory in (CORE / 'src', CORE / 'bin'):
+            owned(directory)
+            for path in directory.rglob('*'):
+                owned(path)
+        entry = ('bin/nibfin-reclaim.mjs' if mode == 'reclaim'
+                 else 'bin/nibfin-reclaim-install.mjs')
     elif mode == 'start':
         require(len(args) == 1 and args[0] in ('1', '2'))
         entry = 'src/security/shared-runner-start-check.mjs'

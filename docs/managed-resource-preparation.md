@@ -95,3 +95,31 @@ project's selected package profile; a library probe alone does not certify a
 browser version or clean-install browser availability on either architecture.
 Native Ubuntu 24.04 amd64/arm64 acquisition, kernel enforcement, browser execution
 and clean-install support claims still require their actual environment results.
+
+## Online storage reclamation permission
+
+Managed preparation installs and reads back a root-owned sudoers policy allowing
+only `nibfin-controller` to run `/opt/nibfin/core/bin/nibfin-reclaim` as root,
+with no arguments. The existing Runner-to-Controller relay grant is unchanged;
+Runners and Agents receive no direct root reclamation permission.
+
+Normal package promotion attempts the verified promoted package's installer before
+recording update completion. The fixed installed lifecycle completion reconciles
+again, including updates performed by a predecessor process. Unavailable tools,
+permission or conflicting policy are reported without blocking installation,
+update release or continuation. An interrupted publication can retry the same update:
+an identical owned policy is reused, while a foreign or conflicting policy is
+refused. Package replacement alone does not establish permission installation.
+
+The helper verifies installed runtime/source ownership, ignores caller input and
+uses fixed native executables with a sanitized environment. Targets derive from
+the maintained Controller storage and dedicated Engine data roots. Canonical
+paths, their owners, mount identity, block device identity and writable supported
+filesystems must be established before discard; filesystems are deduplicated.
+Controller private storage remains Controller-owned. Ambiguous mounts, bind
+mounts, unsupported filesystems and unsafe paths are refused.
+
+See [cleanup reclamation](storage-reclamation.md) for lifecycle behavior and the
+limits of reported results. Actual privileged installation and discard require
+their own host/platform verification; controlled tests do not establish them.
+
