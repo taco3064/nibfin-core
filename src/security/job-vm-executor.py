@@ -134,6 +134,19 @@ def prepare_tool_output(root, temporary, directories):
             "root": {"path": temporary, **directory_identity(root / temporary)}}
 
 
+def exercise_readiness(root):
+    output = TOOL_OUTPUT.get("work")
+    if not output or not output["path"].startswith(".nibfin-cache/"):
+        raise ValueError("Readiness requires independently owned tool output")
+    path = root / output["path"]
+    if directory_identity(path) != {key: output["root"][key]
+                                    for key in ("dev", "ino")}:
+        raise ValueError("Tool output directory changed")
+    with (path / "readiness-output").open("x", encoding="utf-8") as stream:
+        stream.write("tool output must not be returned\n")
+    return {"written": True}
+
+
 def workspace(client):
     with client.makefile("rb") as stream:
         frame = stream.readline(MAX_FRAME + 1)
@@ -167,6 +180,8 @@ def workspace(client):
                 }
         elif request["operation"] == "collect":
             result = {"files": snapshot(Path("/work"), TOOL_OUTPUT.get("work"))}
+        elif request == {"operation": "exercise-readiness"}:
+            result = exercise_readiness(Path("/work"))
         else:
             raise ValueError("Unsupported workspace operation")
     except (ValueError, OSError, KeyError, TypeError):

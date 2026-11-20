@@ -11,17 +11,22 @@ BRIDGE = '/usr/local/libexec/nibfin/core-rollout/bridge.py'
 
 
 def request(environment, arguments):
-    if len(arguments) != 2 or not all(value.isascii() and value.isdecimal()
-                                     and int(value) > 0 for value in arguments):
+    upgrade = len(arguments) == 3 and arguments[0] == 'upgrade'
+    locators = arguments[1:] if upgrade else arguments
+    if len(locators) != 2 or not all(value.isascii() and value.isdecimal()
+                                    and int(value) > 0 for value in locators):
         raise ValueError('Invalid native activation target')
-    return {'kind': 'maintenance', 'target': {
-        'runId': int(arguments[0]), 'artifactId': int(arguments[1])},
+    keys = ('repositoryId', 'pullNumber') if upgrade else ('runId', 'artifactId')
+    value = {'kind': 'upgrade-receive' if upgrade else 'maintenance',
+        'target': dict(zip(keys, map(int, locators))),
         'runId': int(environment['GITHUB_RUN_ID']),
         'attempt': int(environment['GITHUB_RUN_ATTEMPT']),
         'repository': environment['GITHUB_REPOSITORY'],
         'requestUrl': environment['ACTIONS_ID_TOKEN_REQUEST_URL'],
-        'requestToken': environment['ACTIONS_ID_TOKEN_REQUEST_TOKEN'],
-        'githubToken': environment['GH_TOKEN']}
+        'requestToken': environment['ACTIONS_ID_TOKEN_REQUEST_TOKEN']}
+    if not upgrade:
+        value['githubToken'] = environment['GH_TOKEN']
+    return value
 
 
 def owned(path):

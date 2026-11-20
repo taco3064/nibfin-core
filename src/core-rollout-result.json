@@ -10,7 +10,8 @@
     "status", "code", "installation", "results", "continuation", "completion",
     "bytes", "provenance", "pin", "runtime", "source", "actionCommit", "backup",
     "repositories", "originalServices", "schemaVersion", "capability", "programs",
-    "operationTarget", "operationSources", "operation", "cleanup", "recoveryRetained"
+    "operationTarget", "operationSources", "operation", "cleanup", "recoveryRetained",
+    "upgrade", "upgradeOperations"
   ],
   "recordStringPatterns": {
     "repository": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$",
@@ -55,7 +56,15 @@
     "MANAGED_CREDENTIAL_ADMISSION_DENIED", "INVALID_INSTALLATION_PIN",
     "UNSAFE_INSTALLED_PATH", "UNSAFE_INSTALLED_FILE", "INSTALLATION_FILE_SET_CHANGED",
     "SOURCE_COMPONENT_HASH_MISMATCH", "ROLLOUT_MANAGER_HOST_SOURCE_MISMATCH",
-    "UNTRUSTED_OIDC_REQUEST"
+    "UNTRUSTED_OIDC_REQUEST",
+    "UPGRADE_ADMINISTRATOR_REQUIRED", "UPGRADE_REQUEST_INVALID",
+    "UPGRADE_OPERATION_INVALID", "UPGRADE_PROPOSAL_LOCATOR_INVALID",
+    "UPGRADE_PROPOSAL_NOT_AUTHORIZED", "UPGRADE_PROPOSAL_ABANDONED",
+    "UPGRADE_PROPOSAL_NOT_BOUND", "UPGRADE_PROPOSAL_NOT_MERGED",
+    "UPGRADE_EXECUTION_ACTOR_CHANGED", "UPGRADE_EXECUTION_REQUEST_INVALID",
+    "UPGRADE_EXECUTION_NOT_ADMITTED",
+    "UPGRADE_EXECUTION_RUN_UNTRUSTED", "UPGRADE_EXECUTION_JOB_UNTRUSTED",
+    "UPGRADE_EXECUTION_FRAME_CHANGED", "UPGRADE_EXECUTION_ASSIGNMENT_CHANGED"
   ],
   "fallbackCode": "CORE_ROLLOUT_OBSERVATION_UNAVAILABLE",
   "malformedCode": "CORE_ROLLOUT_RESULT_UNAVAILABLE",

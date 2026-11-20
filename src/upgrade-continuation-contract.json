@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "bridge": "/usr/local/libexec/nibfin/core-rollout/bridge.py",
+  "client": "/usr/local/libexec/nibfin/core-rollout/client.py",
+  "recipes": {
+    "source": "src/upgrade-continuation-recipes.json",
+    "notification": ".github/workflows/nibfin-upgrade-notify.yml",
+    "execution": ".github/workflows/nibfin-upgrade-execute.yml"
+  },
+  "notification": {
+    "destinationVariable": "NIBFIN_UPGRADE_DESTINATION",
+    "dispatchSecret": "NIBFIN_UPGRADE_DISPATCH_TOKEN",
+    "events": ["pull_request", "workflow_dispatch"]
+  },
+  "execution": {
+    "event": "workflow_dispatch",
+    "audience": "nibfin:managed-upgrade",
+    "job": "nibfin-upgrade"
+  },
+  "administrator": {
+    "prepare": "upgrade-prepare",
+    "bind": "upgrade-bind",
+    "observe": "upgrade-observe",
+    "complete": "upgrade-complete",
+    "input": "private-json-stdin"
+  },
+  "proposalBranch": "nibfin/upgrade",
+  "results": {
+    "handoff": ["pending", "review-pending", "confirmed"],
+    "installation": ["pending", "installed", "maintenance-required"],
+    "readiness": ["pending", "ready", "not-required", "maintenance-required"],
+    "continuation": ["pending", "paused", "dispatched"]
+  }
+}

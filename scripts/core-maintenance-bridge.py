@@ -21,7 +21,10 @@ REPAIRABLE = {'ENOENT', 'SOURCE_MANIFEST_MISMATCH',
               'ROLLOUT_MANAGER_METADATA_UNAVAILABLE',
               'CORE_MANAGEMENT_RUNTIME_UNAVAILABLE', 'CORE_MAINTENANCE_ENTRY_PENDING',
               'ROLLOUT_MANAGER_HOST_SOURCE_UNAVAILABLE'}
-SHARED_KINDS = ('pre-worker', 'inspect', 'maintenance')
+SHARED_KINDS = ('pre-worker', 'inspect', 'maintenance',
+                'upgrade-receive', 'upgrade-complete')
+UPGRADE_KINDS = ('upgrade-prepare', 'upgrade-bind', 'upgrade-observe',
+                 'upgrade-complete', 'upgrade-receive')
 
 LIVE_CHECK = '''
 import {readFile} from 'node:fs/promises';
@@ -183,8 +186,103 @@ def retire_packages(handle):
     return [{'status': 'retained', 'code': 'PACKAGE_OBSERVATION_UNAVAILABLE'}]
 
 
+def upgrade_request(handle, **request):
+    result, _ = manager_result(json.dumps(request).encode(), handle)
+    return result
+
+
+def ready_upgrade(value):
+    return (value.get('continuationEligible') is True and
+            value.get('readiness') in ('ready', 'not-required'))
+
+
+def settle_upgrades(handle, operations, continuation):
+    fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    results = []
+    for item in operations:
+        if ready_upgrade(item):
+            outcome = upgrade_request(handle, kind='upgrade-settle',
+                                      operationId=item['operationId'],
+                                      result=continuation)
+            if outcome and outcome.get('upgrade'):
+                item = outcome['upgrade']
+        results.append(item)
+    return results
+
+
+def continue_upgrade(value, handle, code):
+    upgrade = value.get('upgrade')
+    if not upgrade or not ready_upgrade(upgrade):
+        return value, code
+    admin = module_at('nibfin_current_completion',
+                      MANAGER / 'scripts/core-rollout-admin.py')
+    observed = admin.continue_after_gate({'status': 'installed'}, handle)
+    continuation = observed['continuation']
+    try:
+        updated, = settle_upgrades(handle, [upgrade], continuation)
+        return {**value, 'upgrade': updated}, code
+    except BlockingIOError:
+        # Any confirmed dispatch is retained by normal installed continuation.
+        # Read it back if this operation's result publication could not finish.
+        return value, code
+
+
+def upgrade_action_result(value, code):
+    upgrade = value.get('upgrade')
+    if not upgrade:
+        return value, code
+    if (upgrade.get('installationCause', {}).get('code') ==
+            'UPGRADE_CORE_ACTIVATION_QUEUED'):
+        return value, code
+    for phase in ('installation', 'readiness', 'continuation'):
+        cause = upgrade.get(phase + 'Cause')
+        if cause:
+            return {**value, 'status': 'pending', **cause}, 2
+    return value, code
+
+
+def continue_installed(value, handle, activation, admin):
+    if not activation:
+        return admin.continue_after_gate(value, handle)
+    fcntl.flock(handle, fcntl.LOCK_SH | fcntl.LOCK_NB)
+    matched = upgrade_request(handle, kind='upgrade-installed', activation=activation)
+    if matched is None or not isinstance(matched.get('upgradeOperations'), list):
+        cause = matched or {}
+        pending = {'status': 'pending', 'results': [],
+                   'code': cause.get('code', 'UPGRADE_INSTALLATION_READBACK_PENDING')}
+        if 'githubApi' in cause:
+            pending['githubApi'] = cause['githubApi']
+        return {**value, 'continuation': pending}
+    upgrades = matched['upgradeOperations']
+    for operation in upgrades:
+        if not ready_upgrade(operation):
+            cause = (operation.get('installationCause') or
+                     operation.get('readinessCause') or
+                     {'code': 'UPGRADE_READINESS_PENDING'})
+            return {**value, 'upgradeOperations': upgrades,
+                    'continuation': {**cause, 'status': 'pending', 'results': []}}
+    value = admin.continue_after_gate(value, handle)
+    if upgrades:
+        value['upgradeOperations'] = settle_upgrades(
+            handle, upgrades, value['continuation'])
+    return value
+
+
 def run(payload, handle, kind):
     value, code = fresh_manager_result(payload, handle, kind)
+    if kind in ('upgrade-complete', 'upgrade-receive'):
+        value, code = continue_upgrade(value, handle, code)
+        return upgrade_action_result(value, code) if kind == 'upgrade-receive' else (
+            value, code)
+    if (kind in ('maintenance', 'administrator') and
+            value.get('code') == 'CORE_ONLY_MAINTENANCE_REQUIRED'):
+        try:
+            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            upgrade_request(handle, kind='upgrade-promotion-unsupported',
+                            activation=json.loads(payload)['target'])
+        except (OSError, ValueError, KeyError, subprocess.SubprocessError):
+            # Preserve the verified maintenance outcome if projection can retry.
+            pass
     if value.get('installation') == 'complete':
         # The old management child has exited. The live source is already
         # adopted and verified; its same installer updates management code,
@@ -198,7 +296,8 @@ def run(payload, handle, kind):
                                                  'results': []}}, 0
             admin = module_at('nibfin_current_completion',
                               MANAGER / 'scripts/core-rollout-admin.py')
-            value = admin.continue_after_gate(value, handle)
+            value = continue_installed(value, handle,
+                                       json.loads(payload).get('target'), admin)
             return value, admin.RESULTS.result_exit(value)
         except (OSError, ValueError, KeyError, subprocess.SubprocessError):
             value = {**value, 'continuation': {'status': 'pending', 'results': [],
@@ -213,7 +312,8 @@ def main():
     payload = sys.stdin.buffer.read()
     supplied = json.loads(payload)
     kind = supplied.get('kind')
-    if kind not in ('pre-worker', 'maintenance', 'administrator', 'prepare', 'inspect'):
+    if kind not in ('pre-worker', 'maintenance', 'administrator', 'prepare',
+                    'inspect', *UPGRADE_KINDS):
         return {'status': 'denied', 'code': 'CORE_MAINTENANCE_REQUEST_INVALID'}, 1
     owned(CONFIG)
     handle = os.open(CONFIG, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
