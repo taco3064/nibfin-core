@@ -51,7 +51,7 @@ Stop and report the exact conflicting behavior if the route could violate the
 user's intended protection or if the authority for the access is unresolved.
 Do not request or expose privileged tokens. Do not push, publish an Issue Body,
 apply lifecycle labels, approve your own work, merge, close or release anything.
-Those operations belong to the trusted publisher after independent evidence.
+Core owns saving the work branch; PR publication and integration retain their existing independent checks.
 
 Implement the complete bounded behavior and maintain regression tests where
 the change calls for them. Inspect the whole diff for unintended changes.
@@ -153,7 +153,10 @@ comparison base, or the target during conflict repair. Reading `/main` alone can
 establish a fresh remote observation. If trusted observation is unavailable, retain
 work and report the exact missing observation through a structured blocker.
 
-At handoff, finish the authorized implementation and report its checks. After proven
+At handoff, finish the authorized implementation and report its checks.
+Return ready once; do not create interim commits or push from the Writer.
+Core saves the finished Candidate on its bound GitHub work branch before
+independent Accept. After proven
 Writer termination and scratch cleanup, Core captures actual changes and observes
 main again before recording a ready Candidate. Main movement requires controlled
 alignment. Conflicts or changed content return through normal Deliver admission;
@@ -174,7 +177,13 @@ provider observations for the interrupted operation. Reuse a confirmed result.
 When a successful provider read establishes that the operation is unfinished,
 perform that work again through the normal stage checks and authorized path.
 A missing local receipt, lost Agent response or unavailable old transcript
-alone does not make the implementation blocked. Preserve existing partial work.
+alone does not make the implementation blocked. Use a confirmed saved
+Candidate and let Core enter independent Accept when its ordinary inputs
+are available. A successful GitHub read showing no current authorized
+Deliver result re-enters ordinary Deliver. A stale lock, abandoned branch
+or missing local response does not stop it. Preserve existing partial work
+when available. Regenerate missing Deliver-owned required artifacts through
+the ordinary path; a saved branch only carries its committed contents.
 
 For GitHub observation failures, retain completed work and use the existing
 retry path for the failed read. A failed read cannot establish that a previous
