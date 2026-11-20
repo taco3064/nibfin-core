@@ -192,3 +192,11 @@ exclude it and evidence tied only to it from current execution and verification.
 Check only the authoritative status needed to identify the retirement. Preserve
 historical records for audit without requiring their contents or dependent
 objects to remain readable. A failed lookup does not establish retirement.
+
+Use the authoritative disposition for each source. Closure alone does not
+establish abandonment. GitHub closes merged pull requests and delivered Issues.
+Keep confirmed merged and delivered outcomes eligible as completion evidence
+under the normal checks. For a publication target, require a successful read
+of that pull request with both closed state and an explicit unmerged result.
+An unknown outcome or a failed read cannot retire work. Native Issue
+dependencies still require their normal delivery proof.

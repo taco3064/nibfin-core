@@ -86,3 +86,16 @@ test('an interrupted adopted workspace needs refresh even without a saved Candid
     assert.equal(independent.restartCandidate, false);
     assert.equal(independent.receipts.deliver, receipts.deliver);
   });
+
+test('closure without a matching identity and explicit merge state cannot retire a PR',
+  async () => {
+    const { receipts } = fixture();
+    const { merged: _mergeState, ...unknown } = closed;
+    const responses = [unknown, { ...closed, merged: null },
+      { ...closed, node_id: 'PR_other' }, { ...closed, number: 571 },
+      { ...closed, base: { repo: { id: 2 } } }];
+    for (const response of responses) {
+      await assert.rejects(observePublication({ get: async () => response },
+        issue, receipts), { code: 'PR_RECEIPT_IDENTITY_CHANGED' });
+    }
+  });
