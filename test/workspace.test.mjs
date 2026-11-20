@@ -163,6 +163,24 @@ test('an edited Shape reads current source even after a successful draft', async
     '{"tools":{"node":"22.15.0"}}');
 });
 
+test('reopened changed requirements archive the old delivery workspace', async t => {
+  const { workspace, base, directory } = await fixture(t);
+  await writeFile(join(workspace.work, 'retained-work.txt'), 'Preserve this work');
+  const receipts = { shape: { outcome: 'ready' }, deliver: { outcome: 'ready' },
+    merge: { outcome: 'merged' }, close: { outcome: 'closed' } };
+  await refreshShapeWorkspace({
+    workspace, stage: 'continue', receipts,
+    observeMain: async () => ({ head: base }),
+    requirementsChanged: async () => true, settle: async () => {},
+  });
+  await assert.rejects(readFile(join(workspace.work, 'retained-work.txt')),
+    { code: 'ENOENT' });
+  const archive = (await readdir(directory))
+    .find(name => name.startsWith('shape-refresh-'));
+  assert.equal(await readFile(join(directory, archive,
+    'previous/work/retained-work.txt'), 'utf8'), 'Preserve this work');
+});
+
 test('capture and commit bind files, artifacts and tree', async (t) => {
   const f = await fixture(t);
   await writeFile(join(f.workspace.work, 'source.txt'), 'Changed\n');

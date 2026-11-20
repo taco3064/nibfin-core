@@ -163,7 +163,7 @@ export function samePublishedRequirements(current, prior) {
 // An older unpublished attempt has no input text to compare and is tried afresh.
 export async function issueRequirementsChanged(issue, receipts, readStoredShape) {
   const author = receipts.shape;
-  if (!author || receipts.merge) return false;
+  if (!author || receipts.merge && issue.state !== 'open') return false;
   const published = receipts['publish-shape'];
   if (published) {
     const prior = published.requirementsBody ??
