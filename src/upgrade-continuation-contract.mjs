@@ -63,3 +63,9 @@ export function upgradeRecipe(kind, memberId) {
     (kind !== 'execution' || isId(memberId)), 'UPGRADE_RECIPE_INVALID');
   return recipes[kind].join('\n').replaceAll('MEMBER_ID', String(memberId ?? ''));
 }
+
+export function upgradeRecipeVariants(kind, memberId) {
+  const current = upgradeRecipe(kind, memberId);
+  const original = current.split('\n').filter(line => !line.startsWith('run-name: '));
+  return [current, original.join('\n')];
+}

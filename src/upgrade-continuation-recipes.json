@@ -1,6 +1,7 @@
 {
   "notification": [
     "name: Nibfin upgrade notification",
+    "run-name: Nibfin upgrade notification · PR ${{ inputs.pull_number || github.event.pull_request.number }}",
     "on:",
     "  pull_request:",
     "    types: [closed]",
@@ -36,6 +37,7 @@
   ],
   "execution": [
     "name: Nibfin upgrade execution",
+    "run-name: Nibfin upgrade · repository ${{ inputs.repository_id }} · PR ${{ inputs.pull_number }}",
     "on:",
     "  workflow_dispatch:",
     "    inputs:",

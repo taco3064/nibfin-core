@@ -89,6 +89,13 @@ and maintained workflow source, and re-reads the original recorded PR on its
 current default branch. Ordinary, foreign, closed-unmerged, revoked and
 unbound proposals cannot authorize installation or dispatch.
 
+The notification run is named `Nibfin upgrade notification · PR <number>` in
+the consumer repository. The execution run is named
+`Nibfin upgrade · repository <id> · PR <number>` in the adopted destination.
+These names expose native PR locators for readback on either merge route.
+Read the actual workflow and run identity as well as the name. Existing
+untitled maintained callers continue to be accepted by the receiver.
+
 Native Core maintenance retains compatible pool-promotion ownership. Same
 source adoption refresh uses the existing guarded refresh. Existing
 continuation observes confirmed effects before repeating writes. Retrying a
