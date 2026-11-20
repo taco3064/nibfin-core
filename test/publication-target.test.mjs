@@ -110,3 +110,15 @@ test('conflicting completion for a different PR stops replacement publication',
         { code: 'PUBLICATION_RECEIPTS_CONFLICT' });
     }
   });
+
+test('abandoned publication without a ready Candidate needs refresh', async () => {
+  for (const outcome of ['blocked', undefined]) {
+    const { receipts, reader } = fixture();
+    if (outcome) receipts.deliver.outcome = outcome;
+    else delete receipts.deliver;
+    const selected = await observePublication(reader, issue, receipts);
+    assert.equal(selected.restartCandidate, true);
+    assert.equal(selected.receipts.deliver, undefined);
+    assert.equal(selected.receipts.accept, undefined);
+  }
+});

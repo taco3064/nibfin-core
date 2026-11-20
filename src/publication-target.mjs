@@ -43,9 +43,10 @@ export async function observePublication(reader, issue, receipts, handoff) {
   const abandonedHandoff = adopted && isClosedUnmergedPullRequest(adopted);
   const delivery = receipts.deliver;
   const candidate = delivery?.artifacts?.candidateHash;
-  const restartCandidate = Boolean(abandoned && candidate &&
-    candidate === saved.candidateHash || abandonedHandoff &&
-    (delivery?.outcome !== 'ready' || !candidate || candidate === handoff.candidateHash));
+  const independent = delivery?.outcome === 'ready' && candidate &&
+    (!abandoned || candidate !== saved.candidateHash) &&
+    (!abandonedHandoff || candidate !== handoff.candidateHash);
+  const restartCandidate = Boolean((abandoned || abandonedHandoff) && !independent);
   if (!abandoned && !abandonedHandoff) return { receipts, saved, pr, handoff, adopted };
   const abandonedPr = abandoned ? pr : adopted;
   for (const [stage, outcome] of [['merge', 'merged'], ['close', 'closed']]) {
