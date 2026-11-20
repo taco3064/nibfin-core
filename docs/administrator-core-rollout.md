@@ -26,6 +26,63 @@ kind cannot grant a Runner the normal administrator route.
 
 ## Explicit administration and retry
 
+### A stopped legacy installation
+
+Bootstrap readiness does not mean that live Core was upgraded or that its
+listeners can start. Some legacy startup checks require the dispatcher packaged
+with their own live source. Bootstrap installs the new fixed dispatcher first;
+starting an old listener at that intermediate point can therefore fail with
+`SHARED_RUNNER_WORKER_ADMISSION_REQUIRED`, before any official Listener or Job
+starts. A queued maintenance Job cannot repair a listener that cannot start.
+
+Keep the two original stopped services stopped through this transition:
+
+1. Use normal init/upgrade to verify the selected Core package and prepare the
+   fixed external management entry with the selected GitHub CLI login. Do not
+   assume the old live Core already has the new management commands below.
+2. From outside both Runner services, use the prepared administrator bridge for
+   the selected successful native CD run and activation artifact. For the
+   stopped-pool administrator operation, the request is:
+
+   ```sh
+   printf '%s\n' '{"kind":"administrator","coreOnly":false,"target":{
+     "runId":123,"artifactId":456}}' |
+     sudo /usr/local/libexec/nibfin/core-rollout/bridge.py
+   ```
+
+   Replace the example IDs with the actual selected native objects. This uses
+   the existing administrator lifecycle; it does not bypass target eligibility,
+   source integrity, settlement, consumer branch protection or admission.
+3. Read back completed live installation and management entries. Bootstrap's
+   `installed` receipt alone is insufficient: it intentionally leaves live Core
+   and adopted bindings unchanged. An observation failure or pending apply uses
+   the same operation's normal retry, reusing confirmed effects.
+4. After source and entry readback, resume only the original services whose
+   startup is authorized. Originally stopped services remain stopped until that
+   separate resumption. Installation completion and paused/pending continuation
+   are distinct outcomes.
+
+This is separate from Core-only maintenance on an already serving pool. Do not
+start an intermediate legacy listener merely to consume its queued upgrade,
+patch the immutable old startup check, put the old dispatcher back, create a
+third Runner, or restore a timer or polling repair service. If an explicit
+target is refused, diagnose the reported cause; these steps do not authorize
+forcing a divergent or otherwise ineligible source. An Owner-authorized reinstall
+after a deliberate main rollback is a separate local administration decision.
+
+The regression fixture preserves the historical slot guard from
+[Core f44a2f2](https://github.com/taco3064/nibfin-core/blob/f44a2f2776ecc375b707e21e1664eb6b1a6a85ba/src/security/shared-runner-start-check.mjs)
+and exercises it with controlled host observations alongside the current guard
+and filesystem transaction seam. It covers the intermediate refusal, source
+promotion before readiness, retained registration/runtime observations and
+interrupted apply. It does not execute service restoration. The administrator's
+existing pool restore branch separately uses the captured original service
+states and only starts services that were running and stopped by that operation.
+Portable controlled coverage is not evidence of a real host installation,
+actual service startup, signed maintenance Job or public CLI ordering defect.
+
+### An already modern installation
+
 From an already verified modern installed Core, a normal root administrator can
 prepare or repair the same management installation:
 
