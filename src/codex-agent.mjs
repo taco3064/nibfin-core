@@ -1,3 +1,4 @@
+import { scanInterruptedOutput } from './interrupted-output.mjs';
 import { pressureBinding } from './host-memory-pressure.mjs';
 import { makeBlockerReport } from './blocker-report.mjs';
 import { saveBlockerReport } from './blocker-report-store.mjs';
@@ -18,19 +19,22 @@ import { discardRoleSources } from './role-source-cleanup.mjs';
 // A role adapter, not a sandbox implementation. Only the installed launcher may
 // supply the code-owned isolator. No external request may load an adapter/module.
 export class CodexRoleAgent {
-  #config; #isolator; #sessions; #prepareMain; #upstream;
+  #config; #isolator; #sessions; #prepareMain; #upstream; #settlement;
   constructor(config, isolator, { prepareMain = async (root, issue, head) => {
     await mkdir(root, { mode: 0o700 });
     return new CandidateWorkspace(root, issue).prepare(head);
-  }, upstream, reclaim } = {}) {
+  }, upstream, reclaim, settlement } = {}) {
     requireThat(config && typeof config.model === 'string' && config.skills &&
       typeof isolator?.execute === 'function', 'INVALID_AGENT_ADAPTER');
     this.#config = structuredClone(config); this.#isolator = isolator;
     this.#sessions = new RoleSessions(config.stateRoot, reclaim);
     this.#prepareMain = prepareMain;
     this.#upstream = upstream;
+    this.#settlement = settlement;
   }
   async run(stage, context, comparisonBase = context.main.head) {
+    this.#settlement?.assertExecution(context.execution);
+    const retireRole = this.#settlement?.enter('role');
     const config = this.#config, root = resolve(config.stateRoot);
     const auth = resolve(config.authFile);
     const rootStat = await lstat(root);
@@ -54,7 +58,7 @@ export class CodexRoleAgent {
     } finally { await credential.close(); }
     const skill = await readEffectiveSkill(config.coreRoot, stage,
       config.skills[skillIdentity(stage)], config.project, config.projectRoot);
-    return this.#sessions.run(stage, context, async session => {
+    const result = await this.#sessions.run(stage, context, async session => {
       const plan = codexPlan(stage, { model: config.model,
         threadId: session.threadId, skill, context,
         hasProposal: Boolean(config.proposal),
@@ -84,7 +88,10 @@ export class CodexRoleAgent {
       // The isolator must inspect actual mounts/network/policy, probe denial of
       // authentication/session/output reads, and confirm full container cleanup.
       // An unsupported or absent probe cannot be replaced by a config hash.
+      const handback = this.#settlement?.enter('backend/workspace');
       const execution = await this.#isolator.execute({ plan,
+        onLocalHandback: handback,
+        settlement: this.#settlement,
         pressureBinding: pressureBinding(stage, context),
         executionId: context.execution.id, work: config.work, main: main.directory,
         input, output, session: session.directory, auth,
@@ -95,6 +102,7 @@ export class CodexRoleAgent {
         } : undefined });
       requireModelTermination(execution, context.execution.id, plan.policyHash);
       if (execution.status === 'interrupted') {
+        await scanInterruptedOutput(output, secrets, 'CREDENTIAL_OUTPUT_REJECTED');
         await discardRoleSources(io, false);
         return execution;
       }
@@ -119,6 +127,7 @@ export class CodexRoleAgent {
       // Both MCP and model credential scans precede Job-copy retirement.
       await execution.retireMcp?.();
       await execution.applyWorkspace?.();
+      handback?.();
       // RoleSessions aggregates source and private-home retirement in one request.
       await discardRoleSources(io, false);
       return { executionId: context.execution.id,
@@ -131,5 +140,7 @@ export class CodexRoleAgent {
           stage, executionId: context.execution.id,
           proposalHash: config.proposal?.hash ?? null }) };
     });
+    retireRole?.();
+    return result;
   }
 }

@@ -12,6 +12,7 @@ import { runJobVmWriter } from './job-vm-writer.mjs';
 import { preflightJobVm } from './job-vm.mjs';
 import { issueContainerLabel } from './host-containers.mjs';
 import { GitHubReader } from './github-read.mjs';
+import { command } from './process.mjs';
 
 // Fixed composition for the provisional Codex adapter. The privileged launcher
 // supplies adopted paths and native writer proof. No request can import a host
@@ -22,6 +23,7 @@ export async function codexStageExecutor({
   caller,
   config,
   execution,
+  settlement,
   workspaceRoot,
   workflowNodeId,
   project,
@@ -57,7 +59,16 @@ export async function codexStageExecutor({
       await readFile(join(coreRoot, 'skills', name, 'SKILL.md'), 'utf8'),
     );
   }
-  const workspace = new CandidateWorkspace(workspaceRoot, profile.issue);
+  const workspace = new CandidateWorkspace(workspaceRoot, profile.issue, {
+    run: async (...args) => {
+      const complete = settlement?.enter('workspace command');
+      const result = await command(...args);
+      // A rejected transport can return before its host process is gone.
+      // Leave that invocation unresolved rather than inferring termination.
+      complete?.();
+      return result;
+    },
+  });
   const target = adopted.runner.target ?? adopted.runner;
   requireThat(
     profile.issue.id === adopted.approval.issueId &&
@@ -106,7 +117,9 @@ export async function codexStageExecutor({
       projectRoot,
     },
     inheritedAgent,
-    { upstream: { core: installed.pin, reader: new GitHubReader(token, fetcher) } },
+    { settlement, upstream: {
+      core: installed.pin, reader: new GitHubReader(token, fetcher),
+    } },
   );
   const agent = {
     async run(stage, context) {
@@ -137,7 +150,7 @@ export async function codexStageExecutor({
       }),
     };
   };
-  return installedStageExecutor({
+  const executor = await installedStageExecutor({
     installation: installed,
     caller,
     config: adopted,
@@ -152,4 +165,6 @@ export async function codexStageExecutor({
     fetcher,
     clock,
   });
+  settlement?.composed();
+  return executor;
 }

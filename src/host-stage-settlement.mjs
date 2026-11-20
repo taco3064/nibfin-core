@@ -7,7 +7,7 @@ import {
   githubApiWaiting, githubReadWaiting, githubReadWait, observationFailureCode,
 } from './observation-failure.mjs';
 
-export async function settleHostStage(run, release, report) {
+export async function settleHostStage(run, release, report, settleLocal) {
   let result;
   try {
     result = await run();
@@ -21,6 +21,14 @@ export async function settleHostStage(run, release, report) {
     (result.code === githubReadWaiting || result.code === githubApiWaiting ||
       result.code === ciCorrectionWaiting ||
       pendingCIObservation(result.code));
+  const local = result.status === 'pending' && result.stage === 'deliver' &&
+    result.code === 'LOCAL_DELIVER_INTERRUPTED';
+  if (local && settleLocal) {
+    return settleResult(result, async settled => {
+      await settleLocal();
+      await release(settled);
+    }, report, true);
+  }
   if (result.status === 'pending' && !retryableRead) return result;
   return settleResult(result, release, report, retryableRead);
 }
@@ -54,6 +62,7 @@ async function settleResult(result, release, report, retryableRead) {
     const localReasons = [
       'EXTERNAL_EFFECT_UNKNOWN', 'WRITER_NOT_PROVEN_TERMINATED',
       'PREVIOUS_HOST_PROCESS_UNRESOLVED', 'HOST_FENCE_CHANGED', 'JOURNAL_CORRUPT',
+      'LOCAL_DELIVER_HAND_BACK_UNPROVEN', 'MCP_JOB_TERMINATION_UNPROVEN',
     ];
     const code = localReasons.includes(error?.code)
       ? error.code : 'HOST_EXECUTION_UNRESOLVED';

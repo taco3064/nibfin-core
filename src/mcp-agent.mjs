@@ -1,3 +1,4 @@
+import { scanInterruptedOutput } from './interrupted-output.mjs';
 import { hostMemoryPressure, confirmedHostPressure } from './host-memory-pressure.mjs';
 import { constants } from 'node:fs';
 import { open } from 'node:fs/promises';
@@ -36,6 +37,7 @@ export function withUserMcp(isolator, source, readProfile = loadUserMcp, job) {
       }) };
     },
     async execute(input) {
+      const consumer = input.settlement?.enter('mcp');
       const mcp = await prepare();
       fresh(mcp);
       const plan = {
@@ -53,11 +55,18 @@ export function withUserMcp(isolator, source, readProfile = loadUserMcp, job) {
           'a page-fetch tool is unavailable. Report the actual call failure.',
       };
       const finish = job?.enter();
-      let proved = false, deferred = false;
+      let proved = false, deferred = false, cleaned = false;
       try {
-        const result = await isolator.execute({ ...input, plan, mcp });
+        const result = await isolator.execute({ ...input, plan, mcp,
+          onInterruptedCleanup: () => { cleaned = true; },
+        });
         // An interrupted adapter retires its leases/copies before returning.
         // Pressure alone cannot establish consumer termination.
+        if (result.status === 'interrupted' && cleaned) {
+          await scanInterruptedOutput(input.output, mcp.secrets,
+            'MCP_CREDENTIAL_OUTPUT_REJECTED');
+          proved = true;
+        }
         if (result.status === 'interrupted' && result.code === hostMemoryPressure &&
           isDigest(result.terminationHash) &&
           confirmedHostPressure(result.memoryPressure, input.pressureBinding))
@@ -77,13 +86,24 @@ export function withUserMcp(isolator, source, readProfile = loadUserMcp, job) {
               try {
                 await retire?.();
                 proved = /^[a-f0-9]{64}$/.test(result.terminationHash);
-              } finally { finish(proved); }
+              } finally {
+                finish(proved);
+                if (proved) consumer?.();
+              }
             };
             deferred = true;
-          } else await retire?.();
+          } else {
+            await retire?.();
+            proved = isDigest(result.terminationHash);
+          }
         }
         return result;
-      } finally { if (!deferred) finish?.(proved); }
+      } finally {
+        if (!deferred) {
+          finish?.(proved);
+          if (proved) consumer?.();
+        }
+      }
     },
   };
 }
