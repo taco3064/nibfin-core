@@ -43,6 +43,7 @@ export function nativeStageExecutor({
   sandbox,
   token,
   fetcher,
+  observeResult,
   clock = Date.now,
 }) {
   const pinned = structuredClone(config),
@@ -64,6 +65,7 @@ export function nativeStageExecutor({
     observeSharedCaller,
     hostMain,
     localCommit: workspace.localCommit?.bind(workspace),
+    observeResult,
     clock,
   });
   return Object.freeze({

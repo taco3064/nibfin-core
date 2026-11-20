@@ -19,7 +19,7 @@ export async function refreshShapeWorkspace({
   if (base !== head || changed && !shapeOnly) {
     await settle();
     await workspace.refreshForShape(head, blockedReceipt);
-    console.log(`Nibfin Shape workspace updated from ${base} to ${head}.`);
+    console.error(`Nibfin Shape workspace updated from ${base} to ${head}.`);
   }
   return blockedReceipt && await workspace.shapeRetryReceipt() === blockedReceipt
     ? blockedReceipt : null;

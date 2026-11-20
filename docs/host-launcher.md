@@ -166,8 +166,13 @@ automatically adopt a replacement host or claim cross-host crash recovery.
 When the Runner loses a Controller stage response or receives malformed output,
 it asks the authenticated Controller to observe the same Issue and requested
 stage. A proven complete delivery is returned without starting another stage.
-A validated retained result, when available, keeps its actual status and terminal
-stage; a pre-merge result does not establish complete delivery.
+The Controller retains the last settled pre-merge response for the same admitted
+Issue, requested stage, and native run, attempt and job. It records the actual
+terminal stage and role execution when a role produced the outcome. It writes
+the result while it still owns the Issue fence, after local effects are settled.
+A later read also has to acquire its own fence and verify the relevant current
+Issue, receipts and native PR. A retained response grants no authority and does
+not replace proof of complete delivery.
 
 If a successful live Issue read establishes open, unfinished work, reconciliation
 checks existing progress and proves that the journal and containers are settled.

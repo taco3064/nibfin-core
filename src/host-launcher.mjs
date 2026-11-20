@@ -1,3 +1,6 @@
+import { hostExecution } from './host-execution.mjs';
+import { controllerRequestIdentity, recordControllerResult, resultObservation }
+  from './controller-result.mjs';
 import { retainHostOutcome } from './blocker-native-report.mjs';
 import { requirePoolOpen } from './retirement-admission.mjs';
 import { withManagedAdmission } from './managed-credential-admission.mjs';
@@ -41,6 +44,7 @@ import {
 import { relayHostCommand } from './host-relay.mjs';
 import { targetContextKey } from './controller-contract.mjs';
 export { rootOwnedPath } from './host-adoption.mjs';
+export { hostExecution, hostWakeExecution } from './host-execution.mjs';
 
 // Environment identifies candidates to read. Native job and signed OIDC checks
 // below authenticate them; environment values never supply approval or a pin.
@@ -109,46 +113,6 @@ export async function readSelectedHost(reader, runner) {
     'HOST_REGISTRATION_MISMATCH',
   );
   return digest(matches);
-}
-
-export function hostExecution(runner, stage, iteration = 0) {
-  return nativeExecution(runner, stage, stages[stage].role, iteration);
-}
-
-export function hostWakeExecution(runner) {
-  return nativeExecution(runner, 'wake', 'publisher');
-}
-
-function nativeExecution(runner, stage, role, iteration = 0) {
-  const native = {
-    repositoryId: runner.repositoryId,
-    runId: runner.runId,
-    attempt: runner.attempt,
-    jobId: runner.jobId,
-    memberId: runner.memberId,
-    sourceCommit: runner.sourceCommit,
-    stage,
-    ...(iteration ? { iteration } : {}),
-  };
-  const uuid = (kind) => {
-    const hash = digest({ kind, native });
-    return [
-      hash.slice(0, 8),
-      hash.slice(8, 12),
-      hash.slice(12, 16),
-      hash.slice(16, 20),
-      hash.slice(20, 32),
-    ].join('-');
-  };
-  return {
-    id: uuid('execution'),
-    sessionId: uuid('session'),
-    role,
-    actorId: runner.memberId,
-    runId: runner.runId,
-    attempt: runner.attempt,
-    jobId: runner.jobId,
-  };
 }
 
 // Fixed CLI path: no config flag, environment override, adapter module, shell
@@ -223,6 +187,7 @@ async function launchAdmittedStage(issueNumber, stage, env, runnerUid,
     });
   }
   const issue = approval.record.issue;
+  const request = controllerRequestIdentity(issue, runner, stage, execution);
   const root = issueStatePath(host.stateRoot, issue);
   const inputs = await readHostStageInputs(context, { approval, runner, execution },
     stage);
@@ -246,7 +211,7 @@ async function launchAdmittedStage(issueNumber, stage, env, runnerUid,
   }
   let mcpJob, release, preparation;
   let mcpEntered = false, executorEntered = false;
-  let progress;
+  let progress, producer, observed;
   try {
     const inspectWriter = async (_stage, observed) => {
       await inspectHostAdoption(context);
@@ -273,6 +238,12 @@ async function launchAdmittedStage(issueNumber, stage, env, runnerUid,
       await assertHostSettlement(journal, () =>
         idleContainers(adopted.isolation, issue));
       await mcpJob?.retire(true);
+      if (progress) {
+        // A released fence is still required before this reference is usable.
+        await recordControllerResult({ ...progress, request, producer, result,
+          observed, fence })
+          .catch(() => report('retention', 'CONTROLLER_RESULT_UNAVAILABLE'));
+      }
       if (progress && ((result.stage === 'close' && result.status === 'completed') ||
           result.code === 'DELIVERY_ALREADY_RECORDED')) {
         await cleanClosedWorkspace({ progress, approval, reader }).catch(() => {
@@ -291,6 +262,9 @@ async function launchAdmittedStage(issueNumber, stage, env, runnerUid,
     });
     await privateHostDirectory(join(root, 'agent'));
     progress = await issueProgress(root, approval);
+    await fence.inspect();
+    // Invalidate the previous result before any work of this request can run.
+    await progress.store.replaceControllerResult(null);
     // Adoption/container inspection itself can launch host commands. A failed
     // observation does not prove those processes stopped. Everything beyond
     // this checkpoint stays unclassified without its normal lifecycle proof.
@@ -387,6 +361,8 @@ async function launchAdmittedStage(issueNumber, stage, env, runnerUid,
       const iteration = invocations.get(current) ?? 0;
       invocations.set(current, iteration + 1);
       execution = hostExecution(runner, current, iteration);
+      producer = { stage: current, iteration, execution };
+      observed = null;
       requireThat(
         approval.record.roles[execution.role] === runner.memberId,
         'HOST_APPROVAL_MISMATCH',
@@ -421,6 +397,7 @@ async function launchAdmittedStage(issueNumber, stage, env, runnerUid,
           model: host.model,
           isolation: adopted.isolation,
           inspectWriter,
+          observeResult: context => { observed = resultObservation(context); },
           token,
         });
       } catch (error) {
@@ -451,7 +428,7 @@ async function launchAdmittedStage(issueNumber, stage, env, runnerUid,
           })
         : execute(stage);
     const settled = await settleHostStage(run, release,
-      (phase, code) => console.error(`Nibfin host stage ${phase}: ${code}`));
+      report);
     const result = await retainHostOutcome(root, { approval, runner, execution },
       settled.stage ?? stage, settled);
     return stage === 'continue'

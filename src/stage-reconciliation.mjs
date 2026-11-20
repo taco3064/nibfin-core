@@ -14,6 +14,8 @@ import {
 import { assertHostSettlement } from './host-stage-settlement.mjs';
 import { observeDelivery } from './unfinished-observation.mjs';
 import { stages } from './stages.mjs';
+import { reconciledResult } from './reconciled-result.mjs';
+import { reconciliationReason } from './reconciliation-result.mjs';
 
 // Reuse the launcher's admission before entering this observational path.
 // No stage composer, Writer, mutation handler or retained-fence recovery runs here.
@@ -41,7 +43,7 @@ export async function reconcileDelivery(input, dependencies = {}) {
     }
     fence = await acquire(root, { execution, issueId: issue.id,
       host: digest(hostBytes) });
-  } catch { return pending; }
+  } catch (error) { return { ...pending, reason: reconciliationReason(error) }; }
   const settled = async () => {
     await inspect(context);
     await fence.inspect();
@@ -61,16 +63,20 @@ export async function reconcileDelivery(input, dependencies = {}) {
     const retry = dependencies.retryObservation ?? retryGitHubObservation;
     result = await retry(() => observeDelivery({
       ...selected, approval, runner, closeExecution, reader, stage,
+      recoverResult: live => reconciledResult({
+        ...selected, approval, runner, reader, stage, execution, live,
+      }),
     }), { stage: true });
   } catch (error) {
     const waiting = githubReadWait(error, undefined, { stage: true });
-    result = waiting ? { schemaVersion: 1, stage, ...waiting } : pending;
+    result = waiting ? { schemaVersion: 1, stage, ...waiting } :
+      { ...pending, reason: reconciliationReason(error) };
   }
   try {
     // A failed proof may release only our own fence, after settlement is proven.
     await settled();
     await fence.release();
-  } catch { return pending; }
+  } catch (error) { return { ...pending, reason: reconciliationReason(error) }; }
   return result.code === githubReadWaiting ||
     result.code === githubApiWaiting
     ? { ...result, retrySettled: true, ...(runner.target ? {

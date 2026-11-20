@@ -27,6 +27,7 @@ export function nativeObserver({
   observeSharedCaller,
   hostMain,
   localCommit,
+  observeResult,
   clock = Date.now,
   stores = (binding) => new EvidenceStore(config.stateRoot, binding),
 }) {
@@ -231,6 +232,8 @@ export function nativeObserver({
           }));
         }
         if (stage === 'review-pr') context.checkObservations = [];
+        // A check observation may return an actionable wait without a receipt.
+        observeResult?.(context);
         const ci = await readPullRequestCI(reader, expected, clock(), {
           repository: approval.repository, pr,
           checkObservations: context.checkObservations,
@@ -267,6 +270,7 @@ export function nativeObserver({
       execution: actor,
       runner,
     });
+    observeResult?.(context);
     return context;
   };
 }
