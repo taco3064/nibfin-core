@@ -88,6 +88,40 @@ export class EvidenceStore {
     try { return await this.#read(`${stage}.json`); }
     catch (error) { if (error.code === 'ENOENT') return null; throw error; }
   }
+  async #replacePointer(name, value) {
+    const temp = join(this.#directory, `${randomUUID()}.tmp`);
+    const flags = constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL |
+      constants.O_NOFOLLOW;
+    try {
+      const handle = await open(temp, flags, 0o600);
+      try {
+        await handle.writeFile(JSON.stringify(value));
+        await handle.sync();
+      } finally { await handle.close(); }
+      await rename(temp, join(this.#directory, `${name}.json`));
+      await this.#sync();
+    } finally {
+      await unlink(temp).catch(error => {
+        if (error.code !== 'ENOENT') throw error;
+      });
+    }
+  }
+  // These methods are called only while the existing Issue fence is held.
+  async replaceControllerResult(reference) {
+    requireThat(reference === null || isDigest(reference), 'INVALID_EVIDENCE_ID');
+    await this.#prepare();
+    await this.#replacePointer('controller-result', { reference });
+  }
+  async readControllerResult() {
+    await this.#prepare();
+    let pointer;
+    try { pointer = await this.#read('controller-result.json'); }
+    catch (error) { if (error.code === 'ENOENT') return null; throw error; }
+    requireThat(pointer && Object.keys(pointer).length === 1 &&
+      (pointer.reference === null || isDigest(pointer.reference)),
+    'EVIDENCE_OBJECT_CORRUPT');
+    return pointer.reference;
+  }
   async #nextPointer(receipt, hash) {
     if (receipt.stage !== 'shape') return { receiptHash: hash };
     const previous = await this.#pointer('shape');
@@ -116,37 +150,36 @@ export class EvidenceStore {
     const flags = constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL |
       constants.O_NOFOLLOW;
     const lock = await open(lockPath, flags, 0o600);
-    let temp;
     try {
       const hash = await this.put(receipt);
       const pointer = await this.#nextPointer(receipt, hash);
-      temp = join(this.#directory, `${randomUUID()}.tmp`);
-      const handle = await open(temp, flags, 0o600);
-      try {
-        await handle.writeFile(JSON.stringify(pointer));
-        await handle.sync();
-      } finally { await handle.close(); }
-      await rename(temp, join(this.#directory, `${receipt.stage}.json`));
-      await this.#sync();
+      await this.#replacePointer(receipt.stage, pointer);
       return hash;
     } finally {
-      if (temp) await unlink(temp).catch(error => {
-        if (error.code !== 'ENOENT') throw error;
-      });
       await lock.close(); await unlink(lockPath); await this.#sync();
     }
+  }
+  async #stageReceipt(stage, shape, superseded) {
+    const pointer = stage === 'shape' ? shape : await this.#pointer(stage);
+    if (!pointer || superseded[stage]?.includes(pointer.receiptHash)) return null;
+    const receipt = await this.get(pointer.receiptHash);
+    requireThat(receipt.stage === stage &&
+      digest(receipt.binding) === digest(this.#binding), 'RECEIPT_BINDING_MISMATCH');
+    return receipt;
+  }
+  async loadStage(stage) {
+    requireThat(Object.hasOwn(stages, stage), 'INVALID_STAGE_REQUEST');
+    await this.#prepare();
+    const shape = await this.#pointer('shape');
+    return this.#stageReceipt(stage, shape, supersededStages(shape));
   }
   async load() {
     await this.#prepare(); const result = {};
     const shape = await this.#pointer('shape');
     const supersedes = supersededStages(shape);
     for (const stage of Object.keys(stages)) {
-      const pointer = stage === 'shape' ? shape : await this.#pointer(stage);
-      if (!pointer || supersedes[stage]?.includes(pointer.receiptHash)) continue;
-      const receipt = await this.get(pointer.receiptHash);
-      requireThat(receipt.stage === stage &&
-        digest(receipt.binding) === digest(this.#binding), 'RECEIPT_BINDING_MISMATCH');
-      result[stage] = receipt;
+      const receipt = await this.#stageReceipt(stage, shape, supersedes);
+      if (receipt) result[stage] = receipt;
     }
     return result;
   }

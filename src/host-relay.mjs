@@ -1,5 +1,5 @@
 import {
-  isReconciledResult, isUnfinishedObservation,
+  isReconciledResult, isUnfinishedObservation, reconciledFailure,
 } from './reconciliation-result.mjs';
 import { githubReadWaiting, githubApiWaiting } from './observation-failure.mjs';
 import { rootOwnedPath } from './host-paths.mjs';
@@ -97,7 +97,7 @@ export async function relayControllerRequest(request, uid, run = command) {
       if (observed.schemaVersion === 1 && observed.stage === request.stage &&
         observed.status === 'pending' &&
         [githubReadWaiting, githubApiWaiting].includes(observed.code)) return observed;
-      reconciliationFailure = 'COMPLETION_UNPROVEN';
+      reconciliationFailure = reconciledFailure(observed, request.stage);
     } catch (error) { reconciliationFailure = error.message; }
   }
   return {

@@ -44,12 +44,12 @@ export function hostPreparationSettlement(execution, release, report) {
 
 async function settleResult(result, release, report, retryableRead) {
   try {
-    await release(result);
-    if (retryableHostPressure(result) ||
+    const retry = retryableRead || retryableHostPressure(result) ||
       result.status === 'denied' && (retryableWriterPressure(result.code) ||
-        jobVmExecutorFailures.includes(result.code)))
-      return { ...result, retrySettled: true };
-    return retryableRead ? { ...result, retrySettled: true } : result;
+        jobVmExecutorFailures.includes(result.code));
+    const settled = retry ? { ...result, retrySettled: true } : result;
+    await release(settled);
+    return settled;
   } catch (error) {
     const localReasons = [
       'EXTERNAL_EFFECT_UNKNOWN', 'WRITER_NOT_PROVEN_TERMINATED',

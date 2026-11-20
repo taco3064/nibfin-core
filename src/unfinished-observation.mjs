@@ -12,7 +12,6 @@ export async function observeDelivery(input) {
   const { approval, runner, reader, store, binding, stage } = input;
   const issue = approval.record.issue;
   proven((runner.target ?? runner).repositoryId === issue.repositoryId);
-  const receipts = await store.load();
   const live = await reader.issue(issue);
   proven(live?.node_id === issue.id && live.number === issue.number &&
     live.url === `https://api.github.com${issuePath(issue)}` && !live.pull_request &&
@@ -26,7 +25,12 @@ export async function observeDelivery(input) {
       receiptHash: result.receiptHash,
     };
   }
-  proven(!live.labels.some(label => label.name === 'delivered') && !receipts.close);
+  proven(!live.labels.some(label => label.name === 'delivered'));
+  if (store.loadStage) proven(!await store.loadStage('close'));
+  const result = await input.recoverResult?.(live);
+  if (result) return result;
+  const receipts = await store.load();
+  proven(!receipts.close);
   for (const [name, entry] of Object.entries(receipts)) {
     proven(Object.hasOwn(stages, name) && entry?.schemaVersion === 1 &&
       entry.stage === name && digest(entry.binding) === digest(binding) &&

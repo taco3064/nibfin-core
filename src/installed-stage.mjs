@@ -12,7 +12,7 @@ import { readSharedCaller } from './shared-caller-query.mjs';
 // Source and caller verification are fixed here, not replaceable callbacks.
 export async function installedStageExecutor({ installation, caller, config, execution,
   agent, workspace, workflowNodeId, sandbox, inspectIsolation, token, fetcher = fetch,
-  clock = Date.now }) {
+  observeResult, clock = Date.now }) {
   const installed = structuredClone(installation), pinned = structuredClone(config);
   const identity = structuredClone(execution), oidc = structuredClone(caller);
   const workflow = pinned.runner;
@@ -46,7 +46,7 @@ export async function installedStageExecutor({ installation, caller, config, exe
     observeSharedCaller: pinned.hostGitHubReads && workflowNodeId
       ? expected => readSharedCaller(expected, workflowNodeId, token) : undefined,
     hostMain: pinned.hostGitHubReads ? hostMainReader(token) : undefined,
-    agent, workspace, sandbox, token, fetcher, clock });
+    agent, workspace, sandbox, token, fetcher, observeResult, clock });
   return Object.freeze({
     async run(request) {
       if (!validStageRequest(request))

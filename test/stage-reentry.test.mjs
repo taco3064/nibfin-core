@@ -114,7 +114,8 @@ test('retained native pre-merge outcomes keep their status and terminal stage',
   async () => {
     for (const status of ['completed', 'denied']) {
       const expected = { schemaVersion: 1, stage: 'continue', terminalStage: 'accept',
-        status, receiptHash: 'a'.repeat(64), code: status === 'completed'
+        status, receiptHash: 'a'.repeat(64), disposition: 'recovered-result',
+        resultReference: 'b'.repeat(64), code: status === 'completed'
           ? 'STAGE_COMPLETED' : 'STAGE_REQUIRES_CORRECTION' };
       let calls = 0;
       const result = await relayControllerRequest({ command: 'stage',
