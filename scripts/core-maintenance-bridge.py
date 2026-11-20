@@ -111,13 +111,20 @@ def normal_installer(handle):
     return process_result(BOOTSTRAP, completed)
 
 
-def process_result(root, completed):
+def installer_results(root):
     helper = root / 'scripts/core_rollout_result.py'
     if not helper.is_file():
         # A legacy LIVE predates typed reporting; the normal verified bootstrap
         # supplies the shared decoder, without treating free stderr as authority.
         helper = BOOTSTRAP / 'scripts/core_rollout_result.py'
-    results = module_at('nibfin_installer_results', helper)
+    return module_at('nibfin_installer_results', helper)
+
+
+def process_result(root, completed):
+    return decode_result(installer_results(root), completed)
+
+
+def decode_result(results, completed):
     try:
         return results.read_result(completed)
     except results.CoreRolloutFailure as error:
@@ -169,6 +176,7 @@ def fresh_manager_result(payload, handle, kind):
 
 
 def retire_packages(handle):
+    source = None
     try:
         fcntl.flock(handle, fcntl.LOCK_SH | fcntl.LOCK_NB)
         try:
@@ -176,20 +184,26 @@ def retire_packages(handle):
             checked = command([node, '--input-type=module', '-e', LIVE_CHECK], handle)
             if process_result(LIVE, checked).get('status') != 'verified':
                 raise ValueError('Live source is unavailable')
+            decoder = installer_results(LIVE)
+            source = os.open(LIVE, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
         finally:
             fcntl.flock(handle, fcntl.LOCK_UN)
-        # Do not pass FD 3. The sweep owns one gate acquisition per candidate.
-        # Anchor the child to the executing tree so any moved source stays
-        # protected by the existing process working-directory observation.
-        result = subprocess.run([node, 'src/core-package-retirement-entry.mjs'],
-                                cwd=LIVE, capture_output=True, env=ENV)
-        value = process_result(LIVE, result)
+        # Pass the verified directory, not FD 3 or the mutable LIVE path.
+        # The sweep acquires its own gate and protects its source through cwd.
+        pinned = Path('/proc/self/fd') / str(source)
+        entry = pinned / 'src/core-package-retirement-entry.mjs'
+        result = subprocess.run([node, str(entry)], cwd=pinned, pass_fds=(source,),
+                                capture_output=True, env=ENV)
+        value = decode_result(decoder, result)
         if value.get('status') == 'complete' and isinstance(value.get('cleanup'), list):
             return value['cleanup']
     except BlockingIOError:
         return [{'status': 'retained', 'code': 'PACKAGE_GATE_PENDING'}]
     except (OSError, ValueError, KeyError, subprocess.SubprocessError):
         pass
+    finally:
+        if source is not None:
+            os.close(source)
     return [{'status': 'retained', 'code': 'PACKAGE_OBSERVATION_UNAVAILABLE'}]
 
 
