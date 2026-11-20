@@ -85,6 +85,20 @@ test('adopted authority and remembered native PR identity survive a missing resp
       { code: 'UPGRADE_PROPOSAL_CHANGED' });
   });
 
+test('same-source prepare recovers the original operation after promotion', async () => {
+  const { ports, state } = fixture();
+  const activation = { runId: 77, artifactId: 78 };
+  const { upgrade: original } = await prepareUpgrade(requested(next, activation), ports);
+  await bindUpgrade(requestToBind(original.operationId), ports);
+  state.source = next;
+  ports.write = () => assert.fail('A confirmed installation must recover its operation');
+  const { upgrade: resumed } = await prepareUpgrade(requested(next), ports);
+  assert.equal(resumed.operationId, original.operationId);
+  assert.equal(resumed.handoff, 'confirmed');
+  assert.equal(resumed.proposals[0].pullId, 80);
+  assert.deepEqual((await ports.read())[0].intent.activation, activation);
+});
+
 test('a replacement proposal requires fresh confirmation of old PR abandonment',
   async () => {
     const { ports, state } = fixture();
