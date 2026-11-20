@@ -101,6 +101,30 @@ test('same-source prepare recovers the original operation after promotion', asyn
   assert.deepEqual((await ports.read())[0].intent.activation, activation);
 });
 
+test('a single consumer resumes its own part of the original installed promotion',
+  async () => {
+    const { ports, state } = fixture();
+    const activation = { runId: 77, artifactId: 78 };
+    const { upgrade: original } = await prepareUpgrade({
+      ...requested(next, activation), repositories: [1, 3],
+    }, ports);
+    state.source = next;
+    const { upgrade: resumed } = await prepareUpgrade(requested(next), ports);
+    assert.equal(resumed.operationId, original.operationId);
+    assert.equal((await ports.read()).length, 1);
+    const inspected = [];
+    ports.noProposal = async (_operation, candidate) =>
+      inspected.push(candidate.repositoryId);
+    const complete = { kind: 'upgrade-complete', operationId: original.operationId };
+    await assert.rejects(completeUpgradeWithoutProposal({ ...complete,
+      repositories: [8] }, ports), { code: 'UPGRADE_CONSUMER_NOT_ADOPTED' });
+    const { upgrade } = await completeUpgradeWithoutProposal({ ...complete,
+      repositories: [1] }, ports);
+    assert.deepEqual(inspected, [1]);
+    assert.deepEqual(upgrade.consumers.map(item => item.installation),
+      ['installed', 'pending']);
+  });
+
 test('a replacement proposal requires fresh confirmation of old PR abandonment',
   async () => {
     const { ports, state } = fixture();

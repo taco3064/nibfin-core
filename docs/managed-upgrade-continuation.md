@@ -28,15 +28,17 @@ prepare, bind, observe or proposal-free completion.
 | `upgrade-prepare` | `repositories` of numeric adopted repo IDs, `source` with existing Core package `repository`, `commit`, `manifestHash`, and `activation` | Establish or recover the original authorized operation. For same-source work, activation may be null. For source promotion, use the actual native Core CD context, `{runId, artifactId}`. |
 | `upgrade-bind` | `operationId`, `repositoryId`, `pullNumber` | Read and record the actual managed PR ID, node ID and read-back URL. Confirm supported routing separately. |
 | `upgrade-observe` | `operationId` | Re-read native PR identity and route and expose current phase evidence. |
-| `upgrade-complete` | `operationId` | Complete authorized consumers whose current default-branch caller and route establish that no proposal is needed. Other consumers keep their review or native continuation state. |
+| `upgrade-complete` | `operationId`, optional `repositories` of authorized repo IDs | Complete authorized consumers whose current default-branch caller and route establish that no proposal is needed. Other consumers keep their review or native continuation state. |
 
 The success envelope contains `schemaVersion`, `status` and `upgrade`. The
 outer `status: complete` means the control request returned a typed response.
 Read the nested fields before presenting completion.
 
 After a promotion is observed as installed, `upgrade-prepare` can recover its
-original operation for the same adopted repositories and source with null
-activation. The original active proposal and phase results are preserved.
+original operation for the same source with null activation. If the selected
+repositories are a subset of a unique verified promotion, prepare can recover
+that operation. Scoped completion rechecks authorization for the selected
+repositories and preserves work already done under the original operation.
 
 - `operationId`, `executionRepository`, `executionRepositoryId` and
   `proposals` identify the handoff. Each proposal includes the originating
