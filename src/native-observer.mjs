@@ -88,7 +88,7 @@ export function nativeObserver({
       const checkpoint = receipts.deliver.deliveryCheckpoint &&
         await readDeliveryCheckpoint(reader, record.issue,
           { shape: context.shape.body, lifecycle: deliveryLifecycle(context) });
-      requireThat(context.candidate &&
+      requireThat(context.candidate && !checkpoint?.mergedPublication &&
         matchesDeliveryCheckpoint(checkpoint, context.candidate),
         'DELIVER_CHECKPOINT_REQUIRED');
     }

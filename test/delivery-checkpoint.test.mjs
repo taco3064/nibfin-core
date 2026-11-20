@@ -39,7 +39,7 @@ function fixture() {
       const repo = { id: candidate.repositoryId };
       return closed && commit.sha === head ? [{ state: 'closed', merged_at: null,
         head: { sha: head, ref: `nibfin/issue-2-${head.slice(0, 12)}`, repo },
-        base: { repo } }] :
+        base: { ref: 'main', repo } }] :
         publication ? [publication] : [];
     },
   };
@@ -171,6 +171,23 @@ test('publication reuses the exact open PR after controller loss', async () => {
     decideStage('commit-pr', context, now), saved);
   assert.equal(result.id, 'PR_RETAINED');
   assert.equal(result.head, head);
+  assert.deepEqual(f.calls, []);
+});
+
+test('a confirmed merged PR on a fresh host prevents a second delivery', async () => {
+  const f = fixture();
+  f.install();
+  const repo = { id: f.candidate.repositoryId };
+  const merge = 'e'.repeat(40);
+  f.knownPublication({ node_id: 'PR_MERGED', number: 9,
+    head: { sha: head, ref: `nibfin/issue-2-${head.slice(0, 12)}`, repo },
+    base: { ref: 'main', repo }, state: 'closed', draft: false,
+    merged_at: '2026-11-21T01:20:00.000Z', merge_commit_sha: merge });
+  const result = await f.start();
+  assert.equal(result.outcome, 'blocked');
+  assert.equal(result.report.code, 'MERGED_DELIVERY_CLOSURE_EVIDENCE_MISSING');
+  assert.deepEqual(result.references, ['https://github.com/example/core/pull/9']);
+  assert.match(result.findings[0], new RegExp(merge));
   assert.deepEqual(f.calls, []);
 });
 
