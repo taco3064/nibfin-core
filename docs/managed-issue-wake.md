@@ -19,11 +19,19 @@ Despite its compatibility name, this command supports `issue-managed` to `issue`
 `issue` to `issue-managed`, and repeated refresh of either recipe, including CRLF
 callers. Exact maintained titled and titleless variants are both supported;
 see [caller run titles](wake-entry.md#caller-run-titles) for the shared format.
-It verifies administrator permission, repository and member identity,
-installed Core/Action source and unchanged Action workflow identity before updating
-only the event workflow binding and its source observation. Both Runner IDs, roles,
+It verifies administrator permission, repository and member identity, and
+installed Core source before updating only the event workflow binding and its
+source observation. Both Runner IDs, roles,
 pool membership, provider and unrelated adoption fields remain unchanged. Unknown
 caller bytes, changed workflow identity/path or mismatched source are rejected.
+
+Refresh supports an Issue caller alone or an Issue caller plus the maintained
+Action wake/dispatch caller. It observes the current default-branch source tree;
+a deliberately absent retired wake caller needs no Action identity or source
+check, even if older adoption fields remain. A present Action caller must still
+match its exact recipe, member, adopted workflow identity and installed Core/Action
+source. Failed or malformed source reads are errors, never evidence of absence.
+Other installation and retirement operations retain their required Action checks.
 
 The result retains `status`, `repositoryId` and `runners`: `adopted` means a guarded
 replacement was read back; `unchanged` means current adoption already matches the

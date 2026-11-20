@@ -19,9 +19,12 @@ const issueWorkflow = '.github/workflows/nibfin-issue.yml';
 const actionWorkflow = '.github/workflows/nibfin-wake.yml';
 const reusableWorkflow = '.github/workflows/issue.yml';
 
-export async function observePeer(reader, name, id, memberId, source, actionCommit) {
+export async function observePeer(
+  reader, name, id, memberId, source, actionCommit, { refreshLayout = false } = {},
+) {
   const root = repoPath(name);
-  requireThat(isId(id) && isId(memberId) && isSha(source.commit) && isSha(actionCommit),
+  requireThat(isId(id) && isId(memberId) && isSha(source.commit) &&
+    (refreshLayout || isSha(actionCommit)),
     'INVALID_PEER_INSTALLATION_IDENTITY');
   const [repo, actor] = await Promise.all([reader.get(root), reader.get('/user')]);
   requireThat(repo.id === id && repo.full_name === name && repo.private === false &&
@@ -42,16 +45,46 @@ export async function observePeer(reader, name, id, memberId, source, actionComm
     'PEER_INSTALLATION_ADMIN_REQUIRED');
   const issue = ['issue', 'issue-managed']
     .flatMap(kind => callerRecipeVariants(kind, source.commit));
-  const action = callerRecipeVariants('action-dispatch', source.commit, {
-    actionCommit, memberId,
-  });
-  const [eventBinding, actionBinding] = await Promise.all([
-    observeAdoptionWorkflow(reader, root, issueWorkflow, head, issue),
-    observeAdoptionWorkflow(reader, root, actionWorkflow, head, action),
-  ]);
+  const actionBlob = refreshLayout
+    ? await observeActionSource(reader, root, head) : undefined;
+  let actionBinding;
+  if (!refreshLayout || actionBlob) {
+    requireThat(isSha(actionCommit), 'INVALID_PEER_INSTALLATION_IDENTITY');
+    const action = callerRecipeVariants('action-dispatch', source.commit, {
+      actionCommit, memberId,
+    });
+    actionBinding = await observeAdoptionWorkflow(
+      reader, root, actionWorkflow, head, action);
+    requireThat(!refreshLayout || actionBinding.workflowBlob === actionBlob,
+      'PEER_WORKFLOW_NOT_VERIFIED');
+  }
+  const eventBinding = await observeAdoptionWorkflow(
+    reader, root, issueWorkflow, head, issue);
   requireThat((await reader.get(branchPath)).commit?.sha === head,
     'PEER_DEFAULT_BRANCH_CHANGED');
   return { head, issue: eventBinding, action: actionBinding, repo, actor, branch };
+}
+
+// A complete, non-recursive tree read proves absence without interpreting errors
+// or historical Actions metadata as current default-branch source state.
+async function observeActionSource(reader, root, head) {
+  let tree = head;
+  for (const [index, name] of ['.github', 'workflows', 'nibfin-wake.yml'].entries()) {
+    const reply = await reader.get(`${root}/git/trees/${tree}`);
+    requireThat(reply?.truncated === false && Array.isArray(reply.tree) &&
+      isSha(reply.sha) && (index === 0 || reply.sha === tree) &&
+      reply.tree.every(entry =>
+        typeof entry?.path === 'string' && !entry.path.includes('/') &&
+        isSha(entry.sha) && ['tree', 'blob', 'commit'].includes(entry.type)) &&
+      new Set(reply.tree.map(entry => entry.path)).size === reply.tree.length,
+    'PEER_WORKFLOW_TREE_UNVERIFIED');
+    const entry = reply.tree.find(entry => entry.path === name);
+    if (!entry) return undefined;
+    requireThat(entry.type === (index === 2 ? 'blob' : 'tree'),
+      'PEER_WORKFLOW_TREE_UNVERIFIED');
+    tree = entry.sha;
+  }
+  return tree;
 }
 
 export async function observeAdoptionWorkflow(reader, root, path, head, expected) {
@@ -154,43 +187,54 @@ export async function refreshManagedIssueCaller(name, id) {
       const bytes = await boundedHostFile(path, 262144);
       return { path, bytes, value: JSON.parse(bytes) };
     };
-    const primary = await read(hostFile);
-    const host = primary.value;
-    await requireAdoptionAllowed(host, name, id);
-    const pool = sharedHostRegistrations(host);
-    requireThat(isId(id) && host.sharedRunner.repositories.includes(id),
-      'SHARED_REPOSITORY_NOT_ADOPTED');
-    const peers = host.wakePeerFiles ?? [];
-    requireThat(Array.isArray(peers) && peers.length <= 10 &&
-      peers.every(path => /^\/etc\/nibfin\/host\.[A-Za-z0-9_-]+\.json$/.test(path)),
-    'INVALID_WAKE_PEER_PATH');
-    const records = id === pool.repositoryId
-      ? [primary] : await Promise.all(peers.map(read));
-    const matches = records.filter(entry =>
-      entry.value.repository?.approval?.repositoryId === id);
-    requireThat(matches.length === 1, 'SHARED_REPOSITORY_NOT_ADOPTED');
-    const target = matches[0];
-    const adopted = target.value.repository;
-    compareProviderViews(host, target.value);
-    requireThat(adopted.approval.repository === name &&
-      adopted.approval.memberId === host.memberId &&
-      digest(target.value.installation) === digest(host.installation),
-    'MANAGED_ISSUE_TRANSITION_CONFLICT');
-    const source = await verifyInstalledSource(coreRoot, host.installation.pin);
-    const actionCommit = adopted.runner.actionCommit;
-    const reader = await adoptionReader(host);
-    await verifyAdoptionAction(reader, actionCommit, host.installation.pin);
-    const observed = await observePeer(reader, name, id, host.memberId,
-      source, actionCommit);
-    requireThat(adopted.runner.workflowId === observed.action.workflowId &&
-      adopted.runner.workflowBlob === observed.action.workflowBlob,
-    'MANAGED_ISSUE_TRANSITION_CONFLICT');
-    return refreshObservedIssueCaller(primary, target, pool, observed, source.commit, {
-      read,
-      readBytes: path => boundedHostFile(path, 262144),
-      replace,
+    return refreshInstalledIssueCaller(name, id, {
+      hostFile, read, registrations: sharedHostRegistrations,
+      requireAdoptionAllowed, compareProviderViews,
+      verifySource: pin => verifyInstalledSource(coreRoot, pin),
+      reader: adoptionReader,
+      readBytes: path => boundedHostFile(path, 262144), replace,
     });
   }));
+}
+
+// Internal orchestration: production admission, locking and private host readers
+// stay in the administrator wrapper. Controlled tests use the same refresh path.
+export async function refreshInstalledIssueCaller(name, id, io) {
+  const primary = await io.read(io.hostFile);
+  const host = primary.value;
+  await io.requireAdoptionAllowed(host, name, id);
+  const pool = io.registrations(host);
+  requireThat(isId(id) && host.sharedRunner.repositories.includes(id),
+    'SHARED_REPOSITORY_NOT_ADOPTED');
+  const peers = host.wakePeerFiles ?? [];
+  requireThat(Array.isArray(peers) && peers.length <= 10 &&
+    peers.every(path => /^\/etc\/nibfin\/host\.[A-Za-z0-9_-]+\.json$/.test(path)),
+  'INVALID_WAKE_PEER_PATH');
+  const records = id === pool.repositoryId
+    ? [primary] : await Promise.all(peers.map(io.read));
+  const matches = records.filter(entry =>
+    entry.value.repository?.approval?.repositoryId === id);
+  requireThat(matches.length === 1, 'SHARED_REPOSITORY_NOT_ADOPTED');
+  const target = matches[0];
+  const adopted = target.value.repository;
+  io.compareProviderViews(host, target.value);
+  requireThat(adopted.approval.repository === name &&
+    adopted.approval.memberId === host.memberId &&
+    digest(target.value.installation) === digest(host.installation),
+  'MANAGED_ISSUE_TRANSITION_CONFLICT');
+  const source = await io.verifySource(host.installation.pin);
+  const actionCommit = adopted.runner?.actionCommit;
+  const reader = await io.reader(host);
+  const observed = await observePeer(reader, name, id, host.memberId,
+    source, actionCommit, { refreshLayout: true });
+  if (observed.action) {
+    await verifyAdoptionAction(reader, actionCommit, host.installation.pin);
+    requireThat(adopted.runner.workflowPath === observed.action.workflowPath &&
+      adopted.runner.workflowId === observed.action.workflowId &&
+      adopted.runner.workflowBlob === observed.action.workflowBlob,
+    'MANAGED_ISSUE_TRANSITION_CONFLICT');
+  }
+  return refreshObservedIssueCaller(primary, target, pool, observed, source.commit, io);
 }
 
 // Internal persistence step. The administrator wrapper supplies verified observations
