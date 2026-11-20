@@ -55,4 +55,3 @@ export async function checkSharedRunnerSlot(
     await boundedHostFile(dispatcher, 4096) === await readFile(packaged, 'utf8'),
   'SHARED_RUNNER_WORKER_ADMISSION_REQUIRED');
 }
-
