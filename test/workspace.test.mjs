@@ -10,8 +10,7 @@ import {
   link,
   rm,
 } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { CandidateWorkspace } from '../src/workspace.mjs';
 import { command } from '../src/process.mjs';
 import { digest, sha256 } from '../src/identity.mjs';
@@ -23,7 +22,9 @@ const shape =
   'Shape\n```kairo-candidate\n' +
   '{"artifacts":[{"path":"proof.txt","purpose":"Proof"}],"hooks":[]}\n```\n';
 async function fixture(t) {
-  const directory = await mkdtemp(join(tmpdir(), 'nibfin-workspace-'));
+  const scratch = resolve('.deliver-test-tmp');
+  await mkdir(scratch, { recursive: true, mode: 0o700 });
+  const directory = await mkdtemp(join(scratch, 'nibfin-workspace-'));
   t.after(() => rm(directory, { recursive: true, force: true }));
   const seed = join(directory, 'seed');
   await mkdir(seed, { mode: 0o700 });
@@ -53,7 +54,7 @@ async function fixture(t) {
       const adjusted = [...args];
       adjusted[adjusted.indexOf('https://github.com/example/core.git')] = seed;
       adjusted.splice(
-        adjusted.indexOf('fetch'),
+        adjusted.findIndex(value => ['fetch', 'push'].includes(value)),
         0,
         '-c',
         'protocol.file.allow=always',
@@ -75,6 +76,35 @@ async function fixture(t) {
   await workspace.prepare(base);
   return { workspace, root, directory, base, seed, git, run };
 }
+
+for (const ignored of [false, true])
+  test(`saved Git tree restores on a fresh checkout, ignored proof: ${ignored}`,
+    async t => {
+      const f = await fixture(t);
+      await writeFile(join(f.workspace.work, 'source.txt'), 'Complete delivery\n');
+      await writeFile(join(f.workspace.work, 'proof.txt'), 'Required proof\n');
+      if (ignored) await writeFile(join(f.workspace.work, '.gitignore'), 'proof.txt\n');
+      const candidate = await f.workspace.capture(shape);
+      const committed = await f.workspace.commit(candidate, shape, '2026-11-18T00:00:00Z',
+        false, { shape: digest(shape), lifecycle: 0 });
+      await f.workspace.push(committed.head, 'nibfin/deliver-2', 'synthetic-token',
+        async ({ targetHash }) => ({ targetHash, bindingHash: 'a'.repeat(64) }),
+        null, 'deliver');
+      const root = join(f.directory, 'workspace-on-new-runner');
+      await mkdir(root, { mode: 0o700 });
+      const fresh = new CandidateWorkspace(root, stageFixture().approval.record.issue,
+        { run: f.run });
+      await fresh.prepare(f.base);
+      const restored = await fresh.restoreDeliveryCheckpoint({ head: committed.head,
+        parent: committed.base, tree: committed.tree, candidateHash: digest(candidate) },
+      shape, 'synthetic-token');
+      if (ignored) assert.equal(restored, null);
+      else assert.deepEqual(restored, candidate);
+      assert.equal(await readFile(join(fresh.work, 'source.txt'), 'utf8'),
+        'Complete delivery\n');
+      if (ignored) await assert.rejects(readFile(join(fresh.work, 'proof.txt')),
+        { code: 'ENOENT' });
+    });
 
 test('read committed project config without refreshing the delivery tree', async t => {
   const { workspace, seed, git, base } = await fixture(t);
