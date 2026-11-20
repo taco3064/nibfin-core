@@ -1,6 +1,5 @@
 """Controlled native provider/filesystem ports; all fixtures stay in this repo."""
 import importlib.util
-import sys
 import json
 from pathlib import Path
 import tempfile

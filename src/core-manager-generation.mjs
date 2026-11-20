@@ -30,7 +30,7 @@ export async function selectedManager() {
     if (error.code === 'ENOENT') return managerRoot;
     throw error;
   }
-  requireThat(selected.schemaVersion === 1 &&
+  requireThat(selected?.schemaVersion === 1 &&
     managerGenerationName.test(selected.generation), 'ROLLOUT_MANAGER_METADATA_UNKNOWN');
   return join(managerBase, selected.generation, 'package');
 }
