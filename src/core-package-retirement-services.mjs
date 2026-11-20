@@ -10,6 +10,8 @@ const properties = ['ExecStart', 'ExecStartPre', 'ExecStartPost', 'ExecStop',
   'MountImages', 'ExtensionImages', 'ExtensionDirectories',
   'BindPaths', 'BindReadOnlyPaths', 'EnvironmentFiles', 'FragmentPath',
   'DropInPaths', 'StandardInputFile', 'StandardOutputFile', 'StandardErrorFile'];
+const unitName = /^[A-Za-z0-9@_.:\\-]+\.service$/;
+const unavailable = 'PACKAGE_SERVICE_OBSERVATION_UNAVAILABLE';
 const decode = text => text.replace(/\\x([a-fA-F0-9]{2})/g,
   (_, hex) => String.fromCharCode(parseInt(hex, 16)));
 
@@ -83,6 +85,27 @@ async function requireNoCommandReferences(text, reference) {
   }
 }
 
+function observedServices(output, units) {
+  const claimed = new Map();
+  const records = new Map();
+  for (const record of output.trim().split(/\n\n+/)) {
+    const id = property(record, 'Id');
+    const names = property(record, 'Names').split(/ +/).filter(Boolean);
+    requireThat(unitName.test(id) && names.every(name => unitName.test(name)),
+      unavailable);
+    const selected = [id, ...names].filter(name => units.has(name));
+    requireThat(selected.length > 0 &&
+      (!records.has(id) || records.get(id).record === record), unavailable);
+    for (const name of selected) {
+      requireThat(!claimed.has(name) || claimed.get(name) === id, unavailable);
+      claimed.set(name, id);
+    }
+    records.set(id, { record, installed: selected.some(name => units.get(name)) });
+  }
+  requireThat(claimed.size === units.size, unavailable);
+  return records.values();
+}
+
 // Query systemd's effective source-bearing properties for loaded AND installed
 // services, including disabled/inactive units. Do not inspect arbitrary files.
 export async function requireNoPackageServices(path, run = command) {
@@ -93,20 +116,20 @@ export async function requireNoPackageServices(path, run = command) {
     const { stdout } = await run('/usr/bin/systemctl', args, options);
     for (const line of stdout.toString().split('\n').filter(line => line.trim())) {
       const name = line.trim().split(/\s+/)[0];
-      requireThat(/^[A-Za-z0-9@_.:\\-]+\.service$/.test(name),
-        'PACKAGE_SERVICE_OBSERVATION_UNAVAILABLE');
+      requireThat(unitName.test(name), unavailable);
       // The manager exposes effective properties on concrete instances.
       if (name.endsWith('@.service')) continue;
       names.set(name, operation === 'list-unit-files' || names.get(name) === true);
     }
   }
+  if (!names.size) return;
+  const fields = ['Id', 'Names', 'NeedDaemonReload', 'LoadState', ...properties];
+  const { stdout } = await run('/usr/bin/systemctl',
+    ['show', '--property=' + fields.join(','), '--', ...names.keys()], options);
   const escaped = path.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const reference = new RegExp(`(?:^|[\\s="':;{])${escaped}(?=$|[/\\s"';}:])`);
-  for (const [name, installed] of names) {
-    const { stdout } = await run('/usr/bin/systemctl', ['show', name,
-      '--property=' + [...properties, 'NeedDaemonReload', 'LoadState'].join(',')],
-    options);
-    const text = decode(stdout.toString());
+  for (const { record, installed } of observedServices(stdout.toString(), names)) {
+    const text = decode(record);
     // A loaded dependency placeholder can have no service definition.
     if (!installed && property(text, 'LoadState') === 'not-found' &&
       !property(text, 'FragmentPath') && property(text, 'NeedDaemonReload') === 'no')

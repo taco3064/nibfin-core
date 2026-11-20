@@ -274,7 +274,7 @@ def continue_after_gate(result, handle):
     except (OSError, ValueError, RuntimeError) as error:
         completed["continuation"] = RESULTS.failure_result(error, continuation=True)
     if "cleanup" in completed:
-        # The bridge swept under exclusive ownership before this shared phase.
+        # The fixed bridge owns the independent cleanup attempt and report.
         completed["continuation"].pop("cleanup", None)
     return completed
 

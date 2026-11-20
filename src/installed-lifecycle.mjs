@@ -27,21 +27,26 @@ export async function completeInstalledLifecycle() {
   });
 }
 
-// Controlled lifecycle seam uses the same ordering and result semantics as the
-// installed boundary. Retirement is independent of continuation admission.
 export async function completeLifecycleLocally(ports) {
-  const cleanup = await ports.retire();
+  let result, cleanup;
+  try { result = await observeContinuation(ports.continue); }
+  // Local work is attempted even if continuation is denied or unavailable.
+  finally { cleanup = await ports.retire(); }
+  return { ...result, cleanup };
+}
+
+async function observeContinuation(continueLifecycle) {
   try {
-    return { ...await ports.continue(), cleanup };
+    return await continueLifecycle();
   } catch (error) {
     // Failed observations cannot establish either admission or an empty scan.
     // Explicit trust/admission refusals still follow the denied-command path.
     const diagnostic = githubReadDiagnostic(error);
-    if (diagnostic) return { status: 'pending', results: [], cleanup, ...diagnostic };
+    if (diagnostic) return { status: 'pending', results: [], ...diagnostic };
     if (error instanceof SyntaxError || ['ENOENT', 'EIO', 'ESTALE',
       'HOST_ADOPTION_CHANGED', 'MANAGED_CREDENTIAL_PROVIDER_UNAVAILABLE',
       'MANAGED_CREDENTIAL_CONSUMER_PENDING'].includes(error.code))
-      return { status: 'pending', results: [], cleanup, code: safeRelayCode(error) };
+      return { status: 'pending', results: [], code: safeRelayCode(error) };
     throw error;
   }
 }

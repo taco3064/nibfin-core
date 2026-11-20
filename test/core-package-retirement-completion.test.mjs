@@ -14,7 +14,7 @@ test('bridge and legacy retirement is independent of publication', () => {
   assert.match(result.stdout, /passed/);
 });
 
-test('cleanup precedes paused/pending continuation and admission', async () => {
+test('cleanup also runs after paused or denied continuation', async () => {
   for (const status of ['paused', 'pending', 'dispatched']) {
     const events = [];
     const cleanup = [{ status: 'retained', code: 'PACKAGE_OBSERVATION_UNAVAILABLE' }];
@@ -22,7 +22,7 @@ test('cleanup precedes paused/pending continuation and admission', async () => {
       retire: async () => { events.push('retire'); return cleanup; },
       continue: async () => { events.push('continue'); return { status, results: [] }; },
     });
-    assert.deepEqual(events, ['retire', 'continue']);
+    assert.deepEqual(events, ['continue', 'retire']);
     assert.equal(result.status, status);
     assert.deepEqual(result.cleanup, cleanup);
   }

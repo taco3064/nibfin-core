@@ -2,9 +2,9 @@
 
 Core reconsiders obsolete `core-staged-<commit>` and `core-before-<target>`
 packages during installed lifecycle completion and after the administrator's
-management child exits. Cleanup runs before continuation admission and dispatch,
-so paused work and pending remote operations do not prevent local cleanup.
-A failed management refresh keeps installation complete and cleanup independent.
+management child exits. The fixed bridge attempts refresh and continuation
+before the independent cleanup sweep. A failed refresh or continuation still
+permits cleanup and preserves the confirmed installation result.
 The legacy staged cleanup delegates to this same implementation.
 
 A name, age or Git ancestry does not authorize removal. Core checks canonical
@@ -31,13 +31,16 @@ that filesystem is mounted below the host root or the bind appears in another
 namespace. Service arguments use the effective working directory under the
 service root and include relative script and option paths. Effective properties
 are checked on configured units and concrete template instances, including
-inactive services. Failed observations preserve affected material.
+inactive services. Each check reads the effective properties of the enumerated
+units together and verifies that each unit is represented. Failed observations
+preserve affected material.
 
-Removal runs under the existing exclusive configuration-directory kernel gate.
-An inherited shared gate is deferred, never upgraded by cleanup. The fixed bridge
-owns its existing promotion boundary and runs cleanup after the child exits,
-before downgrading for continuation. Executing package source remains protected.
-No additional lock, timer, work queue or recovery-source registry is introduced.
+Removal acquires the existing exclusive configuration-directory kernel gate for
+each package, with fresh observations after acquiring it. Core releases the
+gate between packages. If the gate is busy, Core reports completed removals and
+defers the remaining sweep to normal lifecycle retry. An inherited gate defers
+cleanup without changing the caller's lock. The fixed bridge releases its gate
+before launching the sweep. Executing package source remains protected.
 
 After complete verification, Core durably records a per-package deletion intent
 beside the package as `.retiring-core-<kind>-<commit>.json`. This contains its
