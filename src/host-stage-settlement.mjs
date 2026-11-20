@@ -2,6 +2,7 @@ import { retryableHostPressure } from './host-memory-pressure.mjs';
 import { pendingCIObservation } from './github-ci.mjs';
 import { ciCorrectionWaiting } from './ci-recovery.mjs';
 import { retryableWriterPressure } from './job-vm-pressure.mjs';
+import { jobVmExecutorFailures } from './job-vm-exec-relay.mjs';
 import {
   githubApiWaiting, githubReadWaiting, githubReadWait, observationFailureCode,
 } from './observation-failure.mjs';
@@ -45,7 +46,8 @@ async function settleResult(result, release, report, retryableRead) {
   try {
     await release(result);
     if (retryableHostPressure(result) ||
-      result.status === 'denied' && retryableWriterPressure(result.code))
+      result.status === 'denied' && (retryableWriterPressure(result.code) ||
+        jobVmExecutorFailures.includes(result.code)))
       return { ...result, retrySettled: true };
     return retryableRead ? { ...result, retrySettled: true } : result;
   } catch (error) {

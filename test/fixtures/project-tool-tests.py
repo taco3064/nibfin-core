@@ -1,5 +1,6 @@
 """Native subprocess and VM workspace checks, without Docker or host mutation."""
 import importlib.util
+import io
 import json
 import os
 from pathlib import Path
@@ -98,3 +99,31 @@ except ValueError:
 else:
     raise AssertionError("Tool preparation accepted an escaping directory")
 print("Native Claude child and VM prepare/collect passed")
+
+# Exercise the actual workspace protocol, not only its preparation helper.
+protocol_root = root / "protocol"
+protocol_root.mkdir()
+original_path = vm.Path
+vm.Path = lambda value: protocol_root if value == "/" else original_path(value)
+vm.ENV = {"HOME": str(protocol_root / "home")}
+
+
+class Client:
+    def makefile(self, mode):
+        return io.BytesIO(json.dumps({
+            "operation": "prepare", "name": "work", "files": [],
+            "toolRoot": temporary, "toolDirectories": [temporary + "/tmp"],
+        }).encode() + b"\n")
+
+    def sendall(self, data):
+        self.result = json.loads(data)
+
+
+client = Client()
+vm.workspace(client)
+assert client.result == {"ready": True, "toolOutput": {
+    "root": temporary, "directories": [temporary + "/tmp"],
+    "collection": "preserve-source-omit-owned-output",
+}}, client.result
+assert (protocol_root / "work" / temporary / "tmp").is_dir()
+print("VM readiness reports actual tool-directory and collection capability")

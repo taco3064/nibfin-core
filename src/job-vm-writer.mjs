@@ -8,7 +8,8 @@ import { exchangeJobVmFrame } from './job-vm-channel.mjs';
 import {
   jobVmExecutorFailures, openJobVmExecRelay, probeJobVmExecutor,
 } from './job-vm-exec-relay.mjs';
-import { snapshotJobVmWorkspace } from './job-vm-workspace.mjs';
+import { snapshotJobVmWorkspace, requireJobVmToolOutput }
+  from './job-vm-workspace.mjs';
 import { projectToolDirectories, projectToolRoot } from './project-tool-paths.mjs';
 import { installJobVmWorkspace } from './job-vm-install.mjs';
 import { archiveJobVmTools } from './job-vm-tools.mjs';
@@ -136,14 +137,16 @@ async function runWriter(connect, directory, input, execute, signal) {
   const request = payload => transfer(connect, payload, signal);
   for (const name of ['work', 'main', 'input']) {
     const files = await snapshotJobVmWorkspace(input[name]);
+    const directories = (input.plan?.toolDirectories ??
+      projectToolDirectories(true)).map(path => path.slice(6));
+    const toolRoot = (input.plan?.toolRoot ?? projectToolRoot(true)).slice(6);
     const setup = await request({ operation: 'prepare', name, files,
       ...(name === 'work' ? {
-        toolDirectories: (input.plan?.toolDirectories ??
-          projectToolDirectories(true)).map(path => path.slice(6)),
-        toolRoot: (input.plan?.toolRoot ?? projectToolRoot(true)).slice(6),
+        toolDirectories: directories, toolRoot,
       } : {}),
     });
     requireThat(setup?.ready === true, 'JOB_VM_WORKSPACE_TRANSFER_FAILED');
+    if (name === 'work') requireJobVmToolOutput(setup, toolRoot, directories);
   }
   const relay = join(directory, 'exec.sock');
   const close = await openJobVmExecRelay(relay, connect);

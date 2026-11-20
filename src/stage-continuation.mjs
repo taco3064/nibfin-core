@@ -8,6 +8,7 @@ import { enforcementPaths, equivalentCandidate } from './candidate-evidence.mjs'
 import { integrationRepairRequired, pendingCIObservation } from './github-ci.mjs';
 import { codexIdle, codexPreflightExits } from './codex-bootstrap.mjs';
 import { retryableWriterPressure } from './job-vm-pressure.mjs';
+import { jobVmExecutorFailures } from './job-vm-exec-relay.mjs';
 import { ciCorrectionWaiting, requiredCheckFailed } from './ci-recovery.mjs';
 import {
   githubReadDelay, githubReadWaiting, retryGitHubObservation,
@@ -18,8 +19,17 @@ const correctionStages = new Set(['accept', 'review-pr']);
 
 async function stoppedAgentCanRestart(store, stage, receipt) {
   if (!agentStages.has(stage) || receipt.outcome !== 'blocked' ||
-    typeof receipt.execution?.id !== 'string' || receipt.references?.length !== 1)
+    typeof receipt.execution?.id !== 'string')
     return false;
+  const report = receipt.report;
+  if (stage === 'deliver' && report?.producer === 'agent' &&
+    report.failureClass === 'external_failure' &&
+    report.binding?.executionId === receipt.execution.id &&
+    report.termination?.owner === 'docker-inspect' &&
+    report.termination.executionId === receipt.execution.id &&
+    report.termination.running === false && report.termination.exitCode === 0)
+    return true;
+  if (receipt.references?.length !== 1) return false;
   const reference = receipt.references[0];
   if (!/^evidence:[a-f0-9]{64}$/.test(reference)) return false;
   const proof = await store.get(reference.slice('evidence:'.length)).catch(() => null);
@@ -32,6 +42,7 @@ async function stoppedAgentCanRestart(store, stage, receipt) {
     (proof.code === hostMemoryPressure && proof.stage === stage &&
       pressureMatchesReceipt(proof.memoryPressure, stage, receipt.execution) ||
       proof.code === codexIdle.code ||
+      stage === 'deliver' && jobVmExecutorFailures.includes(proof.code) ||
       stage === 'deliver' && retryableWriterPressure(proof.code));
 }
 
