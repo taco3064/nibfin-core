@@ -4,6 +4,8 @@ import { GitHubWriter, MergeBeforeWrite } from './github-write.mjs';
 import { decideStage } from './stages.mjs';
 import { digest, isDigest, requireThat } from './identity.mjs';
 import { setTimeout } from 'node:timers/promises';
+import { isClosedUnmergedPullRequest, PublicationBeforeWrite }
+  from './publication-target.mjs';
 
 // Installed Core assembly. Neither credentials nor the observer are provided by
 // a stage request. Re-admit separately before every remote mutation, including
@@ -43,6 +45,11 @@ export function nativeWrites({
       let fresh;
       try {
         let observed = await observe(stage);
+        if (stage === 'commit-pr' && context.pr &&
+          observed.abandonedPublication === context.pr.id)
+          throw new PublicationBeforeWrite();
+        if (stage === 'commit-pr') requireThat(observed.pr?.id === context.pr?.id,
+          'WRITE_AUTHORITY_CHANGED');
         if (settlementLabel !== undefined) {
           // Account only for the confirmed additive effect of this admitted
           // lifecycle operation, binding the exact remaining PATCH payload.
@@ -110,6 +117,10 @@ export function nativeWrites({
         const before = await reader.get(
           `/repos/${issue.repository}/pulls/${existing.number}`,
         );
+        if (before.node_id === existing.id && before.number === existing.number &&
+          before.base?.repo?.id === issue.repositoryId &&
+          isClosedUnmergedPullRequest(before))
+          throw new PublicationBeforeWrite();
         requireThat(
           before.node_id === existing.id &&
             before.head?.sha === existing.head &&

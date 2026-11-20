@@ -12,6 +12,7 @@ import { sharedWorkflowPath } from '../src/shared-runner.mjs';
 import { retryableWriterPressure } from '../src/job-vm-pressure.mjs';
 import { pendingCIObservation } from '../src/github-ci.mjs';
 import { ciCorrectionWaiting } from '../src/ci-recovery.mjs';
+import { publicationTargetAbandoned } from '../src/publication-target.mjs';
 
 const repository = 'taco3064/nibfin-core';
 const maxAttempt = 3;
@@ -31,6 +32,8 @@ export function retryDelay(log, id, attempt) {
   if (memoryWait || retryableHostPressure(result, result.terminalStage))
     return 5 * 60_000;
   if (result.status !== 'pending') return null;
+  if (result.code === publicationTargetAbandoned &&
+    result.terminalStage === 'commit-pr') return 0;
   const correctiveDeliver = result.code === ciCorrectionWaiting &&
     result.terminalStage === 'deliver';
   if (pendingCIObservation(result.code) || correctiveDeliver) return 60_000;
@@ -69,7 +72,7 @@ export async function retrySharedRunner(reader, event, { logs, rerun, wait, acto
   if (failed.length !== 1) return false;
   const delay = retryDelay(await logs(failed[0].id), run.id, run.run_attempt);
   if (delay === null) return false;
-  await wait(delay);
+  if (delay > 0) await wait(delay);
   if (!await stillFailed()) return false;
   const actor = await retryGitHubObservation(actorRead ?? (() => reader.get('/user')),
     { timeout: 60000 });

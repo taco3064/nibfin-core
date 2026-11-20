@@ -1,4 +1,5 @@
 import { retryableHostPressure } from './host-memory-pressure.mjs';
+import { publicationTargetAbandoned } from './publication-target.mjs';
 import { pendingCIObservation } from './github-ci.mjs';
 import { ciCorrectionWaiting } from './ci-recovery.mjs';
 import { retryableWriterPressure } from './job-vm-pressure.mjs';
@@ -19,7 +20,7 @@ export async function settleHostStage(run, release, report) {
   }
   const retryableRead = result.status === 'pending' &&
     (result.code === githubReadWaiting || result.code === githubApiWaiting ||
-      result.code === ciCorrectionWaiting ||
+      result.code === ciCorrectionWaiting || result.code === publicationTargetAbandoned ||
       pendingCIObservation(result.code));
   if (result.status === 'pending' && !retryableRead) return result;
   return settleResult(result, release, report, retryableRead);

@@ -1,3 +1,4 @@
+import { observePublication } from './publication-target.mjs';
 import { readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { EvidenceStore } from './evidence-store.mjs';
@@ -24,7 +25,7 @@ function openProgress(root, binding, workspace) {
   return { workspaceRoot, binding, store, marker };
 }
 
-async function readLegacyProgress(root, directory, approval) {
+async function readLegacyProgress(root, directory, approval, reader) {
   await privateHostDirectory(directory);
   const pointer = await readLegacyObject(directory, 'shape.json');
   if (!pointer) return null;
@@ -38,7 +39,9 @@ async function readLegacyProgress(root, directory, approval) {
     binding.scopeHash !== approval.scopeBinding) return null;
   requireThat(isDigest(binding.sourceHash), 'INVALID_EVIDENCE_BINDING');
   const progress = openProgress(root, binding, `workspace-${binding.sourceHash}`);
-  const receipts = await progress.store.load();
+  const saved = await progress.store.load();
+  const receipts = reader ? (await observePublication(reader,
+    approval.record.issue, saved)).receipts : saved;
   const values = Object.values(receipts);
   if (!values.every(entry => entry.execution?.actorId ===
     approval.record.roles[stages[entry.stage].role])) return null;
@@ -59,7 +62,7 @@ async function readLegacyProgress(root, directory, approval) {
 
 // The caller holds the existing Issue fence. New workspace selection is based on
 // the Issue directory. Prior installations retain their original evidence bytes.
-export async function issueProgress(root, approval) {
+export async function issueProgress(root, approval, reader) {
   const binding = evidenceBinding({ approval });
   if (approval.scopeBinding === undefined)
     return openProgress(root, binding, `workspace-${binding.sourceHash}`);
@@ -74,7 +77,8 @@ export async function issueProgress(root, approval) {
   const entries = await readdir(receiptsRoot);
   const legacy = [];
   for (const name of entries.filter(entry => /^evidence-[a-f0-9]{64}$/.test(entry))) {
-    const item = await readLegacyProgress(root, join(receiptsRoot, name), approval);
+    const item = await readLegacyProgress(root, join(receiptsRoot, name),
+      approval, reader);
     if (item) legacy.push(item);
   }
   const published = legacy.filter(item => item.published);

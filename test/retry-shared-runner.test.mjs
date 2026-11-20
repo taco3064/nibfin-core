@@ -114,3 +114,15 @@ test('settled admitted-stage pressure uses the bounded delayed rerun route', asy
       workflow_run: { ...run, run_attempt: 3 } }, options), false);
   }
 });
+
+test('a settled abandoned publication retries immediately with its original run',
+  () => {
+    const result = { schemaVersion: 1, status: 'pending', stage: 'continue',
+      terminalStage: 'commit-pr', code: 'PUBLICATION_TARGET_ABANDONED',
+      retrySettled: true, retryRun: 2, retryAttempt: 1 };
+    assert.equal(retryDelay(JSON.stringify(result), 2, 1), 0);
+    assert.equal(retryDelay(JSON.stringify({ ...result, retrySettled: false }), 2, 1),
+      null);
+    assert.equal(retryDelay(JSON.stringify({ ...result, terminalStage: 'merge' }), 2, 1),
+      null);
+  });

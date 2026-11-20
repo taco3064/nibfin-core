@@ -11,8 +11,9 @@ import { EvidenceStore } from './evidence-store.mjs';
 import { evidenceBinding, stages } from './stages.mjs';
 import { equivalentCandidate } from './candidate-evidence.mjs';
 import { repoPath } from './github-read.mjs';
-import { digest, isDigest, isId, isSha, requireThat } from './identity.mjs';
+import { digest, isDigest, isSha, requireThat } from './identity.mjs';
 import { readAdoptedOpenPr } from './adopt-open-pr.mjs';
+import { observePublication } from './publication-target.mjs';
 
 // Wiring belongs to installed Core. Config and inspection functions are never
 // selected by the public stage request. Neither GitHub events nor local JSON
@@ -78,7 +79,9 @@ export function nativeObserver({
     );
     const stateBinding = pinned.stateBinding;
     const store = stores(evidenceBinding({ approval, stateBinding })),
-      receipts = await store.load();
+      publication = await observePublication(reader, record.issue,
+        await store.load(), pinned.openPr),
+      { receipts, handoff, adopted } = publication;
     const main = await readCurrentMain(
       reader, record.issue, hostMain, approval.repository,
     );
@@ -91,6 +94,8 @@ export function nativeObserver({
         : { status: 'pending', code: 'PAUSE_OBSERVATION_CHANGED' },
       dependencies: { ready: true, identities: record.prerequisites },
       route,
+      ...(publication.abandonedId ? { abandonedPublication: publication.abandonedId }
+        : {}),
       receipts,
       execution: actor,
     };
@@ -112,33 +117,35 @@ export function nativeObserver({
         }
       }
     }
-    if (stage === 'deliver' && pinned.openPr && !context.candidate &&
+    if (stage === 'deliver' && handoff && !context.candidate &&
       !receipts['commit-pr']) {
-      await readAdoptedOpenPr(reader, record.issue, pinned.openPr,
-        record.roles.publisher);
-      const handoff = pinned.openPr.localCandidate;
-      if (handoff) {
-        requireThat(handoff.issueId === record.issue.id &&
-          handoff.shapeHash === context.shape?.hash &&
-          typeof handoff.workspace === 'string' &&
-          /^workspace-[a-f0-9]{64}$/.test(handoff.workspace),
+      await readAdoptedOpenPr(reader, record.issue, handoff,
+        record.roles.publisher, adopted);
+      const candidate = handoff.localCandidate;
+      if (candidate) {
+        requireThat(candidate.issueId === record.issue.id &&
+          candidate.shapeHash === context.shape?.hash &&
+          typeof candidate.workspace === 'string' &&
+          /^workspace-[a-f0-9]{64}$/.test(candidate.workspace),
         'INVALID_HANDOFF_WORKSPACE');
       }
-      context.adoptedCandidate = handoff
-        ? { ...handoff, number: pinned.openPr.number } : pinned.openPr;
+      context.adoptedCandidate = candidate
+        ? { ...candidate, number: handoff.number } : handoff;
     }
     if (stage === 'deliver') context.rebaseTarget = main.head;
-    if (stage === 'commit-pr' && pinned.openPr &&
+    if (stage === 'commit-pr' && handoff &&
       receipts['commit-pr']?.outcome !== 'published') {
-      context.pr = await readAdoptedOpenPr(reader, record.issue, pinned.openPr,
-        record.roles.publisher);
-      context.adoptedOpenPr = true;
+      const target = await readAdoptedOpenPr(reader, record.issue, handoff,
+        record.roles.publisher, adopted);
+      if (target) {
+        context.pr = target;
+        context.adoptedOpenPr = true;
+      }
     }
-    if (receipts['commit-pr']?.outcome === 'published') {
-      const saved = receipts['commit-pr'].artifacts;
-      requireThat(isId(saved.prNumber) && isSha(saved.head), 'INVALID_PR_RECEIPT');
-      const root = repoPath(record.issue.repository),
-        pr = await reader.get(`${root}/pulls/${saved.prNumber}`);
+    const { saved, pr } = publication;
+    if (saved) {
+      requireThat(isSha(saved.head), 'INVALID_PR_RECEIPT');
+      const root = repoPath(record.issue.repository);
       requireThat(
         pr.node_id === saved.prId &&
           pr.number === saved.prNumber &&

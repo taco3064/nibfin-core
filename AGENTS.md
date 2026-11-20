@@ -186,3 +186,21 @@ completed. When a successful read finds no completed outcome, rerun the
 unfinished stage using its normal admission and native GitHub checks.
 A missing local receipt alone must never stop continuation. Keep the
 ordinary handling for failed observations and apply it to the affected step.
+
+When the authoritative source explicitly retires or replaces a reference,
+exclude it and evidence tied only to it from current execution and verification.
+Check only the authoritative status needed to identify the retirement. Preserve
+historical records for audit without requiring their contents or dependent
+objects to remain readable. A failed lookup does not establish retirement.
+
+Decide validity for the intended use. Identify the source by its native
+identity, confirm that it applies to the current work, and read the authority
+for the facts that permit that use. Confirmed completion remains eligible as
+evidence under the existing checks. An unknown outcome follows the normal
+observation path.
+
+Closure alone does not establish abandonment. A bound publication target exits
+active selection when GitHub confirms it is closed and unmerged. A merged pull
+request can still prove completion. A closed Issue must meet the existing
+delivery checks to satisfy a native dependency. A closure reason alone does
+not establish delivery or remove a current dependency.

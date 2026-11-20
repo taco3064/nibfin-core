@@ -5,6 +5,7 @@ import { randomUUID } from 'node:crypto';
 import { digest, isDigest, isId, requireThat } from './identity.mjs';
 import { operations } from './approval-record.mjs';
 import { MergeBeforeWrite } from './github-write.mjs';
+import { PublicationBeforeWrite } from './publication-target.mjs';
 import { localDeliverInterruption } from './local-deliver-interruption.mjs';
 import {
   retainedRecovery, recoveryFile, inspectRecoveryFile,
@@ -218,8 +219,10 @@ export class OperationJournal {
         let result;
         try { result = await perform(); }
         catch (error) {
-          // Only the merge adapter can prove it stopped before its one write.
-          if (request.operation !== 'merge' || !(error instanceof MergeBeforeWrite))
+          // Only the adapter may establish that the remote write never began.
+          if (!(request.operation === 'merge' && error instanceof MergeBeforeWrite ||
+              request.operation === 'commit-pr' &&
+                error instanceof PublicationBeforeWrite))
             throw error;
           await this.#write(state);
           return { status: 'pending', code: error.code };
