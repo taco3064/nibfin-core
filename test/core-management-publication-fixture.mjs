@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { chmod, cp, mkdir, readFile, readdir, rm, symlink, writeFile }
+import { chmod, cp, mkdir, open, readFile, readdir, rm, symlink, writeFile }
   from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { installVerifiedRolloutManager } from '../src/core-manager-installation.mjs';
@@ -82,16 +82,24 @@ export async function checkManagementPublication(manager, oldPin, nodePath, mani
   const entry = join(base, 'client.py');
   const bytes = index => readFile(join(sources[index], 'src/publication-fixture.mjs'));
   await publishMaintenanceFile(entry, await bytes(0), [], 0o755);
-  await installVerifiedRolloutManager(sources[1], pins[1], runtime);
-  // Interrupted C published one entry; D can recognize both B and C directly.
-  await publishMaintenanceFile(entry, await bytes(1), [await bytes(0)], 0o755);
-  await installVerifiedRolloutManager(sources[2], pins[2], runtime);
-  const recovery = await managerRecoveryPackages();
-  assert.equal(recovery.packages.length, 2);
-  await publishMaintenanceFile(entry, await bytes(2),
-    await Promise.all(recovery.packages.map(pair =>
-      readFile(join(pair.root, 'src/publication-fixture.mjs')))), 0o755);
-  assert.deepEqual(await readFile(entry), await bytes(2));
+  const predecessor = await installVerifiedRolloutManager(sources[1], pins[1], runtime);
+  const reader = await open(predecessor.directory);
+  const oldGeneration = dirname(predecessor.directory);
+  let recovery;
+  try {
+    // Interrupted C published one entry; D can recognize both B and C directly.
+    await publishMaintenanceFile(entry, await bytes(1), [await bytes(0)], 0o755);
+    await installVerifiedRolloutManager(sources[2], pins[2], runtime);
+    recovery = await managerRecoveryPackages();
+    assert.equal(recovery.packages.length, 2);
+    await publishMaintenanceFile(entry, await bytes(2),
+      await Promise.all(recovery.packages.map(pair =>
+        readFile(join(pair.root, 'src/publication-fixture.mjs')))), 0o755);
+    assert.deepEqual(await readFile(entry), await bytes(2));
+    assert.deepEqual((await cleanupManagerRecovery(recovery.packages)).sort(),
+      [manager, oldGeneration].sort());
+    await verifyOwnedSourcePackage(predecessor.directory, pins[1]);
+  } finally { await reader.close(); }
   assert.deepEqual(await cleanupManagerRecovery(recovery.packages), [manager]);
   await mkdir(join(base, '.previous-unknown'));
   await writeFile(join(base, '.previous-unknown/foreign'), 'retain');
