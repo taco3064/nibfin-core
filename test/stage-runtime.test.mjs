@@ -183,6 +183,9 @@ test('a published Shape is loaded verbatim without starting Author', async t => 
     store: { put: async value => {
       stored = value;
       return digest(value);
+    }, get: async hash => {
+      assert.equal(hash, digest(body));
+      return body;
     } },
   });
   const outcome = await new StageRuntime(f.adapters).run(request);

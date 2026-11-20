@@ -212,13 +212,13 @@ test('changed raw requirements need no candidate block before Shape', linux,
     assert.equal(f.writes.length, 1);
   });
 
-test('merged requirements are not re-Shaped and closed Issues cannot restart',
+test('open requirements can evolve after a merge; closed Issues cannot restart',
   async () => {
     const context = stageFixture('shape');
     context.issue.body = history.amendedBody;
     assert.equal(await issueRequirementsChanged(context.issue,
       { shape: { requirementsBody: history.originalBody }, merge: {} },
-      () => assert.fail('Merged work has no requirements refresh')), false);
+      () => assert.fail('Unpublished requirements need no artifact read')), true);
     context.issue.state = 'closed';
     assert.equal(decideStage('shape', context, now).code, 'ISSUE_CHANGED');
   });

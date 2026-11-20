@@ -117,6 +117,7 @@ export async function continueStages({
   store,
   execute,
   refreshRequirements = async () => false,
+  resumeClosed = async () => false,
   inspect,
   wait,
   clock = Date.now,
@@ -144,7 +145,7 @@ export async function continueStages({
         code: 'CORRECTION_DID_NOT_CHANGE_CANDIDATE' };
     }
     return continueStages({
-      store, execute, refreshRequirements, inspect, wait, clock, ciTimeout,
+      store, execute, refreshRequirements, resumeClosed, inspect, wait, clock, ciTimeout,
       repairIntegration, correctionRepairs: correctionRepairs - 1,
     });
   };
@@ -181,8 +182,15 @@ export async function continueStages({
         code: 'STAGE_REQUIRES_CORRECTION', stage };
     }
   }
-  if (initial.close)
+  if (initial.close) {
+    const resumed = await resumeClosed(initial);
+    if (resumed && typeof resumed === 'object') return resumed;
+    if (resumed) {
+      await inspectCurrent();
+      return execute('close');
+    }
     return { schemaVersion: 1, status: 'denied', code: 'DELIVERY_ALREADY_RECORDED' };
+  }
   let result;
   for (const stage of Object.keys(stages)) {
     if (initial[stage] || stage === 'review-pr' && await canReuseReview(store))
@@ -243,7 +251,8 @@ export async function continueStages({
       const repaired = await execute('deliver');
       if (repaired.status !== 'completed') return repaired;
       return continueStages({
-        store, execute, refreshRequirements, inspect, wait, clock, ciTimeout,
+        store, execute, refreshRequirements, resumeClosed, inspect, wait, clock,
+        ciTimeout,
         repairIntegration: false,
         correctionRepairs,
       });

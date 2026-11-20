@@ -18,6 +18,7 @@ import { stages, issueRequirementsChanged } from './stages.mjs';
 import { issueProgress } from './issue-progress.mjs';
 import { refreshShapeWorkspace } from './host-shape-workspace.mjs';
 import { cleanClosedWorkspace } from './closed-workspace.mjs';
+import { readReopenedDelivery } from './reopened-delivery.mjs';
 import { continueStages } from './stage-continuation.mjs';
 import { observeStageProgress } from './stage-presentation.mjs';
 import { setTimeout } from 'node:timers/promises';
@@ -299,12 +300,22 @@ async function launchAdmittedStage(issueNumber, stage, env, runnerUid,
     const { workspaceRoot, binding, store, marker: workspaceBinding } = progress;
     const workspace = new CandidateWorkspace(workspaceRoot, issue);
     let observedMain;
+    let resumeClosed = false;
     const observeMain = () => observedMain ??= retryGitHubObservation(() =>
       readCurrentMain(reader, issue, hostMainReader(token), approval.repository));
     const requirementsChanged = async receipts => {
-      if (!receipts.shape || receipts.merge) return false;
+      if (!receipts.shape) return false;
       const current = await reader.issue(issue);
-      return issueRequirementsChanged(current, receipts, hash => store.get(hash));
+      if (await issueRequirementsChanged(current, receipts, hash => store.get(hash)))
+        return true;
+      const reopened = await readReopenedDelivery({
+        reader, issue, live: current, receipts, observeMain,
+      });
+      if (reopened.recoveredMerge) await store.append(reopened.recoveredMerge);
+      resumeClosed = reopened.reconcile ? { schemaVersion: 1, stage: 'continue',
+        status: 'pending', code: 'CONTROLLER_RECONCILIATION_UNPROVEN' }
+        : reopened.close;
+      return reopened.changed;
     };
     const existing = await lstat(workspaceRoot).catch(error => {
       if (error.code !== 'ENOENT') throw error;
@@ -426,8 +437,9 @@ async function launchAdmittedStage(issueNumber, stage, env, runnerUid,
         ? continueStages({
             store,
             execute,
+            resumeClosed: async () => resumeClosed,
             refreshRequirements: async receipts => {
-              if (!receipts.shape || receipts.merge) return false;
+              if (!receipts.shape) return false;
               const shape = digest(receipts.shape);
               if (shape === restartedShape) return true;
               if (shape === observedRequirements?.shape)
