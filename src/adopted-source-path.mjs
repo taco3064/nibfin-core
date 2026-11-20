@@ -22,38 +22,55 @@ export async function inspectAdoptedSource(expected) {
   const hostPath = '/etc/nibfin/host.json';
   await rootOwnedPath(hostPath);
   const host = JSON.parse(await readFile(hostPath, 'utf8'));
-  requireThat(host.installation?.directory === installationRoot && expected &&
+  return selectAdoptedSource(expected, host, {
+    live: installationRoot, match: matchingPackage,
+    readPlan: async () => {
+      const path = '/etc/nibfin/rollout-plan.json';
+      try { await rootOwnedPath(path); }
+      catch (error) { if (error.code === 'ENOENT') return null; throw error; }
+      return JSON.parse(await readFile(path, 'utf8'));
+    },
+  });
+}
+
+// Shared executable selection, including healthy LIVE's independence from a
+// stale plan. Retirement uses the same rule for each current retained pin.
+export async function selectAdoptedSource(expected, host, { live, match, readPlan }) {
+  requireThat(host.installation?.directory === live && expected &&
     host.installation.pin, 'ROLLOUT_MANAGER_HOST_SOURCE_MISMATCH');
   requireThat(expected.repository === 'taco3064/nibfin-core' &&
     isSha(expected.commit) && isDigest(expected.manifestHash),
   'INVALID_INSTALLATION_PIN');
   if (digest(expected) === digest(host.installation.pin)) {
-    const live = await matchingPackage(installationRoot, expected);
-    if (live) return live;
+    const selected = await match(live, expected);
+    if (selected) return selected;
   }
-  const planPath = '/etc/nibfin/rollout-plan.json';
-  try { await rootOwnedPath(planPath); }
-  catch (error) {
-    if (error.code !== 'ENOENT') throw error;
+  const plan = await readPlan();
+  if (!plan) {
     requireThat(digest(expected) === digest(host.installation.pin),
       'ROLLOUT_MANAGER_HOST_SOURCE_MISMATCH');
     requireThat(false, 'ROLLOUT_MANAGER_HOST_SOURCE_UNAVAILABLE');
   }
-  const plan = JSON.parse(await readFile(planPath, 'utf8'));
+
   requireThat(plan?.schemaVersion === 2 && isSha(plan.pin?.commit) &&
     plan.apply && typeof plan.apply === 'object' && plan.apply.oldPin,
   'INVALID_ROLLOUT_PLAN');
   const valid = [host.installation.pin, plan.pin, plan.apply.oldPin];
   requireThat(valid.some(pin => digest(pin) === digest(expected)),
     'ROLLOUT_MANAGER_HOST_SOURCE_MISMATCH');
-  const paths = [installationRoot];
-  if (digest(plan.apply.oldPin) === digest(expected))
-    paths.push(`/opt/nibfin/core-before-${plan.pin.commit}`);
-  if (digest(plan.pin) === digest(expected))
-    paths.push(`/opt/nibfin/core-staged-${plan.pin.commit}`);
+  const paths = adoptedRecoveryPaths(expected, plan, live);
   for (const path of paths) {
-    const observed = await matchingPackage(path, expected);
+    const observed = await match(path, expected);
     if (observed) return observed;
   }
   requireThat(false, 'ROLLOUT_MANAGER_HOST_SOURCE_UNAVAILABLE');
+}
+
+export function adoptedRecoveryPaths(expected, plan, live = installationRoot) {
+  const paths = [live];
+  if (digest(plan.apply.oldPin) === digest(expected))
+    paths.push(`${live}-before-${plan.pin.commit}`);
+  if (digest(plan.pin) === digest(expected))
+    paths.push(`${live}-staged-${plan.pin.commit}`);
+  return paths;
 }

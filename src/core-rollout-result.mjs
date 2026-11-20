@@ -1,3 +1,4 @@
+import { projectPackageCleanup } from './core-package-retirement-contract.mjs';
 import contract from './core-rollout-result.json' with { type: 'json' };
 import { githubReadDiagnostic, safeGitHubReadCause } from './github-read-cause.mjs';
 
@@ -58,11 +59,14 @@ export function projectRolloutResult(value) {
     if (Array.isArray(value.results)) result.results = resultsProjection(value.results);
     if (Array.isArray(value.reasons)) result.reasons = value.reasons.filter(reason =>
       typeof reason === 'string' && /^[A-Za-z0-9_-]+$/.test(reason));
+    if (Array.isArray(value.cleanup))
+      result.cleanup = projectPackageCleanup(value.cleanup);
     return result;
   }
   const result = Object.fromEntries(Object.entries(value).filter(([key]) =>
     contract.successFields.includes(key)));
   if (Array.isArray(value.results)) result.results = resultsProjection(value.results);
+  if (Array.isArray(value.cleanup)) result.cleanup = projectPackageCleanup(value.cleanup);
   if (value.completion !== undefined)
     result.completion = projectRolloutResult(value.completion);
   if (value.continuation !== undefined) result.continuation =

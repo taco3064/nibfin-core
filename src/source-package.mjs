@@ -37,6 +37,8 @@ const safe = (path) =>
   !path.startsWith('/') &&
   path.split('/').every((part) => part && !['.', '..', '.git'].includes(part));
 
+export const isSafePackagePath = safe;
+
 function tar(files) {
   const chunks = [];
   for (const file of files) {
@@ -173,6 +175,29 @@ export const isInstallationPin = expected =>
   expected?.repository === 'taco3064/nibfin-core' &&
   isSha(expected.commit) && isDigest(expected.manifestHash);
 
+// Manifest attribution is shared by complete installed-source verification and
+// deletion recovery. Only the complete verifier admits executable source.
+export function validateSourceManifest(manifest, expected) {
+  requireThat(
+    digest(manifest) === expected.manifestHash &&
+      manifest.schemaVersion === 1 &&
+      manifest.repository === expected.repository &&
+      manifest.commit === expected.commit &&
+      (expected.releaseVersion === undefined ||
+        manifest.releaseVersion === expected.releaseVersion) &&
+      Array.isArray(manifest.files) &&
+      manifest.files.length <= 1000,
+    'SOURCE_MANIFEST_MISMATCH',
+  );
+  requireThat(
+    manifest.policyHash ===
+      digest(manifest.files.filter((file) => file.path.startsWith('src/'))) &&
+      manifest.skillsHash ===
+        digest(manifest.files.filter((file) => file.path.startsWith('skills/'))),
+    'SOURCE_COMPONENT_HASH_MISMATCH',
+  );
+}
+
 export async function verifyInstalledSource(directory, expected) {
   const root = resolve(directory);
   requireThat(
@@ -204,17 +229,7 @@ export async function verifyInstalledSource(directory, expected) {
     }
   };
   const manifest = JSON.parse((await read('nibfin-manifest.json')).bytes.toString());
-  requireThat(
-    digest(manifest) === expected.manifestHash &&
-      manifest.schemaVersion === 1 &&
-      manifest.repository === expected.repository &&
-      manifest.commit === expected.commit &&
-      (expected.releaseVersion === undefined ||
-        manifest.releaseVersion === expected.releaseVersion) &&
-      Array.isArray(manifest.files) &&
-      manifest.files.length <= 1000,
-    'SOURCE_MANIFEST_MISMATCH',
-  );
+  validateSourceManifest(manifest, expected);
   const actual = [];
   const walk = async (prefix) => {
     for (const entry of await readdir(join(root, prefix), { withFileTypes: true })) {
@@ -244,13 +259,7 @@ export async function verifyInstalledSource(directory, expected) {
       'INSTALLED_SOURCE_CHANGED',
     );
   }
-  requireThat(
-    manifest.policyHash ===
-      digest(manifest.files.filter((file) => file.path.startsWith('src/'))) &&
-      manifest.skillsHash ===
-        digest(manifest.files.filter((file) => file.path.startsWith('skills/'))),
-    'SOURCE_COMPONENT_HASH_MISMATCH',
-  );
+
   return {
     repository: manifest.repository,
     commit: manifest.commit,

@@ -533,37 +533,19 @@ def start_enabled(services):
             run("systemctl", "start", service)
 
 
-def clean_superseded_staged_packages(current):
-    pending = ("rollout-plan.json", "rollout.lock", "rollout")
-    if any((CONFIG / name).exists() for name in pending):
-        return
-    staged = list(INSTALL.glob("core-staged-*"))
-    if not staged:
-        return
-    mounts = run("findmnt", "--list", "--noheadings", "--output", "TARGET")
-    for path in staged:
-        match = re.fullmatch(r"core-staged-([a-f0-9]{40})", path.name)
-        if (not match or path.is_symlink() or not path.is_dir()
-                or path.stat().st_uid != 0):
-            continue
-        revision = match[1]
-        if revision == current or path.stat().st_mode & 0o022:
-            continue
-        if str(path).encode() in mounts:
-            continue
-        manifest = path / "nibfin-manifest.json"
-        if manifest.is_symlink() or not manifest.is_file():
-            continue
-        source = json.loads(manifest.read_text())
-        if source.get("repository") != CORE or source.get("commit") != revision:
-            continue
-        comparison = api(f"repos/{CORE}/compare/{revision}...{current}?per_page=1")
-        if (comparison["status"] == "ahead" and
-                comparison["merge_base_commit"]["sha"] == revision):
-            if any((CONFIG / name).exists() for name in pending):
-                return
-            shutil.rmtree(path)
-            print(f"Removed superseded staged Core package {revision}", flush=True)
+def clean_superseded_staged_packages():
+    # The current revision no longer authorizes deletion. The shared installed
+    # implementation establishes ownership, current use and the lifetime gate.
+    entry = INSTALL / "core/src/core-package-retirement-entry.mjs"
+    try:
+        result = subprocess.run(("node", str(entry)), env=ENV,
+                                capture_output=True, text=True)
+        value = json.loads(result.stdout)
+        if result.returncode == 0 and value.get("status") == "complete":
+            return value.get("cleanup", [])
+    except (OSError, ValueError):
+        pass
+    return [{"status": "retained", "code": "PACKAGE_OBSERVATION_UNAVAILABLE"}]
 
 
 def finish(services):
@@ -581,14 +563,13 @@ def finish(services):
     names.update(Path(target["path"]).name for target in plan["apply"]["targets"])
     for name in names:
         (staged / name).unlink(missing_ok=True)
-    current = json.loads((CONFIG / HOSTS[CORE]).read_text())
     path.unlink()
     sync_directory(CONFIG)
     # The apply backup is retained as the verified recovery package. Package
     # cleanup must not mistake the persistent kernel lock for a live operation.
     if staged.exists():
         staged.rmdir()
-    clean_superseded_staged_packages(current["installation"]["pin"]["commit"])
+    print(json.dumps({"cleanup": clean_superseded_staged_packages()}), flush=True)
 
 
 def resume_installed_work():
