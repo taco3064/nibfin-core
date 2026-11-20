@@ -21,6 +21,7 @@ REPAIRABLE = {'ENOENT', 'SOURCE_MANIFEST_MISMATCH',
               'ROLLOUT_MANAGER_METADATA_UNAVAILABLE',
               'CORE_MANAGEMENT_RUNTIME_UNAVAILABLE', 'CORE_MAINTENANCE_ENTRY_PENDING',
               'ROLLOUT_MANAGER_HOST_SOURCE_UNAVAILABLE'}
+SHARED_KINDS = ('pre-worker', 'inspect', 'maintenance')
 
 LIVE_CHECK = '''
 import {readFile} from 'node:fs/promises';
@@ -130,9 +131,9 @@ def manager_result(payload, handle):
         raise ValueError('Unfinished management runtime publication')
     entry = MANAGER / 'src/core-maintenance-bridge-entry.mjs'
     owned(entry)
-    child = command([node, str(entry)], handle, payload)
     results = module_at('nibfin_bridge_results',
                         MANAGER / 'scripts/core_rollout_result.py')
+    child = command([node, str(entry)], handle, payload)
     try:
         return results.read_result(child), child.returncode
     except results.CoreRolloutFailure as error:
@@ -159,7 +160,7 @@ def fresh_manager_result(payload, handle, kind):
     repaired = normal_installer(handle)
     if repaired.get('status') != 'installed':
         return repaired, 1 if repaired.get('status') == 'denied' else 2
-    if kind == 'pre-worker':
+    if kind in SHARED_KINDS:
         fcntl.flock(handle, fcntl.LOCK_SH | fcntl.LOCK_NB)
     return manager_result(payload, handle)
 
@@ -171,6 +172,7 @@ def run(payload, handle, kind):
         # adopted and verified; its same installer updates management code,
         # without running Core promotion or Runner registration again.
         try:
+            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
             refreshed = normal_installer(handle)
             if refreshed.get('status') != 'installed':
                 return {**value, 'continuation': {**refreshed, 'status': 'pending',
@@ -201,7 +203,7 @@ def main():
         os.close(handle)
         handle = 3
     try:
-        mode = fcntl.LOCK_SH if kind in ('pre-worker', 'inspect') else fcntl.LOCK_EX
+        mode = fcntl.LOCK_SH if kind in SHARED_KINDS else fcntl.LOCK_EX
         fcntl.flock(handle, mode | fcntl.LOCK_NB)
         return run(payload, handle, kind)
     finally:

@@ -35,17 +35,25 @@ export async function checkMaintenanceTransport(manager, manifest, nodePath) {
   await writeFile('/etc/sudoers', `root ALL=(root) NOPASSWD: ${bridge} ""\n`,
     { mode: 0o440 });
   const reporter = `
+import {spawnSync} from 'node:child_process';
 import {admitRolloutManager} from './rollout-manager-context.mjs';
 import {writeCommandResult} from './command-result.mjs';
 await admitRolloutManager();
 let text=''; for await (const bytes of process.stdin) text+=bytes;
 const input=JSON.parse(text);
+if (input.kind !== 'pre-worker') {
+  const peer=spawnSync(${JSON.stringify(bridge)}, [], {
+    input: JSON.stringify({...input,kind:'pre-worker'}), encoding:'utf8',
+  });
+  writeCommandResult(JSON.parse(peer.stdout));
+} else {
 const frame=JSON.parse(Buffer.from(input.frame,'base64').toString('utf16le'));
 if(frame.malformed) { process.stdout.write('secret malformed'); process.exit(0); }
 if(frame.mismatch) {
   process.stdout.write(JSON.stringify({status:'admitted'})); process.exit(2);
 }
 writeCommandResult({...frame.result,token:'secret-token',requestUrl:'secret-url'});
+}
 `;
   await writeFile(join(manager, 'src/core-maintenance-bridge-entry.mjs'), reporter);
   const pin = await manifest(manager, 'e'.repeat(40));
@@ -68,12 +76,24 @@ writeCommandResult({...frame.result,token:'secret-token',requestUrl:'secret-url'
     // The shebang uses -I, so the environment flag cannot hide bytecode writes.
     const executed = spawnSync(bridge, [], { input: payload, encoding: 'utf8', env });
     assert.equal(executed.status, expectedExit, executed.stdout + executed.stderr);
+    assert.ok(executed.stdout, executed.stderr);
     const value = JSON.parse(executed.stdout);
     assert.equal(value.status, result.status);
     if (result.githubApi) assert.deepEqual(value.githubApi,
       { kind: 'http', httpStatus: 422 });
     assert.ok(!/secret-/.test(executed.stdout + executed.stderr));
     if (expectedExit) assert.equal(JSON.parse(executed.stderr).code, result.code);
+  }
+  const ordinary = Buffer.from(JSON.stringify({ result: { status: 'admitted' } }),
+    'utf16le').toString('base64');
+  for (const [kind, expected] of [['maintenance', 0], ['administrator', 2]]) {
+    const executed = spawnSync(bridge, [], { encoding: 'utf8', env,
+      input: JSON.stringify({ kind, frame: ordinary }) });
+    assert.equal(executed.status, expected, executed.stdout + executed.stderr);
+    assert.ok(executed.stdout, executed.stderr);
+    const value = JSON.parse(executed.stdout);
+    if (expected === 0) assert.equal(value.status, 'admitted');
+    else assert.equal(value.code, 'CORE_MANAGEMENT_OPERATION_PENDING');
   }
   for (const flag of ['malformed', 'mismatch']) {
     const frame = Buffer.from(JSON.stringify({ [flag]: true }), 'utf16le');
