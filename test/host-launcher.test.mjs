@@ -157,6 +157,8 @@ test(
     await chmod(root, 0o755);
     await assert.rejects(acquireHostFence(root, {}), /UNTRUSTED_HOST_STATE/);
     await writeFile(join(root, 'host.json'), '{}');
+    // Establish the refused ancestor explicitly, even with a private TMPDIR.
+    await chmod(root, 0o777);
     await assert.rejects(
       rootOwnedPath(join(root, 'host.json')),
       /UNTRUSTED_ADOPTION_PATH/,

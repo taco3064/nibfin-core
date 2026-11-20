@@ -125,7 +125,7 @@ export async function preflightJobVm(config) {
 // Boot a prepared image with a private writable disk. The caller owns the Job
 // lifetime. The guest can receive connections through its private vsock endpoint.
 export async function runJobVm({ executable, kernel, rootDisk, stateRoot, memoryMiB },
-  { signal, log, useGuest, prepareTools, onProcess, onRetired }) {
+  { signal, log, useGuest, prepareTools, onProcess, onRetired, retainWorkspace }) {
   requireThat(signal, 'INVALID_JOB_VM_CONFIGURATION');
   signal.throwIfAborted();
   await preflightJobVm({ executable, kernel, rootDisk, stateRoot, memoryMiB });
@@ -193,7 +193,11 @@ export async function runJobVm({ executable, kernel, rootDisk, stateRoot, memory
     signal.removeEventListener('abort', abort);
     abort();
     await guest?.done;
-    await rm(directory, { recursive: true, force: true });
-    await onRetired?.();
+    // An interrupted Writer may have edits only on this private disk. Retire
+    // processes and sockets, but keep that recovery material until handback.
+    const discard = () => rm(directory, { recursive: true, force: true });
+    const retained = retainWorkspace?.() === true;
+    if (!retained) await discard();
+    await onRetired?.(retained ? discard : undefined);
   }
 }

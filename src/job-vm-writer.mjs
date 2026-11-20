@@ -67,10 +67,13 @@ export async function runJobVmWriter(config, input, execute, {
   process.on('SIGTERM', cancel);
   process.on('SIGINT', cancel);
   let releaseCapacity, monitor, retired = false;
-  let agentEntered = false, agentTermination, retireAgentMcp;
+  let agentEntered = false;
+  let agentTermination, retireAgentMcp, discardWorkspace;
   const executeOwned = async invocation => {
     agentEntered = true;
-    const result = await execute(invocation);
+    // Inner Docker cleanup proves no host-workspace handback for a VM Writer.
+    const result = await execute({ ...invocation, onLocalHandback: undefined,
+      onInterruptedCleanup: undefined });
     if (['completed', 'interrupted'].includes(result?.status) &&
       isDigest(result.terminationHash)) {
       agentTermination = result.terminationHash;
@@ -84,7 +87,8 @@ export async function runJobVmWriter(config, input, execute, {
     const { result, files } = await runVm(config, {
       signal, log,
       onProcess: process => process && monitor.own(process.pid, process.startTicks),
-      onRetired: () => { retired = true; },
+      onRetired: discard => { retired = true; discardWorkspace = discard; },
+      retainWorkspace: () => agentEntered,
       prepareTools: input.tools && (directory => archiveJobVmTools(
         input.tools.endpoint, input.tools.image, directory, input.tools.label)),
       async useGuest(connect, directory) {
@@ -102,7 +106,10 @@ export async function runJobVmWriter(config, input, execute, {
       return pressureInterruption(input, memoryPressure, result.terminationHash);
     return files ? {
       ...result,
-      applyWorkspace: () => installJobVmWorkspace(input.work, files),
+      applyWorkspace: async () => {
+        await installJobVmWorkspace(input.work, files);
+        await discardWorkspace?.();
+      },
     } : result;
   } catch (error) {
     const memoryPressure = await monitor?.finish();

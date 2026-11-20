@@ -559,3 +559,18 @@ test('an unresolved ownership-reader process remains Pending after container cle
     assert.equal(result.terminationHash, undefined);
     assert.equal(result.memoryPressure, undefined);
   });
+
+
+test('only complete interrupted Docker cleanup reports trusted local handback',
+  async t => {
+  for (const fault of ['timeout', 'idle', 'mapped-cleanup', 'cleanup']) {
+    const f = await fixture(t, fault, false, true);
+    let handback = 0, consumers = 0;
+    f.request.onLocalHandback = () => { handback++; };
+    f.request.onInterruptedCleanup = () => { consumers++; };
+    await f.sandbox.execute(f.request);
+    const expected = ['timeout', 'idle'].includes(fault) ? 1 : 0;
+    assert.equal(handback, expected);
+    assert.equal(consumers, expected);
+  }
+});

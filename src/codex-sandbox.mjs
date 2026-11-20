@@ -219,7 +219,8 @@ export class CodexSandbox {
     };
   }
   async execute({ plan, executionId, work, main, input, output, session, auth,
-    mcp = null, jobVmSocket, onTermination, pressureBinding }) {
+    mcp = null, jobVmSocket, onTermination, pressureBinding,
+    onLocalHandback, onInterruptedCleanup }) {
     const c = this.#config;
     requireThat(
       plan?.policyHash ===
@@ -584,6 +585,10 @@ export class CodexSandbox {
             name,
             absent: true,
           });
+        if (outcome.status === 'interrupted' && !ownershipUnresolved) {
+          onInterruptedCleanup?.();
+          onLocalHandback?.();
+        }
       } catch {
         console.error(`Nibfin agent cleanup failed during ${cleanupStep}`);
         outcome = { status: 'pending', executionId, code: 'WRITER_TERMINATION_UNKNOWN' };

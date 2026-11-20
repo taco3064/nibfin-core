@@ -1,8 +1,9 @@
+import { roleCoreFixture } from './role-core-fixture.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, writeFile, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { join } from 'node:path';
 import { CodexRoleAgent } from '../src/codex-agent.mjs';
 import { withUserMcp } from '../src/mcp-agent.mjs';
 import { jobMcpProfile } from '../src/mcp-job.mjs';
@@ -46,7 +47,7 @@ for (const leak of [false, true]) {
         retireMcp: async () => { retired = true; },
       };
     } }, {}, () => job.read(), job);
-    const coreRoot = resolve(import.meta.dirname, '..');
+    const coreRoot = await roleCoreFixture(root, 'shape');
     const agent = new CodexRoleAgent({ stateRoot, work, authFile, coreRoot,
       model: 'configured-model', skills: {
         shape: digest(await readFile(join(coreRoot, 'skills/shape/SKILL.md'), 'utf8')),

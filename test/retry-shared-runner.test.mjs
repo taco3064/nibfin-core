@@ -114,3 +114,28 @@ test('settled admitted-stage pressure uses the bounded delayed rerun route', asy
       workflow_run: { ...run, run_attempt: 3 } }, options), false);
   }
 });
+
+
+test('settled local interruption uses the existing rerun route without a new delay',
+  async () => {
+    const result = { schemaVersion: 1, stage: 'continue', terminalStage: 'deliver',
+      status: 'pending', code: 'LOCAL_DELIVER_INTERRUPTED', retrySettled: true,
+      retryRun: 2, retryAttempt: 1 };
+    const log = value => JSON.stringify(value);
+    assert.equal(retryDelay(log(result), 2, 1), 0);
+    for (const changed of [{ retrySettled: false }, { retryRun: 3 },
+      { retryAttempt: 2 }, { terminalStage: 'accept' }, { stage: 'deliver' },
+      { status: 'denied' }])
+      assert.equal(retryDelay(log({ ...result, ...changed }), 2, 1), null);
+    const calls = [];
+    const reader = { get: async () => run, list: async () => [{
+      id: 4, name: 'shared-stage', conclusion: 'failure', status: 'completed',
+      run_id: 2, run_attempt: 1,
+    }] };
+    assert.equal(await retrySharedRunner(reader, { repository, workflow_run: run }, {
+      logs: async () => log(result), actorRead: async () => run.actor,
+      wait: async delay => { calls.push(delay); },
+      rerun: async id => { calls.push(id); },
+    }), true);
+    assert.deepEqual(calls, [0, 2]);
+  });

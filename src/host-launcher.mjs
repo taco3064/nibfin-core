@@ -2,6 +2,7 @@ import { pendingRecovery } from './recover-deliver-fence.mjs';
 import {
   admitContinuationFence, continuationEligibility, recoverContinuationFence,
 } from './continuation-admission.mjs';
+import { localDeliverSettlement } from './local-deliver-settlement.mjs';
 import { hostExecution } from './host-execution.mjs';
 import { controllerRequestIdentity, recordControllerResult, resultObservation }
   from './controller-result.mjs';
@@ -230,6 +231,7 @@ async function launchAdmittedStage(issueNumber, stage, env, runnerUid,
             pendingRecovery(error)) });
     throw error;
   }
+  const localSettlement = localDeliverSettlement(fence);
   let mcpJob, release, preparation;
   let mcpEntered = false, executorEntered = false;
   let progress, producer, observed;
@@ -388,6 +390,7 @@ async function launchAdmittedStage(issueNumber, stage, env, runnerUid,
         approval.record.roles[execution.role] === runner.memberId,
         'HOST_APPROVAL_MISMATCH',
       );
+      const settlement = localSettlement.invocation(current, execution);
       executorEntered = true;
       let executor;
       try {
@@ -407,6 +410,7 @@ async function launchAdmittedStage(issueNumber, stage, env, runnerUid,
             ...(openPr ? { openPr } : {}),
           },
           execution,
+          settlement,
           workspaceRoot,
           workflowNodeId: binding.workflowNodeId,
           agentStateRoot: join(root, 'agent'),
@@ -449,7 +453,7 @@ async function launchAdmittedStage(issueNumber, stage, env, runnerUid,
           })
         : execute(stage);
     const settled = await settleHostStage(run, release,
-      report);
+      report, () => localSettlement.assertSettled());
     const result = await retainHostOutcome(root, { approval, runner, execution },
       settled.stage ?? stage, settled);
     return stage === 'continue'

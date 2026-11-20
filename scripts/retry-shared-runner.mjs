@@ -31,6 +31,8 @@ export function retryDelay(log, id, attempt) {
   if (memoryWait || retryableHostPressure(result, result.terminalStage))
     return 5 * 60_000;
   if (result.status !== 'pending') return null;
+  if (result.code === 'LOCAL_DELIVER_INTERRUPTED' &&
+    result.terminalStage === 'deliver') return 0;
   const correctiveDeliver = result.code === ciCorrectionWaiting &&
     result.terminalStage === 'deliver';
   if (pendingCIObservation(result.code) || correctiveDeliver) return 60_000;
