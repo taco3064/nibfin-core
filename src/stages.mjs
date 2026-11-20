@@ -1,7 +1,7 @@
+import { requireActiveIssue } from './issue-eligibility.mjs';
 import { requireUnpaused } from './pause.mjs';
 import { digest, isDigest, isId, isSha, requireThat } from './identity.mjs';
 import { validateApprovalRecord } from './approval-record.mjs';
-import { issuePath } from './github-read.mjs';
 import { canonicalCandidateBlock, candidateContract,
   safeCandidatePath } from './candidate-contract.mjs';
 import { requireExecutionIsolation } from './execution-profiles.mjs';
@@ -327,14 +327,7 @@ export function decideStage(stage, context, now = Date.now()) {
     );
     const issue = context.issue;
     requireUnpaused(context.pause, record.issue);
-    requireThat(
-      issue?.node_id === record.issue.id &&
-        issue.number === record.issue.number &&
-        !issue.pull_request &&
-        issue.url === `https://api.github.com${issuePath(record.issue)}` &&
-        issue.state === 'open',
-      'ISSUE_CHANGED',
-    );
+    const labels = requireActiveIssue(issue, record.issue);
     requireThat(
       digest(context.source) === digest(record.source),
       'INSTALLED_SOURCE_CHANGED',
@@ -365,13 +358,6 @@ export function decideStage(stage, context, now = Date.now()) {
       'RUNNER_BINDING_REQUIRED',
     );
     requireExecutionIsolation(context.isolation, context.runner, execution);
-    requireThat(
-      Array.isArray(issue.labels) &&
-        issue.labels.every((label) => typeof label?.name === 'string'),
-      'INVALID_LABELS',
-    );
-    const labels = new Set(issue.labels.map((label) => label.name));
-    requireThat(labels.has('scope') && !labels.has('delivered'), 'INACTIVE_SCOPE');
     let artifacts = {};
     if (['shape', 'validate-shape', 'publish-shape'].includes(stage)) {
       if (labels.has('shaped')) {
