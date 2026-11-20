@@ -10,6 +10,7 @@ import { managedBase, managedPaths, credentialDirectories, credentialBindingFile
 import { prepareSharedAccounts } from './shared-host-setup.mjs';
 import { requireManagerContext } from './rollout-manager-context.mjs';
 import { requireNoLegacyRolloutConsumer } from './legacy-rollout-consumer.mjs';
+import { credentialRolloutPeers } from './managed-credential-rollout-peers.mjs';
 
 const profileFile = '/etc/nibfin/shared-host-profile.json';
 
@@ -37,11 +38,11 @@ export async function managedCredentialHost(administrator = false, prepare = fal
 export async function managerCredentialHost(context) {
   const admitted = requireManagerContext(context);
   return inspectCredentialHost(true, false, admitted.installationRoot,
-    admitted.verifyInstallation);
+    admitted.verifyInstallation, true);
 }
 
 async function inspectCredentialHost(administrator, prepare, installationRoot,
-  verify) {
+  verify, allowRollout = false) {
   let host, beforeAdoption = false;
   try { host = await trustedJson(hostFile); }
   catch (error) {
@@ -94,14 +95,20 @@ async function inspectCredentialHost(administrator, prepare, installationRoot,
     }];
     const peers = host.wakePeerFiles ?? [];
     requireThat(Array.isArray(peers) && peers.length <= 10, 'INVALID_WAKE_PEERS');
+    let applying;
     for (const path of peers) {
       requireThat(/^\/etc\/nibfin\/host\.[A-Za-z0-9_-]+\.json$/.test(path),
         'INVALID_WAKE_PEER_PATH');
       const peer = await trustedJson(path);
       requireThat(peer.memberId === host.memberId && peer.uid === host.uid &&
         peer.stateRoot === host.stateRoot &&
-        digest(peer.installation) === digest(host.installation),
+        peer.installation?.directory === host.installation.directory,
       'MANAGED_CREDENTIAL_HOST_INVALID');
+      if (digest(peer.installation) !== digest(host.installation)) {
+        requireThat(allowRollout, 'MANAGED_CREDENTIAL_HOST_INVALID');
+        applying ??= credentialRolloutPeers(peers, verify);
+        await applying;
+      }
       repositories.push(repositoryIdentity(peer));
     }
     host.credentialRepositories = [...new Map(repositories.map(value =>
