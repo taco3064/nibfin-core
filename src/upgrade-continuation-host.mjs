@@ -2,39 +2,21 @@ import { isDeepStrictEqual } from 'node:util';
 import { join } from 'node:path';
 import { rootOwnedPath } from './host-paths.mjs';
 import { boundedHostFile, hostFile } from './host-adoption.mjs';
-import { requireThat, isId } from './identity.mjs';
+import { requireThat } from './identity.mjs';
 import { currentPoolRuntime } from './core-only-runtime.mjs';
-import { GitHubReader } from './github-read.mjs';
-import { managerCredentialHost } from './managed-credential-host.mjs';
-import { readPrivate } from './managed-credential-files.mjs';
-import { withManagerAdmission } from './rollout-manager-admission.mjs';
 import { managerHostRegistrations } from './shared-host-inspect.mjs';
 import { sharedRepository } from './shared-runner.mjs';
-import { readRetirementFile, writeRetirementFile } from './retirement-files.mjs';
-import { withCoreManagementGate } from './core-management-gate.mjs';
+import { upgradeOperationStore } from './upgrade-operation-store.mjs';
 import { jobVmEnvironment } from './job-vm-readiness-host.mjs';
 import { engine } from './engine-contract.mjs';
-import { dispatchNativeWorkflow } from './native-workflow-dispatch.mjs';
 import { maintenanceTarget } from './core-maintenance-dispatch.mjs';
+import { scheduleCoreMaintenance } from './core-maintenance-schedule.mjs';
+import { withUpgradeMember } from './core-maintenance-schedule-host.mjs';
 import { upgradeRepository, observeUpgradeWorkflow, observeUpgradeProposal,
   observeUpgradeProposalDisposition, verifyUpgradeNotificationRoute }
   from './upgrade-continuation-proposals.mjs';
-import { sameUpgradeSource, mergeUpgradeOperations }
-  from './upgrade-continuation-operations.mjs';
-
-const operationFile = '/etc/nibfin/upgrade-continuations.json';
-
-export async function readUpgradeOperations() {
-  const value = await readRetirementFile(operationFile);
-  if (value === null) return [];
-  requireThat(value.schemaVersion === 1 && Array.isArray(value.operations),
-    'UPGRADE_OPERATION_STATE_INVALID');
-  return value.operations;
-}
-
-export function writeUpgradeOperations(operations) {
-  return writeRetirementFile(operationFile, { schemaVersion: 1, operations });
-}
+import { sameUpgradeSource } from './upgrade-continuation-operations.mjs';
+import { requireRolloutEnrollments } from './rollout-pool.mjs';
 
 async function observeHost() {
   await rootOwnedPath(hostFile);
@@ -49,41 +31,8 @@ function observedValue(result, code) {
   return value;
 }
 
-function operationStore(shared) {
-  let baseline;
-  return {
-    async read() {
-      const current = await readUpgradeOperations();
-      baseline = structuredClone(current);
-      return current;
-    },
-    async write(next) {
-      if (!shared) return writeUpgradeOperations(next);
-      requireThat(baseline, 'UPGRADE_OPERATION_STATE_INVALID');
-      const saved = await withCoreManagementGate(async () => {
-        const current = await readUpgradeOperations();
-        const merged = mergeUpgradeOperations(current, baseline, next);
-        await writeUpgradeOperations(merged);
-        return true;
-      });
-      const downgrade = await withCoreManagementGate(async () => true, { shared: true });
-      requireThat(saved === true && downgrade === true,
-        'CORE_MANAGEMENT_OPERATION_PENDING');
-      baseline = structuredClone(next);
-    },
-  };
-}
-
-export async function upgradeHostPorts(context, host, execute, { shared = false } = {}) {
-  const useReader = action => withManagerAdmission(context, async () => {
-    const managed = await managerCredentialHost(context);
-    const token = (await readPrivate(managed.tokenFile, managed, 16384)).trim();
-    const reader = new GitHubReader(token);
-    const actor = await reader.get('/user');
-    requireThat(actor.id === host.memberId && actor.type === 'User' &&
-      /^[A-Za-z0-9-]+$/.test(actor.login), 'UPGRADE_MEMBER_CHANGED');
-    return action(reader, token, actor);
-  });
+export async function upgradeHostPorts(context, host, execute) {
+  const useReader = action => withUpgradeMember(context, host.memberId, action);
   const adoption = async () => {
     const current = await observeHost();
     const pool = managerHostRegistrations(current, context);
@@ -114,7 +63,7 @@ export async function upgradeHostPorts(context, host, execute, { shared = false 
     return execute(runtime.target.nodePath,
       [join(runtime.directory, 'bin/nibfin-core.mjs'), ...args], '');
   };
-  return { adoption, useReader, route, ...operationStore(shared),
+  return { adoption, useReader, route, ...upgradeOperationStore(),
     sourceIntent: (intent, binding) => useReader(async (reader, _token, actor) => {
       for (const adopted of binding.consumers.filter(consumer =>
         intent.repositories.includes(consumer.repositoryId))) {
@@ -163,7 +112,7 @@ export async function upgradeHostPorts(context, host, execute, { shared = false 
     },
     async install(operation, binding, selected) {
       if (!sameUpgradeSource(binding.host.installation.pin, operation.intent.source))
-        return requestCorePromotion(operation, useReader);
+        return requestCorePromotion(operation, binding, useReader);
       const targets = selected ? [selected] : operation.consumers;
       for (const consumer of targets) {
         const result = await runLive(['refresh-managed-issue-caller',
@@ -208,32 +157,11 @@ async function verifiedUpgradeActivation(reader, intent) {
   return { runId, artifactId, since: new Date(run.created_at).toISOString() };
 }
 
-async function requestCorePromotion(operation, useReader) {
+async function requestCorePromotion(operation, binding, useReader) {
   return useReader(async (reader, token) => {
+    requireRolloutEnrollments(binding.consumers);
     const target = await verifiedUpgradeActivation(reader, operation.intent);
-    const repository = await reader.get('/repos/taco3064/nibfin-core');
-    const ref = repository.default_branch;
-    requireThat(ref === 'main', 'UPGRADE_CORE_ACTIVATION_CHANGED');
-    const path = '/repos/taco3064/nibfin-core/actions/workflows/core-maintenance.yml';
-    const workflow = await reader.get(path);
-    requireThat(workflow.path === '.github/workflows/core-maintenance.yml' &&
-      isId(workflow.id) && workflow.state === 'active',
-    'UPGRADE_CORE_ACTIVATION_CHANGED');
-    const since = encodeURIComponent('>=' + target.since);
-    const query = `event=workflow_dispatch&branch=main&created=${since}`;
-    const runs = await reader.list(`${path}/runs?${query}`, 'workflow_runs');
-    const matches = runs.filter(run =>
-      isId(run.id) && run.workflow_id === workflow.id &&
-      run.repository?.id === repository.id && run.head_repository?.id === repository.id &&
-      run.display_title === `Core maintenance · CD ${target.runId}`);
-    const active = matches.find(run => run.status !== 'completed');
-    if (active) return { status: 'pending', coreRunId: active.id,
-      code: 'UPGRADE_CORE_ACTIVATION_QUEUED' };
-    const run = await dispatchNativeWorkflow({
-      repository: 'taco3064/nibfin-core', ref, id: 'core-maintenance.yml',
-    }, { cd_run_id: String(target.runId),
-      activation_artifact_id: String(target.artifactId) }, token);
-    return { status: 'pending', coreRunId: run.runId,
-      code: 'UPGRADE_CORE_ACTIVATION_QUEUED' };
+    return scheduleCoreMaintenance(reader, token, operation.execution,
+      operation.memberId, target);
   });
 }

@@ -47,3 +47,23 @@ export async function dispatchNativeWorkflow(destination, inputs, token,
     throw new WorkflowDispatchFailure({ kind: 'invalid-response' });
   return { runId: run.workflow_run_id, url: run.html_url };
 }
+
+export async function rerunNativeWorkflow(repository, id, token, fetcher = fetch) {
+  let response;
+  try {
+    response = await fetcher('https://api.github.com' +
+      `${repoPath(repository)}/actions/runs/${id}/rerun`, {
+      method: 'POST', redirect: 'error',
+      headers: { Authorization: `Bearer ${token}`,
+        Accept: 'application/vnd.github+json',
+        'X-GitHub-Api-Version': '2026-03-10' },
+    });
+  } catch (error) {
+    throw new WorkflowDispatchFailure({ kind: networkGitHubRead(error) ||
+      error instanceof TypeError ? 'network' : 'invalid-response' });
+  }
+  await response.body?.cancel().catch(() => {});
+  if (response.status !== 201)
+    throw new WorkflowDispatchFailure(response.status >= 400 ?
+      { kind: 'http', httpStatus: response.status } : { kind: 'invalid-response' });
+}

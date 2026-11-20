@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { gitBlob } from '../src/identity.mjs';
-import { upgradeContinuationContract as contract, upgradeRecipe }
+import { upgradeContinuationContract as contract, upgradeRecipe, upgradeRecipeVariants }
   from '../src/upgrade-continuation-contract.mjs';
 import { observeUpgradeProposal } from '../src/upgrade-continuation-proposals.mjs';
 import { observeUpgradeExecutionRun, requireUpgradeInvocation }
@@ -98,12 +98,12 @@ test('existing maintained callers stay valid while native run names are adopted'
   async () => {
     for (const [which, kind] of [[consumer, 'notification'], [execution, 'execution']]) {
       const named = upgradeRecipe(kind, memberId);
-      assert.match(named, /\nrun-name: Nibfin upgrade/);
-      const original = named.split('\n').filter(line => !line.startsWith('run-name: '));
+      assert.match(named, /\nrun-name: .*Nibfin upgrade/);
+      const original = upgradeRecipeVariants(kind, memberId).at(-1);
       const root = `/repos/${which.repository}`;
       const previous = fixture(which, {
         [`${root}/contents/${contract.recipes[kind]}?ref=${head}`]:
-          file(kind, Buffer.from(original.join('\n'))),
+          file(kind, Buffer.from(original)),
       });
       if (kind === 'notification') {
         const observed = await observeUpgradeProposal(previous.reader, which,

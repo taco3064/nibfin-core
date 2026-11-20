@@ -1,4 +1,5 @@
 import importlib.util
+from contextlib import nullcontext
 import json
 from pathlib import Path
 from types import SimpleNamespace
@@ -28,19 +29,17 @@ class ContinuationBoundary(unittest.TestCase):
         self.progress = {'operationId': 'upgrade-operation', 'installation': 'installed',
                          'readiness': 'pending',
                          'readinessCause': {'code': 'JOB_VM_HOST_MEMORY_PRESSURE'}}
-        self.admin = SimpleNamespace(continue_after_gate=self.dispatch,
+        self.admin = SimpleNamespace(continue_installed=self.dispatch,
                                      RESULTS=SimpleNamespace(result_exit=lambda _: 0))
-        self.gate = SimpleNamespace(LOCK_SH=1, LOCK_EX=2, LOCK_NB=4, LOCK_UN=8,
-                                    flock=lambda *_: None)
 
-    def manager(self, payload, _handle, _kind):
+    def manager(self, payload, _kind):
         # Normal Core target readback prevents a second completed promotion.
         if not self.promotions:
             self.promotions += 1
         return {'status': 'installed', 'installation': 'complete',
                 'completion': {'status': 'observed'}}, 0
 
-    def upgrade(self, _handle, **request):
+    def upgrade(self, **request):
         self.queries.append(request)
         if request['kind'] == 'upgrade-installed':
             if self.observation is not None:
@@ -52,21 +51,22 @@ class ContinuationBoundary(unittest.TestCase):
             return {'upgrade': {**self.progress, 'continuation': 'dispatched'}}
         raise AssertionError(request)
 
-    def dispatch(self, value, _handle):
+    def dispatch(self, value):
         self.dispatches += 1
         return {**value, 'continuation': {'status': 'dispatched', 'results': []}}
 
     def run_bridge(self, activation=ACTIVATION):
         with (
             patch.object(BRIDGE, 'fresh_manager_result', self.manager),
-            patch.object(BRIDGE, 'retire_packages', lambda _: self.retirement),
-            patch.object(BRIDGE, 'normal_installer', lambda _: {'status': 'installed'}),
+            patch.object(BRIDGE, 'retire_packages', lambda: self.retirement),
+            patch.object(BRIDGE, 'normal_installer', lambda: {'status': 'installed'}),
+            patch.object(BRIDGE, 'manager_package',
+                         lambda: nullcontext(Path('/manager'))),
             patch.object(BRIDGE, 'module_at', lambda *_: self.admin),
             patch.object(BRIDGE, 'upgrade_request', self.upgrade),
-            patch.object(BRIDGE, 'fcntl', self.gate),
         ):
             request = json.dumps({'kind': 'maintenance', 'target': activation}).encode()
-            return BRIDGE.run(request, 3, 'maintenance')[0]
+            return BRIDGE.run(request, 'maintenance')[0]
 
     def test_pending_then_ready_preserves_completed_promotion(self):
         pending = self.run_bridge()

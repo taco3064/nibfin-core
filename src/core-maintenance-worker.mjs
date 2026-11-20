@@ -7,6 +7,7 @@ import { rolloutPlanPath, rolloutClosurePath, rolloutMarker }
   from './rollout-admission.mjs';
 import { requireNoRetirement, requirePoolOpen } from './retirement-admission.mjs';
 import { requireThat, isId } from './identity.mjs';
+import { coreMaintenanceContract as contract } from './core-maintenance-contract.mjs';
 
 // The fixed Root-owned pre-Worker bridge supplies the original Listener frame.
 // This only permits the official Worker to start. It never creates a promotion
@@ -27,7 +28,7 @@ export async function observeCoreMaintenanceWorker(context, host, message,
   void unused;
   requireThat(plan?.schemaVersion === 2 && plan.mode === 'core-only' &&
     isId(plan.administratorTarget?.runId) && isId(plan.administratorTarget?.artifactId) &&
-    plan.pin?.repository === provenance.repository &&
+    plan.pin?.repository === contract.producer &&
     isDeepStrictEqual(plan.binding?.pool, pool) &&
     isDeepStrictEqual(closure, rolloutMarker(plan)),
   'CORE_MAINTENANCE_CLOSURE_CHANGED');

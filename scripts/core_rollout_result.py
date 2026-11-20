@@ -36,6 +36,12 @@ def project_result(value):
                 result["githubApi"] = {"kind": "http", "httpStatus": api["httpStatus"]}
         if value.get("installation") in ("complete", "pending", "unsupported"):
             result["installation"] = value["installation"]
+        run_id, url = value.get("coreRunId"), value.get("coreRunURL")
+        if (code == "UPGRADE_CORE_ACTIVATION_QUEUED" and type(run_id) is int
+                and run_id > 0 and run_id.bit_length() <= 53 and isinstance(url, str)
+                and re.fullmatch(CONTRACT["coreRunURLPattern"], url)
+                and url.endswith(f"/{run_id}")):
+            result.update(schemaVersion=1, coreRunId=run_id, coreRunURL=url)
         if isinstance(value.get("results"), list):
             result["results"] = project_records(value["results"])
         if isinstance(value.get("reasons"), list):

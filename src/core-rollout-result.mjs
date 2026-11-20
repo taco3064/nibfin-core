@@ -56,6 +56,15 @@ export function projectRolloutResult(value) {
     if (api) result.githubApi = api;
     if (['complete', 'pending', 'unsupported'].includes(value.installation))
       result.installation = value.installation;
+    if (value.code === 'UPGRADE_CORE_ACTIVATION_QUEUED' &&
+      Number.isSafeInteger(value.coreRunId) && value.coreRunId > 0 &&
+      typeof value.coreRunURL === 'string' &&
+      new RegExp(contract.coreRunURLPattern).test(value.coreRunURL) &&
+      value.coreRunURL.endsWith('/' + value.coreRunId)) {
+      result.schemaVersion = 1;
+      result.coreRunId = value.coreRunId;
+      result.coreRunURL = value.coreRunURL;
+    }
     if (Array.isArray(value.results)) result.results = resultsProjection(value.results);
     if (Array.isArray(value.reasons)) result.reasons = value.reasons.filter(reason =>
       typeof reason === 'string' && /^[A-Za-z0-9_-]+$/.test(reason));

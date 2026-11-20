@@ -1,5 +1,6 @@
 import contract from './upgrade-continuation-contract.json' with { type: 'json' };
 import recipes from './upgrade-continuation-recipes.json' with { type: 'json' };
+import legacyExecution from './upgrade-execution-legacy.json' with { type: 'json' };
 import { isId, requireThat } from './identity.mjs';
 import { isInstallationPin } from './source-package.mjs';
 
@@ -77,6 +78,9 @@ export function upgradeRecipe(kind, memberId) {
 
 export function upgradeRecipeVariants(kind, memberId) {
   const current = upgradeRecipe(kind, memberId);
-  const original = current.split('\n').filter(line => !line.startsWith('run-name: '));
-  return [current, original.join('\n')];
+  const untitled = source => source.split('\n')
+    .filter(line => !line.startsWith('run-name: ')).join('\n');
+  if (kind !== 'execution') return [current, untitled(current)];
+  const legacy = legacyExecution.join('\n').replaceAll('MEMBER_ID', String(memberId));
+  return [current, legacy, untitled(legacy)];
 }

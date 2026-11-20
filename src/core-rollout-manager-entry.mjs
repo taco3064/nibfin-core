@@ -16,6 +16,7 @@ import { GitHubReader } from './github-read.mjs';
 import { rolloutFailure, projectRolloutResult } from './core-rollout-result.mjs';
 import { writeCommandResult } from './command-result.mjs';
 import { coreRolloutProvider } from './core-rollout-provider.mjs';
+import { assertRetirementCgroups, observeRetirementUnit } from './retirement-observe.mjs';
 
 async function main(args) {
   await installedSharedRuntime();
@@ -23,6 +24,12 @@ async function main(args) {
   const [operation, ...values] = args;
   if (operation === 'admit' && values.length === 0)
     return { status: 'admitted' };
+  if (operation === 'admit-offline' && values.length === 0) {
+    await observeRetirementUnit(1);
+    await observeRetirementUnit(2);
+    await assertRetirementCgroups();
+    return { status: 'admitted' };
+  }
   if (operation === 'authorize-core-only' && values.length === 0) {
     privateCredentialPipe();
     const parts = [];

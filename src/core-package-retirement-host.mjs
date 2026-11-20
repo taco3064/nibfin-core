@@ -1,10 +1,8 @@
-import { readdir, lstat } from 'node:fs/promises';
-import { fstatSync } from 'node:fs';
+import { readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { rootOwnedPath } from './host-paths.mjs';
-import { withCoreManagementGate, managementDirectory } from './core-management-gate.mjs';
 import { optionalStat, readRetirementFile } from './retirement-files.mjs';
-import { packageIdentity, inspectRetirementPackage, removeRetirementPackage }
+import { inspectRetirementPackage, removeRetirementPackage }
   from './core-package-retirement-files.mjs';
 import { retireCorePackages, retirementReason } from './core-package-retirement.mjs';
 import { packageProtection } from './core-package-retirement-references.mjs';
@@ -66,21 +64,12 @@ async function sweep() {
       }
     },
     remove: removeRetirementPackage,
-  }, withCoreManagementGate);
+  });
 }
 
-// An inherited description belongs to the caller. Defer without changing it.
-// Independent sweeps release the existing exclusive gate between packages.
+// The installed maintenance operation owns sweeping after release. Read
+// current references again immediately before removing any verified bytes.
 export async function retireInstalledCorePackages() {
-  try {
-    await rootOwnedPath(managementDirectory);
-    const expected = await lstat(managementDirectory);
-    let inherited;
-    try { inherited = fstatSync(3); }
-    catch (error) { if (error.code !== 'EBADF') throw error; }
-    if (inherited?.isDirectory() &&
-      packageIdentity(inherited) === packageIdentity(expected))
-      return deferred('PACKAGE_GATE_PENDING');
-    return await sweep();
-  } catch (error) { return deferred(retirementReason(error)); }
+  try { return await sweep(); }
+  catch (error) { return deferred(retirementReason(error)); }
 }

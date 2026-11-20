@@ -12,7 +12,7 @@ import { withManagedAdmission } from './managed-credential-admission.mjs';
 import { requireManagerContext } from './rollout-manager-context.mjs';
 import { withManagerAdmission } from './rollout-manager-admission.mjs';
 import {
-  lstat, open, readdir, readFile, unlink,
+  lstat, open, readFile, unlink,
 } from 'node:fs/promises';
 import { join } from 'node:path';
 import { idleContainers } from './host-containers.mjs';
@@ -245,13 +245,6 @@ async function promoteLockedHost(credentialScope, context) {
   await requireMissing(backup, 'ROLLOUT_BACKUP_ALREADY_EXISTS');
   for (const host of hosts) await idleContainers(host.current.value.repository.isolation);
   if (secondaryIsolation) await idleContainers(secondaryIsolation);
-  for (const root of new Set(hosts.map(host => host.current.value.stateRoot))) {
-    await requireMissing(join(root, 'stage.lock'), 'ROLLOUT_FENCE_PRESENT');
-    for (const name of await readdir(root)) {
-      if (/^issue-[1-9]\d*-[1-9]\d*$/.test(name))
-        await requireMissing(join(root, name, 'stage.lock'), 'ROLLOUT_FENCE_PRESENT');
-    }
-  }
   const apply = { oldPin, source, completed: false, targets: targets.map(host => ({
     path: host.path, current: host.current?.bytes ?? null,
     next: JSON.stringify(host.next.value) + '\n',

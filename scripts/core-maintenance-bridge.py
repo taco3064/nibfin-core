@@ -1,13 +1,14 @@
 #!/usr/bin/python3 -I
-"""Fixed root entry; all source use shares the existing configuration gate."""
+"""Fixed root entry for verified, immutable management packages."""
 import sys
 sys.dont_write_bytecode = True
 
-import fcntl
+from contextlib import contextmanager
 import importlib.util
 import json
 import os
 from pathlib import Path
+import re
 import stat
 import subprocess
 
@@ -21,17 +22,19 @@ REPAIRABLE = {'ENOENT', 'SOURCE_MANIFEST_MISMATCH',
               'ROLLOUT_MANAGER_METADATA_UNAVAILABLE',
               'CORE_MANAGEMENT_RUNTIME_UNAVAILABLE', 'CORE_MAINTENANCE_ENTRY_PENDING',
               'ROLLOUT_MANAGER_HOST_SOURCE_UNAVAILABLE'}
-SHARED_KINDS = ('pre-worker', 'inspect', 'maintenance',
-                'upgrade-receive', 'upgrade-complete')
 UPGRADE_KINDS = ('upgrade-prepare', 'upgrade-bind', 'upgrade-observe',
                  'upgrade-complete', 'upgrade-receive')
 
 LIVE_CHECK = '''
 import {readFile} from 'node:fs/promises';
-import {verifyInstalledSource} from '/opt/nibfin/core/src/source-package.mjs';
+import {join} from 'node:path';
+import {pathToFileURL} from 'node:url';
+const root = process.cwd();
 try {
+  const verifier = pathToFileURL(join(root, 'src/source-package.mjs'));
+  const {verifyInstalledSource} = await import(verifier.href);
   const host = JSON.parse(await readFile('/etc/nibfin/host.json', 'utf8'));
-  await verifyInstalledSource('/opt/nibfin/core', host.installation.pin);
+  await verifyInstalledSource(root, host.installation.pin);
   process.stdout.write(JSON.stringify({status:'verified'}));
 } catch (error) {
   const code = /^[A-Z][A-Z0-9_]*$/.test(error.code || '') ? error.code :
@@ -80,34 +83,56 @@ def runtime_node(root):
     return module.runtime()
 
 
-def command(arguments, handle, payload=None):
-    descriptors = (handle,)
+def command(arguments, payload=None, source=None, descriptors=()):
     if payload and json.loads(payload).get('kind') == 'pre-worker':
         # Only the verified legacy LIVE admission may use this human-only
         # stderr channel. New typed and unknown child stderr stays captured.
         os.dup2(2, 4)
-        descriptors = (handle, 4)
+        descriptors = (*descriptors, 4)
     return subprocess.run(arguments, input=payload, capture_output=True,
                           env={**ENV, 'SUDO_UID': os.environ.get('SUDO_UID', '')},
-                          pass_fds=descriptors)
+                          pass_fds=descriptors, cwd=source)
 
 
-def normal_installer(handle):
-    if LIVE.is_dir():
+@contextmanager
+def live_package():
+    owned(LIVE)
+    handle = os.open(LIVE, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        observed = os.fstat(handle)
+
+        def assert_live():
+            actual = LIVE.lstat()
+            if (actual.st_dev, actual.st_ino) != (observed.st_dev, observed.st_ino):
+                raise ValueError('Installed source changed')
+
         node = runtime_node(LIVE)
-        checked = command([node, '--input-type=module', '-e', LIVE_CHECK], handle)
-        result = process_result(LIVE, checked)
-        if result.get('status') != 'verified':
-            return result
-        if (LIVE / 'src/core-maintenance-installation.json').is_file():
-            completed = command([node, str(LIVE / 'bin/nibfin-core.mjs'),
-                                 'install-core-rollout-manager'], handle)
-            return process_result(LIVE, completed)
+        decoder = installer_results(LIVE)
+        assert_live()
+        pinned = Path('/proc/self/fd') / str(handle)
+        checked = command([node, '--input-type=module', '-e', LIVE_CHECK],
+                          source=pinned, descriptors=(handle,))
+        if decode_result(decoder, checked).get('status') != 'verified':
+            raise ValueError('Live source is unavailable')
+        assert_live()
+        yield node, pinned, decoder, handle
+    finally:
+        os.close(handle)
+
+
+def normal_installer():
+    if LIVE.is_dir():
+        with live_package() as (node, source, decoder, handle):
+            if (source / 'src/core-maintenance-installation.json').is_file():
+                completed = command([node, str(source / 'bin/nibfin-core.mjs'),
+                                     'install-core-rollout-manager'], source=source,
+                                    descriptors=(handle,))
+                return decode_result(decoder, completed)
     # First bootstrap may precede the live Core's new command. It is still the
     # normal fixed, verified administrator package, not a requested source path.
     node = runtime_node(BOOTSTRAP)
-    completed = command([node, str(BOOTSTRAP / 'scripts/core-maintenance-bootstrap.mjs')],
-                        handle)
+    completed = command([node,
+                         str(BOOTSTRAP / 'scripts/core-maintenance-bootstrap.mjs')])
     return process_result(BOOTSTRAP, completed)
 
 
@@ -131,28 +156,59 @@ def decode_result(results, completed):
         return error.result
 
 
-def manager_result(payload, handle):
-    node = runtime_node(MANAGER)
-    metadata = BASE / 'runtime.json'
-    owned(metadata)
-    info = metadata.lstat()
-    if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or \
-            json.loads(metadata.read_text()) != {'nodePath': node}:
-        raise ValueError('Unfinished management runtime publication')
-    entry = MANAGER / 'src/core-maintenance-bridge-entry.mjs'
-    owned(entry)
-    results = module_at('nibfin_bridge_results',
-                        MANAGER / 'scripts/core_rollout_result.py')
-    child = command([node, str(entry)], handle, payload)
+def selected_manager():
+    pointer = BASE / 'current-manager.json'
     try:
-        return results.read_result(child), child.returncode
-    except results.CoreRolloutFailure as error:
-        return error.result, results.result_exit(error.result)
+        owned(pointer)
+    except FileNotFoundError:
+        return MANAGER
+    info = pointer.lstat()
+    selected = json.loads(pointer.read_text())
+    pattern = r'generation-[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}'
+    if (not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or
+            selected.get('schemaVersion') != 1 or
+            not re.fullmatch(pattern, selected.get('generation', ''))):
+        raise ValueError('Untrusted management selection')
+    return BASE / selected['generation'] / 'package'
 
 
-def fresh_manager_result(payload, handle, kind):
+@contextmanager
+def manager_package():
+    path = selected_manager()
+    owned(path)
+    handle = os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
     try:
-        value, code = manager_result(payload, handle)
+        # A reader that acquired a predecessor before publication keeps an
+        # actual descriptor. A reader arriving afterwards uses the new package.
+        if selected_manager() != path:
+            raise ValueError('Management selection changed before source use')
+        yield path
+    finally:
+        os.close(handle)
+
+
+def manager_result(payload):
+    with manager_package() as root:
+        node = runtime_node(root)
+        metadata = root.parent / 'runtime.json'
+        owned(metadata)
+        info = metadata.lstat()
+        if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or \
+                json.loads(metadata.read_text()) != {'nodePath': node}:
+            raise ValueError('Unfinished management runtime publication')
+        entry = root / 'src/core-maintenance-bridge-entry.mjs'
+        owned(entry)
+        results = installer_results(root)
+        child = command([node, str(entry)], payload=payload)
+        try:
+            return results.read_result(child), child.returncode
+        except results.CoreRolloutFailure as error:
+            return error.result, results.result_exit(error.result)
+
+
+def fresh_manager_result(payload, kind):
+    try:
+        value, code = manager_result(payload)
     except FileNotFoundError:
         value, code = {'status': 'pending', 'code': 'ENOENT'}, 2
     except ValueError:
@@ -161,54 +217,46 @@ def fresh_manager_result(payload, handle, kind):
         # manager before publishing; incompatible or changed bytes remain denied.
         value, code = {'status': 'pending',
                        'code': 'CORE_MANAGEMENT_RUNTIME_UNAVAILABLE'}, 2
-    if kind == 'inspect' or value.get('code') not in REPAIRABLE:
+    if (kind != 'prepare' or value.get('code') not in REPAIRABLE or
+            selected_manager() != MANAGER or not local_administrator()):
         return value, code
     # This only finishes deployment of the actual adopted management source.
     # It grants no job, promotion or workflow-target authority. Admission is
     # performed afresh after repair, with the original private request.
-    fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    repaired = normal_installer(handle)
+    repaired = normal_installer()
     if repaired.get('status') != 'installed':
         return repaired, 1 if repaired.get('status') == 'denied' else 2
-    if kind in SHARED_KINDS:
-        fcntl.flock(handle, fcntl.LOCK_SH | fcntl.LOCK_NB)
-    return manager_result(payload, handle)
+    return manager_result(payload)
 
 
-def retire_packages(handle):
-    source = None
+def local_administrator():
+    host_file = CONFIG / 'host.json'
+    owned(host_file)
+    host = json.loads(host_file.read_text())
+    uid = os.environ.get('SUDO_UID', '0')
+    return (re.fullmatch(r'0|[1-9][0-9]*', uid) is not None and
+            int(uid) not in (host['runnerUid'],
+                host['sharedRunner']['additionalRunner']['uid']) and
+            not re.search(r'nibfin-shared-runner@(?:1|2)\.service',
+                          Path('/proc/self/cgroup').read_text()))
+
+
+def retire_packages():
     try:
-        fcntl.flock(handle, fcntl.LOCK_SH | fcntl.LOCK_NB)
-        try:
-            node = runtime_node(LIVE)
-            checked = command([node, '--input-type=module', '-e', LIVE_CHECK], handle)
-            if process_result(LIVE, checked).get('status') != 'verified':
-                raise ValueError('Live source is unavailable')
-            decoder = installer_results(LIVE)
-            source = os.open(LIVE, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
-        finally:
-            fcntl.flock(handle, fcntl.LOCK_UN)
-        # Pass the verified directory, not FD 3 or the mutable LIVE path.
-        # The sweep acquires its own gate and protects its source through cwd.
-        pinned = Path('/proc/self/fd') / str(source)
-        entry = pinned / 'src/core-package-retirement-entry.mjs'
-        result = subprocess.run([node, str(entry)], cwd=pinned, pass_fds=(source,),
-                                capture_output=True, env=ENV)
-        value = decode_result(decoder, result)
+        with live_package() as (node, pinned, decoder, handle):
+            entry = pinned / 'src/core-package-retirement-entry.mjs'
+            result = subprocess.run([node, str(entry)], cwd=pinned, pass_fds=(handle,),
+                                    capture_output=True, env=ENV)
+            value = decode_result(decoder, result)
         if value.get('status') == 'complete' and isinstance(value.get('cleanup'), list):
             return value['cleanup']
-    except BlockingIOError:
-        return [{'status': 'retained', 'code': 'PACKAGE_GATE_PENDING'}]
     except (OSError, ValueError, KeyError, subprocess.SubprocessError):
         pass
-    finally:
-        if source is not None:
-            os.close(source)
     return [{'status': 'retained', 'code': 'PACKAGE_OBSERVATION_UNAVAILABLE'}]
 
 
-def upgrade_request(handle, **request):
-    result, _ = manager_result(json.dumps(request).encode(), handle)
+def upgrade_request(**request):
+    result, _ = manager_result(json.dumps(request).encode())
     return result
 
 
@@ -217,12 +265,11 @@ def ready_upgrade(value):
             value.get('readiness') in ('ready', 'not-required'))
 
 
-def settle_upgrades(handle, operations, continuation):
-    fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+def settle_upgrades(operations, continuation):
     results = []
     for item in operations:
         if ready_upgrade(item):
-            outcome = upgrade_request(handle, kind='upgrade-settle',
+            outcome = upgrade_request(kind='upgrade-settle',
                                       operationId=item['operationId'],
                                       result=continuation)
             if outcome and outcome.get('upgrade'):
@@ -231,21 +278,17 @@ def settle_upgrades(handle, operations, continuation):
     return results
 
 
-def continue_upgrade(value, handle, code):
+def continue_upgrade(value, code):
     upgrade = value.get('upgrade')
     if not upgrade or not ready_upgrade(upgrade):
         return value, code
-    admin = module_at('nibfin_current_completion',
-                      MANAGER / 'scripts/core-rollout-admin.py')
-    observed = admin.continue_after_gate({'status': 'installed'}, handle)
+    with manager_package() as root:
+        admin = module_at('nibfin_current_completion',
+                          root / 'scripts/core-rollout-admin.py')
+        observed = admin.continue_installed({'status': 'installed'})
     continuation = observed['continuation']
-    try:
-        updated, = settle_upgrades(handle, [upgrade], continuation)
-        return {**value, 'upgrade': updated}, code
-    except BlockingIOError:
-        # Any confirmed dispatch is retained by normal installed continuation.
-        # Read it back if this operation's result publication could not finish.
-        return value, code
+    updated, = settle_upgrades([upgrade], continuation)
+    return {**value, 'upgrade': updated}, code
 
 
 def upgrade_action_result(value, code):
@@ -262,11 +305,10 @@ def upgrade_action_result(value, code):
     return value, code
 
 
-def continue_installed(value, handle, activation, admin):
+def continue_installed(value, activation, admin):
     if not activation:
-        return admin.continue_after_gate(value, handle)
-    fcntl.flock(handle, fcntl.LOCK_SH | fcntl.LOCK_NB)
-    matched = upgrade_request(handle, kind='upgrade-installed', activation=activation)
+        return admin.continue_installed(value)
+    matched = upgrade_request(kind='upgrade-installed', activation=activation)
     if matched is None or not isinstance(matched.get('upgradeOperations'), list):
         cause = matched or {}
         pending = {'status': 'pending', 'results': [],
@@ -282,57 +324,55 @@ def continue_installed(value, handle, activation, admin):
                      {'code': 'UPGRADE_READINESS_PENDING'})
             return {**value, 'upgradeOperations': upgrades,
                     'continuation': {**cause, 'status': 'pending', 'results': []}}
-    value = admin.continue_after_gate(value, handle)
+    value = admin.continue_installed(value)
     if upgrades:
         value['upgradeOperations'] = settle_upgrades(
-            handle, upgrades, value['continuation'])
+            upgrades, value['continuation'])
     return value
 
 
-def finish_installed(value, payload, handle):
+def finish_installed(value, payload):
     # Refresh and continue independently of the local retirement sweep.
     value = {**value, 'cleanup': []}
     try:
-        fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        refreshed = normal_installer(handle)
+        refreshed = normal_installer()
         if refreshed.get('status') != 'installed':
             return {**value, 'continuation': {**refreshed, 'status': 'pending',
                                              'results': []}}, 0
-        admin = module_at('nibfin_current_completion',
-                          MANAGER / 'scripts/core-rollout-admin.py')
-        value = continue_installed(value, handle, json.loads(payload).get('target'),
-                                   admin)
-        return value, admin.RESULTS.result_exit(value)
+        with manager_package() as root:
+            admin = module_at('nibfin_current_completion',
+                              root / 'scripts/core-rollout-admin.py')
+            value = continue_installed(value, json.loads(payload).get('target'), admin)
+            return value, admin.RESULTS.result_exit(value)
     except (OSError, ValueError, KeyError, subprocess.SubprocessError):
         return {**value, 'continuation': {'status': 'pending', 'results': [],
                                           'code': 'CORE_MANAGEMENT_PUBLICATION_RETRY'}}, 0
-    finally:
-        fcntl.flock(handle, fcntl.LOCK_UN)
 
 
-def run(payload, handle, kind):
-    value, code = fresh_manager_result(payload, handle, kind)
+def run(payload, kind):
+    value, code = fresh_manager_result(payload, kind)
     if kind in ('upgrade-complete', 'upgrade-receive'):
-        value, code = continue_upgrade(value, handle, code)
+        value, code = continue_upgrade(value, code)
         return upgrade_action_result(value, code) if kind == 'upgrade-receive' else (
             value, code)
     if (kind in ('maintenance', 'administrator') and
             value.get('code') == 'CORE_ONLY_MAINTENANCE_REQUIRED'):
         try:
-            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            upgrade_request(handle, kind='upgrade-promotion-unsupported',
+            upgrade_request(kind='upgrade-promotion-unsupported',
                             activation=json.loads(payload)['target'])
         except (OSError, ValueError, KeyError, subprocess.SubprocessError):
             # Preserve the verified maintenance outcome if projection can retry.
             pass
-    if value.get('installation') == 'complete':
+    local_promotion = kind == 'administrator' and not json.loads(payload).get('coreOnly')
+    if value.get('installation') == 'complete' and (
+            kind == 'maintenance' or local_promotion):
         # The old management child has exited. The live source is already
         # adopted and verified; its same installer updates management code,
         # without running Core promotion or Runner registration again.
         try:
-            value, code = finish_installed(value, payload, handle)
+            value, code = finish_installed(value, payload)
         finally:
-            cleanup = retire_packages(handle)
+            cleanup = retire_packages()
         return {**value, 'cleanup': cleanup}, code
     return value, code
 
@@ -347,25 +387,12 @@ def main():
                     'inspect', *UPGRADE_KINDS):
         return {'status': 'denied', 'code': 'CORE_MAINTENANCE_REQUEST_INVALID'}, 1
     owned(CONFIG)
-    handle = os.open(CONFIG, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
-    if handle != 3:
-        os.dup2(handle, 3)
-        os.close(handle)
-        handle = 3
-    try:
-        mode = fcntl.LOCK_SH if kind in SHARED_KINDS else fcntl.LOCK_EX
-        fcntl.flock(handle, mode | fcntl.LOCK_NB)
-        return run(payload, handle, kind)
-    finally:
-        os.close(handle)
+    return run(payload, kind)
 
 
 if __name__ == '__main__':
     try:
         outcome, exit_status = main()
-    except BlockingIOError:
-        outcome, exit_status = {'status': 'pending',
-                               'code': 'CORE_MANAGEMENT_OPERATION_PENDING'}, 2
     except (OSError, ValueError, KeyError, subprocess.SubprocessError):
         outcome, exit_status = {'status': 'pending',
                                'code': 'CORE_MAINTENANCE_BRIDGE_RETRY'}, 2

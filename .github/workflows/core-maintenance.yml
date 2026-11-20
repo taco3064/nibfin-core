@@ -1,5 +1,7 @@
 name: Core maintenance
-run-name: Core maintenance · CD ${{ inputs.cd_run_id || github.event.workflow_run.id }}
+run-name: >-
+  Core maintenance · CD ${{ inputs.cd_run_id || github.event.workflow_run.id }}
+  · artifact ${{ inputs.activation_artifact_id || 'selected by producer' }}
 
 on:
   workflow_run:
@@ -50,6 +52,7 @@ jobs:
     runs-on: [self-hosted, linux, nibfin-shared]
     concurrency:
       group: nibfin-core-maintenance
+      queue: max
       cancel-in-progress: false
     permissions:
       actions: read

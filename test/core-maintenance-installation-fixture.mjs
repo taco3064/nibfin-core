@@ -6,6 +6,7 @@ import { providerHost } from './provider-fixture.mjs';
 import { sha256 } from '../src/identity.mjs';
 import { checkGenericMaintenancePool } from './core-maintenance-generic-pool-fixture.mjs';
 import { prepareMaintenanceRootIdentity } from './core-maintenance-os-fixture.mjs';
+import { selectedManager } from '../src/core-manager-generation.mjs';
 
 export async function checkMaintenanceInstallation(manager, node, manifest) {
   await prepareMaintenanceRootIdentity();
@@ -94,45 +95,39 @@ export async function checkMaintenanceInstallation(manager, node, manifest) {
   assert.equal(JSON.parse(denied.stdout).code,
     'CORE_MAINTENANCE_ADMINISTRATOR_REQUIRED');
   const base = '/usr/local/libexec/nibfin/core-rollout';
-  const prepare = () => spawnSync(bridge, [], { encoding: 'utf8',
+  const prepare = uid => spawnSync(bridge, [], { encoding: 'utf8',
     input: JSON.stringify({ kind: 'prepare' }),
-    env: { PATH: '/usr/bin:/bin', LANG: 'C', SUDO_UID: '0' } });
-  for (const path of ['runtime.json', 'source-pin.json', 'client.py']) {
-    await rm(join(base, path));
-    const repaired = prepare();
-    assert.equal(repaired.status, 0, repaired.stdout + repaired.stderr);
-    assert.equal(JSON.parse(repaired.stdout).status, 'installed');
-    assert.ok((await readFile(join(base, path))).length > 0);
-  }
+    env: { PATH: '/usr/bin:/bin', LANG: 'C', SUDO_UID: String(uid) } });
+  await rm(join(base, 'client.py'));
+  assert.equal(prepare(1001).status, 1);
+  const repaired = prepare(1000);
+  assert.equal(repaired.status, 0, repaired.stdout + repaired.stderr);
+  assert.equal(JSON.parse(repaired.stdout).status, 'installed');
+  assert.ok((await readFile(join(base, 'client.py'))).length > 0);
+  const previous = await selectedManager();
   const bootstrap = join(base, 'bootstrap');
   await cp(live, bootstrap, { recursive: true });
   await writeFile(join(base, 'bootstrap-source-pin.json'), JSON.stringify(pin));
-  await rm(join(base, 'runtime.json'));
-  const inheritedBootstrap = [
-    'import fcntl,os,subprocess,sys',
-    "fd=os.open('/etc/nibfin',os.O_RDONLY|os.O_DIRECTORY)",
-    'os.dup2(fd,3) if fd!=3 else None',
-    'fcntl.flock(3,fcntl.LOCK_EX|fcntl.LOCK_NB)',
-    'p=subprocess.run(sys.argv[1:],pass_fds=(3,))',
-    'sys.exit(p.returncode)',
-  ].join(';');
-  const bootstrapped = spawnSync('/usr/bin/python3', ['-c', inheritedBootstrap, node,
-    join(bootstrap, 'scripts/core-maintenance-bootstrap.mjs')], { encoding: 'utf8',
+  const bootstrapped = spawnSync(node,
+    [join(bootstrap, 'scripts/core-maintenance-bootstrap.mjs')], { encoding: 'utf8',
     env: { PATH: '/usr/bin:/bin', LANG: 'C' } });
   assert.equal(bootstrapped.status, 0, bootstrapped.stdout + bootstrapped.stderr);
   assert.equal(JSON.parse(bootstrapped.stdout).status, 'installed');
+  assert.equal(await selectedManager(), previous);
   await rm('/etc/nibfin/rollout-plan.json');
   // A genuine fresh management install has neither a manager nor its receipts.
   // These are fixture-owned copies, and every child using them has exited.
   await rm(manager, { recursive: true });
-  for (const file of ['source-pin.json', 'runtime.json']) await rm(join(base, file));
+  for (const file of ['source-pin.json', 'current-manager.json'])
+    await rm(join(base, file));
   const fresh = spawnSync(node,
     [join(live, 'bin/nibfin-core.mjs'), 'install-core-rollout-manager'],
     { encoding: 'utf8', env: { PATH: '/usr/bin:/bin', LANG: 'C' } });
   assert.equal(fresh.status, 0, fresh.stdout + fresh.stderr);
   assert.equal(JSON.parse(fresh.stdout).status, 'installed');
-  await checkGenericMaintenancePool(manager, live, node, pin);
-  for (const root of [manager, live]) {
+  const selected = await selectedManager();
+  await checkGenericMaintenancePool(selected, live, node, pin);
+  for (const root of [selected, live]) {
     const probe = spawnSync(node, ['--input-type=module', '-e',
       `import{verifyInstalledSource}from${JSON.stringify(
         'file://' + join(root, 'src/source-package.mjs'))};` +

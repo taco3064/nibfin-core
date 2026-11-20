@@ -4,11 +4,9 @@ import { machine } from 'node:os';
 import { spawn } from 'node:child_process';
 import { coreRoot } from './host-adoption.mjs';
 import { rootOwnedPath } from './host-paths.mjs';
-import { managerRoot, readManagerPin } from './rollout-manager-context.mjs';
+import { selectedManager, readManagerPin } from './core-manager-generation.mjs';
 import { verifyOwnedSourcePackage } from './owned-source-package.mjs';
-import { withCoreManagementGate } from './core-management-gate.mjs';
-import { installVerifiedRolloutManager, publishManagerMetadata }
-  from './core-manager-installation.mjs';
+import { installVerifiedRolloutManager } from './core-manager-installation.mjs';
 import { installedSharedRuntime, platformContract, sharedTargetFromContract,
   verifySharedFile } from './shared-platform.mjs';
 import { requireThat } from './identity.mjs';
@@ -34,17 +32,18 @@ async function packageRuntime(root) {
 }
 
 async function currentManager() {
-  const pin = await readManagerPin();
-  await verifyOwnedSourcePackage(managerRoot, pin);
-  return { pin, runtime: await packageRuntime(managerRoot) };
+  const directory = await selectedManager();
+  const pin = await readManagerPin(directory);
+  await verifyOwnedSourcePackage(directory, pin);
+  return { directory, pin, runtime: await packageRuntime(directory) };
 }
 
-export async function installManagerEntries(runtime, handle) {
+export async function installManagerEntries(runtime, directory) {
   const result = await new Promise((resolve, reject) => {
     const child = spawn(runtime.nodePath,
-      [join(managerRoot, 'src/core-maintenance-install-entry.mjs')], {
+      [join(directory, 'src/core-maintenance-install-entry.mjs')], {
         env: { PATH: '/usr/bin:/bin', LANG: 'C' },
-        stdio: ['ignore', 'pipe', 'inherit', handle.fd], shell: false,
+        cwd: directory, stdio: ['ignore', 'pipe', 'inherit'], shell: false,
       });
     const chunks = [];
     child.stdout.on('data', bytes => chunks.push(bytes));
@@ -62,41 +61,41 @@ export async function bootstrapCoreMaintenance() {
   requireThat(process.platform === 'linux' && process.getuid() === 0 &&
     coreRoot === contract.bootstrapRoot, 'CORE_MAINTENANCE_FIXED_BOOTSTRAP_REQUIRED');
   const runtime = await installedSharedRuntime();
-  return withCoreManagementGate(async handle => {
-    await rootOwnedPath(contract.bootstrapPin);
-    const pin = JSON.parse(await readFile(contract.bootstrapPin, 'utf8'));
-    await verifyOwnedSourcePackage(coreRoot, pin);
-    const hostPath = '/etc/nibfin/host.json';
-    await rootOwnedPath(hostPath);
-    const host = JSON.parse(await readFile(hostPath, 'utf8'));
-    requireThat(host.installation?.directory === '/opt/nibfin/core' &&
-      host.sharedRunner?.runner, 'CORE_MAINTENANCE_ADOPTED_POOL_REQUIRED');
-    const adopted = await inspectAdoptedSource(host.installation.pin);
-    const hasCapability = await readFile(join(adopted.path, capabilityPath), 'utf8')
-      .then(() => true).catch(error => {
-        if (error.code !== 'ENOENT') throw error;
-        return false;
-      });
-    if (hasCapability) {
-      // The host's adopted source wins over an older CLI bootstrap package.
-      // Its complete verified bytes also repair interrupted metadata publication.
-      const selected = await packageRuntime(adopted.path);
-      await installVerifiedRolloutManager(adopted.path, host.installation.pin, selected);
-      return installManagerEntries(selected, handle);
-    }
-    let existing;
-    try { existing = await currentManager(); }
-    catch (error) {
-      if (!['ENOENT', 'SOURCE_MANIFEST_MISMATCH', 'ROLLOUT_MANAGER_METADATA_UNAVAILABLE']
-        .includes(error.code)) throw error;
-    }
-    if (existing) {
-      await publishManagerMetadata(existing.pin, existing.runtime);
-      return installManagerEntries(existing.runtime, handle);
-    }
-    // Missing metadata after publication may be repaired from this independently
-    // verified source. The shared installer reads the actual complete tree first.
-    await installVerifiedRolloutManager(coreRoot, pin, runtime);
-    return installManagerEntries(runtime, handle);
-  });
+  await rootOwnedPath(contract.bootstrapPin);
+  const pin = JSON.parse(await readFile(contract.bootstrapPin, 'utf8'));
+  await verifyOwnedSourcePackage(coreRoot, pin);
+  const hostPath = '/etc/nibfin/host.json';
+  await rootOwnedPath(hostPath);
+  const host = JSON.parse(await readFile(hostPath, 'utf8'));
+  requireThat(host.installation?.directory === '/opt/nibfin/core' &&
+    host.sharedRunner?.runner, 'CORE_MAINTENANCE_ADOPTED_POOL_REQUIRED');
+  const adopted = await inspectAdoptedSource(host.installation.pin);
+  const hasCapability = await readFile(join(adopted.path, capabilityPath), 'utf8')
+    .then(() => true).catch(error => {
+      if (error.code !== 'ENOENT') throw error;
+      return false;
+    });
+  if (hasCapability) {
+    // The host's adopted source wins over an older CLI bootstrap package.
+    // Its complete verified bytes also repair interrupted metadata publication.
+    const selected = await packageRuntime(adopted.path);
+    const installed = await installVerifiedRolloutManager(adopted.path,
+      host.installation.pin, selected);
+    return installManagerEntries(selected, installed.directory);
+  }
+  let existing;
+  try { existing = await currentManager(); }
+  catch (error) {
+    if (!['ENOENT', 'SOURCE_MANIFEST_MISMATCH', 'ROLLOUT_MANAGER_METADATA_UNAVAILABLE']
+      .includes(error.code)) throw error;
+  }
+  if (existing) {
+    const installed = await installVerifiedRolloutManager(existing.directory,
+      existing.pin, existing.runtime);
+    return installManagerEntries(existing.runtime, installed.directory);
+  }
+  // Missing metadata after publication may be repaired from this independently
+  // verified source. The shared installer reads the actual complete tree first.
+  const installed = await installVerifiedRolloutManager(coreRoot, pin, runtime);
+  return installManagerEntries(runtime, installed.directory);
 }

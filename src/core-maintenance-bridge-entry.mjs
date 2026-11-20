@@ -20,15 +20,16 @@ import { observeUpgradeWorker } from './upgrade-continuation-identity.mjs';
 import { upgradeManagerRequest } from './upgrade-continuation-manager.mjs';
 import upgrade from './upgrade-continuation-contract.json' with { type: 'json' };
 import { requireNoRetirement, requirePoolOpen } from './retirement-admission.mjs';
+import { scheduleAdministratorMaintenance } from './core-maintenance-schedule-host.mjs';
+import { workflowDispatchFailure } from './native-workflow-dispatch.mjs';
 
 function execute(program, arguments_, input,
-  { inherited = false, legacyDiagnostic = false } = {}) {
+  { legacyDiagnostic = false } = {}) {
   return new Promise((resolve, reject) => {
     const child = spawn(program, arguments_, {
       shell: false,
       env: { PATH: '/usr/bin:/bin', LANG: 'C', SUDO_UID: process.env.SUDO_UID ?? '' },
-      stdio: ['pipe', 'pipe', legacyDiagnostic ? 4 : 'pipe',
-        ...(inherited ? [3] : [])],
+      stdio: ['pipe', 'pipe', legacyDiagnostic ? 4 : 'pipe'],
     });
     const chunks = [];
     const errors = [];
@@ -62,7 +63,7 @@ async function preWorker(context, host, supplied, uid) {
   const body = Buffer.from(supplied.frame, 'base64');
   const message = JSON.parse(new TextDecoder('utf-16le', { fatal: true }).decode(body));
   const { runtime, index, slot } = await officialWorker(context, host, uid);
-  await observeMaintenancePrograms(context, [slot]);
+  await observeMaintenancePrograms(context, [slot], { transition: true });
   if (message.jobDisplayName === 'core-maintenance') {
     await observeCoreMaintenanceWorker(context, host, message, uid,
       sharedWorkerReader(message.variables?.['system.github.token']));
@@ -126,18 +127,23 @@ async function main() {
         { inspectOnly: supplied.kind === 'inspect' });
     requireThat(supplied.coreOnly === undefined || typeof supplied.coreOnly === 'boolean',
       'CORE_MAINTENANCE_REQUEST_INVALID');
-    arguments_ = supplied.coreOnly ? ['--core-only'] : [];
+    if (supplied.coreOnly) {
+      requireThat(isId(supplied.target?.runId) && isId(supplied.target?.artifactId),
+        'CORE_MAINTENANCE_TARGET_REQUIRED');
+      return scheduleAdministratorMaintenance(context, host, supplied.target);
+    }
+    arguments_ = [];
   }
   requireThat(isId(supplied.target?.runId) && isId(supplied.target?.artifactId),
     'CORE_MAINTENANCE_TARGET_REQUIRED');
   const script = join(context.codeRoot, 'scripts/core-rollout-admin.py');
   const result = await execute('/usr/bin/python3', [script, ...arguments_,
     String(supplied.target.runId), String(supplied.target.artifactId)],
-  request ? JSON.stringify(request) : '', { inherited: true });
+  request ? JSON.stringify(request) : '');
   return readRolloutProcessResult(result.bytes, '', result.code);
 }
 
 try { writeCommandResult(await main()); }
 catch (error) {
-  writeCommandResult(rolloutFailure(error));
+  writeCommandResult(workflowDispatchFailure(error) ?? rolloutFailure(error));
 }

@@ -1,4 +1,3 @@
-import { retireInstalledCorePackages } from './core-package-retirement-host.mjs';
 import { prepareStorageReclamation } from './storage-reclamation-install.mjs';
 import { continuationOutcome } from './continuation-state.mjs';
 import { coreRoot } from './host-adoption.mjs';
@@ -15,7 +14,6 @@ export async function completeInstalledLifecycle() {
   requireThat(process.platform === 'linux' && process.getuid() === 0 &&
     coreRoot === '/opt/nibfin/core', 'CONTINUATION_REQUIRES_INSTALLED_ADMINISTRATOR');
   return completeLifecycleLocally({
-    retire: retireInstalledCorePackages,
     continue: async () => {
       const result = await withManagedAdmission(async () => {
         const context = await loadAdoptedHost({ verifyRemote: false });
@@ -31,7 +29,7 @@ export async function completeLifecycleLocally(ports) {
   let result, cleanup;
   try { result = await observeContinuation(ports.continue); }
   // Local work is attempted even if continuation is denied or unavailable.
-  finally { cleanup = await ports.retire(); }
+  finally { cleanup = await ports.retire?.() ?? []; }
   return { ...result, cleanup };
 }
 

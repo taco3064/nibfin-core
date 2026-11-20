@@ -1,13 +1,14 @@
 import { readFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { spawn } from 'node:child_process';
+import { isDeepStrictEqual } from 'node:util';
 import { coreRoot } from './host-adoption.mjs';
 import { rootOwnedPath } from './host-paths.mjs';
 import { installationRoot } from './rollout-manager-context.mjs';
 import { requireThat, isId } from './identity.mjs';
 import { installedSharedRuntime } from './shared-platform.mjs';
-import { withCoreManagementGate } from './core-management-gate.mjs';
 import { installVerifiedRolloutManager } from './core-manager-installation.mjs';
+import { verifyOwnedSourcePackage } from './owned-source-package.mjs';
 import { installManagerEntries } from './core-maintenance-bootstrap.mjs';
 import contract from './core-maintenance-installation.json' with { type: 'json' };
 import { readRolloutProcessResult, rolloutFailure } from './core-rollout-result.mjs';
@@ -28,15 +29,21 @@ async function installedAdministrator() {
 
 export async function installCoreRolloutManager() {
   const runtime = await installedAdministrator();
-  return withCoreManagementGate(async handle => {
-    const hostPath = '/etc/nibfin/host.json';
-    await rootOwnedPath(hostPath);
-    const host = JSON.parse(await readFile(hostPath, 'utf8'));
-    requireThat(host.installation?.directory === installationRoot,
-      'INVALID_HOST_ADOPTION');
-    await installVerifiedRolloutManager(coreRoot, host.installation.pin, runtime);
-    return installManagerEntries(runtime, handle);
-  });
+  const hostPath = '/etc/nibfin/host.json';
+  await rootOwnedPath(hostPath);
+  const host = JSON.parse(await readFile(hostPath, 'utf8'));
+  requireThat(host.installation?.directory === installationRoot,
+    'INVALID_HOST_ADOPTION');
+  const installed = await installVerifiedRolloutManager(
+    coreRoot, host.installation.pin, runtime, {
+      observeSource: async () => {
+        const current = JSON.parse(await readFile(hostPath, 'utf8'));
+        requireThat(isDeepStrictEqual(current.installation, host.installation),
+          'ROLLOUT_MANAGER_SOURCE_CHANGED');
+        await verifyOwnedSourcePackage(coreRoot, host.installation.pin);
+      },
+    });
+  return installManagerEntries(runtime, installed.directory);
 }
 
 export async function runCoreRollout(run, artifact, { coreOnly = false } = {}) {

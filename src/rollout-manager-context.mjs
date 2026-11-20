@@ -1,33 +1,13 @@
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { lstat, readFile } from 'node:fs/promises';
-import { rootOwnedPath } from './host-paths.mjs';
 import { verifyOwnedSourcePackage } from './owned-source-package.mjs';
 import { requireThat } from './identity.mjs';
-import { isInstallationPin } from './source-package.mjs';
+import { managerMetadataDirectory, readManagerPin } from './core-manager-generation.mjs';
 
-export const managerRoot = '/usr/local/libexec/nibfin/core-rollout/manager';
-export const managerPin = '/usr/local/libexec/nibfin/core-rollout/source-pin.json';
+export { managerRoot, managerPin, readManagerPin } from './core-manager-generation.mjs';
 export { installationRoot } from './adopted-source-path.mjs';
 import { installationRoot, inspectAdoptedSource } from './adopted-source-path.mjs';
 const admitted = new WeakSet();
-
-export async function readManagerPin() {
-  const info = await lstat(managerPin).catch(error => {
-    if (error.code !== 'ENOENT') throw error;
-    requireThat(false, 'ROLLOUT_MANAGER_METADATA_UNAVAILABLE');
-  });
-  await rootOwnedPath(managerPin);
-  requireThat(info.isFile() && info.nlink === 1, 'ROLLOUT_MANAGER_METADATA_UNKNOWN');
-  let pin;
-  try { pin = JSON.parse(await readFile(managerPin, 'utf8')); }
-  catch (error) {
-    if (!(error instanceof SyntaxError)) throw error;
-    requireThat(false, 'ROLLOUT_MANAGER_METADATA_UNAVAILABLE');
-  }
-  requireThat(isInstallationPin(pin), 'ROLLOUT_MANAGER_METADATA_UNAVAILABLE');
-  return pin;
-}
 
 export function requireManagerContext(context) {
   requireThat(admitted.has(context), 'ROLLOUT_MANAGER_NOT_ADMITTED');
@@ -38,9 +18,10 @@ export function requireManagerContext(context) {
 // Code identity is independent of the package transaction's live filesystem.
 export async function admitRolloutManager() {
   const codeRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-  requireThat(process.platform === 'linux' && process.getuid() === 0 &&
-    codeRoot === managerRoot, 'ROLLOUT_MANAGER_REQUIRES_INSTALLED_ADMIN');
-  const pin = await readManagerPin();
+  requireThat(process.platform === 'linux' && process.getuid() === 0,
+    'ROLLOUT_MANAGER_REQUIRES_INSTALLED_ADMIN');
+  managerMetadataDirectory(codeRoot);
+  const pin = await readManagerPin(codeRoot);
   const source = await verifyOwnedSourcePackage(codeRoot, pin);
   const inspectInstallation = inspectAdoptedSource;
   const context = Object.freeze({ codeRoot, installationRoot, pin, source,
