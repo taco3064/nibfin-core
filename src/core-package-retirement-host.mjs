@@ -1,4 +1,4 @@
-import { readFile, readdir, lstat } from 'node:fs/promises';
+import { readdir, lstat } from 'node:fs/promises';
 import { fstatSync } from 'node:fs';
 import { join } from 'node:path';
 import { rootOwnedPath } from './host-paths.mjs';
@@ -66,11 +66,11 @@ async function sweep() {
       }
     },
     remove: removeRetirementPackage,
-  });
+  }, withCoreManagementGate);
 }
 
-// Existing exclusive gate only. An inherited shared description must never be
-// upgraded here, nor may we open a second description against its parent.
+// An inherited description belongs to the caller. Defer without changing it.
+// Independent sweeps release the existing exclusive gate between packages.
 export async function retireInstalledCorePackages() {
   try {
     await rootOwnedPath(managementDirectory);
@@ -79,13 +79,8 @@ export async function retireInstalledCorePackages() {
     try { inherited = fstatSync(3); }
     catch (error) { if (error.code !== 'EBADF') throw error; }
     if (inherited?.isDirectory() &&
-      packageIdentity(inherited) === packageIdentity(expected)) {
-      const info = await readFile('/proc/self/fdinfo/3', 'utf8');
-      if (!/^lock:\s+\S+: FLOCK\s+ADVISORY\s+WRITE\s/m.test(info))
-        return deferred('PACKAGE_GATE_PENDING');
-      return await sweep();
-    }
-    const result = await withCoreManagementGate(sweep);
-    return Array.isArray(result) ? result : deferred('PACKAGE_GATE_PENDING');
+      packageIdentity(inherited) === packageIdentity(expected))
+      return deferred('PACKAGE_GATE_PENDING');
+    return await sweep();
   } catch (error) { return deferred(retirementReason(error)); }
 }

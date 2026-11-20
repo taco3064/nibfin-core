@@ -30,7 +30,7 @@ class ContinuationBoundary(unittest.TestCase):
                          'readinessCause': {'code': 'JOB_VM_HOST_MEMORY_PRESSURE'}}
         self.admin = SimpleNamespace(continue_after_gate=self.dispatch,
                                      RESULTS=SimpleNamespace(result_exit=lambda _: 0))
-        self.gate = SimpleNamespace(LOCK_SH=1, LOCK_EX=2, LOCK_NB=4,
+        self.gate = SimpleNamespace(LOCK_SH=1, LOCK_EX=2, LOCK_NB=4, LOCK_UN=8,
                                     flock=lambda *_: None)
 
     def manager(self, payload, _handle, _kind):

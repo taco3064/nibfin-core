@@ -125,6 +125,6 @@ loseReply = true;
 for (let attempt = 0; attempt < 2; attempt++) {
   assert.deepEqual(await completeInstalledLifecycle(),
     { status: 'paused', results: [], cleanup: [] });
-  assert.deepEqual(events.slice(-3), ['retire', 'source', 'permission']);
+  assert.deepEqual(events.slice(-3), ['source', 'permission', 'retire']);
 }
 console.log('Controlled installed lifecycle preparation and retry passed');

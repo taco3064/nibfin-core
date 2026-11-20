@@ -536,9 +536,9 @@ def start_enabled(services):
 def clean_superseded_staged_packages():
     # The current revision no longer authorizes deletion. The shared installed
     # implementation establishes ownership, current use and the lifetime gate.
-    entry = INSTALL / "core/src/core-package-retirement-entry.mjs"
     try:
-        result = subprocess.run(("node", str(entry)), env=ENV,
+        result = subprocess.run(("node", "src/core-package-retirement-entry.mjs"),
+                                cwd=INSTALL / "core", env=ENV,
                                 capture_output=True, text=True)
         value = json.loads(result.stdout)
         if result.returncode == 0 and value.get("status") == "complete":

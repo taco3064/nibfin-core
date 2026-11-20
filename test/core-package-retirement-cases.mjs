@@ -20,6 +20,28 @@ import { fixtureOwnedPath, requireProductionRefusal }
   from './core-package-retirement-ownership.mjs';
 
 const noop = async () => {};
+const loadedService = 'Id=example.service\nLoadState=loaded\nNeedDaemonReload=no\n';
+
+test('a package retired after enumeration is observed without repeating cleanup',
+  async t => {
+    const parent = await fixture(t);
+    const { path } = await source(parent, name());
+    const report = await sweep(parent, {
+      list: async () => {
+        const entries = await readdir(parent);
+        await rm(path, { recursive: true });
+        return entries;
+      },
+      protection: () => assert.fail('The other sweep finished the package'),
+      unused: () => assert.fail('There is no path left to observe'),
+    });
+    assert.deepEqual(report,
+      [{ package: name(), status: 'removed', code: 'PACKAGE_REMOVED' }]);
+    const absent = await inspectRetirementPackage(parent, name());
+    await source(parent, name());
+    await assert.rejects(removeRetirementPackage(absent, noop),
+      { code: 'PACKAGE_IDENTITY_CHANGED' });
+  });
 
 test('fixture policy checks real identity, ancestors, permissions and symlinks',
   async t => {
@@ -305,7 +327,7 @@ test('filesystem-relative bind roots retain only the referenced package', async 
 });
 
 test('inactive service references and uncertain reload preserve source', async () => {
-  let properties = 'LoadState=loaded\nNeedDaemonReload=no\nWorkingDirectory=/package\n';
+  let properties = loadedService + 'WorkingDirectory=/package\n';
   const run = async (_program, args) => ({ stdout: Buffer.from(
     args[0] === 'show' ? properties : 'example.service disabled\n') });
   await assert.rejects(requireNoPackageServices('/package', run),
@@ -328,7 +350,7 @@ test('equivalent native service paths retain packages through the sweep', async 
     parent + '/service-directory/../src/example.mjs'];
   for (const argument of paths) {
     const run = async (_program, args) => ({ stdout: Buffer.from(
-      args[0] === 'show' ? 'LoadState=loaded\nNeedDaemonReload=no\n' +
+      args[0] === 'show' ? loadedService +
         `ExecStart={ argv[]=${process.execPath} --import=${argument} ; }\n` :
         'example.service disabled\n') });
     const report = await sweep(parent, {
@@ -343,7 +365,7 @@ test('absent service working paths cannot defer an unrelated package', async t =
   const parent = await fixture(t);
   await source(parent, name());
   const run = async (_program, args) => ({ stdout: Buffer.from(
-    args[0] === 'show' ? 'LoadState=loaded\nNeedDaemonReload=no\n' +
+    args[0] === 'show' ? loadedService +
       `EnvironmentFiles=${parent}/absent (ignore_errors=yes)\n` +
       'ExecStart={ path=/bin/echo ; argv[]=@echo oneshot ; }\n' :
       'example.service disabled\n') });
@@ -360,16 +382,15 @@ test('concrete service instances use root-relative working and executable paths'
     const { path } = await source(parent, name());
     const units = [];
     const unit = 'example@slot.service';
-    const run = async (_program, [operation, name]) => {
+    const run = async (_program, [operation, ...args]) => {
       if (operation === 'list-units') return { stdout: Buffer.from(
         'ghost.service not-found inactive dead\n' + unit + ' loaded inactive dead\n') };
       if (operation !== 'show') return { stdout: Buffer.from(
         'example@.service disabled\n') };
-      if (name === 'ghost.service') return { stdout: Buffer.from(
-        'LoadState=not-found\nNeedDaemonReload=no\nFragmentPath=\n') };
-      units.push(name);
-      assert.equal(name, unit);
-      return { stdout: Buffer.from('LoadState=loaded\nNeedDaemonReload=no\n' +
+      units.push(args.slice(args.indexOf('--') + 1));
+      return { stdout: Buffer.from(
+        'Id=ghost.service\nLoadState=not-found\nNeedDaemonReload=no\nFragmentPath=\n\n' +
+        'Id=' + unit + '\nLoadState=loaded\nNeedDaemonReload=no\n' +
         `RootDirectory=${parent}\nWorkingDirectory=/\n` +
         `ExecStart={ path=/bin/node ; argv[]=node ./${path.split('/').at(-1)}` +
         '/src/example.mjs ; }\n') };
@@ -378,8 +399,34 @@ test('concrete service instances use root-relative working and executable paths'
       unused: candidate => requireNoPackageServices(candidate.path, run),
     });
     assert.equal(report[0].code, 'PACKAGE_SERVICE_REFERENCE');
-    assert.deepEqual(units, [unit]);
+    assert.deepEqual(units, [['ghost.service', unit]]);
 });
+
+test('a native service batch accounts for aliases, missing and ambiguous units',
+  async () => {
+    const active = loadedService + 'Names=alias.service example.service\n';
+    const clean = 'Id=other.service\nLoadState=loaded\nNeedDaemonReload=no\n';
+    let output = [active, active, clean].join('\n');
+    const run = async (_program, [operation, ...args]) => {
+      if (operation === 'show') {
+        assert.deepEqual(args.slice(args.indexOf('--') + 1),
+          ['example.service', 'alias.service', 'other.service']);
+        return { stdout: Buffer.from(output) };
+      }
+      return { stdout: Buffer.from(operation === 'list-unit-files' ?
+        'example.service enabled\nalias.service alias\nother.service disabled\n' : '') };
+    };
+    await requireNoPackageServices('/package', run);
+    output = active;
+    await assert.rejects(requireNoPackageServices('/package', run),
+      { code: 'PACKAGE_SERVICE_OBSERVATION_UNAVAILABLE' });
+    output = [active, clean + 'Names=alias.service other.service\n'].join('\n');
+    await assert.rejects(requireNoPackageServices('/package', run),
+      { code: 'PACKAGE_SERVICE_OBSERVATION_UNAVAILABLE' });
+    output = [active, clean + 'WorkingDirectory=/package\n'].join('\n');
+    await assert.rejects(requireNoPackageServices('/package', run),
+      { code: 'PACKAGE_SERVICE_REFERENCE' });
+  });
 
 test('service file URLs retain executable packages with decoded boundaries', async t => {
   const parent = await fixture(t);
@@ -387,7 +434,7 @@ test('service file URLs retain executable packages with decoded boundaries', asy
   const url = pathToFileURL(path + '/src/example.mjs').href;
   let argument;
   const run = async (_program, args) => ({ stdout: Buffer.from(
-    args[0] === 'show' ? 'LoadState=loaded\nNeedDaemonReload=no\n' +
+    args[0] === 'show' ? loadedService +
       `ExecStart={ argv[]=${process.execPath} --import=${argument} ` +
       `/work/test/core-package-retirement-cases.mjs ; }\n` :
       'example.service disabled\n') });
@@ -500,7 +547,7 @@ test('relative service source resolves from effective working directory', async 
   let context = `WorkingDirectory=${working}\n`;
   let argument = relative;
   const run = async (_program, args) => ({ stdout: Buffer.from(
-    args[0] === 'show' ? 'LoadState=loaded\nNeedDaemonReload=no\n' + context +
+    args[0] === 'show' ? loadedService + context +
       `ExecStart={ argv[]=${process.execPath} ${argument} ; }\n` :
       'example.service disabled\n') });
   for (argument of [relative, `--import=${relative}`, `'${relative}'`]) {

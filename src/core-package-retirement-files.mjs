@@ -52,6 +52,7 @@ export async function inspectRetirementPackage(parent, name) {
   const evidenceIdentity = evidenceStat ? fileIdentity(evidenceStat) : null;
   const stat = await optionalStat(path);
   if (!stat) {
+    if (!evidenceStat) return { path, name, evidencePath, absent: true };
     requireThat(intent?.name === name && typeof intent.identity === 'string',
       'PACKAGE_CONTENTS_UNKNOWN');
     validateManifest(intent.manifest);
@@ -150,6 +151,11 @@ export async function removeRetirementPackage(candidate, recheck, {
 } = {}) {
   if (candidate.absent) {
     requireThat(!await optionalStat(candidate.path), 'PACKAGE_IDENTITY_CHANGED');
+    if (!candidate.intent) {
+      requireThat(!await optionalStat(candidate.evidencePath),
+        'PACKAGE_IDENTITY_CHANGED');
+      return;
+    }
     await inspectIntent(candidate);
     await removeAndReadBack(candidate.evidencePath, false, effect);
     return;

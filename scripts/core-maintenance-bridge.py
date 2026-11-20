@@ -169,18 +169,25 @@ def fresh_manager_result(payload, handle, kind):
 
 
 def retire_packages(handle):
-    # Verified LIVE, after old child exit, on the parent's exclusive description.
-    # Publication failure must not starve independent local retirement.
     try:
-        node = runtime_node(LIVE)
-        checked = command([node, '--input-type=module', '-e', LIVE_CHECK], handle)
-        if process_result(LIVE, checked).get('status') != 'verified':
-            raise ValueError('Live source is unavailable')
-        result = command([node, str(LIVE / 'src/core-package-retirement-entry.mjs')],
-                         handle)
+        fcntl.flock(handle, fcntl.LOCK_SH | fcntl.LOCK_NB)
+        try:
+            node = runtime_node(LIVE)
+            checked = command([node, '--input-type=module', '-e', LIVE_CHECK], handle)
+            if process_result(LIVE, checked).get('status') != 'verified':
+                raise ValueError('Live source is unavailable')
+        finally:
+            fcntl.flock(handle, fcntl.LOCK_UN)
+        # Do not pass FD 3. The sweep owns one gate acquisition per candidate.
+        # Anchor the child to the executing tree so any moved source stays
+        # protected by the existing process working-directory observation.
+        result = subprocess.run([node, 'src/core-package-retirement-entry.mjs'],
+                                cwd=LIVE, capture_output=True, env=ENV)
         value = process_result(LIVE, result)
         if value.get('status') == 'complete' and isinstance(value.get('cleanup'), list):
             return value['cleanup']
+    except BlockingIOError:
+        return [{'status': 'retained', 'code': 'PACKAGE_GATE_PENDING'}]
     except (OSError, ValueError, KeyError, subprocess.SubprocessError):
         pass
     return [{'status': 'retained', 'code': 'PACKAGE_OBSERVATION_UNAVAILABLE'}]
@@ -268,6 +275,27 @@ def continue_installed(value, handle, activation, admin):
     return value
 
 
+def finish_installed(value, payload, handle):
+    # Refresh and continue independently of the local retirement sweep.
+    value = {**value, 'cleanup': []}
+    try:
+        fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        refreshed = normal_installer(handle)
+        if refreshed.get('status') != 'installed':
+            return {**value, 'continuation': {**refreshed, 'status': 'pending',
+                                             'results': []}}, 0
+        admin = module_at('nibfin_current_completion',
+                          MANAGER / 'scripts/core-rollout-admin.py')
+        value = continue_installed(value, handle, json.loads(payload).get('target'),
+                                   admin)
+        return value, admin.RESULTS.result_exit(value)
+    except (OSError, ValueError, KeyError, subprocess.SubprocessError):
+        return {**value, 'continuation': {'status': 'pending', 'results': [],
+                                          'code': 'CORE_MANAGEMENT_PUBLICATION_RETRY'}}, 0
+    finally:
+        fcntl.flock(handle, fcntl.LOCK_UN)
+
+
 def run(payload, handle, kind):
     value, code = fresh_manager_result(payload, handle, kind)
     if kind in ('upgrade-complete', 'upgrade-receive'):
@@ -288,21 +316,10 @@ def run(payload, handle, kind):
         # adopted and verified; its same installer updates management code,
         # without running Core promotion or Runner registration again.
         try:
-            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            value = {**value, 'cleanup': retire_packages(handle)}
-            refreshed = normal_installer(handle)
-            if refreshed.get('status') != 'installed':
-                return {**value, 'continuation': {**refreshed, 'status': 'pending',
-                                                 'results': []}}, 0
-            admin = module_at('nibfin_current_completion',
-                              MANAGER / 'scripts/core-rollout-admin.py')
-            value = continue_installed(value, handle,
-                                       json.loads(payload).get('target'), admin)
-            return value, admin.RESULTS.result_exit(value)
-        except (OSError, ValueError, KeyError, subprocess.SubprocessError):
-            value = {**value, 'continuation': {'status': 'pending', 'results': [],
-                     'code': 'CORE_MANAGEMENT_PUBLICATION_RETRY'}}
-            return value, 0
+            value, code = finish_installed(value, payload, handle)
+        finally:
+            cleanup = retire_packages(handle)
+        return {**value, 'cleanup': cleanup}, code
     return value, code
 
 
