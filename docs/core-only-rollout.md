@@ -1,9 +1,11 @@
 # Core-only rollout
 
-`nibfin-core rollout-core-only CD_RUN_ID ARTIFACT_ID` is an explicit Root
-administrator operation. It uses the installed, verified management bundle outside
-the Core directory being replaced. Normal `rollout-core` retains the stopped-pool
-procedure. Core-only mode never stops, starts, registers or replaces a Runner.
+`nibfin-core rollout-core-only CD_RUN_ID ARTIFACT_ID` submits a serving-pool
+maintenance request to the adopted GitHub execution repository and reads back the
+native result on retry. The maintenance Job uses the verified management package
+outside the Core directory being replaced. For explicit offline recovery, stop
+both Runner services and wait for their process groups to exit before running
+`rollout-core`. Core-only mode preserves Runner service state and registration.
 
 Before admission closes, Core-only mode compares the candidate against the actual
 installed pool runtime, service template, Worker dispatcher and adopted host
@@ -33,19 +35,15 @@ Owner pause continues to suppress dispatch through that normal lifecycle route.
 
 ## Native maintenance consumer contract
 
-Core exposes a narrow internal entry for the separately installed maintenance
-bridge. This change supplies the admission and transaction primitives; the actual
-workflow, pre-Worker route and fixed privileged bridge are installed separately.
-Their existence or successful live deployment is not established by these APIs.
+Core exposes a narrow internal entry through its installed maintenance bridge.
+The maintenance workflow and pre-Worker route use GitHub's current run and Runner
+identity to authenticate the operation.
 
-The fixed workflow is `.github/workflows/core-maintenance.yml`, its job name is
-`core-maintenance`, its event is `workflow_dispatch`, and its OIDC audience is
-`nibfin:core-maintenance`. The privileged entry is:
-
-```text
-python3 /usr/local/libexec/nibfin/core-rollout/manager/scripts/core-rollout-admin.py \
-  --core-only CD_RUN_ID ARTIFACT_ID
-```
+Core's own deployment uses `.github/workflows/core-maintenance.yml` and the
+`core-maintenance` Job. An adopted execution repository can use the maintained
+upgrade execution workflow with the Core activation inputs. Both use the native
+`workflow_dispatch` event. The fixed privileged bridge verifies the signed
+`nibfin:core-maintenance` invocation and selects the installed package entry.
 
 Private stdin contains exactly:
 
@@ -86,21 +84,12 @@ only the fixed maintenance Worker to start. Exact target proof remains with the
 later signed Root operation before writes; pre-Worker admission does not claim
 that an unobserved frame input or operation target was already verified.
 
-The fixed bridge may pass its existing configuration-directory open description
-through internal descriptor 3 for native maintenance or normal Root administration.
-Python verifies the fixed directory's actual inode, owner and type, then acquires
-the existing operation flock on that same descriptor. This is serialization,
-never authentication or proof that a lock was already held. Calls without that
-descriptor use the normal directory open; unrelated descriptors are rejected.
-
-An inherited operation returns after installation and installed observation, before
-dispatch. Its stable parent waits for the manager process to exit, converts that
-same existing lock to shared access, then freshly observes the actual current
-manager and installed pool runtime before completing the lifecycle. Direct Root
-operations likewise switch to shared access before fresh completion. Shared
-access permits the official pre-Worker's shared source protection. A failed lock
-conversion leaves installation complete and continuation pending, without using
-old runtime facts, adding a delay or repeating installation writes.
+GitHub's concurrency group orders serving-pool maintenance Jobs in the adopted
+execution repository. The fixed bridge keeps its verified management package
+available for the life of the process. After installation, it reads the selected
+manager and installed pool runtime again before completing the lifecycle. A
+failed observation leaves installation complete and continuation pending so that
+retry can reuse the confirmed installation.
 
 Another authenticated Job may resume the same target after fresh admission. It
 does not bypass another target's closure, retirement or Owner pause. Ordinary
