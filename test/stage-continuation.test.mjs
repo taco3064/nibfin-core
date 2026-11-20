@@ -110,7 +110,31 @@ test('a new dispatch resumes only a Core-proven idle interruption', async () => 
   }
 });
 
-test('an idle Accept retries once only after termination is proved', async () => {
+test('an idle agent stage retries immediately after proven termination', async () => {
+  for (const target of pressureStages) {
+    const f = fixture();
+    const execute = f.options.execute;
+    const proof = { executionId: 'interrupted', code: 'CODEX_IDLE_TIMEOUT',
+      terminationHash: 'a'.repeat(64) };
+    const hash = digest(proof);
+    f.objects[hash] = proof;
+    f.options.wait = () => assert.fail('Retry should not wait');
+    f.options.execute = async stage => {
+      if (stage !== target || f.calls.includes(target)) return execute(stage);
+      f.calls.push(stage);
+      const receipt = { stage, outcome: 'blocked', execution: { id: 'interrupted' },
+        references: [`evidence:${hash}`] };
+      f.receipts[stage] = receipt;
+      return { stage, status: 'denied', code: proof.code, receiptHash: digest(receipt) };
+    };
+    assert.equal((await continueStages(f.options)).stage, 'close');
+    const stages = Object.keys(stageSuccess);
+    stages.splice(stages.indexOf(target), 0, target);
+    assert.deepEqual(f.calls, stages);
+  }
+});
+
+test('unproven or repeated idle interruption stays visible', async () => {
   for (const valid of [true, false]) {
     const f = fixture();
     const execute = f.options.execute;
@@ -119,16 +143,16 @@ test('an idle Accept retries once only after termination is proved', async () =>
     const hash = digest(proof);
     f.objects[hash] = proof;
     f.options.execute = async stage => {
-      const result = await execute(stage);
-      if (stage !== 'accept') return result;
+      if (stage !== 'deliver') return execute(stage);
+      f.calls.push(stage);
       const receipt = { stage, outcome: 'blocked', execution: { id: 'interrupted' },
         references: [`evidence:${hash}`] };
       f.receipts[stage] = receipt;
       return { stage, status: 'denied', code: proof.code, receiptHash: digest(receipt) };
     };
     assert.equal((await continueStages(f.options)).code, proof.code);
-    assert.equal(f.calls.filter(stage => stage === 'accept').length, valid ? 2 : 1);
-    assert.equal(f.calls.filter(stage => stage === 'deliver').length, 1);
+    assert.equal(f.calls.filter(stage => stage === 'deliver').length, valid ? 2 : 1);
+    assert.equal(f.calls.includes('accept'), false);
   }
 });
 
