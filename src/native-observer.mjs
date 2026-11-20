@@ -1,12 +1,9 @@
-import { observePause } from './pause.mjs';
-import { OperationJournal } from './operation-journal.mjs';
-import { readProtectedApproval, readMemberPermission } from './github-approval.mjs';
+import { observeWorkEligibility } from './work-eligibility.mjs';
+import { readProtectedApproval } from './github-approval.mjs';
 import { readCurrentMain } from './current-main.mjs';
 import { readRunnerBinding } from './runner-binding.mjs';
-import { readDependencies } from './dependencies.mjs';
 import { readPullRequestCI } from './github-ci.mjs';
 import { ciLogsWaiting, requiredCheckFailed } from './ci-recovery.mjs';
-import { selectAssignee } from './selection.mjs';
 import { EvidenceStore } from './evidence-store.mjs';
 import { evidenceBinding, stages } from './stages.mjs';
 import { equivalentCandidate } from './candidate-evidence.mjs';
@@ -44,39 +41,7 @@ export function nativeObserver({
     const approval = await readProtectedApproval(reader, pinned.approval, clock());
     const record = approval.record;
     const nativePolicy = pinned.approval.kind === 'repository-admission-v1';
-    const pauseEvidence = pinned.pauseJournalRoot
-      ? await new OperationJournal(pinned.pauseJournalRoot, record.issue).pauseEvidence()
-      : { decisions: [], pending: false };
-    const pause = await observePause(reader, record.issue, pauseEvidence.decisions, {
-      repository: approval.repository, issue: approval.issue,
-      grouped: approval.dependencies !== undefined, propagateTransient: true,
-    });
-    if (pauseEvidence.pending) pause.status = 'pending';
-    const observed = await readDependencies(reader, record.issue, record.prerequisites, {
-      repository: approval.repository, issue: pause.current,
-      dependencies: approval.dependencies,
-    });
-    requireThat(!nativePolicy || observed.issue.body === record.scope.body,
-      'ISSUE_REQUIREMENTS_CHANGED_DURING_READ');
-    requireThat(observed.ready, 'PREREQUISITES_NOT_READY');
-    const route = await selectAssignee(observed.issue, async (user) => {
-      if (user.id !== record.roles.writer) return false;
-      if (nativePolicy) return true;
-      try {
-        await readMemberPermission(reader, record.issue.repository, {
-          ...user,
-          type: 'User',
-        });
-        return true;
-      } catch (error) {
-        if (error.code === 'MEMBER_PERMISSION_REVOKED') return false;
-        throw error;
-      }
-    });
-    requireThat(
-      route && route.userId === pinned.runner.memberId,
-      'ASSIGNEE_RUNNER_BINDING_CHANGED',
-    );
+    const eligibility = await observeWorkEligibility(reader, pinned, approval);
     const stateBinding = pinned.stateBinding;
     const store = stores(evidenceBinding({ approval, stateBinding })),
       receipts = await store.load();
@@ -87,11 +52,7 @@ export function nativeObserver({
       approval,
       ...(stateBinding ? { stateBinding } : {}),
       main,
-      issue: observed.issue,
-      pause: pause.current && digest(pause.current) === digest(observed.issue) ? pause
-        : { status: 'pending', code: 'PAUSE_OBSERVATION_CHANGED' },
-      dependencies: { ready: true, identities: record.prerequisites },
-      route,
+      ...eligibility,
       receipts,
       execution: actor,
     };

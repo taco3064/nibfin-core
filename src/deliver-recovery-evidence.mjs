@@ -1,5 +1,5 @@
 import { join } from 'node:path';
-import { hostExecution } from './host-launcher.mjs';
+import { hostExecution } from './host-execution.mjs';
 import { digest, isId, isSha, requireThat } from './identity.mjs';
 import { repoPath } from './github-read.mjs';
 import { evidenceBinding, executionIdentity,

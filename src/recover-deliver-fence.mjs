@@ -1,7 +1,7 @@
 import { constants } from 'node:fs';
 import { open, readdir, unlink } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
-import { repoPath } from './github-read.mjs';
+import { selectRecoverySlot } from './recovery-slot.mjs';
 import { mcpJobBinding } from './mcp-job.mjs';
 import { withManagedAdmission } from './managed-credential-admission.mjs';
 import { coreRoot, loadHostAdoption, inspectHostAdoption } from './host-adoption.mjs';
@@ -35,32 +35,11 @@ export async function recoverDeliverFence(issueNumber) {
   const load = adoption.loadHostAdoption;
   return withManagedAdmission(async () => {
     const target = process.env[targetContextKey];
-    let context = await load(issueNumber, target, undefined, true);
-    // Shared slots have separate adopted isolation. Select only an explicitly
-    // adopted slot using the native Job, never a caller-supplied Runner identity.
-    const root = issueStatePath(context.host.stateRoot, context.adopted.isolation.issue);
-    let snapshot;
-    for (const directory of [root, context.host.stateRoot]) {
-      snapshot = await recoveryFile(join(directory, 'stage.lock')).catch(error => {
-        if (error.code === 'ENOENT') return null;
-        throw error;
-      });
-      if (snapshot) break;
-    }
-    if (snapshot) {
-      const prior = JSON.parse(snapshot.bytes).binding?.execution;
-      requireThat(isId(prior?.jobId), 'INVALID_RECOVERY_FENCE');
-      const job = await context.reader.get(repoPath(context.adopted.runner.repository) +
-        '/actions/jobs/' + prior.jobId);
-      if (job.runner_id !== context.adopted.runner.runnerId) {
-        const additional = context.host.sharedRunner?.additionalRunner;
-        requireThat(additional?.id === job.runner_id && isId(additional.uid),
-          'RECOVERY_EXECUTION_MISMATCH');
-        context = await load(issueNumber, target, additional.uid, true);
-      }
-    }
+    const current = await load(issueNumber, target, undefined, true);
+    const { context, expectedFence } = await selectRecoverySlot(current,
+      uid => load(issueNumber, target, uid, true));
     return recoverAdoptedDeliverFence(context, {
-      inspectAdoption: adoption.inspectHostAdoption,
+      inspectAdoption: adoption.inspectHostAdoption, expectedFence,
     });
   }, { reconcile: true }).catch(pendingRecovery);
 }
@@ -86,7 +65,7 @@ export async function recoverAdoptedDeliverFence(context, {
   observeBoot = linuxBootId, containers = idleContainers,
   processes = proveDeliverProcesses, approvalReader = readProtectedApproval,
   inspectAdoption = inspectHostAdoption, afterRecord = async () => {},
-  reclaim,
+  reclaim, expectedFence, currentInvocation,
 } = {}) {
   try {
     const { host, adopted } = context;
@@ -112,6 +91,11 @@ export async function recoverAdoptedDeliverFence(context, {
         path = join(host.stateRoot, 'stage.lock');
         snapshot = await readFence(path);
       }
+      if (expectedFence) {
+        requireThat(path === expectedFence.path && snapshot &&
+          digest(snapshot) === digest(expectedFence.snapshot), 'RECOVERY_LOCK_CHANGED');
+        await inspectRecoveryFile(path, expectedFence.snapshot);
+      }
       if (!snapshot) {
         // A completed disposition is evidence only: no admission or receipt is
         // minted. A later fence always takes precedence over these records.
@@ -136,7 +120,7 @@ export async function recoverAdoptedDeliverFence(context, {
       }
       return reconcile(context, approval, root, path, snapshot,
         { observeBoot, containers, processes, approvalReader, inspectAdoption,
-          afterRecord, reclaim });
+          afterRecord, reclaim, currentInvocation });
     });
   } catch (error) { return pendingRecovery(error); }
 }
@@ -175,7 +159,7 @@ async function reconcile(context, approval, root, path, snapshot, observers) {
     await proveMcpNotEntered(context, fence);
     const processHash = await observers.processes(fence,
       { installation: host.installation?.directory, subject,
-        stateRoot: host.stateRoot });
+        stateRoot: host.stateRoot, currentInvocation: observers.currentInvocation });
     const containerHash = await observers.containers(adopted.isolation, subject);
     await inspectRecoveryFile(path, snapshot);
     return { native: current.hash, processes: processHash, containers: containerHash };
@@ -259,7 +243,7 @@ async function proveMcpNotEntered({ host, adopted }, fence) {
   requireThat(snapshot === null, 'RECOVERY_MCP_OBSERVATION_UNAVAILABLE');
 }
 
-function pendingRecovery(error) {
+export function pendingRecovery(error) {
   const code = typeof error?.code === 'string' &&
     /^[A-Z][A-Z0-9_]{0,79}$/.test(error.code)
     ? error.code : 'RECOVERY_OBSERVATION_UNAVAILABLE';

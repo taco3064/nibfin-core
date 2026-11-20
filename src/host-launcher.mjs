@@ -1,3 +1,7 @@
+import { pendingRecovery } from './recover-deliver-fence.mjs';
+import {
+  admitContinuationFence, continuationEligibility, recoverContinuationFence,
+} from './continuation-admission.mjs';
 import { hostExecution } from './host-execution.mjs';
 import { controllerRequestIdentity, recordControllerResult, resultObservation }
   from './controller-result.mjs';
@@ -198,15 +202,32 @@ async function launchAdmittedStage(issueNumber, stage, env, runnerUid,
   });
   let fence;
   try {
-    fence = await acquireHostFence(root, {
-      execution,
-      issueId: issue.id,
-      host: digest(hostBytes),
+    const acquire = () => acquireHostFence(root, {
+      execution, issueId: issue.id, host: digest(hostBytes),
     });
+    if (stage === 'continue') {
+      const admission = await admitContinuationFence({
+        acquire,
+        authorize: () => retryGitHubObservation(async () => {
+          const fresh = await continuationEligibility(context, runner, approval);
+          await actionsCaller({ ...caller, executionId: execution.id })(fresh);
+        }),
+        recover: () => recoverContinuationFence(context, runner),
+      });
+      if (admission.pending)
+        return retainHostOutcome(root, { approval, runner, execution }, stage,
+          { schemaVersion: 1, stage, ...admission.pending });
+      fence = admission.fence;
+    } else fence = await acquire();
   } catch (error) {
     if (error.code === 'HOST_EXECUTION_UNRESOLVED')
       return retainHostOutcome(root, { approval, runner, execution }, stage,
         { schemaVersion: 1, stage, status: 'pending', code: error.code });
+    if (stage === 'continue')
+      return retainHostOutcome(root, { approval, runner, execution }, stage,
+        { schemaVersion: 1, stage,
+          ...(githubReadWait(error, undefined, { stage: true }) ??
+            pendingRecovery(error)) });
     throw error;
   }
   let mcpJob, release, preparation;
