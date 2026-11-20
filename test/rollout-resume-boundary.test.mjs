@@ -90,7 +90,11 @@ with tempfile.TemporaryDirectory(dir=pathlib.Path.cwd()) as temp:
     events = []
     g['start_enabled'] = lambda services: events.append('restored')
     g['pool_step'] = lambda step: events.append(step)
-    g['clean_superseded_staged_packages'] = lambda revision: None
+    def retire():
+        assert not path.exists()
+        events.append('retire')
+        return []
+    g['clean_superseded_staged_packages'] = retire
     def unavailable(*args):
         assert args == ('systemctl', 'is-active', '--quiet', 'fixture-service')
         raise RuntimeError('service not active')
@@ -103,7 +107,7 @@ with tempfile.TemporaryDirectory(dir=pathlib.Path.cwd()) as temp:
     assert path.exists() and events == ['restored']
     g['run'] = lambda *args: events.append('verified')
     finish(['fixture-service'])
-    assert events == ['restored', 'restored', 'verified', 'release']
+    assert events == ['restored', 'restored', 'verified', 'release', 'retire']
     assert not path.exists()
 `;
   const result = spawnSync('python3', ['-B', '-c', script,

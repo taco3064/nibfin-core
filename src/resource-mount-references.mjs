@@ -48,7 +48,8 @@ export function requireNoMountReferences(path, text, hostText = text) {
       // Mount roots are relative to the backing filesystem. Comparing them in
       // those coordinates works even when a process has no host mountpoint.
       if (contains(root, mount.root)) return true;
-      if (!contains(mount.root, root)) return false;
+      // A whole-filesystem alias does not identify an individual package.
+      if (mount.root === '/' || !contains(mount.root, root)) return false;
       // Private namespaces can clone the existing mount at the same location.
       // A mount at a different path exposes the candidate through an alias.
       const candidateView = posix.join(mount.target,
