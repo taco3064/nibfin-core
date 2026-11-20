@@ -165,6 +165,24 @@ def fresh_manager_result(payload, handle, kind):
     return manager_result(payload, handle)
 
 
+def retire_packages(handle):
+    # Verified LIVE, after old child exit, on the parent's exclusive description.
+    # Publication failure must not starve independent local retirement.
+    try:
+        node = runtime_node(LIVE)
+        checked = command([node, '--input-type=module', '-e', LIVE_CHECK], handle)
+        if process_result(LIVE, checked).get('status') != 'verified':
+            raise ValueError('Live source is unavailable')
+        result = command([node, str(LIVE / 'src/core-package-retirement-entry.mjs')],
+                         handle)
+        value = process_result(LIVE, result)
+        if value.get('status') == 'complete' and isinstance(value.get('cleanup'), list):
+            return value['cleanup']
+    except (OSError, ValueError, KeyError, subprocess.SubprocessError):
+        pass
+    return [{'status': 'retained', 'code': 'PACKAGE_OBSERVATION_UNAVAILABLE'}]
+
+
 def run(payload, handle, kind):
     value, code = fresh_manager_result(payload, handle, kind)
     if value.get('installation') == 'complete':
@@ -173,6 +191,7 @@ def run(payload, handle, kind):
         # without running Core promotion or Runner registration again.
         try:
             fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            value = {**value, 'cleanup': retire_packages(handle)}
             refreshed = normal_installer(handle)
             if refreshed.get('status') != 'installed':
                 return {**value, 'continuation': {**refreshed, 'status': 'pending',

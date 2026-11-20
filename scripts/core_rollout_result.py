@@ -42,16 +42,40 @@ def project_result(value):
             result["reasons"] = [item for item in value["reasons"]
                                  if isinstance(item, str)
                                  and re.fullmatch(r"[A-Za-z0-9_-]+", item)]
+        if isinstance(value.get("cleanup"), list):
+            result["cleanup"] = project_cleanup(value["cleanup"])
         return result
     result = {key: item for key, item in value.items()
               if key in CONTRACT["successFields"]}
     if isinstance(value.get("results"), list):
         result["results"] = project_records(value["results"])
+    if isinstance(value.get("cleanup"), list):
+        result["cleanup"] = project_cleanup(value["cleanup"])
     if "completion" in value:
         result["completion"] = project_result(value["completion"])
     if "continuation" in value:
         result["continuation"] = project_result(value["continuation"]) or {
             "status": "pending", "code": CONTRACT["malformedCode"], "results": []}
+    return result
+
+
+def project_cleanup(values):
+    contract = CONTRACT["packageCleanup"]
+    result = []
+    for item in values:
+        if not isinstance(item, dict):
+            continue
+        name = item.get("package")
+        if (name is not None and (not isinstance(name, str) or
+                not re.fullmatch(contract["packagePattern"], name))):
+            continue
+        if item.get("status") not in contract["statuses"] or \
+                item.get("code") not in contract["codes"]:
+            continue
+        record = {"status": item["status"], "code": item["code"]}
+        if name is not None:
+            record["package"] = name
+        result.append(record)
     return result
 
 

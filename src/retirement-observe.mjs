@@ -13,6 +13,8 @@ import { idleContainers } from './host-containers.mjs';
 import { sharedSlotIsolation } from './shared-runner.mjs';
 import { requirePoolConsumersSettled } from './retirement-admission.mjs';
 import { optionalStat } from './retirement-files.mjs';
+export { requireNoMountReferences, assertNoSlotMounts }
+  from './resource-mount-references.mjs';
 
 export const slotParent = '/var/lib/nibfin/runners';
 export const serviceTemplate = '/etc/systemd/system/nibfin-shared-runner@.service';
@@ -141,16 +143,6 @@ export async function settleRetirement(host, reader, binding, state, options) {
   await observeRetirementRegistrations(reader, binding.pool);
   for (const slot of [1, 2]) await observeRetirementUnit(slot);
   await assertRetirementCgroups();
-}
-
-export async function assertNoSlotMounts(path) {
-  const mounts = await readFile('/proc/self/mountinfo', 'utf8');
-  const decode = value => value.replace(/\\([0-7]{3})/g,
-    (_, octal) => String.fromCharCode(parseInt(octal, 8)));
-  requireThat(!mounts.trim().split('\n').some(line => {
-    const mount = decode(line.split(' ')[4]);
-    return mount === path || mount.startsWith(path + '/');
-  }), 'RETIREMENT_RESOURCE_MOUNTED');
 }
 
 export async function disabledRetirementUnit(
