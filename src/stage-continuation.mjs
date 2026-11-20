@@ -128,6 +128,16 @@ export async function continueStages({
   const previous = await store.load();
   const inspectCurrent = () => retryGitHubObservation(inspect,
     { wait, clock, timeout: ciTimeout });
+  const executeWithIdleRetry = async (stage, ciFailure) => {
+    const result = await execute(stage, ciFailure);
+    if (!agentStages.has(stage) || result.status !== 'denied' ||
+      result.code !== codexIdle.code) return result;
+    const receipt = await reportedReceipt(store, stage, result);
+    if (!receipt || !await stoppedAgentCanRestart(store, stage, receipt))
+      return result;
+    await inspectCurrent();
+    return execute(stage, ciFailure);
+  };
   const changed = await retryGitHubObservation(() => refreshRequirements(previous),
     { wait, clock, timeout: ciTimeout });
   let initial = changed ? {} :
@@ -136,7 +146,7 @@ export async function continueStages({
   if (initial['validate-shape']?.outcome === 'changes_required') initial = {};
   const repairCandidate = async (rejected, ciFailure) => {
     await inspectCurrent();
-    const repaired = await execute('deliver', ciFailure);
+    const repaired = await executeWithIdleRetry('deliver', ciFailure);
     if (repaired.status !== 'completed') return resumableCorrection(store, repaired);
     const delivery = await store.get(repaired.receiptHash);
     const candidate = await store.get(delivery.artifacts.candidateHash);
@@ -197,17 +207,16 @@ export async function continueStages({
       continue;
     await inspectCurrent();
     const deadline = clock() + ciTimeout;
-    let retriedIdle = false;
     let readRetries = 0;
     let ciPolls = 0;
     for (;;) {
-      result = await execute(stage);
+      result = await executeWithIdleRetry(stage);
       if (stage === 'validate-shape' && result.status === 'denied' &&
         result.code === 'STAGE_REQUIRES_CORRECTION') {
         const rejected = await reportedReceipt(store, stage, result);
         if (rejected?.outcome === 'changes_required') {
           await inspectCurrent();
-          const rewritten = await execute('shape');
+          const rewritten = await executeWithIdleRetry('shape');
           if (rewritten.status !== 'completed') return rewritten;
           const author = await store.get(rewritten.receiptHash);
           if (await sameShape(store, rejected.artifacts.shapeHash,
@@ -225,15 +234,6 @@ export async function continueStages({
         await inspectCurrent();
         continue;
       }
-      if (stage === 'accept' && !retriedIdle && result.status === 'denied' &&
-        result.code === codexIdle.code) {
-        const receipt = await reportedReceipt(store, stage, result);
-        if (receipt && await stoppedAgentCanRestart(store, stage, receipt)) {
-          retriedIdle = true;
-          await inspectCurrent();
-          continue;
-        }
-      }
       // Only recognized pre-effect waits can re-enter the same stage.
       const readWaiting = result.code === githubReadWaiting;
       if (result.status !== 'pending' ||
@@ -248,7 +248,7 @@ export async function continueStages({
     if (['review-pr', 'merge'].includes(stage) && repairIntegration &&
       integrationRepairRequired(result.code)) {
       await inspectCurrent();
-      const repaired = await execute('deliver');
+      const repaired = await executeWithIdleRetry('deliver');
       if (repaired.status !== 'completed') return repaired;
       return continueStages({
         store, execute, refreshRequirements, resumeClosed, inspect, wait, clock,
