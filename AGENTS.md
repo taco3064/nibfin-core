@@ -145,11 +145,12 @@ inside a serving Runner Job or a job-completed hook.
 
 Normal init/upgrade bootstraps the verified external management entry when needed.
 Its source and the stable pre-Worker/root bridge stay outside the Core tree being
-replaced. They share the existing configuration-directory gate for source
-lifetime. A completed Core update also updates its management code through the
-same installer, after the old child has exited. Missing publication metadata is
-recovered from actual adopted source; it is not permission to overwrite foreign
-resources or repeat completed Core promotion.
+replaced. Run a serving pool's Core promotion through its authorized GitHub
+maintenance workflow. Keep offline administrator recovery within the stopped-pool
+lifecycle. The installed entry executes from a verified management package whose
+lifetime covers that invocation. A completed Core update also updates its
+management code through the same installer. Recover missing publication metadata
+from the adopted source and reuse confirmed Core promotion.
 
 After verified installation and release, use the existing
 `complete-installed-lifecycle` operation. Preserve the distinction between
@@ -186,3 +187,11 @@ completed. When a successful read finds no completed outcome, rerun the
 unfinished stage using its normal admission and native GitHub checks.
 A missing local receipt alone must never stop continuation. Keep the
 ordinary handling for failed observations and apply it to the affected step.
+
+When Deliver finishes, trusted Core saves the completed Candidate to the Issue's
+GitHub work branch before independent Accept. Save at the Deliver handoff. Reuse a
+current confirmed Candidate after interruption and check its required inputs.
+When a successful observation finds no current saved result, run ordinary
+Deliver. An abandoned branch, a stale lock file, or a prior handoff report has
+no standing to block that work. Keep live process and external effect checks
+scoped to the actual workspace or remote operation they protect.
