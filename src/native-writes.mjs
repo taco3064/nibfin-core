@@ -4,7 +4,7 @@ import { GitHubWriter, MergeBeforeWrite } from './github-write.mjs';
 import { decideStage } from './stages.mjs';
 import { digest, isDigest, requireThat } from './identity.mjs';
 import { setTimeout } from 'node:timers/promises';
-import { abandonedPullRequest, PublicationBeforeWrite }
+import { isClosedUnmergedPullRequest, PublicationBeforeWrite }
   from './publication-target.mjs';
 
 // Installed Core assembly. Neither credentials nor the observer are provided by
@@ -118,7 +118,8 @@ export function nativeWrites({
           `/repos/${issue.repository}/pulls/${existing.number}`,
         );
         if (before.node_id === existing.id && before.number === existing.number &&
-          before.base?.repo?.id === issue.repositoryId && abandonedPullRequest(before))
+          before.base?.repo?.id === issue.repositoryId &&
+          isClosedUnmergedPullRequest(before))
           throw new PublicationBeforeWrite();
         requireThat(
           before.node_id === existing.id &&

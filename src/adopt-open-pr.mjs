@@ -1,13 +1,14 @@
 import { repoPath } from './github-read.mjs';
 import { isDigest, isSha, requireThat } from './identity.mjs';
-import { abandonedPullRequest, readBoundPullRequest } from './publication-target.mjs';
+import { isClosedUnmergedPullRequest, readBoundPullRequest }
+  from './publication-target.mjs';
 
 // The pin comes only from the root-owned host adoption. This establishes a
 // publication target. New Core still obtains its own Shape, Accept and Review.
 export async function readAdoptedOpenPr(reader, issue, pin, actorId, observed) {
   requireThat(pin.issueId === issue.id, 'INVALID_OPEN_PR_ADOPTION');
   const pr = observed ?? await readBoundPullRequest(reader, issue, pin.number, pin.id);
-  if (abandonedPullRequest(pr)) return null;
+  if (isClosedUnmergedPullRequest(pr)) return null;
   requireThat(pr.state === 'open', 'OPEN_PR_ADOPTION_CHANGED');
   requireThat(isSha(pin.head) && isSha(pin.tree) &&
     isSha(pin.parent) && isDigest(pin.candidateHash), 'INVALID_OPEN_PR_ADOPTION');

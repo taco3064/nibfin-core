@@ -103,3 +103,32 @@ test('direct publication reads current Candidate and never opens abandoned proof
     assert.equal(observed.receipts['review-pr'], undefined);
     assert.equal(observed.receipts.merge, undefined);
   });
+
+test('direct handoff publication uses the same native PR observation', async t => {
+  const f = await nativeFixture(t);
+  const issue = f.authority.record.issue;
+  const pin = { issueId: issue.id, id: 'PR_570', number: 570,
+    head: 'a'.repeat(40), tree: 'b'.repeat(40), parent: 'c'.repeat(40),
+    candidateHash: 'd'.repeat(64) };
+  const branch = 'nibfin/issue-2-aaaaaaaaaaaa';
+  f.data['/pulls/570'] = { node_id: pin.id, number: 570, state: 'open',
+    merged: false, draft: false, user: { id: f.authority.record.roles.publisher },
+    head: { sha: pin.head, ref: branch, repo: { id: 10 } },
+    base: { ref: 'main', repo: { id: 10 } } };
+  f.data['/git/commits/' + pin.head] = { sha: pin.head, tree: { sha: pin.tree },
+    parents: [{ sha: pin.parent }], message: 'Candidate: ' + pin.candidateHash };
+  f.data['/git/ref/heads/' + branch] = { object: { sha: pin.head } };
+  const original = f.adapters.reader.get;
+  let reads = 0;
+  f.adapters.reader.get = async path => {
+    if (path.endsWith('/pulls/570')) assert.equal(++reads, 1);
+    return original(path);
+  };
+  const observe = nativeObserver({ ...f.adapters,
+    config: { ...f.adapters.config, openPr: pin },
+    stores: () => ({ load: async () => ({}) }) });
+  const observed = await observe('commit-pr');
+  assert.equal(observed.pr.id, pin.id);
+  assert.equal(observed.adoptedOpenPr, true);
+  assert.equal(reads, 1);
+});

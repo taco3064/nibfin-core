@@ -135,9 +135,12 @@ export function nativeObserver({
     if (stage === 'deliver') context.rebaseTarget = main.head;
     if (stage === 'commit-pr' && handoff &&
       receipts['commit-pr']?.outcome !== 'published') {
-      context.pr = await readAdoptedOpenPr(reader, record.issue, handoff,
-        record.roles.publisher);
-      context.adoptedOpenPr = true;
+      const target = await readAdoptedOpenPr(reader, record.issue, handoff,
+        record.roles.publisher, adopted);
+      if (target) {
+        context.pr = target;
+        context.adoptedOpenPr = true;
+      }
     }
     const { saved, pr } = publication;
     if (saved) {

@@ -1,7 +1,8 @@
 import { repoPath } from './github-read.mjs';
 import { isId, requireThat } from './identity.mjs';
 
-export function abandonedPullRequest(pr) {
+// A bound publication target in this state cannot be updated by continuation.
+export function isClosedUnmergedPullRequest(pr) {
   return pr.state === 'closed' && pr.merged === false;
 }
 
@@ -34,18 +35,27 @@ export async function observePublication(reader, issue, receipts, handoff) {
     return observed.get(key);
   }
   const pr = saved ? await read(saved.prNumber, saved.prId) : null;
-  const abandoned = pr && abandonedPullRequest(pr);
+  const abandoned = pr && isClosedUnmergedPullRequest(pr);
   if (handoff && (!saved || abandoned))
     requireThat(handoff.issueId === issue.id, 'INVALID_OPEN_PR_ADOPTION');
   const adopted = handoff && (!saved || abandoned)
     ? await read(handoff.number, handoff.id) : null;
-  const abandonedHandoff = adopted && abandonedPullRequest(adopted);
+  const abandonedHandoff = adopted && isClosedUnmergedPullRequest(adopted);
   const delivery = receipts.deliver;
   const candidate = delivery?.artifacts?.candidateHash;
   const restartCandidate = Boolean(abandoned && candidate &&
     candidate === saved.candidateHash || abandonedHandoff &&
     (delivery?.outcome !== 'ready' || !candidate || candidate === handoff.candidateHash));
   if (!abandoned && !abandonedHandoff) return { receipts, saved, pr, handoff, adopted };
+  const abandonedPr = abandoned ? pr : adopted;
+  for (const [stage, outcome] of [['merge', 'merged'], ['close', 'closed']]) {
+    const receipt = receipts[stage];
+    if (receipt?.outcome === outcome) {
+      const { prId, prNumber } = receipt.artifacts ?? {};
+      requireThat(prId === abandonedPr.node_id && prNumber === abandonedPr.number,
+        'PUBLICATION_RECEIPTS_CONFLICT');
+    }
+  }
   const current = { ...receipts };
   for (const stage of publicationStages) delete current[stage];
   if (restartCandidate) for (const stage of candidateStages) delete current[stage];

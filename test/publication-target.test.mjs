@@ -99,3 +99,14 @@ test('closure without a matching identity and explicit merge state cannot retire
         issue, receipts), { code: 'PR_RECEIPT_IDENTITY_CHANGED' });
     }
   });
+
+test('conflicting completion for a different PR stops replacement publication',
+  async () => {
+    for (const [stage, outcome] of [['merge', 'merged'], ['close', 'closed']]) {
+      const { receipts, reader } = fixture();
+      receipts[stage] = { stage, outcome,
+        artifacts: { prId: 'PR_605', prNumber: 605 } };
+      await assert.rejects(observePublication(reader, issue, receipts),
+        { code: 'PUBLICATION_RECEIPTS_CONFLICT' });
+    }
+  });
