@@ -111,7 +111,7 @@ export function stageHandlers({
           return receipt?.outcome === 'changes_required' &&
             receipt.artifacts.shapeHash === context.shape?.hash;
         });
-        if (checkpoint?.candidateHash && !candidate && !context.adoptedCandidate &&
+        if (checkpoint?.tree && !candidate && !context.adoptedCandidate &&
             !context.ciFailure && !hasCorrection) {
           candidate = await restoreDeliver(checkpoint, context.shape.body);
           if (candidate) reference = checkpointURL(context, checkpoint.head);

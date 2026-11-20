@@ -190,8 +190,8 @@ export class CandidateWorkspace {
   }
   async #restoreObservedCommit(pin, token) {
     await this.#privateRoot();
-    requireThat(isSha(pin.head) && isSha(pin.parent) && isSha(pin.tree) &&
-      isDigest(pin.candidateHash), 'INVALID_OPEN_PR_ADOPTION');
+    requireThat(isSha(pin.head) && isSha(pin.parent) && isSha(pin.tree),
+      'INVALID_OPEN_PR_ADOPTION');
     const basePath = join(this.#root, 'base');
     const base = await readFile(basePath, 'utf8');
     requireThat(isSha(base), 'INVALID_WORKSPACE_BASE');
@@ -213,6 +213,7 @@ export class CandidateWorkspace {
     await writeFile(basePath, pin.parent, { mode: 0o600 });
   }
   async restoreAdoptedCandidate(pin, shapeBody) {
+    requireThat(isDigest(pin.candidateHash), 'INVALID_OPEN_PR_ADOPTION');
     await this.#restoreObservedCommit(pin);
     const candidate = await this.capture(shapeBody);
     if (digest(candidate) !== pin.candidateHash) {
@@ -228,15 +229,18 @@ export class CandidateWorkspace {
   }
 
   async restoreDeliveryCheckpoint(pin, shapeBody, token) {
-    if (!pin.candidateHash || await this.pendingRebase(shapeBody)) return null;
+    if (!pin.tree || await this.pendingRebase(shapeBody)) return null;
     let candidate = await this.capture(shapeBody, false, true);
-    if (matchesDeliveryCheckpoint(pin, candidate)) return candidate;
-    // Preserve partial work. A branch can hydrate a new checkout, but must
-    // not overwrite edits made in a later Deliver attempt.
-    if (candidate.paths.length) return null;
-    await this.#restoreObservedCommit(pin, token);
-    candidate = await this.capture(shapeBody, false, true);
-    return matchesDeliveryCheckpoint(pin, candidate) ? candidate : null;
+    if (!matchesDeliveryCheckpoint(pin, candidate)) {
+      // Hydrate an empty checkout while keeping later local edits intact.
+      if (candidate.paths.length) return null;
+      await this.#restoreObservedCommit(pin, token);
+      candidate = await this.capture(shapeBody, false, true);
+    }
+    const { artifacts, hookSources, obligations } = candidate;
+    const complete = artifacts.length === obligations.artifacts.length &&
+      hookSources.length === obligations.hooks.length;
+    return complete && matchesDeliveryCheckpoint(pin, candidate) ? candidate : null;
   }
   async clearIgnoredDependencies(shapeBody) {
     await this.#privateRoot();
