@@ -1,7 +1,8 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { acquireHostFence, issueStatePath } from '../src/host-fence.mjs';
+import { issueStatePath } from '../src/host-fence.mjs';
+import { acquireHostFence } from './legacy-stage-fence-fixture.mjs';
 import { digest } from '../src/identity.mjs';
 import { EvidenceStore } from '../src/evidence-store.mjs';
 import { evidenceBinding, stageRequestHash } from '../src/stages.mjs';

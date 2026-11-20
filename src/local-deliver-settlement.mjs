@@ -2,7 +2,7 @@ import { digest, requireThat } from './identity.mjs';
 
 // Controller-only capability. Never serialize this object into a role context.
 // Each stage gets a distinct ledger, even within one continue request/fence.
-export function localDeliverSettlement(fence) {
+export function localDeliverSettlement() {
   const invocations = [];
   return {
     invocation(stage, execution) {
@@ -33,7 +33,6 @@ export function localDeliverSettlement(fence) {
         invocations.at(-1).stage === 'deliver' &&
         invocations.every(entry => entry.pending.size === 0),
       'LOCAL_DELIVER_HAND_BACK_UNPROVEN');
-      await fence.inspect();
     },
   };
 }

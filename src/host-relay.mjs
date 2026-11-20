@@ -88,9 +88,10 @@ export async function relayControllerRequest(request, uid, run = command) {
     try {
       const observed = await invoke({ ...request, command: 'reconcile-stage' });
       if (isReconciledResult(observed, request.stage)) return observed;
-      if (isUnfinishedObservation(observed, request.stage)) {
-        // Re-enter once through normal authenticated admission. A lost response
-        // here remains unresolved; never recursively replay an unknown effect.
+      if (initialFailure === 'RESPONSE_INVALID' &&
+          isUnfinishedObservation(observed, request.stage)) {
+        // A returned transport has stopped. Re-enter once through native
+        // admission after the settlement read; a timeout does not prove exit.
         const result = await invoke(request);
         return result.stage === undefined ? { ...result, stage: request.stage } : result;
       }

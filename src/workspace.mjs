@@ -19,6 +19,8 @@ import { sameCandidate, sameCandidateChanges } from './candidate-evidence.mjs';
 import { safeCandidatePath, candidateContract } from './candidate-contract.mjs';
 import { syncRecoveryDirectory } from './recovery-lock.mjs';
 import { ProjectConfigError } from './project-config.mjs';
+import { checkpointMessage, deliveryBranch, matchesDeliveryCheckpoint }
+  from './delivery-checkpoint.mjs';
 
 const shapeRetry = 'shape-retry';
 
@@ -81,7 +83,7 @@ export class CandidateWorkspace {
     );
     return result.stdout;
   }
-  async #fetch(commit, depth, localRepository) {
+  async #fetch(commit, depth, localRepository, token) {
     await this.#command([
       ...(localRepository ? ['-c', 'protocol.file.allow=always'] : []),
       'fetch',
@@ -90,7 +92,7 @@ export class CandidateWorkspace {
       `--depth=${depth}`,
       localRepository ?? `https://github.com/${this.#issue.repository}.git`,
       commit,
-    ]);
+    ], undefined, this.#authorization(token));
     requireThat(
       (await this.#command(['rev-parse', 'FETCH_HEAD'])).toString().trim() ===
         commit,
@@ -186,7 +188,7 @@ export class CandidateWorkspace {
     requireThat(value === null || isDigest(value), 'WORKSPACE_ADOPTION_UNRESOLVED');
     return value;
   }
-  async restoreAdoptedCandidate(pin, shapeBody) {
+  async #restoreObservedCommit(pin, token) {
     await this.#privateRoot();
     requireThat(isSha(pin.head) && isSha(pin.parent) && isSha(pin.tree) &&
       isDigest(pin.candidateHash), 'INVALID_OPEN_PR_ADOPTION');
@@ -200,7 +202,7 @@ export class CandidateWorkspace {
     const untracked = await this.#command(['ls-files', '--others', '-z']);
     requireThat(modified.length === 0 && untracked.length === 0,
       'OPEN_PR_WORKSPACE_NOT_CLEAN');
-    await this.#fetch(pin.head, 2, await this.#handoffRepository(pin.workspace));
+    await this.#fetch(pin.head, 2, await this.#handoffRepository(pin.workspace), token);
     const tree = await this.#command(['rev-parse', `${pin.head}^{tree}`]);
     const parents = await this.#command(['rev-list', '--parents', '-n', '1', pin.head]);
     requireThat(tree.toString().trim() === pin.tree &&
@@ -209,6 +211,9 @@ export class CandidateWorkspace {
     await this.#safeTree(pin.head);
     await this.#command(['read-tree', '-m', '-u', base, pin.head]);
     await writeFile(basePath, pin.parent, { mode: 0o600 });
+  }
+  async restoreAdoptedCandidate(pin, shapeBody) {
+    await this.#restoreObservedCommit(pin);
     const candidate = await this.capture(shapeBody);
     if (digest(candidate) !== pin.candidateHash) {
       const { changes, ...snapshot } = candidate;
@@ -220,6 +225,18 @@ export class CandidateWorkspace {
         'OPEN_PR_CANDIDATE_MISMATCH');
     }
     return candidate;
+  }
+
+  async restoreDeliveryCheckpoint(pin, shapeBody, token) {
+    if (!pin.candidateHash || await this.pendingRebase(shapeBody)) return null;
+    let candidate = await this.capture(shapeBody, false, true);
+    if (matchesDeliveryCheckpoint(pin, candidate)) return candidate;
+    // Preserve partial work. A branch can hydrate a new checkout, but must
+    // not overwrite edits made in a later Deliver attempt.
+    if (candidate.paths.length) return null;
+    await this.#restoreObservedCommit(pin, token);
+    candidate = await this.capture(shapeBody, false, true);
+    return matchesDeliveryCheckpoint(pin, candidate) ? candidate : null;
   }
   async clearIgnoredDependencies(shapeBody) {
     await this.#privateRoot();
@@ -630,10 +647,22 @@ export class CandidateWorkspace {
       throw new ProjectConfigError('file', 'committed configuration exceeds 64 KiB');
     return (await this.#command(['cat-file', 'blob', matched[1]])).toString('utf8');
   }
-  async push(head, branch, token, guard, expectedHead = null) {
+  #authorization(token) {
+    if (!token) return {};
+    return {
+      GIT_CONFIG_COUNT: '1',
+      GIT_CONFIG_KEY_0: 'http.https://github.com/.extraheader',
+      GIT_CONFIG_VALUE_0:
+        'AUTHORIZATION: basic ' +
+        Buffer.from(`x-access-token:${token}`).toString('base64'),
+    };
+  }
+  async push(head, branch, token, guard, expectedHead = null, operation = 'commit-pr') {
     requireThat(
       isSha(head) &&
-        /^nibfin\/issue-[1-9]\d*-[a-f0-9]{12}$/.test(branch) &&
+        (operation === 'deliver' && branch === deliveryBranch(this.#issue) ||
+          operation === 'commit-pr' &&
+          /^nibfin\/issue-[1-9]\d*-[a-f0-9]{12}$/.test(branch)) &&
         typeof token === 'string' &&
         token.trim() &&
         typeof guard === 'function' &&
@@ -641,14 +670,14 @@ export class CandidateWorkspace {
       'INVALID_CANDIDATE_PUSH',
     );
     const targetHash = digest({
-      operation: 'commit-pr',
+      operation,
       repository: this.#issue.repository,
       repositoryId: this.#issue.repositoryId,
       head,
       branch,
       expectedHead,
     });
-    const admission = await guard({ operation: 'commit-pr', targetHash });
+    const admission = await guard({ operation, targetHash });
     requireThat(
       admission?.targetHash === targetHash &&
         /^[a-f0-9]{64}$/.test(admission.bindingHash),
@@ -662,17 +691,11 @@ export class CandidateWorkspace {
         `${head}:refs/heads/${branch}`,
       ],
       undefined,
-      {
-        GIT_CONFIG_COUNT: '1',
-        GIT_CONFIG_KEY_0: 'http.https://github.com/.extraheader',
-        GIT_CONFIG_VALUE_0:
-          'AUTHORIZATION: basic ' +
-          Buffer.from(`x-access-token:${token}`).toString('base64'),
-      },
+      this.#authorization(token),
     );
     return { head, branch };
   }
-  async commit(candidate, shapeBody, timestamp, partial = false) {
+  async commit(candidate, shapeBody, timestamp, partial = false, checkpointShape) {
     requireThat(
       sameCandidate(await this.capture(shapeBody, false, partial), candidate),
       'CANDIDATE_CHANGED_AFTER_ACCEPT',
@@ -692,7 +715,8 @@ export class CandidateWorkspace {
     const head = (
       await this.#command(
         ['commit-tree', candidate.tree, '-p', candidate.base],
-        `Deliver #${this.#issue.number}\n\nCandidate: ${digest(candidate)}\n`,
+        checkpointShape ? checkpointMessage(this.#issue, checkpointShape, candidate) :
+          `Deliver #${this.#issue.number}\n\nCandidate: ${digest(candidate)}\n`,
         env,
       )
     )

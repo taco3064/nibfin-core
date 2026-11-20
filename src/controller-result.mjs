@@ -34,7 +34,7 @@ function localEvidence(entry) {
 }
 
 export async function recordControllerResult({ store, binding, request, producer,
-  result, observed, fence }) {
+  result, observed }) {
   const response = controllerResponse(result);
   // Completed closure retains the dedicated delivery proof.
   if (!response || response.stage === 'close') return;
@@ -60,7 +60,6 @@ export async function recordControllerResult({ store, binding, request, producer
   const record = { schemaVersion: 1, kind: 'controller-result',
     binding, request, producer: worker, response, evidence };
   const ref = await store.put(record);
-  await fence.inspect();
   await store.replaceControllerResult(ref);
 }
 

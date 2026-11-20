@@ -1,11 +1,9 @@
 import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
-import { digest } from './identity.mjs';
-import {
-  acquireHostFence, issueStatePath, privateHostDirectory,
-} from './host-fence.mjs';
+import { issueStatePath, privateHostDirectory } from './host-fence.mjs';
 import { inspectHostAdoption } from './host-adoption.mjs';
 import { idleContainers } from './host-containers.mjs';
+import { idleIssueJobVms } from './job-vm.mjs';
 import { OperationJournal } from './operation-journal.mjs';
 import { issueProgress } from './issue-progress.mjs';
 import {
@@ -21,10 +19,9 @@ import { reconciliationReason } from './reconciliation-result.mjs';
 // No stage composer, Writer, mutation handler or retained-fence recovery runs here.
 export async function reconcileDelivery(input, dependencies = {}) {
   const { context, runner, approval, stage, execution, closeExecution } = input;
-  const { host, hostBytes, adopted, reader } = context;
+  const { host, adopted, reader } = context;
   const issue = approval.record.issue;
   const root = issueStatePath(host.stateRoot, issue);
-  const acquire = dependencies.acquire ?? acquireHostFence;
   const inspect = dependencies.inspect ?? inspectHostAdoption;
   const containers = dependencies.containers ?? idleContainers;
   const progress = dependencies.progress ?? issueProgress;
@@ -33,25 +30,21 @@ export async function reconcileDelivery(input, dependencies = {}) {
   const pending = { schemaVersion: 1, stage, status: 'pending',
     code: 'CONTROLLER_RECONCILIATION_UNPROVEN' };
   if (stage !== 'continue' && !Object.hasOwn(stages, stage)) return pending;
-  let fence;
-  try {
-    if (!dependencies.acquire) {
-      await privateHostDirectory(host.stateRoot);
-      await mkdir(root, { mode: 0o700 }).catch(error => {
-        if (error.code !== 'EEXIST') throw error;
-      });
-    }
-    fence = await acquire(root, { execution, issueId: issue.id,
-      host: digest(hostBytes) });
-  } catch (error) { return { ...pending, reason: reconciliationReason(error) }; }
   const settled = async () => {
     await inspect(context);
-    await fence.inspect();
-    await assertHostSettlement(journal, () => containers(adopted.isolation, issue));
+    await assertHostSettlement(journal, async () => {
+      if (host.jobVm) await idleIssueJobVms(root);
+      return containers(adopted.isolation, issue);
+    });
   };
   let result = pending;
   try {
     if (!dependencies.journal) {
+      await privateHostDirectory(host.stateRoot);
+      await mkdir(root, { mode: 0o700 }).catch(error => {
+        if (error.code !== 'EEXIST') throw error;
+      });
+      await privateHostDirectory(root);
       const receipts = join(root, 'receipts');
       await mkdir(receipts, { mode: 0o700 }).catch(error => {
         if (error.code !== 'EEXIST') throw error;
@@ -73,9 +66,8 @@ export async function reconcileDelivery(input, dependencies = {}) {
       { ...pending, reason: reconciliationReason(error) };
   }
   try {
-    // A failed proof may release only our own fence, after settlement is proven.
+    // No unfinished disposition may race an effect that becomes unresolved here.
     await settled();
-    await fence.release();
   } catch (error) { return { ...pending, reason: reconciliationReason(error) }; }
   return result.code === githubReadWaiting ||
     result.code === githubApiWaiting

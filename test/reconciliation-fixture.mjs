@@ -82,12 +82,8 @@ export function reconciliationFixture() {
   const input = { context, runner, approval, stage: 'continue',
     execution: hostExecution(runner, 'shape'),
     closeExecution: hostExecution(runner, 'close') };
-  const counts = { acquired: 0, released: 0, inspected: 0, settled: 0 };
+  const counts = { inspected: 0, settled: 0 };
   const dependencies = {
-    acquire: async () => {
-      counts.acquired++;
-      return { inspect: async () => {}, release: async () => { counts.released++; } };
-    },
     inspect: async () => { counts.inspected++; },
     containers: async () => { counts.settled++; },
     journal: { assertIdle: async () => {} },

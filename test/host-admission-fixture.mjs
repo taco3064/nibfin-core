@@ -1,6 +1,6 @@
 import { mock } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { runnerProviderFixture } from './runner-binding-fixture.mjs';
@@ -8,7 +8,7 @@ import { gitBlob } from '../src/identity.mjs';
 import { callerRecipe } from '../src/caller-recipes.mjs';
 
 let root;
-let context, protectedCalls = 0, dispatches = 0, bootFailure = false;
+let context, protectedCalls = 0, dispatches = 0;
 const adoption = await import('../src/host-adoption.mjs');
 mock.module('../src/managed-credential-admission.mjs', { namedExports: {
   withManagedAdmission: action => action(),
@@ -58,13 +58,6 @@ const fence = await import('../src/host-fence.mjs');
 mock.module('../src/host-fence.mjs', { namedExports: {
   ...fence,
   issueStatePath: () => root,
-  acquireHostFence: async (...args) => {
-    if (bootFailure) return fence.acquireHostFence(...args, async () => {
-      throw Object.assign(new Error('kernel read failed'),
-        { code: 'BOOT_OBSERVATION_UNAVAILABLE' });
-    });
-    return { inspect: async () => 'fence' };
-  },
   privateHostDirectory: async () => {},
 } });
 const containers = await import('../src/host-containers.mjs');
@@ -97,6 +90,7 @@ const { launchIssueWake } = await import('../src/host-issue-wake.mjs');
 
 async function scenario(kind, selected, change = () => {}, invalid = false) {
   root = await mkdtemp(join(rootBase, 'scenario-'));
+  if (kind === 'stage') await writeFile(join(root, 'stage.lock'), 'retired marker');
   const f = runnerProviderFixture();
   if (selected === 41) {
     f.expected.runnerId = f.runner.id = f.job.runner_id = 41;
@@ -171,7 +165,6 @@ async function scenario(kind, selected, change = () => {}, invalid = false) {
       }));
   } catch (error) {
     if (!invalid) throw error;
-    if (bootFailure) assert.equal(error.code, 'BOOT_OBSERVATION_UNAVAILABLE');
   }
   assert.equal(protectedCalls, kind === 'stage' && !invalid ? 1 : 0,
     JSON.stringify(result));
@@ -211,8 +204,6 @@ try {
       ({ f }) => { f.reader.list = async () => { throw new Error('403'); }; },
     ]) await scenario(kind, 40, mutate, true);
   }
-  bootFailure = true;
-  await scenario('stage', 40, () => {}, true);
   console.log('Both launcher paths: multi-host admission and rejection passed.');
 } finally {
   mock.restoreAll();

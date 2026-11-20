@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
 import { digest } from '../src/identity.mjs';
 import { EvidenceStore } from '../src/evidence-store.mjs';
-import { acquireHostFence, issueStatePath } from '../src/host-fence.mjs';
+import { issueStatePath } from '../src/host-fence.mjs';
 import { controllerRequestIdentity, recordControllerResult }
   from '../src/controller-result.mjs';
 import { hostExecution } from '../src/host-execution.mjs';
@@ -102,7 +102,7 @@ test('lost correction-loop response preserves actual stage and producing iterati
     const retained = f.objects.get(result.resultReference);
     assert.deepEqual(retained.producer, producer);
     assert.equal(Object.hasOwn(retained.response, 'privateToken'), false);
-    assert.equal(f.counts.released, 1);
+    assert.equal(f.counts.settled, 2);
   });
 
 test('lost CI wait keeps retry settlement and never claims a missing Review receipt',
@@ -143,7 +143,7 @@ test('saved Review denial can retain publication without attributing a new execu
   });
 
 test('only successful absence can re-enter the original request once', async () => {
-  for (const change of ['absent', 'new-attempt', 'changed-requirements', 'lost-fence']) {
+  for (const change of ['absent', 'new-attempt', 'changed-requirements', 'live-actor']) {
     const f = openFixture();
     const { result, calls } = await loseResponse(f, async () => {
       if (change !== 'absent') {
@@ -156,8 +156,8 @@ test('only successful absence can re-enter the original request once', async () 
         f.input.execution = hostExecution(f.input.runner, 'shape');
       }
       if (change === 'changed-requirements') f.live.body = 'changed owner requirements';
-      if (change === 'lost-fence') f.dependencies.acquire = async () => {
-        const reason = 'HOST_EXECUTION_UNRESOLVED';
+      if (change === 'live-actor') f.dependencies.containers = async () => {
+        const reason = 'PREVIOUS_HOST_PROCESS_UNRESOLVED';
         throw Object.assign(new Error(reason), { code: reason });
       };
     }, 'json', () => ({ stage: 'continue', terminalStage: 'accept',
@@ -169,8 +169,8 @@ test('only successful absence can re-enter the original request once', async () 
     if (change === 'changed-requirements')
       assert.equal(result.reconciliationFailure,
         'CONTROLLER_RESULT_REQUIREMENTS_CHANGED');
-    if (change === 'lost-fence')
-      assert.equal(result.reconciliationFailure, 'HOST_EXECUTION_UNRESOLVED');
+    if (change === 'live-actor')
+      assert.equal(result.reconciliationFailure, 'PREVIOUS_HOST_PROCESS_UNRESOLVED');
   }
 });
 
@@ -210,7 +210,7 @@ test('native completed delivery takes precedence over a broken pre-merge referen
     assert.equal(result.status, 'completed');
   });
 
-test('durable output is usable after release and missing differs from corruption',
+test('durable output survives a legacy marker and distinguishes corruption',
   { skip: process.platform !== 'linux' }, async t => {
     const parent = fileURLToPath(new URL('../.nibfin-cache/', import.meta.url));
     await mkdir(parent, { recursive: true });
@@ -224,21 +224,14 @@ test('durable output is usable after release and missing differs from corruption
     const store = new EvidenceStore(issueRoot, f.binding);
     const request = controllerRequestIdentity(issue, runner, stage, execution);
     context.host.stateRoot = root;
-    f.dependencies.acquire = acquireHostFence;
     f.dependencies.progress = async () => ({ store, binding: f.binding });
-    const fence = await acquireHostFence(issueRoot,
-      { execution, issueId: issue.id, host: digest(context.hostBytes) });
-    try {
-      assert.equal(await store.readControllerResult(), null);
-      await store.replaceControllerResult(null);
-      await recordControllerResult({ store, binding: f.binding, request, fence,
-        producer: stageProducer(f, 'deliver', 1),
-        result: { stage: 'deliver', status: 'denied', code: 'STAGE_REQUIRES_CORRECTION' },
-      });
-      assert.equal((await recover(f)).reason, 'HOST_EXECUTION_UNRESOLVED');
-    } finally {
-      await fence.release();
-    }
+    await writeFile(join(issueRoot, 'stage.lock'), 'retired marker');
+    assert.equal(await store.readControllerResult(), null);
+    await store.replaceControllerResult(null);
+    await recordControllerResult({ store, binding: f.binding, request,
+      producer: stageProducer(f, 'deliver', 1),
+      result: { stage: 'deliver', status: 'denied', code: 'STAGE_REQUIRES_CORRECTION' },
+    });
     assert.equal((await recover(f)).terminalStage, 'deliver');
     const namespace = join(issueRoot, `evidence-${digest(f.binding)}`);
     const reference = await store.readControllerResult();
@@ -250,15 +243,9 @@ test('durable output is usable after release and missing differs from corruption
       assert.equal((await recover(f)).reason, 'CONTROLLER_RESULT_CORRUPT');
     }
 
-    // A crash before result publication leaves clean absence after fence recovery.
-    const next = await acquireHostFence(issueRoot,
-      { execution, issueId: issue.id, host: digest(context.hostBytes) });
-    try {
-      await store.replaceControllerResult(null);
-      await store.put({ orphan: 'result object written before publication' });
-    } finally {
-      await next.release();
-    }
+    // A crash before result publication leaves clean absence.
+    await store.replaceControllerResult(null);
+    await store.put({ orphan: 'result object written before publication' });
     const later = await recover(f);
     assert.equal(later.disposition, 'unfinished');
     assert.equal(later.code, 'CONTROLLER_WORK_UNFINISHED');

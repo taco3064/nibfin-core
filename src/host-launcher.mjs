@@ -1,7 +1,3 @@
-import { pendingRecovery } from './recover-deliver-fence.mjs';
-import {
-  admitContinuationFence, continuationEligibility, recoverContinuationFence,
-} from './continuation-admission.mjs';
 import { localDeliverSettlement } from './local-deliver-settlement.mjs';
 import { hostExecution } from './host-execution.mjs';
 import { controllerRequestIdentity, recordControllerResult, resultObservation }
@@ -31,8 +27,9 @@ import { continueStages } from './stage-continuation.mjs';
 import { observeStageProgress } from './stage-presentation.mjs';
 import { setTimeout } from 'node:timers/promises';
 import { digest, isId, requireThat } from './identity.mjs';
-import { acquireHostFence, issueStatePath, privateHostDirectory } from './host-fence.mjs';
+import { issueStatePath, privateHostDirectory } from './host-fence.mjs';
 import { idleContainers } from './host-containers.mjs';
+import { idleIssueJobVms } from './job-vm.mjs';
 import { OperationJournal } from './operation-journal.mjs';
 import {
   settleHostStage, assertHostSettlement, hostPreparationSettlement,
@@ -169,7 +166,7 @@ async function launchAdmittedStage(issueNumber, stage, env, runnerUid,
       } : {}) };
   }
   const { context, job: { runner, binding }, approval } = initial;
-  const { host, hostBytes, adopted, token, reader, targetHost } = context;
+  const { host, adopted, token, reader, targetHost } = context;
   // The target repository's host profile controls whether a shared job uses MCP.
   const mcpSource = (targetHost ?? host).mcp;
   let execution = hostExecution(runner, stage === 'continue' ? 'shape' : stage);
@@ -201,41 +198,18 @@ async function launchAdmittedStage(issueNumber, stage, env, runnerUid,
   await mkdir(root, { mode: 0o700 }).catch((error) => {
     if (error.code !== 'EEXIST') throw error;
   });
-  let fence;
-  try {
-    const acquire = () => acquireHostFence(root, {
-      execution, issueId: issue.id, host: digest(hostBytes),
-    });
-    if (stage === 'continue') {
-      const admission = await admitContinuationFence({
-        acquire,
-        authorize: () => retryGitHubObservation(async () => {
-          const fresh = await continuationEligibility(context, runner, approval);
-          await actionsCaller({ ...caller, executionId: execution.id })(fresh);
-        }),
-        recover: () => recoverContinuationFence(context, runner),
-      });
-      if (admission.pending)
-        return retainHostOutcome(root, { approval, runner, execution }, stage,
-          { schemaVersion: 1, stage, ...admission.pending });
-      fence = admission.fence;
-    } else fence = await acquire();
-  } catch (error) {
-    if (error.code === 'HOST_EXECUTION_UNRESOLVED')
-      return retainHostOutcome(root, { approval, runner, execution }, stage,
-        { schemaVersion: 1, stage, status: 'pending', code: error.code });
-    if (stage === 'continue')
-      return retainHostOutcome(root, { approval, runner, execution }, stage,
-        { schemaVersion: 1, stage,
-          ...(githubReadWait(error, undefined, { stage: true }) ??
-            pendingRecovery(error)) });
-    throw error;
-  }
-  const localSettlement = localDeliverSettlement(fence);
+  await privateHostDirectory(root);
+  // GitHub admits one native Job for this Issue. Local state is evidence of
+  // previous work; only live resources or unresolved effects need settlement.
+  const localSettlement = localDeliverSettlement();
   let mcpJob, release, preparation;
   let mcpEntered = false, executorEntered = false;
   let progress, producer, observed;
   try {
+    const idleIssue = async () => {
+      if (host.jobVm) await idleIssueJobVms(root);
+      return idleContainers(adopted.isolation, issue);
+    };
     const inspectWriter = async (_stage, observed) => {
       await inspectHostAdoption(context);
       const registration = observed?.runner?.runnerId === runner.runnerId
@@ -244,8 +218,7 @@ async function launchAdmittedStage(issueNumber, stage, env, runnerUid,
         executionId: execution.id,
         writerStatus: 'exclusive',
         observationHash: digest({
-          fence: await fence.inspect(),
-          containers: await idleContainers(adopted.isolation, issue),
+          containers: await idleIssue(),
           registration,
         }),
       };
@@ -257,14 +230,12 @@ async function launchAdmittedStage(issueNumber, stage, env, runnerUid,
     const openPr = (context.targetHost ?? host).openPrHandoffs?.[issueNumber];
     const journal = new OperationJournal(join(root, 'receipts'), approval.record.issue);
     release = async (result) => {
-      // Release only after local termination and external writes are settled.
-      await assertHostSettlement(journal, () =>
-        idleContainers(adopted.isolation, issue));
+      // Preserve results only after local termination and external writes settle.
+      await assertHostSettlement(journal, idleIssue);
       await mcpJob?.retire(true);
       if (progress) {
-        // A released fence is still required before this reference is usable.
         await recordControllerResult({ ...progress, request, producer, result,
-          observed, fence })
+          observed })
           .catch(() => report('retention', 'CONTROLLER_RESULT_UNAVAILABLE'));
       }
       if (progress && ((result.stage === 'close' && result.status === 'completed') ||
@@ -273,7 +244,6 @@ async function launchAdmittedStage(issueNumber, stage, env, runnerUid,
           console.error('Nibfin retained the closed Issue work directory');
         });
       }
-      await fence.release();
     };
     const report = (phase, code) =>
       console.error(`Nibfin host stage ${phase}: ${code}`);
@@ -285,7 +255,6 @@ async function launchAdmittedStage(issueNumber, stage, env, runnerUid,
     });
     await privateHostDirectory(join(root, 'agent'));
     progress = await issueProgress(root, approval);
-    await fence.inspect();
     // Invalidate the previous result before any work of this request can run.
     await progress.store.replaceControllerResult(null);
     // Adoption/container inspection itself can launch host commands. A failed
@@ -293,6 +262,7 @@ async function launchAdmittedStage(issueNumber, stage, env, runnerUid,
     // this checkpoint stays unclassified without its normal lifecycle proof.
     preparation.enterOwnedWork();
     await retryGitHubObservation(inspectWriter);
+    await journal.retireStoppedLease();
     if (openPr) await journal.assertIdle();
     const { workspaceRoot, binding, store, marker: workspaceBinding } = progress;
     const workspace = new CandidateWorkspace(workspaceRoot, issue);
@@ -305,6 +275,14 @@ async function launchAdmittedStage(issueNumber, stage, env, runnerUid,
       const current = await reader.issue(issue);
       if (await issueRequirementsChanged(current, receipts, hash => store.get(hash)))
         return true;
+      const publication = receipts['commit-pr']?.artifacts;
+      if (current.state === 'open' && publication && !receipts.merge) {
+        const pr = await reader.get(`${repoPath(issue.repository)}/pulls/` +
+          publication.prNumber);
+        requireThat(pr.node_id === publication.prId &&
+          pr.base?.repo?.id === issue.repositoryId, 'PR_RECEIPT_IDENTITY_CHANGED');
+        if (pr.state === 'closed' && pr.merged === false) return true;
+      }
       const reopened = await readReopenedDelivery({
         reader, issue, live: current, receipts, observeMain,
       });
@@ -439,6 +417,7 @@ async function launchAdmittedStage(issueNumber, stage, env, runnerUid,
         ? continueStages({
             store,
             execute,
+            saveDeliverCheckpoint: true,
             resumeClosed: async () => resumeClosed,
             refreshRequirements: async receipts => {
               if (!receipts.shape) return false;

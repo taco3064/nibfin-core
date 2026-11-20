@@ -44,3 +44,14 @@ test('adoption rejects changes in owner, repository, Candidate or ref', async ()
       { code: 'OPEN_PR_ADOPTION_CHANGED' });
   }
 });
+
+test('abandoned PR metadata alone permits fresh work', async () => {
+  const { pr, reader } = fixture();
+  pr.state = 'closed';
+  const observe = { get: async path => {
+    assert.ok(path.endsWith('/pulls/125'));
+    return reader.get(path);
+  } };
+  assert.equal(await readAdoptedOpenPr(observe, issue, pin, 12,
+    { ignoreAbandoned: true }), null);
+});

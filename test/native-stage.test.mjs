@@ -5,6 +5,7 @@ import { nativeFixture } from './native-observer-fixture.mjs';
 import { EvidenceStore } from '../src/evidence-store.mjs';
 import { stageFixture } from './stage-fixture.mjs';
 import { evidenceBinding } from '../src/stages.mjs';
+import { checkpointMessage } from '../src/delivery-checkpoint.mjs';
 
 async function fixture(t) {
   const f = await nativeFixture(t);
@@ -163,8 +164,32 @@ for (const boundary of ['entry', 'handoff'])
       f.data['/git/ref/heads/main'].object.sha = '9'.repeat(40);
     const actions = [];
     let current = prior.candidate;
+    const checkpoint = 'f'.repeat(40), branch = 'nibfin/deliver-2';
+    const originalGet = f.adapters.reader.get;
+    f.adapters.reader.get = async path => {
+      if (path.endsWith('/branches/nibfin%2Fdeliver-2') &&
+          !f.data['/branches/nibfin%2Fdeliver-2'])
+        throw Object.assign(new Error('branch absent'), {
+          status: 404, githubApiRead: true,
+        });
+      return originalGet(path);
+    };
+    let observedCommit;
     const workspace = {
-      push: async () => assert.fail('unexpected write'),
+      async commit(candidate, _shape, _timestamp, _partial, binding) {
+        observedCommit = { sha: checkpoint, tree: { sha: candidate.tree },
+          parents: [{ sha: candidate.base }],
+          message: checkpointMessage(prior.approval.record.issue, binding, candidate) };
+        return { head: checkpoint };
+      },
+      async push(head, target, _token, guard, expected, operation) {
+        await guard({ operation, targetHash: 'c'.repeat(64) });
+        assert.deepEqual([head, target, expected], [checkpoint, branch, null]);
+        actions.push('save');
+        f.data['/branches/nibfin%2Fdeliver-2'] = { name: branch, commit: observedCommit };
+        f.data[`/git/commits/${checkpoint}`] = observedCommit;
+        f.data[`/commits/${checkpoint}/pulls`] = [];
+      },
       rebase: async (candidate, _shape, target) => {
         actions.push('rebase');
         assert.deepEqual(candidate, prior.candidate);
@@ -228,6 +253,7 @@ for (const boundary of ['entry', 'handoff'])
         agent,
         sandbox,
         token: 'synthetic-token',
+        fetcher: async () => ({ ok: true, json: async () => publisher }),
         inspectIsolation: async () => ({
           ...prior.isolation,
           executionId: execution.id,
@@ -237,6 +263,7 @@ for (const boundary of ['entry', 'handoff'])
       assert.equal(result.status, 'completed', JSON.stringify(result));
     }
     const saved = await store.load();
+    assert.deepEqual(saved.deliver.deliveryCheckpoint, { branch, head: checkpoint });
     assert.deepEqual(
       await store.get(saved.deliver.artifacts.candidateHash),
       current,
@@ -246,6 +273,6 @@ for (const boundary of ['entry', 'handoff'])
       saved.accept.artifacts.candidateHash,
     );
     assert.deepEqual(actions, boundary === 'entry'
-      ? ['rebase', 'deliver', 'discard-writer-git', 'accept']
-      : ['deliver', 'discard-writer-git', 'rebase', 'accept']);
+      ? ['rebase', 'deliver', 'discard-writer-git', 'save', 'accept']
+      : ['deliver', 'discard-writer-git', 'rebase', 'save', 'accept']);
   });

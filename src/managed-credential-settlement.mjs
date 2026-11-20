@@ -4,8 +4,8 @@ import { join } from 'node:path';
 import { requireThat, digest } from './identity.mjs';
 import { readPrivate, privateResource } from './managed-credential-files.mjs';
 
-// Existing stage fences survive until both containers and journal effects settle.
-// Inspect only Controller state, never workspaces or untrusted repository files.
+// Inspect unresolved effects in Controller state. A legacy stage marker says
+// nothing about live containers or pending GitHub writes.
 export async function managedSettlement(host, { legacyReplacement } = {}) {
   const inspectJournal = async (directory, wake = false) => {
     await privateResource(directory, host.uid, true);
@@ -40,7 +40,7 @@ export async function managedSettlement(host, { legacyReplacement } = {}) {
     }
   };
   const entries = await readdir(host.stateRoot);
-  requireThat(!entries.includes('stage.lock') && !entries.includes('recovery.lock'),
+  requireThat(!entries.includes('recovery.lock'),
     'MANAGED_CREDENTIAL_EFFECTS_PENDING');
   if (entries.includes('receipts'))
     await inspectJournal(join(host.stateRoot, 'receipts'));
@@ -50,7 +50,7 @@ export async function managedSettlement(host, { legacyReplacement } = {}) {
     const root = join(host.stateRoot, name);
     await privateResource(root, host.uid, true);
     const files = await readdir(root);
-    requireThat(!files.includes('stage.lock') && !files.includes('recovery.lock'),
+    requireThat(!files.includes('recovery.lock'),
       'MANAGED_CREDENTIAL_EFFECTS_PENDING');
     if (files.includes('receipts')) await inspectJournal(join(root, 'receipts'));
   }
