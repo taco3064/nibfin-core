@@ -34,6 +34,10 @@ The success envelope contains `schemaVersion`, `status` and `upgrade`. The
 outer `status: complete` means the control request returned a typed response.
 Read the nested fields before presenting completion.
 
+After a promotion is observed as installed, `upgrade-prepare` can recover its
+original operation for the same adopted repositories and source with null
+activation. The original active proposal and phase results are preserved.
+
 - `operationId`, `executionRepository`, `executionRepositoryId` and
   `proposals` identify the handoff. Each proposal includes the originating
   repository ID, PR number, native PR ID, node ID and read-back URL.

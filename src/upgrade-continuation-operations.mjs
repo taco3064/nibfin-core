@@ -71,6 +71,21 @@ export function mergeUpgradeOperations(current, initial, next) {
   return [...merged, ...changes.values()];
 }
 
+function priorUpgrade(records, binding, intent) {
+  const candidates = records.filter(record => record.memberId === binding.memberId &&
+    sameIntent(record.execution, binding.execution) &&
+    sameIntent(record.intent.repositories, intent.repositories) &&
+    sameUpgradeSource(record.intent.source, intent.source));
+  const exact = candidates.find(record =>
+    sameIntent(record.intent.activation, intent.activation));
+  if (exact || intent.activation !== null ||
+    !sameUpgradeSource(binding.host.installation.pin, intent.source)) return exact;
+  // A completed promotion no longer needs activation to prove current source.
+  // Recover the original intent rather than requiring its old CD artifact again.
+  requireThat(candidates.length <= 1, 'UPGRADE_OPERATION_AMBIGUOUS');
+  return candidates[0];
+}
+
 export async function prepareUpgrade(request, ports) {
   const value = upgradePreparation(request);
   const binding = await ports.adoption();
@@ -83,8 +98,7 @@ export async function prepareUpgrade(request, ports) {
   const intent = { repositories, source: value.source, activation: value.activation };
   await ports.sourceIntent(intent, binding);
   const records = await ports.read();
-  const existing = records.find(record => record.memberId === binding.memberId &&
-    sameIntent(record.execution, binding.execution) && sameIntent(record.intent, intent));
+  const existing = priorUpgrade(records, binding, intent);
   if (existing) return reply(existing);
   const operation = { id: randomUUID(), memberId: binding.memberId,
     execution: binding.execution, intent, consumers, progress: initial(),
