@@ -46,7 +46,7 @@ for (const stage of ['commit-pr', 'review-pr']) {
     await assertPending(f.recover(), /RECOVERY_CONTROLLER_UNRESOLVED/);
     f.options.processes = async () => [{ ...f.origin, state: 'S', startTicks: '1' }];
     const completed = await f.recover();
-    assert.equal(completed.status, 'completed');
+    assert.equal(completed.status, 'completed', JSON.stringify(completed));
     assert.equal(completed.decisionId, f.decision);
     assert.equal(f.writes(), 1);
     assert.equal(await f.journal.pendingStageRecovery(stage), null);
@@ -61,7 +61,7 @@ for (const providerApplied of [false, true])
         native: true, initialPublication: true, providerApplied,
       });
       const result = await f.recover();
-      assert.equal(result.status, 'completed');
+      assert.equal(result.status, 'completed', JSON.stringify(result));
       assert.equal(f.writes(), 1);
       await f.journal.assertIdle();
       const active = await f.store.load();

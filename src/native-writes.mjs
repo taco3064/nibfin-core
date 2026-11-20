@@ -4,8 +4,10 @@ import { GitHubWriter, MergeBeforeWrite } from './github-write.mjs';
 import { decideStage } from './stages.mjs';
 import { digest, isDigest, isId, requireThat } from './identity.mjs';
 import { setTimeout } from 'node:timers/promises';
-import { deliveryLifecycle, matchesDeliveryCheckpoint, readDeliveryCheckpoint }
-  from './delivery-checkpoint.mjs';
+import {
+  deliveryLifecycle, matchesDeliveryCheckpoint, publishedDeliveryBranch,
+  readDeliveryCheckpoint,
+} from './delivery-checkpoint.mjs';
 
 // Installed Core assembly. Neither credentials nor the observer are provided by
 // a stage request. Re-admit separately before every remote mutation, including
@@ -87,7 +89,7 @@ export function nativeWrites({
       guard: guardFor(stage, context, decision),
     });
   const checkpointBinding = context => ({
-    shape: context.shape.hash, lifecycle: deliveryLifecycle(context),
+    shape: context.shape.body, lifecycle: deliveryLifecycle(context),
   });
   const observeDeliver = context => readDeliveryCheckpoint(reader,
     context.approval.record.issue, checkpointBinding(context));
@@ -139,7 +141,7 @@ export function nativeWrites({
       const existing = context.pr;
       const branch =
         existing?.headBranch ??
-        `nibfin/issue-${issue.number}-${committed.head.slice(0, 12)}`;
+        publishedDeliveryBranch(issue, committed.head);
       const guard = guardFor('commit-pr', context, decision);
       if (existing) {
         requireThat(
@@ -237,7 +239,8 @@ export function nativeWrites({
     reuseDeliverCommit: async context => {
       if (!context.receipts.deliver?.deliveryCheckpoint) return null;
       const checkpoint = await observeDeliver(context);
-      if (matchesDeliveryCheckpoint(checkpoint, context.candidate)) return {
+      if (matchesDeliveryCheckpoint(checkpoint, context.candidate) &&
+          checkpoint.originalCandidate === digest(context.candidate)) return {
         head: checkpoint.head, tree: checkpoint.tree, base: checkpoint.parent,
         saved: checkpoint,
       };

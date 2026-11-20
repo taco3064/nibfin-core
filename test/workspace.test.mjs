@@ -86,7 +86,7 @@ for (const ignored of [false, true])
       if (ignored) await writeFile(join(f.workspace.work, '.gitignore'), 'proof.txt\n');
       const candidate = await f.workspace.capture(shape);
       const committed = await f.workspace.commit(candidate, shape, '2026-11-18T00:00:00Z',
-        false, { shape: digest(shape), lifecycle: 0 });
+        false, { shape, lifecycle: 0 });
       await f.workspace.push(committed.head, 'nibfin/deliver-2', 'synthetic-token',
         async ({ targetHash }) => ({ targetHash, bindingHash: 'a'.repeat(64) }),
         null, 'deliver');
@@ -96,7 +96,7 @@ for (const ignored of [false, true])
         { run: f.run });
       await fresh.prepare(f.base);
       const restored = await fresh.restoreDeliveryCheckpoint({ head: committed.head,
-        parent: committed.base, tree: committed.tree, candidateHash: digest(candidate) },
+        parent: committed.base, tree: committed.tree },
       shape, 'synthetic-token');
       if (ignored) assert.equal(restored, null);
       else assert.deepEqual(restored, candidate);

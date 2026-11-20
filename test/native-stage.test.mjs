@@ -189,7 +189,8 @@ for (const boundary of ['entry', 'handoff'])
         actions.push('save');
         f.data['/branches/nibfin%2Fdeliver-2'] = { name: branch, commit: observedCommit };
         f.data[`/git/commits/${checkpoint}`] = observedCommit;
-        f.data[`/commits/${checkpoint}/pulls`] = [];
+        const finalBranch = `example:nibfin/issue-2-${checkpoint.slice(0, 12)}`;
+        f.data['/pulls?state=all&head=' + encodeURIComponent(finalBranch)] = [];
       },
       rebase: async (candidate, _shape, target) => {
         actions.push('rebase');

@@ -94,7 +94,7 @@ export async function rebootFixture(t, stage = 'commit-pr', {
     pr.body = `Implements #${subject.number}.\n\nCandidate: ${artifacts.candidateHash}`;
     Object.assign(pr, { user: { id: 3 }, draft: false });
     commit.message = checkpointMessage(subject,
-      { lifecycle: 0, shape: artifacts.shapeHash }, candidate);
+      { lifecycle: 0, shape }, candidate);
     data['/repos/example/core/branches/nibfin%2Fdeliver-2'] = {
       name: 'nibfin/deliver-2', commit,
     };
@@ -108,7 +108,7 @@ export async function rebootFixture(t, stage = 'commit-pr', {
     },
     list: async path => {
       if (path.endsWith('/issues/2/events')) return [];
-      if (path.endsWith(`/commits/${head}/pulls`)) return providerApplied ? [pr] : [];
+      if (path.includes('/pulls?state=all&head=')) return providerApplied ? [pr] : [];
       return [{ id: 40, status: native ? 'online' : 'offline', busy: false,
         labels: [{ name: 'nibfin-user-3' }] }];
     },

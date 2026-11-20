@@ -34,13 +34,16 @@ function fixture() {
       return commit;
     },
     async list(path) {
-      assert.ok(path.endsWith(`/commits/${commit.sha}/pulls`));
+      assert.ok(path.endsWith('/pulls?state=all&head=' + encodeURIComponent(
+        `example:nibfin/issue-2-${commit.sha.slice(0, 12)}`)));
+      const repo = { id: candidate.repositoryId };
       return closed && commit.sha === head ? [{ state: 'closed', merged_at: null,
-        head: { sha: head, repo: { id: candidate.repositoryId } } }] :
+        head: { sha: head, ref: `nibfin/issue-2-${head.slice(0, 12)}`, repo },
+        base: { repo } }] :
         publication ? [publication] : [];
     },
   };
-  const install = (binding = { shape: context.shape.hash, lifecycle: 0 }, sha = head) => {
+  const install = (binding = { shape: context.shape.body, lifecycle: 0 }, sha = head) => {
     commit = { sha, tree: { sha: candidate.tree },
       parents: [{ sha: candidate.base }],
       message: checkpointMessage(context.approval.record.issue, binding, candidate) };
@@ -140,7 +143,7 @@ test('an unavailable GitHub ref is distinct from a ref that is absent', async ()
   assert.deepEqual(f.calls, []);
   f.failRead(404);
   const saved = await readDeliveryCheckpoint(f.reader, f.context.approval.record.issue,
-    { shape: f.context.shape.hash, lifecycle: 0 });
+    { shape: f.context.shape.body, lifecycle: 0 });
   assert.deepEqual(saved, { branch, head: null });
 });
 

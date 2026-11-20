@@ -219,6 +219,14 @@ export class OperationJournal {
     const { pendingRecovery, pending } = await this.#read();
     return pendingRecovery?.operation === operation ? { pendingRecovery, pending } : null;
   }
+  async requireRecoveryOrigin(origin) {
+    await this.#prepare();
+    const state = await this.#read();
+    requireThat(state.pending === origin.pending && state.pendingRecovery &&
+      digest(state.pendingRecovery) === digest(origin.pendingRecovery) ||
+      state.pending === null && state.completed.includes(origin.pending),
+    'RECOVERY_JOURNAL_CHANGED');
+  }
   async run(request, { admit, perform, readBack, localDeliver = false, recovery }) {
     // The binding identifies immutable approval, Scope/Shape, candidate, source,
     // role/session and operation target. All three callbacks belong to trusted

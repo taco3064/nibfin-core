@@ -18,8 +18,10 @@ import { issueStatePath, privateHostDirectory } from './host-fence.mjs';
 import { targetContextKey } from './controller-contract.mjs';
 import { linuxBootId, proveDifferentBoot } from './linux-boot.mjs';
 import { recoveryProcessCensus } from './recovery-process-census.mjs';
-import { deliveryLifecycle, matchesDeliveryCheckpoint, readDeliveryCheckpoint }
-  from './delivery-checkpoint.mjs';
+import {
+  deliveryLifecycle, matchesDeliveryCheckpoint, readDeliveryCheckpoint,
+  readDeliveryPublication,
+} from './delivery-checkpoint.mjs';
 import {
   exclusiveRecovery, recoveryFile, inspectRecoveryFile, syncRecoveryDirectory,
 } from './recovery-lock.mjs';
@@ -129,8 +131,7 @@ async function reconcileOperation({ host, hostBytes, adopted, reader },
     if (host.jobVm) await idleIssueJobVms(issueRoot, processes);
     if (!verifyOriginal) return;
     if (legacy) await inspectRecoveryFile(legacy.fencePath, legacy.fenceSnapshot);
-    else requireThat(digest(await journal.pendingStageRecovery(stage)) === digest(native),
-      'RECOVERY_JOURNAL_CHANGED');
+    else await journal.requireRecoveryOrigin(native);
   };
   await checkQuiescence();
   const [approval, run, job, actor] = await Promise.all([
@@ -182,11 +183,20 @@ async function reconcileOperation({ host, hostBytes, adopted, reader },
     if (initialPublication) {
       const events = await reader.list(`${issuePath(record.issue)}/events`);
       const checkpoint = await readDeliveryCheckpoint(reader, record.issue, {
-        shape: artifacts.shapeHash, lifecycle: deliveryLifecycle({ pause: { events } }),
+        shape, lifecycle: deliveryLifecycle({ pause: { events } }),
       });
-      requireThat(checkpoint?.head === expectedHead &&
-        matchesDeliveryCheckpoint(checkpoint, candidate), 'RECOVERY_CANDIDATE_MISMATCH');
-      const published = checkpoint.publication;
+      requireThat(matchesDeliveryCheckpoint(checkpoint, candidate),
+        'RECOVERY_CANDIDATE_MISMATCH');
+      const related = checkpoint.head === expectedHead ? checkpoint :
+        await readDeliveryPublication(reader, record.issue, expectedHead);
+      if (checkpoint.head !== expectedHead && !related.publication) {
+        const commit = await reader.get(root + '/git/commits/' + expectedHead);
+        requireThat(commit.sha === expectedHead && commit.tree?.sha === candidate.tree &&
+          commit.parents?.length === 1 && commit.parents[0].sha === candidate.base &&
+          commit.message.trim().endsWith('Candidate: ' + artifacts.candidateHash),
+        'RECOVERY_CANDIDATE_MISMATCH');
+      }
+      const published = related.publication;
       if (!published) return { pr: null, issue };
       requireThat(published.actorId === actor.id && published.baseBranch === 'main' &&
         published.title === `Deliver #${record.issue.number}` &&

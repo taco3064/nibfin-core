@@ -87,7 +87,7 @@ export function nativeObserver({
         receipts.deliver?.outcome === 'ready' && !receipts['commit-pr']) {
       const checkpoint = receipts.deliver.deliveryCheckpoint &&
         await readDeliveryCheckpoint(reader, record.issue,
-          { shape: context.shape.hash, lifecycle: deliveryLifecycle(context) });
+          { shape: context.shape.body, lifecycle: deliveryLifecycle(context) });
       requireThat(context.candidate &&
         matchesDeliveryCheckpoint(checkpoint, context.candidate),
         'DELIVER_CHECKPOINT_REQUIRED');
