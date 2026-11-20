@@ -105,8 +105,8 @@ The stopped-pool administrator operation remains separate:
 node /opt/nibfin/core/bin/nibfin-core.mjs rollout-core RUN_ID ARTIFACT_ID
 ```
 
-It must run outside both Runner services. Neither a serving maintenance Job nor
-a job-completed hook may stop its own listeners. Core-only compatibility is
+Before running it, stop both Runner services and let their process groups exit.
+The bridge checks the stopped state. Core-only compatibility is
 determined from actual runtime, dispatchers, service layout and registrations;
 an incompatible change returns its specific unsupported result instead of
 pretending that a caller flag made it safe.
