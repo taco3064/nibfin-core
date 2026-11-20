@@ -73,8 +73,10 @@ test('adopted authority and remembered native PR identity survive a missing resp
     const repeated = await prepareUpgrade(requested(), ports);
     assert.equal(repeated.upgrade.operationId, original);
     state.route = false;
-    await assert.rejects(bindUpgrade(requestToBind(original), ports),
-      { code: 'PROVIDER_UNAVAILABLE' });
+    const pending = (await bindUpgrade(requestToBind(original), ports)).upgrade;
+    assert.equal(pending.handoff, 'review-pending');
+    assert.equal(pending.handoffCause.code, 'PROVIDER_UNAVAILABLE');
+    assert.equal(pending.proposals[0].pullId, 80);
     const remembered = await ports.read();
     assert.equal(remembered[0].consumers[0].proposal.pullId, 80);
     state.route = true;
@@ -215,8 +217,9 @@ test('initial caller records a PR before the real native route becomes available
     const { ports, state } = fixture();
     const operationId = (await prepareUpgrade(requested(), ports)).upgrade.operationId;
     state.route = false;
-    await assert.rejects(bindUpgrade(requestToBind(operationId), ports),
-      { code: 'PROVIDER_UNAVAILABLE' });
+    const pending = (await bindUpgrade(requestToBind(operationId), ports)).upgrade;
+    assert.equal(pending.handoff, 'review-pending');
+    assert.equal(pending.proposals[0].pullNumber, target.pullNumber);
     state.route = true;
     state.merged = true;
     const binding = await matchedUpgrade(target, ports);
