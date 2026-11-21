@@ -18,13 +18,28 @@ only the fixed `work` MCP endpoint. Workspace paths in the Core prompt describe
 resources accessible through work tools, not model-container mounts.
 
 The plan does not use `--bare`: in the pinned CLI it reads only API keys, never
-the subscription token. Its isolation stays explicit instead: empty setting
-sources, strict MCP configuration, disabled hooks, plugins and slash commands,
-and a fresh `/session` with its own config directory. The container also
-disables auto-memory, the auto-updater and nonessential traffic. The model
-image must contain no managed policy directory (`/etc/claude-code`) or user
-configuration; its recipe checks this and records the
+the subscription token. Local configuration is narrowed explicitly instead:
+empty setting sources, strict MCP configuration, disabled hooks, plugins and
+slash commands, and a fresh `/session` with its own config directory. The
+container also disables auto-memory, the auto-updater and nonessential traffic.
+The model image must contain no managed policy directory (`/etc/claude-code`),
+user configuration, or `CLAUDE.md`, `CLAUDE.local.md` or `.claude` that the CLI
+would discover upward from `/session`; its recipe checks this and records the
 `io.nibfin.claude-managed-settings="absent"` label, which the runner requires.
+
+Organization policy: Nibfin cannot know a user's Claude plan. Without `--bare`,
+the pinned CLI can fetch server-delivered managed settings and policy limits
+from `api.anthropic.com` for an account in a Team or Enterprise organization.
+Nibfin honors that policy rather than bypassing the credential owner's own
+organization administration; the CONNECT/TLS model gateway could not filter
+those paths anyway. Nibfin's protection never depends on CLI settings: any
+resulting setting or hook still runs inside the model container, with no
+repository mounts, isolated model egress, work tools only through the work
+channel and Core role capabilities, and only that container's own credential.
+Structured output is validated as before. A policy that forbids the selected
+model or required tools makes the execution fail as a provider error. Owners
+in such an organization should review its managed settings before storing the
+credential.
 
 The component channel identifier is `claude-scoped-work-v1`. Its exact tools
 are `mcp__work__read`, `mcp__work__check`, and, for Deliver only,
