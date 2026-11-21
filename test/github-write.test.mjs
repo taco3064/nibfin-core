@@ -303,3 +303,36 @@ test('rebase delivery binds tree and base without retry', async () => {
       });
   }
 });
+
+test('publication records the provider transition after exact read-back', async () => {
+  const f = fixture();
+  f.replace({ ...f.current(), updated_at: '2026-11-21T12:00:00Z' });
+  const request = { issue: f.issue, expectedBodyHash: digest('Raw Scope'),
+    expectedLabels: ['scope', 'bug'], body: 'Validated Shape' };
+  const result = await new GitHubWriter(f.config).publishShape(request);
+  assert.deepEqual(result.publication, { before: request.expectedBodyHash,
+    after: digest(request.body), updatedAt: f.current().updated_at });
+});
+
+test('lost publication response is observed and confirmed without another write',
+  async () => {
+    const f = fixture();
+    const fetcher = f.config.fetcher;
+    f.config.fetcher = async (...args) => {
+      const response = await fetcher(...args);
+      if (args[1].method === 'PATCH') throw new Error('Response lost after PATCH');
+      return response;
+    };
+    const writer = new GitHubWriter(f.config);
+    const request = { issue: f.issue, expectedBodyHash: digest('Raw Scope'),
+      expectedLabels: ['scope', 'bug'], body: 'Validated Shape' };
+    await assert.rejects(writer.publishShape(request), /External effect/);
+    assert.equal(f.current().body, request.body);
+    assert.equal(f.calls.length, 2);
+    const result = await writer.confirmShape({ ...request,
+      expectedBodyHash: digest(request.body),
+      expectedLabels: ['scope', 'bug', 'shaped'] });
+    assert.equal(result.bodyHash, digest(request.body));
+    assert.equal(result.publication, undefined);
+    assert.equal(f.calls.length, 2);
+  });

@@ -386,6 +386,15 @@ export function stageHandlers({
         findings: [],
         references: [result.reference],
         artifacts: { shapeHash: context.shape.hash,
+          ...(result.publication && context.publicationExecution ? {
+            publicationHash: await store.put({
+              issue: context.approval.record.issue,
+              shapeHash: context.shape.hash,
+              transition: result.publication,
+              execution: context.execution,
+              runner: context.publicationExecution,
+            }),
+          } : {}),
           ...(context.receipts.shape.artifacts.requirementsHash ? {
             requirementsHash: context.receipts.shape.artifacts.requirementsHash,
           } : {}) },
