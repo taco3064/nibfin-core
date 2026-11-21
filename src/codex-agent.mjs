@@ -71,7 +71,9 @@ export class CodexRoleAgent {
         hasProposal: Boolean(config.proposal),
         additionalDomains: config.project?.allowedDomains,
         projectTools: config.project?.tools,
-        globalInstructions: config.globalInstructions });
+        globalInstructions: config.globalInstructions,
+        // Claude only: the Firecracker writer selects its VM-mode plan.
+        ...(claude ? { jobVm: config.jobVm === true } : {}) });
       const io = join(root, `execution-${context.execution.id}`);
       await mkdir(io, { mode: 0o700 });
       const main = await this.#prepareMain(join(io, 'current-main'),

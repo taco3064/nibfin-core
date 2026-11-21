@@ -3,7 +3,7 @@
 // Values marked "copy" are pinned equal to Core's by test/claude-bootstrap.test.mjs.
 import { readFile, writeFile, mkdir, unlink } from 'node:fs/promises';
 import { watch } from 'node:fs';
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import net from 'node:net';
 import { pathToFileURL } from 'node:url';
@@ -249,7 +249,7 @@ export function sandboxProbeArguments(proxyHost, proxyPort, node = executables.n
 
 export async function denialProbe(proxyHost, {
   proxyPort = 3128, node = executables.node, bwrap = executables.bwrap,
-  python = null, toolPath = '',
+  python = null, toolPath = '', shell, jobVm = false,
 } = {}) {
   const environment = { PATH: '/usr/bin:/bin', LANG: 'C.UTF-8' };
   const sibling = spawn(node, ['-e', 'setInterval(() => {}, 1000)'], {
@@ -265,6 +265,7 @@ export async function denialProbe(proxyHost, {
     const environ = await runClaude(['-e', environProbe, String(sibling.pid),
       String(process.pid)], { executable: node, environment, cwd: '/' });
     if (environ.stdout !== 'NIBFIN_ENVIRON_DENIED\n') throw new Error('ENVIRON');
+    if (jobVm) return vmRouteProbe(shell);
     const sandbox = await runClaude(
       sandboxProbeArguments(proxyHost, proxyPort, node, python, toolPath),
       { executable: bwrap, environment, cwd: '/' });
@@ -274,6 +275,19 @@ export async function denialProbe(proxyHost, {
   } finally {
     sibling.kill('SIGKILL');
   }
+}
+
+// VM mode: the Claude sandbox is off, so nibfin-bash must run nothing locally
+// except Claude's snapshot. A non-snapshot, non-tool argv proves the refusal;
+// the guest shell round trip itself is checked per execution by Core.
+export function vmRouteProbe(shell) {
+  const result = spawnSync(shell, ['-c', 'printf NIBFIN_LOCAL_RAN', 'nibfin-probe'], {
+    cwd: '/', env: { PATH: '/usr/bin:/bin', LANG: 'C.UTF-8' }, encoding: 'utf8',
+    timeout: 10_000, shell: false,
+  });
+  if (result.status !== 126 || result.stdout !== '' ||
+    result.stderr !== 'NIBFIN_TOOL_ROUTE_REFUSED\n')
+    throw new Error('SANDBOX_PROBE_FAILED');
 }
 
 // Line one is the credential, the rest is the prompt. Neither touches a file.
@@ -320,16 +334,20 @@ function proxyReachable(host, port) {
 // `root` and the executables relocate fixed image paths for fixture tests only.
 export async function bootstrap({ root = '', input = process.stdin, proxyPort = 3128,
   claude = executables.claude, bwrap = executables.bwrap, node = executables.node,
+  shell,
 } = {}) {
   const invocation = JSON.parse(await readFile(`${root}/input/invocation.json`, 'utf8'));
   const { plan, codexVersion, proxyHost, jobVm } = invocation;
   const cwd = root + plan.cwd;
   const version = await runClaude(['--version'], { executable: claude, cwd });
   if (version.stdout.trim() !== codexVersion) throw new Error('CODEX_VERSION_MISMATCH');
-  // This entry implements the Docker writer mode only.
-  if (jobVm) throw new Error('SANDBOX_PROBE_FAILED');
-  for (const directory of plan.toolDirectories)
-    await mkdir(root + directory, { recursive: true, mode: 0o700 });
+  // Both must agree: Core sets the VM-mode plan and the guest shell socket together.
+  if (Boolean(jobVm) !== (plan.jobVm === true)) throw new Error('SANDBOX_PROBE_FAILED');
+  // In VM mode the guest owns /work and its tool directories.
+  if (!jobVm) {
+    for (const directory of plan.toolDirectories)
+      await mkdir(root + directory, { recursive: true, mode: 0o700 });
+  }
   const home = `${root}/agent-home`, sentinel = `${root}/io/probe-sentinel`;
   await writeFile(`${home}/${progressMarker}`, '', { mode: 0o600 });
   await writeFile(sentinel, 'Private Core output must not be visible to tools',
@@ -337,7 +355,9 @@ export async function bootstrap({ root = '', input = process.stdin, proxyPort = 
   // Confirm controller access before requiring the tool sandbox to deny it.
   for (const path of [`${home}/${progressMarker}`, sentinel]) await readFile(path);
   await proxyReachable(proxyHost, proxyPort);
-  await denialProbe(proxyHost, { proxyPort, node, bwrap,
+  // The plan's CLAUDE_CODE_SHELL is the nibfin-bash Claude runs every tool call with.
+  await denialProbe(proxyHost, { proxyPort, node, bwrap, jobVm: Boolean(jobVm),
+    shell: shell ?? plan.environment?.CLAUDE_CODE_SHELL,
     python: plan.projectPython, toolPath: plan.toolEnvironment?.PATH });
   const { variable, token, prompt } = await readInput(input);
   const result = await runClaude(plan.args, {

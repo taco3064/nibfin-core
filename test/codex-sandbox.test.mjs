@@ -742,3 +742,53 @@ test('Claude writers get the same private tool output as Codex writers', async t
     assert.match(cleanup[cleanup.indexOf('-e') + 1], new RegExp(`/work/${cache}`));
   }
 });
+
+const vmMounts = create => create.filter(v => v.startsWith('type=bind'))
+  .map(v => [/dst=([^,]+)/.exec(v)[1], !v.includes(',readonly')]);
+
+test('Claude VM mode mounts only its guest shell socket and the Core client',
+  async t => {
+    const f = await claudeFixture(t);
+    f.request.plan = { ...f.request.plan, writable: true, jobVm: true };
+    f.request.plan.policyHash = claudePolicyHash(f.request.plan);
+    f.request.jobVmSocket = join(dirname(f.request.work), 'shell.sock');
+    const result = await f.sandbox.execute(f.request);
+    assert.equal(result.status, 'completed');
+    assert.deepEqual(vmMounts(f.calls.find(c => c[0] === 'create')), [
+      ['/main', false], ['/work', false], ['/input', false], ['/io', true],
+      ['/agent-home', true], ['/job-vm-shell.sock', false]]);
+    assert.deepEqual((await readdir(f.request.input)).sort(),
+      ['bootstrap.mjs', 'invocation.json', 'tool-environment', 'vm-shell.mjs']);
+    assert.equal(await readFile(join(f.request.input, 'vm-shell.mjs'), 'utf8'),
+      await readFile('src/claude-vm-shell.mjs', 'utf8'));
+    const invocation = JSON.parse(await readFile(
+      join(f.request.input, 'invocation.json'), 'utf8'));
+    assert.equal(invocation.jobVm, true);
+    assert.equal(invocation.plan.jobVm, true);
+    for (const change of [r => { delete r.jobVmSocket; },
+      r => { r.plan = { ...r.plan, jobVm: undefined };
+        r.plan.policyHash = claudePolicyHash(r.plan); }]) {
+      const g = await claudeFixture(t);
+      g.request.plan = { ...g.request.plan, writable: true, jobVm: true };
+      g.request.plan.policyHash = claudePolicyHash(g.request.plan);
+      g.request.jobVmSocket = join(dirname(g.request.work), 'shell.sock');
+      change(g.request);
+      await assert.rejects(g.sandbox.execute(g.request),
+        /AGENT_PROVIDER_MODE_UNSUPPORTED/);
+      assert.equal(g.calls.some(c => c[0] === 'create'), false);
+    }
+  });
+
+test('Codex VM mode keeps its exec socket mount and has no shell client',
+  async t => {
+    const f = await fixture(t);
+    f.request.plan.writable = true;
+    f.request.jobVmSocket = join(dirname(f.request.work), 'exec.sock');
+    assert.equal((await f.sandbox.execute(f.request)).status, 'completed');
+    const mounts = vmMounts(f.calls.find(c => c[0] === 'create'));
+    assert.deepEqual(mounts.at(-1), ['/job-vm.sock', false]);
+    assert.ok(mounts.some(([path, rw]) => path === '/work' && !rw));
+    assert.ok(!(await readdir(f.request.input)).includes('vm-shell.mjs'));
+    assert.equal(JSON.parse(await readFile(join(f.request.input, 'invocation.json'),
+      'utf8')).jobVm, true);
+  });

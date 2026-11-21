@@ -311,3 +311,38 @@ test('the entry passes the selected Python and tool PATH into bubblewrap', posix
     assert.equal(entryExit(new Error('SANDBOX_PROBE_FAILED')).exitCode,
       codexPreflightExits.SANDBOX_PROBE_FAILED);
   });
+
+async function vmEntry(t, { invocationVm = true, planVm = true, shell } = {}) {
+  const f = await entryFixture(t);
+  const path = join(f.root, 'input/invocation.json');
+  const value = JSON.parse(await readFile(path, 'utf8'));
+  value.jobVm = invocationVm;
+  if (planVm) value.plan.jobVm = true;
+  // The probed shell is the plan's CLAUDE_CODE_SHELL.
+  value.plan.environment = { CLAUDE_CODE_SHELL: await script(
+    join(f.root, 'bin/nibfin-bash'), shell ??
+    'echo NIBFIN_TOOL_ROUTE_REFUSED >&2; exit 126') };
+  await writeFile(path, JSON.stringify(value));
+  // Bubblewrap is the docker-mode mechanism; VM mode must never call it.
+  f.options.bwrap = await script(f.options.bwrap, 'exit 1');
+  return f;
+}
+
+test('VM mode probes the local route refusal instead of bubblewrap', posix,
+  async t => {
+    const f = await vmEntry(t);
+    await bootstrap(f.options);
+    const stream = JSON.parse(await readFile(join(f.root, 'io/stream.json'), 'utf8'));
+    assert.deepEqual(stream, { stdout: f.result, stderr: '' });
+    // The guest owns /work and its tool directories.
+    assert.deepEqual(await readdir(join(f.root, 'work')), []);
+    for (const [options, label] of [[{ planVm: false }, 'plan'],
+      [{ invocationVm: false }, 'socket'],
+      [{ shell: 'printf NIBFIN_LOCAL_RAN; exit 0' }, 'local run'],
+      [{ shell: 'echo NIBFIN_TOOL_ENVIRONMENT_UNAVAILABLE >&2; exit 126' }, 'env']]) {
+      const failed = await vmEntry(t, options);
+      await assert.rejects(bootstrap(failed.options),
+        { message: 'SANDBOX_PROBE_FAILED' }, label);
+      assert.ok(!(await readdir(join(failed.root, 'io'))).includes('stream.json'));
+    }
+  });

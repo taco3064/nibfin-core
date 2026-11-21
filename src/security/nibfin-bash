@@ -6,10 +6,45 @@
 # NUL-separated KEY=VALUE entries; it holds no credential.
 environment=/input/tool-environment
 marker=/agent-home/.nibfin-tool-progress
+# Firecracker writer mode: Core mounts the guest shell socket and copies its
+# client; either one being present selects the VM route.
+client=/input/vm-shell.mjs
+socket=/job-vm-shell.sock
+state=/agent-home/.nibfin-guest-cwd
+node=/usr/local/bin/node
 # Fail closed: a command never runs without the Core tool environment.
 if [ ! -f "$environment" ] || [ ! -r "$environment" ]; then
   echo NIBFIN_TOOL_ENVIRONMENT_UNAVAILABLE >&2
   exit 126
+fi
+# Outside bubblewrap the real /agent-home is visible and the bootstrap watches the
+# marker; inside, /agent-home is an empty private tmpfs and the write is harmless.
+# The refresher holds none of the command's streams and ends within a second of
+# this process, so finished commands leave no lingering processes behind.
+refresh_progress() {
+  {
+    while kill -0 "$$" 2>/dev/null && : > "$marker"; do
+      /bin/sleep 1
+    done
+  } </dev/null >/dev/null 2>&1 &
+}
+if [ -e "$client" ] || [ -e "$socket" ]; then
+  # VM mode has no Claude sandbox and this process inherits Claude's credential:
+  # only Claude's snapshot runs locally, and only without the inherited env.
+  if [ "$#" -eq 3 ] && [ "$1" = -c ] && [ "$2" = -l ]; then
+    mapfile -d '' -t entries < "$environment" || {
+      echo NIBFIN_TOOL_ENVIRONMENT_UNAVAILABLE >&2
+      exit 126
+    }
+    exec /usr/bin/env -i "${entries[@]}" /bin/bash "$@"
+  fi
+  if [ "$#" -ne 2 ] || [ "$1" != -c ] || [ ! -f "$client" ]; then
+    echo NIBFIN_TOOL_ROUTE_REFUSED >&2
+    exit 126
+  fi
+  refresh_progress
+  # The client sends only the Core tool environment, never this process's env.
+  exec /usr/bin/env -i "$node" "$client" "$socket" "$environment" "$state" "$2"
 fi
 while IFS= read -r -d '' entry; do
   export "$entry"
@@ -17,13 +52,5 @@ done < "$environment" || {
   echo NIBFIN_TOOL_ENVIRONMENT_UNAVAILABLE >&2
   exit 126
 }
-# Outside bubblewrap the real /agent-home is visible and the bootstrap watches the
-# marker; inside, /agent-home is an empty private tmpfs and the write is harmless.
-# The refresher holds none of the command's streams and ends within a second of
-# this process, so finished commands leave no lingering processes behind.
-{
-  while kill -0 "$$" 2>/dev/null && : > "$marker"; do
-    /bin/sleep 1
-  done
-} </dev/null >/dev/null 2>&1 &
+refresh_progress
 exec /bin/bash "$@"

@@ -48,6 +48,9 @@ import {
 } from './claude-agent-plan.mjs';
 import { validClaudeCredential } from './claude-model-credentials.mjs';
 
+// Core-owned Claude VM-mode tool shell client (see src/security/nibfin-bash).
+const claudeShellClient = 'src/claude-vm-shell.mjs';
+
 // Provider branch points; the adopted binding selects one, Codex by default.
 const providers = Object.freeze({
   codex: { version: /^codex-cli \d+\.\d+\.\d+$/, apparmor: 'codex-security-container',
@@ -251,9 +254,10 @@ export class CodexSandbox {
         /^[a-f0-9-]{36}$/.test(executionId),
       'INVALID_AGENT_PLAN',
     );
-    // Docker writer mode only: no Codex login file, user MCP or job VM route.
+    // No Codex login file or user MCP; a job VM route only with its VM-mode plan.
     // The Claude credential travels only on the attached container stdin.
-    requireThat(claude ? auth === undefined && !mcp && !jobVmSocket &&
+    requireThat(claude ? auth === undefined && !mcp &&
+      (plan.jobVm === true) === Boolean(jobVmSocket) &&
       validClaudeCredential(credential) : credential === undefined,
     'AGENT_PROVIDER_MODE_UNSUPPORTED');
     requireThat((plan.mcpPolicyHash ?? null) === (mcp?.policyHash ?? null),
@@ -296,6 +300,11 @@ export class CodexSandbox {
     const bootstrap = await readFile(join(c.coreRoot, provider.bootstrap));
     await writeFile(join(input, 'bootstrap.mjs'), bootstrap,
       { flag: 'wx', mode: 0o400 });
+    // Claude VM mode: nibfin-bash runs this client to reach the guest shell.
+    const shellClient = claude && jobVmSocket ?
+      await readFile(join(c.coreRoot, claudeShellClient)) : undefined;
+    if (shellClient) await writeFile(join(input, 'vm-shell.mjs'), shellClient,
+      { flag: 'wx', mode: 0o444 });
     // Claude receives its prompt with the credential on stdin, not in a file.
     const { prompt, ...claudeInvocationPlan } = claude ? plan : {};
     await writeFile(
@@ -362,7 +371,8 @@ export class CodexSandbox {
       requireThat(plan.writable && (await this.#host.lstat(jobVmSocket)).isSocket() &&
         (await this.#host.realpath(jobVmSocket)) === jobVmSocket,
         'INVALID_JOB_VM_SOCKET');
-      mounts.push({ source: jobVmSocket, destination: '/job-vm.sock', rw: false });
+      mounts.push({ source: jobVmSocket,
+        destination: claude ? '/job-vm-shell.sock' : '/job-vm.sock', rw: false });
     }
     if (mcp) {
       const path = join(authRoot, 'mcp.toml');
@@ -679,6 +689,7 @@ export class CodexSandbox {
             preflight,
             container: observed,
             bootstrap: sha256(bootstrap),
+            ...(shellClient ? { shellClient: sha256(shellClient) } : {}),
             ...(mcp ? { mcpPolicyHash: mcp.policyHash,
               mcpEgressHash: mcpLease?.hash ?? null } : {}),
           }),
