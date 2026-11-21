@@ -25,6 +25,7 @@ function changedPaths(args) {
 const projectFiles = /^(?:package(?:-lock)?\.json|\.node-version|\.npmrc)$/;
 const controls = /^(?:\.github\/workflows\/ci\.yml|scripts\/test-changes\.mjs)$/;
 const imageInputs = /^src\/security\//;
+const claudeAgentImageCheck = 'scripts/verify-live-claude-agent-image.mjs';
 const windowsTests = new Set([
   'test/source-mode.test.mjs', 'test/mcp-source.test.mjs',
   'test/mcp-resolve.test.mjs', 'test/mcp-windows.test.mjs',
@@ -82,13 +83,18 @@ if (args.includes('--claude-docker')) {
   const claude = paths.some(path => /^src\/(?:security\/)?claude[-/]/.test(path) ||
     path === 'bin/claude-work-tools.mjs');
   process.stdout.write(claude ? 'true\n' : 'false\n');
+} else if (args.includes('--claude-agent-image')) {
+  // The live check names every recipe input and resolver it builds with.
+  const claude = dependencies(claudeAgentImageCheck, new Set(paths));
+  process.stdout.write(claude ? 'true\n' : 'false\n');
 } else if (args.includes('--native-docker')) {
   const changed = new Set(paths);
   const docker = paths.some(path => controls.test(path) || imageInputs.test(path) ||
     path.startsWith('src/claude-model-') ||
     path === '.github/actions/native-docker/action.yml') ||
     ['scripts/verify-live-adapter.mjs', 'scripts/verify-live-hooks.mjs',
-      'scripts/verify-live-codex.mjs'].some(path => dependencies(path, changed));
+      'scripts/verify-live-codex.mjs', claudeAgentImageCheck]
+      .some(path => dependencies(path, changed));
   const line = `native_docker=${docker}\n`;
   if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, line);
   else process.stdout.write(line);

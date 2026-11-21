@@ -2,8 +2,11 @@ import { readFile } from 'node:fs/promises';
 import { digest, requireThat } from './identity.mjs';
 import { toolSource, projectToolPath } from './tool-catalog.mjs';
 import { linuxArchitecture } from './linux-architecture.mjs';
+import { claudePackageVersion } from './agent-image-inputs.mjs';
 
 const project = '/opt/nibfin/project';
+// Installed by src/security/claude-package.mjs.
+const claudeExecutable = '/opt/nibfin/claude/bin/claude';
 const pythonLibraries = [
   'libbz2.so.1*', 'libcrypto.so.3', 'libexpat.so.1*', 'libffi.so.8*',
   'libgdbm.so.6*', 'libgdbm_compat.so.4*', 'liblzma.so.5*', 'libncursesw.so.6*',
@@ -11,16 +14,32 @@ const pythonLibraries = [
   'libuuid.so.1*', 'libz.so.1*',
 ];
 
-export async function preparationRecipe(tools, baseImage, arch = process.arch) {
+export const toolProviders = Object.freeze(['codex', 'claude']);
+
+// The base image's agent CLI: Codex by default, or the Claude agent image's CLI.
+async function providerVersions(provider) {
+  requireThat(toolProviders.includes(provider), 'INVALID_TOOL_PROVIDER');
+  const pkg = JSON.parse(await readFile(new URL('../package.json', import.meta.url)));
+  if (provider === 'claude') {
+    const script = await readFile(
+      new URL('./security/claude-package.mjs', import.meta.url), 'utf8');
+    return { node: pkg.engines.node, claude: claudePackageVersion(script) };
+  }
+  const maintained = await readFile(
+    new URL('./security/agent.Dockerfile', import.meta.url), 'utf8');
+  const codex = /^ARG CODEX_VERSION=(\S+)$/m.exec(maintained)?.[1];
+  if (!codex) throw new Error('Missing maintained Codex version');
+  return { node: pkg.engines.node, codex: `codex-cli ${codex}` };
+}
+
+export async function preparationRecipe(tools, baseImage, arch = process.arch, {
+  provider = 'codex',
+} = {}) {
   const architecture = linuxArchitecture('linux', arch);
   requireThat(architecture, 'UNSUPPORTED_TOOL_PLATFORM');
   const platform = `linux/${architecture}`;
   requireThat(/^sha256:[a-f0-9]{64}$/.test(baseImage), 'INVALID_TOOL_BASE_IMAGE');
-  const maintained = await readFile(
-    new URL('./security/agent.Dockerfile', import.meta.url), 'utf8');
-  const pkg = JSON.parse(await readFile(new URL('../package.json', import.meta.url)));
-  const codex = /^ARG CODEX_VERSION=(\S+)$/m.exec(maintained)?.[1];
-  if (!codex) throw new Error('Missing maintained Codex version');
+  const versions = await providerVersions(provider);
   const baseTag = `nibfin-tool-base:${baseImage.slice(7)}`;
   const lines = Object.entries(tools).map(([name, version]) =>
     `FROM ${toolSource(name, version, architecture)} AS project-${name}`);
@@ -53,20 +72,26 @@ export async function preparationRecipe(tools, baseImage, arch = process.arch) {
     wrapper('gofmt', `exec ${project}/go/bin/gofmt`);
   }
   lines.push(`COPY --chmod=0755 bin/ ${project}/bin/`);
-  const versions = { node: pkg.engines.node, codex: `codex-cli ${codex}` };
   // The key binds all maintained inputs that can change compatibility. It is a
   // cache address, never an authorization prerequisite or an owner-facing pin.
   const key = digest({ recipe: lines, wrappers, platform, tools, versions,
-    probe: versionProbe(tools, versions) });
+    probe: toolProbe(tools, versions) });
   lines.push(`LABEL io.nibfin.tool-environment="${key}"`, '');
   return { dockerfile: lines.join('\n'), wrappers, baseTag, key, versions, platform,
     architecture };
 }
 
+// The probe of a project tool image checks the CLI its base image provides.
+export function toolProbe(tools, versions) {
+  return versions.claude === undefined ? versionProbe(tools, versions)
+    : versionProbe(tools, versions, { codex: false, claude: versions.claude });
+}
+
 // Execute only trusted commands with a fixed bootstrap runtime. The development
 // PATH is tested independently; Codex and its Node wrapper use the fixed PATH.
+// `claude` (a Claude agent image only) adds its CLI and tool sandbox executables.
 export function versionProbe(tools, versions, {
-  codex = true, npm,
+  codex = true, npm, claude,
 } = {}) {
   return `
 const {execFileSync} = require('node:child_process');
@@ -91,7 +116,11 @@ check('/usr/local/bin/node', ['--version'], ${JSON.stringify('v' + versions.node
 ${codex ? `check('/usr/local/bin/codex', ['--version'],
   ${JSON.stringify(versions.codex)}, fixed);` : ''}
 ${npm ? `check('/usr/local/bin/npm', ['--version'],
-  ${JSON.stringify(npm)}, fixed);` : ''}
+  ${JSON.stringify(npm)}, fixed);` : ''}${claude ? `
+check(${JSON.stringify(claudeExecutable)}, ['--version'],
+  ${JSON.stringify(claude)}, fixed);
+check('/usr/bin/bwrap', ['--version'], undefined, fixed);
+check('/usr/bin/socat', ['-V'], undefined, fixed);` : ''}
 const tools = ${JSON.stringify(tools)};
 if (tools.node) {
   check('node', ['--version'], 'v' + tools.node, project);

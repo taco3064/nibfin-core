@@ -12,7 +12,7 @@ import {
 import { verifyAppArmor } from './apparmor-proof.mjs';
 import { requestedTools } from './tool-catalog.mjs';
 import { linuxArchitecture } from './linux-architecture.mjs';
-import { preparationRecipe, versionProbe } from './tool-recipe.mjs';
+import { preparationRecipe, toolProbe, toolProviders } from './tool-recipe.mjs';
 
 // Match trusted Docker diagnostics internally; never forward installer output.
 function buildFailure(result) {
@@ -50,15 +50,20 @@ export class ToolEnvironmentPreparer {
   #baseImage;
   #host;
   #run;
+  #provider;
   #pending = new Map();
+  // `provider` names the agent CLI of the base image; Codex unless a Claude agent
+  // image is the base.
   constructor(config, {
-    backend, baseImage, run = command,
+    backend, baseImage, run = command, provider = 'codex',
     host = { platform: process.platform, uid: process.getuid?.(), lstat, realpath },
   } = {}) {
     this.#backend = dockerBackend(backend);
     requireThat(config && Object.keys(config).sort().join(',') === 'docker,socket' &&
-      validDockerEndpoint(config, this.#backend), 'INVALID_TOOL_PREPARATION_CONFIG');
+      validDockerEndpoint(config, this.#backend) && toolProviders.includes(provider),
+    'INVALID_TOOL_PREPARATION_CONFIG');
     this.#config = structuredClone(config);
+    this.#provider = provider;
     this.#baseImage = baseImage;
     this.#host = host;
     this.#run = run;
@@ -136,7 +141,7 @@ export class ToolEnvironmentPreparer {
         '--user=1000:1000', '--pids-limit=64', '--memory=512m', '--cpus=1',
         '--tmpfs', '/tmp:rw,nosuid,nodev,size=64m,mode=1777',
         '--entrypoint', '/usr/local/bin/node', image, '-e',
-        versionProbe(tools, recipe.versions),
+        toolProbe(tools, recipe.versions),
       ], { timeout: 90000, limit: 65536, allowedExitCodes: [0, 1, 125, 126, 127] });
       if (result.exitCode) {
         const output = result.stderr.toString();
@@ -184,7 +189,8 @@ export class ToolEnvironmentPreparer {
           process.arch),
         'UNSUPPORTED_TOOL_PLATFORM');
       phase = 'recipe';
-      const recipe = await preparationRecipe(tools, this.#baseImage, architecture);
+      const recipe = await preparationRecipe(tools, this.#baseImage, architecture,
+        { provider: this.#provider });
       const base = await this.#image(this.#baseImage);
       const baseLayers = base?.RootFS?.Layers;
       requireThat(base?.Id === this.#baseImage &&

@@ -78,6 +78,15 @@ export function resolvedAgentRecipe(recipe, resolved) {
   return recipe;
 }
 
+// The exact managed Agent build input: resolved sources plus the pinned versions.
+export function managedAgentRecipe(recipe, resolved, versions) {
+  return resolvedAgentRecipe(recipe, resolved)
+    .replace('ARG CODEX_VERSION',
+      `ARG CODEX_VERSION=${versions.codex.slice('codex-cli '.length)}`)
+    .replace('ARG GO_VERSION', `ARG GO_VERSION=${versions.go}`)
+    .replace('ARG NPM_VERSION', `ARG NPM_VERSION=${versions.npm}`);
+}
+
 // Acquisition is credential-free and cannot authorize an image of another
 // platform. Pulling immutable inputs does not replace any managed resource.
 export async function prepareAgentInputs(recipe, architecture, docker) {
@@ -99,7 +108,26 @@ export async function prepareAgentInputs(recipe, architecture, docker) {
   return resolved;
 }
 
-export function agentVersions(recipe, projectPackage, managedPackage) {
+// The verified package script owns the Claude CLI pin. The result is the CLI's
+// `--version` line, which the image, availability probe and sandbox compare.
+export function claudePackageVersion(script) {
+  const version = /^const version = '(\d+\.\d+\.\d+)';$/m.exec(script)?.[1];
+  requireThat(version, 'RESOURCE_INPUT_CONTRACT_INVALID');
+  return `${version} (Claude Code)`;
+}
+
+// The Claude Agent image derives from the prepared Agent image by its ID.
+export function resolvedClaudeRecipe(recipe, agentImage, claudeVersion) {
+  const version = /^(\d+\.\d+\.\d+) \(Claude Code\)$/.exec(claudeVersion)?.[1];
+  requireThat(typeof recipe === 'string' && version && immutable.test(agentImage) &&
+    recipe.split('nibfin-managed-agent-input').length === 2 &&
+    recipe.split('\nARG CLAUDE_VERSION\n').length === 2,
+  'RESOURCE_INPUT_CONTRACT_INVALID');
+  return recipe.replace('nibfin-managed-agent-input', agentImage)
+    .replace('\nARG CLAUDE_VERSION\n', `\nARG CLAUDE_VERSION=${version}\n`);
+}
+
+export function agentVersions(recipe, projectPackage, managedPackage, claudePackage) {
   const node = projectPackage.engines?.node;
   const codex = /^ARG CODEX_VERSION=(\S+)$/m.exec(recipe)?.[1];
   const go = /GOVERSION\)" = go(\d+\.\d+\.\d+)/.exec(recipe)?.[1];
@@ -108,5 +136,8 @@ export function agentVersions(recipe, projectPackage, managedPackage) {
     typeof version === 'string' && /^\d+\.\d+\.\d+$/.test(version)) &&
     codex === managedPackage.dependencies?.['@openai/codex'],
   'RESOURCE_INPUT_CONTRACT_INVALID');
-  return { node, codex: `codex-cli ${codex}`, go, npm };
+  // Only an explicit Claude request adds its CLI; Codex versions stay unchanged.
+  return { node, codex: `codex-cli ${codex}`, go, npm,
+    ...(claudePackage === undefined ? {}
+      : { claude: claudePackageVersion(claudePackage) }) };
 }
