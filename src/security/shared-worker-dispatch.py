@@ -10,14 +10,61 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import re
 import select
 import signal
 import struct
 import subprocess
+import syslog
 
 CORE = Path("/opt/nibfin/core")
 BRIDGE = Path('/usr/local/libexec/nibfin/core-rollout/bridge.py')
 PR_SET_PDEATHSIG = 1
+
+
+class AdmissionFailure(ValueError):
+    def __init__(self, code, status=None, api_status=None):
+        super().__init__(code)
+        self.code = code
+        self.status = status
+        self.api_status = api_status
+
+
+def check_bridge_admission(result):
+    # This pipe belongs to the installed bridge. Log neither raw output nor frame data.
+    invalid = 'CORE_PRE_WORKER_BRIDGE_RESPONSE_UNAVAILABLE'
+    try:
+        value = json.loads(result.stdout)
+    except ValueError:
+        raise AdmissionFailure(invalid) from None
+    if not isinstance(value, dict):
+        raise AdmissionFailure(invalid)
+    status = value.get('status')
+    if result.returncode == 0 and status == 'admitted':
+        return
+    code = value.get('code')
+    if ((status, result.returncode) not in (('pending', 2), ('denied', 1))
+            or not isinstance(code, str) or not re.fullmatch('[A-Z][A-Z0-9_]*', code)):
+        raise AdmissionFailure(invalid)
+    api = value.get('githubApi')
+    http = api.get('httpStatus') if isinstance(api, dict) else None
+    if type(http) is not int or not 400 <= http <= 599 or api.get('kind') != 'http':
+        http = None
+    raise AdmissionFailure(code, status, http)
+
+
+def report_failure(failure):
+    diagnostic = f'pre-worker admission code={failure.code}'
+    if failure.status is not None:
+        diagnostic += f' status={failure.status}'
+    if failure.api_status is not None:
+        diagnostic += f' github_http_status={failure.api_status}'
+    try:
+        syslog.openlog('nibfin-worker-dispatch', syslog.LOG_PID)
+        syslog.syslog(syslog.LOG_WARNING, diagnostic)
+    except OSError:
+        pass
+    print(f'Nibfin did not admit the Runner job: {diagnostic}', file=sys.stderr)
 
 
 def exact_read(source, size):
@@ -25,7 +72,7 @@ def exact_read(source, size):
     while len(data) < size:
         chunk = os.read(source, min(65536, size - len(data)))
         if not chunk:
-            raise ValueError("Incomplete Runner frame")
+            raise AdmissionFailure('SHARED_WORKER_FRAME_INCOMPLETE')
         data.extend(chunk)
     return data
 
@@ -60,7 +107,7 @@ def admit(source):
     header = exact_read(source, 8)
     message_type, length = struct.unpack("<ii", header)
     if message_type != 1 or length <= 0 or length > 50_000_000 or length % 2:
-        raise ValueError("Invalid Runner frame")
+        raise AdmissionFailure('SHARED_WORKER_FRAME_INVALID')
     body = exact_read(source, length)
     if BRIDGE.exists() or BRIDGE.is_symlink():
         parent = os.getpid()
@@ -71,8 +118,7 @@ def admit(source):
             stdout=subprocess.PIPE, env={'PATH': '/usr/bin:/bin', 'LANG': 'C'},
             preexec_fn=lambda: exit_with_parent(parent),
         )
-        if result.returncode or json.loads(result.stdout).get('status') != 'admitted':
-            raise ValueError('Installed pre-Worker admission is pending')
+        check_bridge_admission(result)
         return header + body
     # Fresh installation may register the official slots before adopting the
     # pool and installing its administrator bridge. Ordinary admission keeps its
@@ -96,15 +142,15 @@ def main():
     command, source_pipe, reply_pipe = sys.argv[1:]
     source, reply = int(source_pipe), int(reply_pipe)
     if command != "spawnclient" or min(source, reply) < 3 or source == reply:
-        raise ValueError("Invalid Runner invocation")
+        raise AdmissionFailure('SHARED_WORKER_INVOCATION_INVALID')
     drain = Path('/etc/nibfin/managed-pool-drain.json')
     if drain.exists() or drain.is_symlink():
-        raise ValueError("Managed pool is draining")
+        raise AdmissionFailure('SHARED_WORKER_POOL_DRAINING')
     frame = admit(source)
     if drain.exists() or drain.is_symlink():
-        raise ValueError("Managed pool is draining")
+        raise AdmissionFailure('SHARED_WORKER_POOL_DRAINING')
     if select.select([source], [], [], 0)[0]:
-        raise ValueError("Runner was cancelled during admission")
+        raise AdmissionFailure('SHARED_WORKER_CANCELLED_DURING_ADMISSION')
     worker = Path.cwd() / "Runner.Worker.official"
     receiver, sender = os.pipe()
     wrapper_pid = os.getpid()
@@ -120,13 +166,21 @@ def main():
     os.set_inheritable(reply, True)
     # The Listener continues to supervise the same PID after Worker starts.
     if drain.exists() or drain.is_symlink():
-        raise ValueError("Managed pool is draining")
+        raise AdmissionFailure('SHARED_WORKER_POOL_DRAINING')
     os.execv(worker, [str(worker), "spawnclient", str(receiver), str(reply)])
 
 
-if __name__ == "__main__":
+def dispatch():
     try:
         main()
+    except AdmissionFailure as error:
+        report_failure(error)
+        return 1
     except (OSError, ValueError, subprocess.SubprocessError):
-        print("Nibfin did not admit the Runner job.", file=sys.stderr)
-        sys.exit(1)
+        report_failure(AdmissionFailure('SHARED_WORKER_ADMISSION_UNAVAILABLE'))
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(dispatch())
