@@ -178,8 +178,13 @@ function publication(context) {
   requireThat(context.shape, 'PUBLISHED_SHAPE_RECEIPT_MISSING');
   const artifacts = { shapeHash: context.shape.hash };
   const reviewed = context.receipts['publish-shape']?.artifacts?.requirementsHash;
+  const provenance = context.receipts['publish-shape']?.artifacts?.publicationHash;
+  if (provenance !== undefined) {
+    requireThat(isDigest(provenance), 'INVALID_PUBLICATION_EVIDENCE');
+  }
   receipt(context, 'publish-shape', {
     ...artifacts, ...(reviewed ? { requirementsHash: reviewed } : {}),
+    ...(provenance !== undefined ? { publicationHash: provenance } : {}),
   }, 'published');
   requireThat(samePublishedRequirements(context.issue.body, context.shape.body),
     'PUBLISHED_SHAPE_CHANGED');

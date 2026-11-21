@@ -378,6 +378,7 @@ async function launchAdmittedStage(issueNumber, stage, env, runnerUid,
           config: {
             approval: adopted.approval,
             runner,
+            continuation: stage === 'continue',
             stateRoot: join(root, 'receipts'),
             stateBinding: binding,
             hostGitHubReads: true,

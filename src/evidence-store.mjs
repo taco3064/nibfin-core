@@ -22,8 +22,9 @@ function supersededStages(pointer) {
 // Trusted evidence, never workflow/Issue state. Keep outside every Agent mount.
 // Binding namespaces invalidate old receipts without editing their history.
 export class EvidenceStore {
-  #root; #directory; #binding;
-  constructor(root, binding) {
+  #root; #directory; #binding; #readOnly;
+  constructor(root, binding, { readOnly = false } = {}) {
+    this.#readOnly = readOnly;
     this.#root = resolve(root); this.#binding = structuredClone(binding);
     requireThat(typeof binding?.issueId === 'string' && binding.issueId &&
       ['approvalHash', 'scopeHash', 'sourceHash'].every(key => isDigest(binding[key])),
@@ -32,9 +33,10 @@ export class EvidenceStore {
   }
   async #prepare() {
     for (const path of [this.#root, this.#directory]) {
-      if (path !== this.#root) await mkdir(path, { mode: 0o700 }).catch(error => {
-        if (error.code !== 'EEXIST') throw error;
-      });
+      if (!this.#readOnly && path !== this.#root)
+        await mkdir(path, { mode: 0o700 }).catch(error => {
+          if (error.code !== 'EEXIST') throw error;
+        });
       const stat = await lstat(path);
       requireThat(stat.isDirectory() && !stat.isSymbolicLink() &&
         stat.uid === process.getuid() && (stat.mode & 0o077) === 0 &&
@@ -60,6 +62,7 @@ export class EvidenceStore {
     } finally { await handle.close(); }
   }
   async put(value) {
+    requireThat(!this.#readOnly, 'READ_ONLY_EVIDENCE');
     const snapshot = structuredClone(value), hash = digest(snapshot);
     const content = JSON.stringify(snapshot);
     requireThat(Buffer.byteLength(content) <= 8 * 1024 * 1024, 'EVIDENCE_SIZE_LIMIT');
@@ -89,6 +92,7 @@ export class EvidenceStore {
     catch (error) { if (error.code === 'ENOENT') return null; throw error; }
   }
   async #replacePointer(name, value) {
+    requireThat(!this.#readOnly, 'READ_ONLY_EVIDENCE');
     const temp = join(this.#directory, `${randomUUID()}.tmp`);
     const flags = constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL |
       constants.O_NOFOLLOW;
@@ -142,6 +146,7 @@ export class EvidenceStore {
       ...(previous ? { previousShape: previous.receiptHash } : {}) };
   }
   async append(value) {
+    requireThat(!this.#readOnly, 'READ_ONLY_EVIDENCE');
     const receipt = structuredClone(value);
     requireThat(receipt.schemaVersion === 1 && Object.hasOwn(stages, receipt.stage) &&
       digest(receipt.binding) === digest(this.#binding), 'RECEIPT_BINDING_MISMATCH');

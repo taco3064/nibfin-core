@@ -1,3 +1,4 @@
+import { readWakePublication } from './publication-wake.mjs';
 import { withManagedAdmission } from './managed-credential-admission.mjs';
 import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -183,6 +184,8 @@ async function launchAdmittedWake(issueNumber, env, eventBytes, runnerUid) {
         coreCommit: host.installation.pin.commit,
       },
       stateRoot,
+      readPublication: async pin => readWakePublication(host.stateRoot,
+        await readProtectedApproval(reader, pin)),
       peerRepositories,
       sharedRunner: shared ? adopted.runner : undefined,
       inspect: async () => {

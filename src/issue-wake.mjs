@@ -1,3 +1,4 @@
+import { publicationCovered } from './publication-wake.mjs';
 import { supportsIssueWakeEvent } from './managed-wake.mjs';
 import { pauseTrigger, reconcilePause } from './pause-controller.mjs';
 import { readFile } from 'node:fs/promises';
@@ -261,6 +262,7 @@ export async function dispatchIssueWake({
   fetcher = fetch,
   peerRepositories = [],
   sharedRunner,
+  readPublication,
 }) {
   let journalEntered = false;
   try {
@@ -308,6 +310,19 @@ export async function dispatchIssueWake({
             ...(error.pauseReason ? { pauseReason: error.pauseReason } : {}) };
         }
         throw error;
+      }
+      if (event.action === 'edited' && issue.id === upstream.id) {
+        try {
+          const covered = await publicationCovered({ reader, issue, event,
+            actorId: config.actorId, inspect,
+            readPublication: readPublication
+              ? () => readPublication(config.approvalPin) : undefined });
+          if (covered) return { status: 'skipped', code: 'PUBLICATION_ALREADY_COVERED' };
+        } catch {
+          // No journal or write was entered. Unknown observations cannot prove
+          // coverage or absence; the ordinary host retry can observe again.
+          return { status: 'pending', code: 'PUBLICATION_OBSERVATION_UNKNOWN' };
+        }
       }
       // Any journal entry may leave unresolved durable intent. After this point
       // an exception must retain the host fence, even without an observed POST.

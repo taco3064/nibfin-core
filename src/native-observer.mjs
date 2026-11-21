@@ -243,7 +243,10 @@ export function nativeObserver({
     );
     const source = await inspectSource();
     requireThat(digest(source) === digest(record.source), 'INSTALLED_SOURCE_CHANGED');
-    Object.assign(context, { runner, source });
+    Object.assign(context, { runner, source,
+      ...(pinned.continuation === true ? {
+        publicationExecution: structuredClone(pinned.runner),
+      } : {}) });
     context.isolation = await inspectIsolation(stage, {
       issue: record.issue,
       execution: actor,

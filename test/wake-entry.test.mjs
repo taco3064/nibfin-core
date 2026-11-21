@@ -1,3 +1,4 @@
+import { publicationFixture } from './publication-wake-fixture.mjs';
 import { pauseFixture, people } from './pause-fixture.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -13,7 +14,7 @@ import { resolveWakeDispatch } from '../src/wake-entry.mjs';
 import { approvalProviderFixture } from './github-approval-fixture.mjs';
 import { approvalRecord, now } from './approval-fixture.mjs';
 import { gitBlob } from '../src/identity.mjs';
-import { readFile, mkdtemp, rm, readdir } from 'node:fs/promises';
+import { readFile, mkdtemp, rm, readdir, mkdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { readWakeOrigins, requireWakeEffectsSettled }
@@ -442,4 +443,82 @@ test('a skipped event wake leaves an empty journal that does not block rollout',
     assert.deepEqual(await readdir(join(root, names[0])), []);
     assert.deepEqual(await readWakeOrigins(root), []);
     await requireWakeEffectsSettled(root);
+  });
+
+test('covered publication skips without dispatch intent; unknown reads stay Pending',
+  async t => {
+    t.mock.method(Date, 'now', () => now);
+    const root = await mkdtemp(join(tmpdir(), 'nibfin-publication-wake-'));
+    t.after(() => rm(root, { recursive: true, force: true }));
+    const f = fixture('issue'), p = publicationFixture();
+    f.adoption.eventWorkflow = f.adoption.issues[0].workflow;
+    f.invocation.eventName = 'issues';
+    f.run.event = 'issues';
+    f.run.referenced_workflows[0].path =
+      'taco3064/nibfin-core/.github/workflows/issue.yml@' + f.adoption.coreCommit;
+    Object.assign(f.issue, { body: p.live.body, updated_at: p.live.updated_at });
+    f.issue.labels.push({ name: 'shaped' });
+    const issue = f.record.issue;
+    p.publication.issue = issue;
+    p.runner.repository = issue.repository;
+    p.runner.repositoryId = issue.repositoryId;
+    p.run.repository = { id: issue.repositoryId, full_name: issue.repository };
+    p.run.head_repository.id = issue.repositoryId;
+    p.run.head_repository.full_name = issue.repository;
+    const get = f.reader.get;
+    f.reader.get = path => /\/actions\/(?:runs\/30|jobs\/40|workflows\/50)$/.test(path)
+      ? p.reader.get(path) : get(path);
+    const event = { ...p.event, repository: f.repo, issue: structuredClone(f.issue) };
+    const args = { reader: f.reader, adoption: f.adoption, event,
+      invocation: f.invocation, token: 'fixture-token', stateRoot: root,
+      inspect: async () => {}, readPublication: async () => p.publication,
+      fetcher: () => assert.fail('Covered publication must not dispatch') };
+    assert.deepEqual(await dispatchIssueWake(args),
+      { status: 'skipped', code: 'PUBLICATION_ALREADY_COVERED' });
+    const names = await readdir(root);
+    assert.equal(names.length, 1);
+    assert.deepEqual(await readdir(join(root, names[0])), []);
+    assert.deepEqual(await readWakeOrigins(root), []);
+    args.readPublication = async () => { throw new Error('Read unavailable'); };
+    assert.deepEqual(await dispatchIssueWake(args),
+      { status: 'pending', code: 'PUBLICATION_OBSERVATION_UNKNOWN' });
+    assert.deepEqual(await readdir(join(root, names[0])), []);
+    assert.deepEqual(await readWakeOrigins(root), []);
+    let writes = 0;
+    args.fetcher = async (url, options) => {
+      const parsed = new URL(url);
+      const path = parsed.pathname;
+      if (options.method === 'POST') {
+        writes++;
+        return Response.json({ workflow_run_id: 90,
+          run_url: 'https://api.github.com/repos/example/core/actions/runs/90',
+          html_url: 'https://github.com/example/core/actions/runs/90' });
+      }
+      let value;
+      if (path === '/repos/example/core') value = f.repo;
+      else if (path === '/repos/example/core/issues/2') value = f.issue;
+      else if (path.endsWith('/issues/2/dependencies/blocked_by')) value = [];
+      else if (path.endsWith('/actions/runs/90')) value = {
+        id: 90, event: 'workflow_dispatch', workflow_id: 5,
+        path: f.adoption.issues[0].workflow.path, repository: f.repo,
+        head_repository: f.repo,
+        head_sha: f.adoption.issues[0].workflow.commit, head_branch: 'main',
+        actor: { id: 3 }, run_attempt: 1,
+      };
+      else value = await f.reader.get(path +
+        (parsed.searchParams.has('page') ? '' : parsed.search));
+      return Response.json(value);
+    };
+    for (const reason of ['stopped', 'legacy', 'same-account-edit']) {
+      args.stateRoot = join(root, reason);
+      await mkdir(args.stateRoot, { mode: 0o700 });
+      args.readPublication = async () => reason === 'legacy' ? null : p.publication;
+      p.run.status = reason === 'stopped' ? 'completed' : 'in_progress';
+      event.changes = { body: { from: reason === 'same-account-edit'
+        ? 'real Owner edit' : p.event.changes.body.from } };
+      const result = await dispatchIssueWake(args);
+      assert.equal(result.status, 'scheduled', JSON.stringify(result));
+      assert.equal(result.runId, 90);
+    }
+    assert.equal(writes, 3);
   });

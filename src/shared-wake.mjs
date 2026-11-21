@@ -1,3 +1,4 @@
+import { projectIssueBodyChange } from './issue-body-change.mjs';
 import { readFile } from 'node:fs/promises';
 import { gitBlob, isId, requireThat } from './identity.mjs';
 import { GitHubReader, repoPath } from './github-read.mjs';
@@ -51,6 +52,7 @@ export async function forwardSharedWake(resolved, env, fetcher = fetch) {
     'INVALID_SHARED_WAKE_ORIGIN');
   const event = {
     action,
+    ...projectIssueBodyChange(original),
     issue: { number: issue.number, node_id: issue.node_id,
       state: issue.state, updated_at: issue.updated_at,
       assignees: issue.assignees?.map(({ id, login, type }) => ({ id, login, type })),

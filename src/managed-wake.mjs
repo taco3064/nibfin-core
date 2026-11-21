@@ -1,3 +1,4 @@
+import { projectIssueBodyChange } from './issue-body-change.mjs';
 import { isId, requireThat } from './identity.mjs';
 
 // A notification locator, never proof of current eligibility or delivery.
@@ -59,6 +60,7 @@ export function projectManagedWake(event, origin) {
     attempt: origin.attempt,
     event: {
       action: event.action,
+      ...projectIssueBodyChange(event),
       repository: { id: repository.id, full_name: fullName },
       issue: {
         id: issue.id, number: issue.number,

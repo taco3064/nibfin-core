@@ -191,7 +191,8 @@ export class GitHubWriter {
       await this.#addLifecycleLabel(
         'publish-shape', issue, current, 'shaped', 'SHAPE_READBACK_UNKNOWN',
       );
-    await this.#write('publish-shape', 'PATCH', issuePath(issue), { body },
+    const response = await this.#write('publish-shape', 'PATCH',
+      issuePath(issue), { body },
       names.includes('shaped') ? undefined : 'shaped');
     const actual = await this.#reader.issue(issue);
     issueMatches(actual, issue);
@@ -202,7 +203,13 @@ export class GitHubWriter {
           digest(desired.filter(name => name !== 'pause')),
       'SHAPE_READBACK_UNKNOWN',
     );
-    return { bodyHash: digest(body), reference: actual.url };
+    const publication = response?.node_id === issue.id && response.body === body &&
+      typeof response.updated_at === 'string' &&
+      response.updated_at === actual.updated_at
+      ? { before: expectedBodyHash, after: digest(body), updatedAt: response.updated_at }
+      : undefined;
+    return { bodyHash: digest(body), reference: actual.url,
+      ...(publication ? { publication } : {}) };
   }
   async createPullRequest({
     repository,
