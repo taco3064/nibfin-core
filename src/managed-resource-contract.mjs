@@ -13,6 +13,12 @@ export const managedResources = Object.freeze({
   recipes: Object.freeze({
     agent: 'managed-agent.Dockerfile', hooks: 'managed-hook.Dockerfile',
   }),
+  // Prepared only on explicit request and kept out of `recipes`, so the Codex
+  // Agent and Hook inputs, images and their digests stay unchanged.
+  claude: Object.freeze({
+    kind: 'claude-agent', recipe: 'managed-claude-agent.Dockerfile',
+    package: 'claude-package.mjs', shell: 'nibfin-bash',
+  }),
 });
 export const managedPreparationCapability = Object.freeze({
   kind: 'linux-managed-resources-v1',

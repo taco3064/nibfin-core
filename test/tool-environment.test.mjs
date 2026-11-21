@@ -33,7 +33,7 @@ const output = (value, exitCode = 0) => ({
 });
 
 function fixture({ info = daemon, observedHost = host, fail, backend,
-  endpoint = config } = {}) {
+  endpoint = config, provider } = {}) {
   const calls = [], contexts = [], images = new Map(), cache = new Map();
   images.set(baseImage, { Id: baseImage, Os: 'linux', Architecture: 'amd64',
     RootFS: { Layers: baseLayers } });
@@ -110,7 +110,7 @@ function fixture({ info = daemon, observedHost = host, fail, backend,
   };
   return { calls, contexts, images, cache, run,
     preparer: new ToolEnvironmentPreparer(endpoint,
-      { run, host: observedHost, backend, baseImage }) };
+      { run, host: observedHost, backend, baseImage, provider }) };
 }
 const builds = f => f.calls.filter(c => c.args[2] === 'build').length;
 async function cleaned(f) {
@@ -162,6 +162,26 @@ test('trusted recipes preserve exact requests, sources and separate bootstrap',
     assert.ok(probe.includes("check('/usr/local/bin/codex'"));
     assert.ok(probe.includes(projectToolPath));
     await cleaned(f);
+  });
+
+test('a Claude agent base image is probed for its Claude CLI, never Codex',
+  async () => {
+    const tools = { node: '22.15.0' };
+    const f = fixture({ provider: 'claude' });
+    const image = await f.preparer.prepare(tools);
+    const recipe = await preparationRecipe(tools, baseImage, 'x64',
+      { provider: 'claude' });
+    assert.equal(f.images.get(image).Config.Labels['io.nibfin.tool-environment'],
+      recipe.key);
+    assert.notEqual(recipe.key, (await preparationRecipe(tools, baseImage)).key);
+    const probe = f.calls.find(c => c.args[2] === 'run').args.at(-1);
+    assert.ok(probe.includes('"/opt/nibfin/claude/bin/claude"'));
+    assert.ok(probe.includes(JSON.stringify(recipe.versions.claude)));
+    assert.ok(!probe.includes("check('/usr/local/bin/codex'"));
+    await cleaned(f);
+    for (const provider of [null, 'other'])
+      assert.throws(() => new ToolEnvironmentPreparer(config, { provider }),
+        { code: 'INVALID_TOOL_PREPARATION_CONFIG' });
   });
 
 test('canonical requests reuse; different versions coexist; stale cache rebuilds',
