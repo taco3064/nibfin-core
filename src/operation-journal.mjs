@@ -287,10 +287,14 @@ export class OperationJournal {
           }, decision, result, request, readBack);
         }
         phase = 'read-back';
-        requireThat(await readBack() === request.bindingHash,
+        const readback = await readBack();
+        const progress = localDeliver && readback?.outcome === 'progress';
+        requireThat((progress ? readback.bindingHash : readback) === request.bindingHash,
           'READBACK_BINDING_MISMATCH');
         phase = 'complete';
-        await this.#complete(state, decision);
+        // Progress confirms one save, not completion of this Deliver binding.
+        // Reentry still observes the remote ref and passes normal admission.
+        if (!progress) await this.#complete(state, decision);
       } catch (error) {
         const waiting = localDeliver ? githubReadWait(error, undefined, { stage: true })
           : null;

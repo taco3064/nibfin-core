@@ -86,7 +86,8 @@ async function currentReceipts(store, previous, repairDelivery) {
   const current = {};
   for (const stage of Object.keys(stages)) {
     const entry = previous[stage];
-    if (stage === 'deliver' && candidate && !snapshot) break;
+    if (stage === 'deliver' && (entry?.outcome === 'progress' ||
+        candidate && !snapshot)) break;
     if (stage === 'deliver' && repairDelivery &&
       (entry?.outcome === 'changes_required' ||
         (entry?.outcome === 'blocked' &&
@@ -133,6 +134,17 @@ export async function continueStages({
   const previous = await store.load();
   const inspectCurrent = () => retryGitHubObservation(inspect,
     { wait, clock, timeout: ciTimeout });
+  const executeStage = async (stage, findings) => {
+    for (;;) {
+      const result = await execute(stage, findings);
+      if (stage !== 'deliver' || result.code !== 'DELIVER_PROGRESS_SAVED')
+        return result;
+      const receipt = await reportedReceipt(store, stage, result);
+      requireThat(receipt?.outcome === 'progress' && receipt.deliveryCheckpoint,
+        'DELIVER_PROGRESS_RECEIPT_MISSING');
+      await inspectCurrent();
+    }
+  };
   const changed = await retryGitHubObservation(() => refreshRequirements(previous),
     { wait, clock, timeout: ciTimeout });
   let initial = changed ? {} :
@@ -148,7 +160,7 @@ export async function continueStages({
   if (initial['validate-shape']?.outcome === 'changes_required') initial = {};
   const repairCandidate = async (rejected, ciFailure) => {
     await inspectCurrent();
-    const repaired = await execute('deliver', ciFailure);
+    const repaired = await executeStage('deliver', ciFailure);
     if (repaired.status !== 'completed') return resumableCorrection(store, repaired);
     const delivery = await store.get(repaired.receiptHash);
     const candidate = await store.get(delivery.artifacts.candidateHash);
@@ -213,7 +225,7 @@ export async function continueStages({
     let readRetries = 0;
     let ciPolls = 0;
     for (;;) {
-      result = await execute(stage);
+      result = await executeStage(stage);
       if (stage === 'validate-shape' && result.status === 'denied' &&
         result.code === 'STAGE_REQUIRES_CORRECTION') {
         const rejected = await reportedReceipt(store, stage, result);
@@ -260,7 +272,7 @@ export async function continueStages({
     if (['review-pr', 'merge'].includes(stage) && repairIntegration &&
       integrationRepairRequired(result.code)) {
       await inspectCurrent();
-      const repaired = await execute('deliver');
+      const repaired = await executeStage('deliver');
       if (repaired.status !== 'completed') return repaired;
       return continueStages({
         store, execute, refreshRequirements, resumeClosed, inspect, wait, clock,
@@ -272,7 +284,7 @@ export async function continueStages({
     }
     if (saveDeliverCheckpoint && result.code === 'DELIVER_CHECKPOINT_REQUIRED') {
       await inspectCurrent();
-      const delivered = await execute('deliver');
+      const delivered = await executeStage('deliver');
       if (delivered.status !== 'completed') return delivered;
       return continueStages({ store, execute, refreshRequirements, resumeClosed,
         inspect, wait, clock, ciTimeout, repairIntegration, correctionRepairs,

@@ -26,7 +26,8 @@ export const resultSchema = {
   ],
   properties: {
     outcome: {
-      type: 'string', enum: ['ready', 'approved', 'accepted', ...unsuccessful],
+      type: 'string',
+      enum: ['ready', 'approved', 'accepted', 'progress', ...unsuccessful],
     },
     body: { type: 'string' },
     summary: { type: 'string' },
@@ -79,7 +80,8 @@ export function parseAgentResult(stage, stdout, lastMessage, expectedThread) {
 export function validateAgentResult(stage, value) {
   requireThat(Object.hasOwn(success, stage), 'INVALID_AGENT_ROLE');
   const result = validateSchema(value, resultSchema);
-  const passed = result.outcome === success[stage];
+  const passed = result.outcome === success[stage] ||
+    stage === 'deliver' && result.outcome === 'progress';
   requireThat(passed || unsuccessful.includes(result.outcome), 'WRONG_ROLE_OUTCOME');
   // A successful repair may describe the defect it fixed. Findings describe
   // blockers that remain in this result and still prevent a successful outcome.

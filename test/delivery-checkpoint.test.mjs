@@ -16,16 +16,33 @@ const head = 'a'.repeat(40);
 const branch = 'nibfin/deliver-2';
 const missing = { status: 404, githubApiRead: true };
 
-function fixture() {
+test('checkpoint messages keep the final Candidate trailer', () => {
+  const issue = { id: 'I_target', number: 2 };
+  const candidate = { tree: head, base: 'b'.repeat(40) };
+  for (const mode of ['completed', 'progress']) {
+    const message = checkpointMessage(issue, { shape: 'Requirements',
+      lifecycle: 0, mode }, candidate);
+    assert.ok(message.includes(`\nStatus: ${mode}\n`));
+    assert.ok(message.trim().endsWith(`Candidate: ${digest(candidate)}`));
+  }
+});
+
+function fixture(outcome = 'ready') {
   const context = stageFixture('deliver');
   const candidate = context.candidate;
   delete context.candidate;
   const calls = [];
+  const writerInputs = [];
   let commit, staged, closed = false, loseResponse = false, status, publication;
+  let unavailableReadBack = false;
   const reader = {
     repository: async () => ({ id: candidate.repositoryId, default_branch: 'main' }),
     async get(path) {
       if (path.endsWith('/branches/nibfin%2Fdeliver-2')) {
+        if (unavailableReadBack && calls.at(-1) === 'push') {
+          unavailableReadBack = false;
+          throw { status: 503, githubApiRead: true };
+        }
         if (status) throw { ...missing, status };
         if (commit) return { name: branch, commit };
         throw missing;
@@ -53,12 +70,12 @@ function fixture() {
     discardWriterGit: async () => { calls.push('cleanup'); },
     restoreDeliveryCheckpoint: async saved => {
       calls.push('restore');
-      assert.equal(matchesDeliveryCheckpoint(saved, candidate), true);
+      assert.equal(matchesDeliveryCheckpoint(saved, candidate, saved.mode), true);
       return candidate;
     },
     async commit(value, _shape, _timestamp, partial, binding) {
       assert.deepEqual(value, candidate);
-      assert.equal(partial, false);
+      assert.equal(partial, binding.mode === 'progress');
       calls.push('commit');
       staged = { head: commit ? 'b'.repeat(40) : head, binding };
       return staged;
@@ -79,9 +96,10 @@ function fixture() {
       return { ok: true, json: async () => ({ id: context.execution.actorId,
         type: 'User' }) };
     } });
-  const agent = { run: async () => {
+  const agent = { run: async (_stage, input) => {
+    writerInputs.push(input);
     calls.push('writer');
-    const lastMessage = JSON.stringify({ outcome: 'ready', body: '',
+    const lastMessage = JSON.stringify({ outcome, body: '',
       summary: 'Controlled delivery', rootCause: '', failureClass: 'none',
       evidenceReferences: ['fixture:writer'], blockingFindings: [],
       contractConflicts: [] });
@@ -95,8 +113,9 @@ function fixture() {
     store: { put: async value => digest(value) }, observeMain: async () => context.main,
     clock: () => now,
   }).deliver;
-  return { context, candidate, calls, reader, native, install,
+  return { context, candidate, calls, writerInputs, reader, native, install,
     loseResponse: () => { loseResponse = true; },
+    loseReadBack: () => { unavailableReadBack = true; },
     knownPublication: value => { publication = value; },
     replaceMessage: message => { commit.message = message; },
     closePr: () => { closed = true; }, failRead: code => { status = code; },
@@ -223,4 +242,74 @@ test('only live VM processes for the target Issue block handback', async () => {
   await idleIssueJobVms(issue, async () => [unrelated, { ...guest, state: 'Z' }]);
   await assert.rejects(idleIssueJobVms(issue, async () => [guest]),
     { code: 'PREVIOUS_HOST_PROCESS_UNRESOLVED' });
+});
+
+
+test('progress saves after termination and cannot be reused as completed', async () => {
+  const f = fixture('progress');
+  f.loseResponse();
+  assert.equal((await f.start()).outcome, 'progress');
+  const saved = await f.native.observeDeliver(f.context);
+  assert.equal(saved.mode, 'progress');
+  assert.equal(matchesDeliveryCheckpoint(saved, f.candidate), false);
+  assert.equal(matchesDeliveryCheckpoint(saved, f.candidate, 'progress'), true);
+  assert.deepEqual(f.calls, ['writer', 'cleanup', 'commit', 'push']);
+});
+
+test('progress on a fresh Runner resumes Writer and completes even the same tree',
+  async () => {
+    const f = fixture();
+    f.install({ shape: f.context.shape.body, lifecycle: 0, mode: 'progress' });
+    f.loseResponse();
+    assert.equal((await f.start()).outcome, 'ready');
+    assert.deepEqual(f.calls, ['restore', 'writer', 'cleanup', 'commit', 'push']);
+    assert.equal((await f.native.observeDeliver(f.context)).mode, 'completed');
+    assert.equal(f.writerInputs[0].deliveryProgress.saved, true);
+  });
+
+test('legacy unmarked completed checkpoints keep their handoff reuse', async () => {
+  const f = fixture();
+  f.install();
+  const message = checkpointMessage(f.context.approval.record.issue,
+    { shape: f.context.shape.body, lifecycle: 0 }, f.candidate);
+  f.replaceMessage(message.replace('Status: completed\n', ''));
+  assert.equal((await f.start()).outcome, 'ready');
+  assert.deepEqual(f.calls, ['restore']);
+});
+
+test('progress is ineligible after requirements or lifecycle changes', async () => {
+  for (const binding of [
+    { shape: 'Different requirements', lifecycle: 0, mode: 'progress' },
+    { shape: fixture().context.shape.body, lifecycle: 1, mode: 'progress' },
+  ]) {
+    const f = fixture();
+    f.install(binding);
+    assert.equal((await f.start()).outcome, 'ready');
+    assert.deepEqual(f.calls, ['writer', 'cleanup', 'commit', 'push']);
+  }
+});
+
+
+test('progress never publishes empty or protected changes', async () => {
+  const empty = fixture('progress');
+  empty.candidate.paths = [];
+  await assert.rejects(empty.start(), { code: 'EMPTY_DELIVER_PROGRESS' });
+  assert.deepEqual(empty.calls, ['writer', 'cleanup']);
+  const protectedWork = fixture('progress');
+  protectedWork.candidate.paths.push('.github/workflows/ci.yml');
+  assert.equal((await protectedWork.start()).outcome, 'changes_required');
+  assert.deepEqual(protectedWork.calls, ['writer', 'cleanup']);
+});
+
+
+test('progress reconciles a confirmed remote effect after failed readback', async () => {
+  const f = fixture('progress');
+  f.loseResponse();
+  f.loseReadBack();
+  await assert.rejects(f.start(), { status: 503, githubApiRead: true });
+  const checkpoint = await f.native.observeDeliver(f.context);
+  const confirmed = await f.native.saveDeliver(f.context,
+    decideStage('deliver', f.context, now), f.candidate, checkpoint, 'progress');
+  assert.equal(confirmed.mode, 'progress');
+  assert.deepEqual(f.calls, ['writer', 'cleanup', 'commit', 'push']);
 });

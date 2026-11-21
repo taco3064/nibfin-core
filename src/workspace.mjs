@@ -231,7 +231,7 @@ export class CandidateWorkspace {
   async restoreDeliveryCheckpoint(pin, shapeBody, token) {
     if (!pin.tree || await this.pendingRebase(shapeBody)) return null;
     let candidate = await this.capture(shapeBody, false, true);
-    if (!matchesDeliveryCheckpoint(pin, candidate)) {
+    if (!matchesDeliveryCheckpoint(pin, candidate, pin.mode)) {
       // Hydrate an empty checkout while keeping later local edits intact.
       if (candidate.paths.length) return null;
       await this.#restoreObservedCommit(pin, token);
@@ -240,7 +240,8 @@ export class CandidateWorkspace {
     const { artifacts, hookSources, obligations } = candidate;
     const complete = artifacts.length === obligations.artifacts.length &&
       hookSources.length === obligations.hooks.length;
-    return complete && matchesDeliveryCheckpoint(pin, candidate) ? candidate : null;
+    return (pin.mode === 'progress' || complete) &&
+      matchesDeliveryCheckpoint(pin, candidate, pin.mode) ? candidate : null;
   }
   async clearIgnoredDependencies(shapeBody) {
     await this.#privateRoot();
@@ -564,7 +565,7 @@ export class CandidateWorkspace {
     // Deliver resolves ordinary conflicts in its isolated work mount. Core
     // stages raw file bytes, with no candidate filters or executable Git hooks.
     await writeFile(join(this.#root, 'base'), latestMain, { mode: 0o600 });
-    await this.capture(shapeBody, true);
+    await this.capture(shapeBody, true, state.partial);
     await this.#command(
       ['-c', 'core.bare=false', 'rebase', '--continue'],
       undefined,

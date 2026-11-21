@@ -31,7 +31,7 @@ export async function alignDelivery(
 // No Writer may start here. Conflicts or changed content return to normal stage
 // admission, including authorization, isolation and the single-Writer fence.
 export async function handoffDelivery({
-  workspace, context, candidate, observeMain, clock,
+  workspace, context, candidate, observeMain, clock, partial = false,
 }) {
   let main;
   try {
@@ -46,7 +46,9 @@ export async function handoffDelivery({
         `(${observationFailureCode(error)}).`,
     ] };
   }
-  const aligned = await alignDelivery(workspace, { ...context, main }, candidate, clock);
+  const aligned = await alignDelivery(
+    workspace, { ...context, main }, candidate, clock, partial,
+  );
   if (aligned.status === 'changes_required' || aligned.contentChanged)
     return { outcome: 'changes_required',
       ...(aligned.candidate ? { candidate: aligned.candidate } : {}), findings: [
