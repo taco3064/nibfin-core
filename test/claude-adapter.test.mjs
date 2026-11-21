@@ -58,10 +58,14 @@ test('private plans are deterministic and role tools are exact', () => {
         command: '/opt/nibfin/claude/bin/work-tools', args: [], env: {} } },
     });
     assert.equal(p.environment.CLAUDE_CODE_SUBPROCESS_ENV_SCRUB, '1');
-    for (const flag of ['--bare', '--print', '--disable-slash-commands',
+    for (const flag of ['--print', '--disable-slash-commands',
       '--strict-mcp-config', '--no-session-persistence']) {
       assert.ok(p.args.includes(flag));
     }
+    // --bare would ignore the subscription token; isolation stays explicit.
+    assert.ok(!p.args.includes('--bare'));
+    assert.deepEqual(JSON.parse(p.args[p.args.indexOf('--settings') + 1]),
+      { disableAllHooks: true, enabledPlugins: {} });
     assert.equal(p.args[p.args.indexOf('--tools') + 1], '');
     assert.equal(p.args[p.args.indexOf('--setting-sources') + 1], '');
     assert.ok(!p.args.some(arg => /bypass|skip-permissions|resume|add-dir/.test(arg)));

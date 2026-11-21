@@ -6,4 +6,8 @@ COPY src/claude-work-bridge.mjs src/claude-work-limits.json \
      src/claude-work-transport.mjs /opt/nibfin/claude/src/
 COPY --chmod=0755 bin/claude-work-tools.mjs /opt/nibfin/claude/bin/work-tools
 RUN mkdir -p /session/work-channel
+# Without --bare the CLI reads managed policy and user dirs; none may exist.
+RUN test ! -e /etc/claude-code && test ! -e /session/.claude && \
+    test ! -e /root/.claude && test -z "$(ls -A /session | grep -vx work-channel)"
 LABEL io.nibfin.claude-version="2.1.326"
+LABEL io.nibfin.claude-managed-settings="absent"

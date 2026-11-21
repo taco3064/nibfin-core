@@ -59,9 +59,17 @@ test('recipe copy closure loads bridge without Core delivery dependencies', asyn
       `await import(${JSON.stringify(url.href)})`], { encoding: 'utf8' });
     assert.equal(imported.status, 0, imported.stderr);
     const bridge = join(root, 'opt/nibfin/claude/bin/work-tools');
-    const rejected = spawnSync(process.execPath, [bridge], { encoding: 'utf8',
-      env: { ANTHROPIC_API_KEY: 'synthetic-inherited-key' } });
-    assert.equal(rejected.status, 1);
-    assert.equal(rejected.stderr, 'WORK_CHANNEL_UNAVAILABLE\n');
+    for (const name of ['ANTHROPIC_API_KEY', 'CLAUDE_CODE_OAUTH_TOKEN']) {
+      const rejected = spawnSync(process.execPath, [bridge], { encoding: 'utf8',
+        env: { [name]: 'synthetic-inherited-key' } });
+      assert.equal(rejected.status, 1);
+      assert.equal(rejected.stderr, 'WORK_CHANNEL_UNAVAILABLE\n');
+    }
+    const { runWorkBridge } = await import(url.href);
+    process.env.CLAUDE_CODE_OAUTH_TOKEN = 'synthetic-inherited-token';
+    try {
+      await assert.rejects(runWorkBridge(process.stdin, process.stdout),
+        { message: 'WORK_CREDENTIAL_DENIED' });
+    } finally { delete process.env.CLAUDE_CODE_OAUTH_TOKEN; }
   } finally { await rm(root, { recursive: true, force: true }); }
 });

@@ -7,7 +7,8 @@ import { claudeWorkSocket } from './claude-work-transport.mjs';
 export async function runWorkBridge(input, output, endpoint = claudeWorkSocket,
   dial = connect) {
   if (endpoint !== claudeWorkSocket) throw new Error('WORK_ENDPOINT_DENIED');
-  if (process.env.ANTHROPIC_API_KEY) throw new Error('WORK_CREDENTIAL_DENIED');
+  if (process.env.ANTHROPIC_API_KEY || process.env.CLAUDE_CODE_OAUTH_TOKEN)
+    throw new Error('WORK_CREDENTIAL_DENIED');
   input.pause();
   const socket = dial(claudeWorkSocket);
   const pending = new Set();

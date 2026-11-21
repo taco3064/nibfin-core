@@ -10,7 +10,8 @@ import { ClaudeWorkWorker } from './claude-work-launcher.mjs';
 import { claudeWorkChannel, claudeWorkServer } from './claude-work-channel.mjs';
 import { verifyWorkEgress } from './claude-work-egress.mjs';
 import { inspectModelContainer, modelContainerArgs } from './claude-model-container.mjs';
-import { readClaudeApiKey, validClaudeApiKey } from './claude-model-credentials.mjs';
+import { claudeCredentialKinds, readClaudeCredential, validClaudeCredential }
+  from './claude-model-credentials.mjs';
 import { containsCredentials } from './credential-output.mjs';
 
 const immutable = /^sha256:[a-f0-9]{64}$/;
@@ -19,14 +20,15 @@ export const claudeModelComponent = Object.freeze({
     executable: '/opt/nibfin/claude/bin/claude' }),
   runner: 'claude-private-runner-v1',
   toolChannel: claudeWorkChannel,
-  credentialKind: 'anthropic-api-key',
+  credentialKinds: Object.freeze(Object.keys(claudeCredentialKinds)),
+  managedSettings: 'absent',
   modelRecipe: 'src/security/claude-model.Dockerfile',
   workerRecipe: 'src/security/claude-work.Dockerfile',
 });
 
 export function createClaudePrivateRunner(config, {
   host = { platform: process.platform, uid: process.getuid?.(), lstat, realpath },
-  run = command, readKey = readClaudeApiKey, signal, backend,
+  run = command, readKey = readClaudeCredential, signal, backend,
 } = {}) {
   config = structuredClone(config);
   const policy = dockerBackend(backend);
@@ -117,7 +119,9 @@ export function createClaudePrivateRunner(config, {
         const daemon = dockerInfo(info, policy);
         const image = await inspect(['image', 'inspect', config.image]);
         requireThat(image.Id === config.image &&
-          image.Config?.Labels?.['io.nibfin.claude-version'] === plan.cli.version,
+          image.Config?.Labels?.['io.nibfin.claude-version'] === plan.cli.version &&
+          image.Config.Labels['io.nibfin.claude-managed-settings'] ===
+            claudeModelComponent.managedSettings,
         'CLAUDE_MODEL_IMAGE_UNVERIFIED');
         const inherited = (image.Config.Env ?? []).map(value => value.split('=')[0]);
         requireThat(inherited.every(name => /^[A-Za-z_][A-Za-z0-9_]*$/.test(name)),
@@ -137,7 +141,7 @@ export function createClaudePrivateRunner(config, {
         const result = await (async () => {
           check();
           record.key = await readKey();
-          requireThat(validClaudeApiKey(record.key), 'CLAUDE_API_KEY_UNAVAILABLE');
+          requireThat(validClaudeCredential(record.key), 'CLAUDE_CREDENTIAL_UNAVAILABLE');
           check();
           record.possiblyCreated = true;
           const model = { image: config.image, name: record.name, plan, egress,

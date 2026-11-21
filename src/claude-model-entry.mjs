@@ -12,13 +12,20 @@ try {
   const input = JSON.parse(Buffer.concat(chunks).toString());
   if (typeof input.prompt !== 'string' ||
     Buffer.byteLength(input.prompt) > 1024 * 1024 ||
-    typeof input.key !== 'string' || !/^sk-ant-[a-zA-Z0-9_-]{20,500}$/.test(input.key))
+    typeof input.key !== 'string')
     throw new Error(invalid);
+  // A self-contained copy of Core's two credential kinds: this file has no imports.
+  const variable = /^sk-ant-oat[0-9]{2}-[A-Za-z0-9_-]{20,500}$/.test(input.key)
+    ? 'CLAUDE_CODE_OAUTH_TOKEN'
+    : /^sk-ant-api[0-9]{2}-[A-Za-z0-9_-]{20,500}$/.test(input.key)
+      ? 'ANTHROPIC_API_KEY' : undefined;
+  if (!variable) throw new Error(invalid);
   const env = Object.fromEntries([
     'PATH', 'HOME', 'CLAUDE_CONFIG_DIR', 'CLAUDE_CODE_SUBPROCESS_ENV_SCRUB',
-    'CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC', 'HTTPS_PROXY', 'HTTP_PROXY',
+    'CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC', 'CLAUDE_CODE_DISABLE_AUTO_MEMORY',
+    'DISABLE_AUTOUPDATER', 'HTTPS_PROXY', 'HTTP_PROXY',
   ].map(key => [key, process.env[key]]));
-  env.ANTHROPIC_API_KEY = input.key;
+  env[variable] = input.key;
   const child = spawn('/opt/nibfin/claude/bin/claude', process.argv.slice(2),
     { cwd: '/session', env, stdio: ['pipe', 'inherit', 'inherit'] });
   child.stdin.on('error', () => {});
