@@ -12,7 +12,7 @@ export async function modelFixture() {
   const f = await fixture();
   const abort = new AbortController();
   const modelId = 'd'.repeat(64);
-  const key = 'sk-ant-' + 'synthetic'.repeat(8);
+  const key = 'sk-ant-oat01-' + 'synthetic'.repeat(8);
   const modelEgress = { ...f.egress, gatewayId: 'e'.repeat(64),
     network: f.egress.network.replace('work', 'model') };
   await writeFile(join(f.egress.directory, 'claude-model-proxy.mjs'),
@@ -61,7 +61,7 @@ export async function modelFixture() {
     }
     if (cmd[0] === 'inspect' && cmd[1] === modelId) return reply([model]);
     if (cmd[0] === 'start' && cmd[1] === '-ai') {
-      assert.equal(JSON.parse(options.input).key, key);
+      assert.equal(JSON.parse(options.input).key, controls.key ?? key);
       await controls.executing?.();
       if (controls.modelFailure) throw new Error(key);
       if (controls.hold) return new Promise(resolve => { finish = resolve; });
@@ -79,7 +79,8 @@ export async function modelFixture() {
     if (cmd[0] === 'image') {
       const value = JSON.parse((await f.run(exe, args, options)).stdout);
       value[0].Config.Labels = {
-        'io.nibfin.claude-version': claudeModelComponent.cli.version };
+        'io.nibfin.claude-version': claudeModelComponent.cli.version,
+        'io.nibfin.claude-managed-settings': controls.managedSettings ?? 'absent' };
       return reply(value);
     }
     if (cmd[0] === 'network' && cmd.at(-1) === modelEgress.network ||
@@ -104,7 +105,8 @@ export async function modelFixture() {
   };
   const runner = createClaudePrivateRunner({ ...f.config, modelEgress,
     worker: { container: f.config, mounts: f.admission, egress: f.egress } },
-  { run, host, backend: f.backend, signal: abort.signal, readKey: async () => key });
+  { run, host, backend: f.backend, signal: abort.signal,
+    readKey: async () => controls.key ?? key });
   const execute = () => runner.execute({ plan, executionId: f.admission.executionId,
     session: f.admission.session });
   return { ...f, modelControls: controls,

@@ -12,10 +12,19 @@ must verify the configured installation before launching it without a shell.
 Issue and repository text remain stdin data; they cannot select flags or tools.
 
 The private plan requires a fresh clean `/session` and config directory, no
-repository mounts in the model container, bare JSON print output, disabled
+repository mounts in the model container, JSON print output, disabled
 built-in tools, disabled native Skills and hooks, no persistent sessions and
 only the fixed `work` MCP endpoint. Workspace paths in the Core prompt describe
 resources accessible through work tools, not model-container mounts.
+
+The plan does not use `--bare`: in the pinned CLI it reads only API keys, never
+the subscription token. Its isolation stays explicit instead: empty setting
+sources, strict MCP configuration, disabled hooks, plugins and slash commands,
+and a fresh `/session` with its own config directory. The container also
+disables auto-memory, the auto-updater and nonessential traffic. The model
+image must contain no managed policy directory (`/etc/claude-code`) or user
+configuration; its recipe checks this and records the
+`io.nibfin.claude-managed-settings="absent"` label, which the runner requires.
 
 The component channel identifier is `claude-scoped-work-v1`. Its exact tools
 are `mcp__work__read`, `mcp__work__check`, and, for Deliver only,
@@ -81,11 +90,22 @@ separate model-only bridge and gateway running `claude-model-proxy.mjs` with
 the shared HTTPS transport. The gateway permits `api.anthropic.com` and
 requires the same isolated-network readback as the work gateway.
 
-The administrator intake entry accepts an API key over a private pipe on an
-adopted host. The model launcher sends it over container stdin, sets it for
-the official Claude process and checks that model output contains no key.
-The packaged stdio bridge rejects a child environment containing that key.
-Provider selection and real-account verification remain separate.
+A pool stores exactly one Claude credential of one of two kinds:
+
+- `claude-subscription-token`: the long-lived subscription token printed by
+  the official `claude setup-token` (`sk-ant-oat…`). The official process
+  receives it as `CLAUDE_CODE_OAUTH_TOKEN`.
+- `anthropic-api-key`: an Anthropic API key with API billing (`sk-ant-api…`),
+  received as `ANTHROPIC_API_KEY`.
+
+The administrator intake entry accepts either value over a private pipe on an
+adopted host, detects its kind and refuses to replace or add to an existing
+credential. The model launcher reads the single stored value, sends it over
+container stdin and checks that model output contains no credential. The model
+entry selects the variable from the value's kind. The packaged stdio bridge
+rejects a child environment containing either variable; the pinned CLI's
+subprocess scrub removes both. Provider selection and real-account
+verification remain separate.
 
 ### Work bridge and Linux worker package
 

@@ -14,7 +14,9 @@ export function modelEnvironment(plan, egress) {
   return Object.entries({
     PATH, HOME, CLAUDE_CONFIG_DIR, CLAUDE_CODE_SUBPROCESS_ENV_SCRUB,
     HTTPS_PROXY: egress.proxyUrl, HTTP_PROXY: egress.proxyUrl,
+    // Without --bare these keep memory, updates and nonessential traffic off.
     CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1',
+    CLAUDE_CODE_DISABLE_AUTO_MEMORY: '1', DISABLE_AUTOUPDATER: '1',
   }).map(([key, value]) => `${key}=${value}`);
 }
 

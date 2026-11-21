@@ -36,8 +36,11 @@ export function claudePlan(stage, options, component) {
   const tools = claudeTools(stage);
   const mcp = { mcpServers: { work: claudeWorkServer() } };
   const settings = { disableAllHooks: true, enabledPlugins: {} };
+  // No --bare: it reads only API keys, never the subscription OAuth token. The
+  // explicit sources, MCP, hooks, plugins and commands below keep its isolation;
+  // the runner adds the container environment and a fresh, empty /session.
   const args = [
-    '--bare', '--print', '--input-format', 'text', '--output-format', 'json',
+    '--print', '--input-format', 'text', '--output-format', 'json',
     '--model', modelProfile.model, '--json-schema', JSON.stringify(resultSchema),
     '--tools', '', '--allowedTools', tools.join(','),
     '--strict-mcp-config', '--mcp-config', JSON.stringify(mcp),
