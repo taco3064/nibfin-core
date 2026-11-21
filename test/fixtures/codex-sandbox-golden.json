@@ -1,0 +1,96 @@
+{
+  "status": [
+    "completed",
+    "completed"
+  ],
+  "create": [
+    "create",
+    "--init",
+    "--pull=never",
+    "--name",
+    "nibfin-agent-<id>",
+    "--read-only",
+    "--network",
+    "nibfin-private",
+    "--ipc",
+    "none",
+    "--dns",
+    "127.0.0.1",
+    "--cap-drop=ALL",
+    "--security-opt=no-new-privileges",
+    "--security-opt",
+    "seccomp=<core>/src/security/seccomp.json",
+    "--security-opt=apparmor=codex-security-container",
+    "--pids-limit=256",
+    "--memory=4g",
+    "--cpus=2",
+    "--user",
+    "1000:1000",
+    "--tmpfs",
+    "/tmp:rw,exec,nosuid,nodev,size=2g,mode=0700,uid=1000,gid=1000",
+    "--workdir",
+    "/session",
+    "--mount",
+    "type=bind,src=<root>/main,dst=/main,readonly,bind-propagation=rprivate,bind-recursive=disabled",
+    "--mount",
+    "type=bind,src=<root>/work,dst=/work,readonly,bind-propagation=rprivate,bind-recursive=disabled",
+    "--mount",
+    "type=bind,src=<root>/input,dst=/input,readonly,bind-propagation=rprivate,bind-recursive=disabled",
+    "--mount",
+    "type=bind,src=<root>/output,dst=/io,bind-propagation=rprivate,bind-recursive=disabled",
+    "--mount",
+    "type=bind,src=<root>/session,dst=/agent-home,bind-propagation=rprivate,bind-recursive=disabled",
+    "--mount",
+    "type=bind,src=<root>/agent-auth-<id>/auth.json,dst=/auth/auth.json,readonly,bind-propagation=rprivate,bind-recursive=disabled",
+    "--mount",
+    "type=bind,src=<root>/input/requirements.toml,dst=/etc/codex/requirements.toml,readonly,bind-propagation=rprivate,bind-recursive=disabled",
+    "--env",
+    "HOME=/session",
+    "--env",
+    "HTTP_PROXY=http://172.20.0.2:3128",
+    "--env",
+    "HTTPS_PROXY=http://172.20.0.2:3128",
+    "--env",
+    "ALL_PROXY=http://172.20.0.2:3128",
+    "--env",
+    "NO_PROXY=",
+    "--entrypoint",
+    "/usr/local/bin/node",
+    "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "/input/bootstrap.mjs"
+  ],
+  "calls": "50675c2bac5ddd5f9d90384a8a88d40f2edc4a66ce54e1d7dd93c27aa4db5628",
+  "start": [
+    {
+      "env": {
+        "PATH": "/usr/bin:/bin",
+        "HOME": "/nonexistent",
+        "DOCKER_CONFIG": "/nonexistent",
+        "LANG": "C.UTF-8"
+      },
+      "timeout": 10500000,
+      "allowedExitCodes": [
+        0,
+        75,
+        76,
+        77,
+        78,
+        79,
+        80,
+        81
+      ]
+    }
+  ],
+  "invocation": "{\"plan\":{\"config\":{},\"requirements\":\"fixed\",\"environment\":{\"HOME\":\"/session\"},\"writable\":false,\"policyHash\":\"38ccbe330ae9f15d3cc53992b50bf8a0838280f9deeb56269974781f6b630ca0\"},\"codexVersion\":\"codex-cli 0.138.0\",\"proxyHost\":\"172.20.0.2\",\"jobVm\":false}",
+  "inputs": [
+    "bootstrap.mjs",
+    "invocation.json",
+    "requirements.toml"
+  ],
+  "modes": {
+    "bootstrap.mjs": "644",
+    "invocation.json": "644",
+    "requirements.toml": "644"
+  },
+  "combinedCalls": "5199ebbd7a20ad4f60cb40947884888ad0db6781aefac00a7174cce6a75bc8e1"
+}

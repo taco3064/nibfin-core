@@ -11,16 +11,20 @@ import {
   readFile,
   readdir,
   chmod,
+  stat,
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { resolve, join } from 'node:path';
+import { resolve, join, dirname } from 'node:path';
 import { CodexSandbox } from '../src/codex-sandbox.mjs';
-import { digest } from '../src/identity.mjs';
+import { digest, sha256 } from '../src/identity.mjs';
 import { dockerBackend, rootfulSocket } from '../src/docker-backend.mjs';
 import { inheritUserMcp } from '../src/mcp-profile.mjs';
+import { claudePolicyHash } from '../src/claude-agent-plan.mjs';
+
+const claudeToken = 'sk-ant-oat01-' + 'f'.repeat(40);
 
 async function fixture(t, fault, rootful = false, mcp = false, project = false,
-  pressureObserver) {
+  pressureObserver, provider = 'codex') {
   const seccomp = JSON.parse(await readFile('src/security/seccomp.json', 'utf8'));
   const root = await mkdtemp(join(tmpdir(), 'nibfin-agent-isolation-'));
   t.after(() => rm(root, { recursive: true, force: true }));
@@ -65,6 +69,18 @@ async function fixture(t, fault, rootful = false, mcp = false, project = false,
     } });
     request.plan.mcpPolicyHash = request.mcp.policyHash;
   }
+  if (provider === 'claude') {
+    config.provider = 'claude';
+    config.codexVersion = '2.1.326 (Claude Code)';
+    const { additionalDomains } = request.plan;
+    request.plan = { provider: 'claude', args: ['-p'], prompt: 'Role prompt',
+      environment: { HOME: '/agent-home' }, writable: false,
+      toolEnvironment: { PATH: '/bin', LANG: 'C.UTF-8' },
+      ...(additionalDomains ? { additionalDomains } : {}) };
+    request.plan.policyHash = claudePolicyHash(request.plan);
+    delete request.auth;
+    request.credential = claudeToken;
+  }
   const host = {
     platform: 'linux',
     uid: 1000,
@@ -81,7 +97,7 @@ async function fixture(t, fault, rootful = false, mcp = false, project = false,
       nlink: 1,
     }),
   };
-  const calls = [];
+  const calls = [], startOptions = [];
   let container,
     exists = false,
     ended = false;
@@ -176,11 +192,14 @@ async function fixture(t, fault, rootful = false, mcp = false, project = false,
         }
       }
       exists = true;
+      const profile = cmd.find(v => v.startsWith('--security-opt=apparmor='))
+        .slice('--security-opt=apparmor='.length);
+      const stdin = cmd.includes('--interactive');
       container = {
         Id: 'b'.repeat(64),
         Name: `/${cmd[cmd.indexOf('--name') + 1]}`,
         Image: config.image,
-        AppArmorProfile: 'codex-security-container',
+        AppArmorProfile: profile,
         State: { Status: 'created' },
         Config: {
           Image: config.image,
@@ -188,6 +207,8 @@ async function fixture(t, fault, rootful = false, mcp = false, project = false,
           WorkingDir: '/session',
           Entrypoint: ['/usr/local/bin/node'],
           Cmd: ['/input/bootstrap.mjs'],
+          OpenStdin: stdin,
+          StdinOnce: stdin && fault !== 'stdin-once',
           Env: ['PATH=/usr/bin', ...cmd.filter((_v, i) => cmd[i - 1] === '--env')],
         },
         HostConfig: {
@@ -204,7 +225,7 @@ async function fixture(t, fault, rootful = false, mcp = false, project = false,
           SecurityOpt: [
             'no-new-privileges',
             `seccomp=${JSON.stringify(seccomp)}`,
-            'apparmor=codex-security-container',
+            `apparmor=${profile}`,
           ],
         },
         Mounts: cmd
@@ -240,6 +261,7 @@ async function fixture(t, fault, rootful = false, mcp = false, project = false,
         },
       ];
     } else if (cmd[0] === 'start') {
+      startOptions.push(options);
       if (fault === 'ownership-timeout') {
         container.State = { Running: true };
         await new Promise(resolve => setTimeout(resolve, 150));
@@ -270,12 +292,14 @@ async function fixture(t, fault, rootful = false, mcp = false, project = false,
       if (fault === 'cleanup') throw new Error('Daemon unavailable');
       value = exists ? container.Id : '';
     } else if (cmd[0] === 'run' && cmd.includes('--name')) {
+      const profile = cmd.find(v => v.startsWith('--security-opt=apparmor='))
+        .slice('--security-opt=apparmor='.length);
       value =
         fault === 'ignored-apparmor'
           ? 'rootlesskit (unconfined)'
           : fault === 'complain-apparmor'
-            ? 'codex-security-container (complain)'
-            : 'codex-security-container (enforce)';
+            ? `${profile} (complain)`
+            : `${profile} (enforce)`;
       if (rootful)
         value = JSON.stringify({
           label: value,
@@ -291,7 +315,8 @@ async function fixture(t, fault, rootful = false, mcp = false, project = false,
     } else throw new Error(`Unexpected command ${cmd[0]}`);
     return {
       stdout: Buffer.from(typeof value === 'string' ? value : JSON.stringify(value)),
-      stderr: Buffer.alloc(0),
+      stderr: Buffer.from(cmd[0] === 'start' && fault === 'idle' ?
+        'NIBFIN_IDLE_PROGRESS tool running\n' : ''),
     };
   };
   if (fault === 'source-changed') {
@@ -309,8 +334,44 @@ async function fixture(t, fault, rootful = false, mcp = false, project = false,
   return { sandbox: new CodexSandbox(config, { host, run, backend,
     ...(pressureObserver ? { pressureObserver } : {}),
     ...(fault === 'selected-image' ? { gatewayImage } : {}) }),
-    request, calls, config };
+    request, calls, config, startOptions };
 }
+
+// Normalizes only per-run random names and fixture directories.
+function goldenText(f, value) {
+  return JSON.stringify(value)
+    .replaceAll(dirname(f.request.work), '<root>')
+    .replaceAll(f.config.coreRoot, '<core>')
+    .replace(/nibfin-(agent|apparmor)-[a-f0-9-]{36}/g, 'nibfin-$1-<id>')
+    .replace(/agent-auth-[A-Za-z0-9]+/g, 'agent-auth-<id>');
+}
+
+async function codexGolden(t) {
+  const f = await fixture(t);
+  const result = await f.sandbox.execute(f.request);
+  const m = await fixture(t, undefined, true, true, true);
+  const combined = await m.sandbox.execute(m.request);
+  return {
+    status: [result.status, combined.status],
+    create: JSON.parse(goldenText(f, f.calls.find(c => c[0] === 'create'))),
+    calls: sha256(goldenText(f, f.calls)),
+    start: JSON.parse(goldenText(f, f.startOptions)),
+    invocation: await readFile(join(f.request.input, 'invocation.json'), 'utf8'),
+    inputs: (await readdir(f.request.input)).sort(),
+    modes: Object.fromEntries(await Promise.all((await readdir(f.request.input))
+      .sort().map(async name => [name,
+        ((await stat(join(f.request.input, name))).mode & 0o777).toString(8)]))),
+    combinedCalls: sha256(goldenText(m, m.calls)),
+  };
+}
+
+// Captured from origin/main before the Claude provider branch was added.
+test('Codex container argv, mounts, env and invocation stay byte-identical',
+  async t => {
+    const golden = JSON.parse(await readFile(
+      new URL('./fixtures/codex-sandbox-golden.json', import.meta.url), 'utf8'));
+    assert.deepEqual(await codexGolden(t), golden);
+  });
 
 test('rootful gateway cannot override the adopted user namespace', async (t) => {
   const positive = await fixture(t, undefined, true);
@@ -572,5 +633,112 @@ test('only complete interrupted Docker cleanup reports trusted local handback',
     const expected = ['timeout', 'idle'].includes(fault) ? 1 : 0;
     assert.equal(handback, expected);
     assert.equal(consumers, expected);
+  }
+});
+
+const claudeFixture = (t, fault, options = {}) => fixture(t, fault, false,
+  false, options.project ?? false, undefined, 'claude');
+
+test('Claude mode attaches the credential on stdin, never in argv, env or files',
+  async t => {
+    const f = await claudeFixture(t);
+    const result = await f.sandbox.execute(f.request);
+    assert.equal(result.status, 'completed');
+    assert.equal(result.stdout, 'bounded result');
+    const create = f.calls.find(c => c[0] === 'create');
+    assert.deepEqual(create.slice(0, 3), ['create', '--init', '--interactive']);
+    assert.ok(create.includes('--security-opt=apparmor=nibfin-claude-container'));
+    const start = f.calls.find(c => c[0] === 'start');
+    assert.deepEqual(start, ['start', '--attach', '--interactive', 'b'.repeat(64)]);
+    assert.equal(f.startOptions[0].input, `${claudeToken}\nRole prompt`);
+    assert.ok(!JSON.stringify(f.calls).includes(claudeToken));
+    const mounts = create.filter(v => v.startsWith('type=bind'))
+      .map(v => /dst=([^,]+)/.exec(v)[1]);
+    assert.deepEqual(mounts, ['/main', '/work', '/input', '/io', '/agent-home']);
+    assert.deepEqual((await readdir(f.request.input)).sort(),
+      ['bootstrap.mjs', 'invocation.json', 'tool-environment']);
+    assert.equal(await readFile(join(f.request.input, 'bootstrap.mjs'), 'utf8'),
+      await readFile('src/claude-bootstrap.mjs', 'utf8'));
+    const invocation = JSON.parse(await readFile(
+      join(f.request.input, 'invocation.json'), 'utf8'));
+    assert.equal(invocation.plan.prompt, undefined);
+    assert.equal(invocation.codexVersion, '2.1.326 (Claude Code)');
+    assert.equal(invocation.jobVm, false);
+    assert.equal(await readFile(join(f.request.input, 'tool-environment'), 'utf8'),
+      'PATH=/bin\0LANG=C.UTF-8\0');
+    for (const path of [f.request.input, f.request.output, f.request.session])
+      for (const name of await readdir(path))
+        assert.ok(!(await readFile(join(path, name), 'utf8')).includes(claudeToken));
+  });
+
+test('Claude mode rejects Codex login, MCP, job VM, bad credentials and plans',
+  async t => {
+    const changes = [
+      r => { r.auth = r.work; }, r => { r.credential = 'not-a-credential'; },
+      r => { r.mcp = inheritUserMcp({ notion: { url: 'https://mcp.notion.com/mcp' } }); },
+      r => { r.jobVmSocket = r.input; },
+      r => { r.plan = { ...r.plan, args: ['--dangerously-skip-permissions'] }; },
+      r => { delete r.plan.provider; },
+    ];
+    for (const change of changes) {
+      const f = await claudeFixture(t);
+      change(f.request);
+      await assert.rejects(f.sandbox.execute(f.request),
+        /AGENT_PROVIDER_MODE_UNSUPPORTED|INVALID_AGENT_PLAN|USER_MCP_PROFILE_CHANGED/);
+      assert.equal(f.calls.some(c => c[0] === 'create'), false);
+    }
+    const codex = await fixture(t);
+    codex.request.credential = claudeToken;
+    await assert.rejects(codex.sandbox.execute(codex.request),
+      /AGENT_PROVIDER_MODE_UNSUPPORTED/);
+  });
+
+test('Claude mode requires its profile, attached stdin and its CLI version',
+  async t => {
+    for (const fault of ['stdin-once', 'apparmor']) {
+      const f = await claudeFixture(t, fault);
+      assert.equal((await f.sandbox.execute(f.request)).status, 'denied');
+      assert.equal(f.calls.some(c => c[0] === 'start'), false);
+    }
+    const ignored = await claudeFixture(t, 'complain-apparmor');
+    await assert.rejects(ignored.sandbox.execute(ignored.request),
+      /AGENT_APPARMOR_NOT_ENFORCED/);
+    const probe = ignored.calls.find(c => c[0] === 'run' && c.includes('--name'));
+    assert.ok(probe.includes('--security-opt=apparmor=nibfin-claude-container'));
+    const f = await claudeFixture(t);
+    for (const [provider, version] of [['claude', 'codex-cli 0.138.0'],
+      ['codex', '2.1.326 (Claude Code)'], ['other', '2.1.326 (Claude Code)']])
+      assert.throws(() => new CodexSandbox({ ...f.config, provider,
+        codexVersion: version }), /INVALID_CODEX_SANDBOX/);
+  });
+
+test('Claude idle and preflight exits reuse the Codex codes after cleanup',
+  async t => {
+    for (const [fault, code] of [['idle', 'CODEX_IDLE_TIMEOUT'],
+      ['missing-login', 'SUBSCRIPTION_LOGIN_UNAVAILABLE']]) {
+      const f = await claudeFixture(t, fault, { project: true });
+      const result = await f.sandbox.execute(f.request);
+      assert.equal(result.status, 'interrupted');
+      assert.equal(result.code, code);
+      if (fault === 'idle')
+        assert.equal(result.lastProgress, 'NIBFIN_IDLE_PROGRESS tool running');
+      assert.match(result.terminationHash, /^[a-f0-9]{64}$/);
+      assert.ok(f.calls.some(c => c[0] === 'rm'));
+      assert.deepEqual(await readdir(f.config.mcpPolicyDirectory), []);
+    }
+  });
+
+test('Claude writers get the same private tool output as Codex writers', async t => {
+  for (const provider of ['codex', 'claude']) {
+    const f = await fixture(t, undefined, false, false, false, undefined, provider);
+    f.request.plan.writable = true;
+    f.request.plan.policyHash = provider === 'claude' ?
+      claudePolicyHash(f.request.plan) : f.request.plan.policyHash;
+    assert.equal((await f.sandbox.execute(f.request)).status, 'completed', provider);
+    const cache = `.nibfin-cache/${f.request.executionId}`;
+    const create = f.calls.find(c => c[0] === 'create');
+    assert.ok(create.some(v => v.includes('dst=/work,bind-propagation')), provider);
+    const cleanup = f.calls.find(c => c[0] === 'run' && !c.includes('--name'));
+    assert.match(cleanup[cleanup.indexOf('-e') + 1], new RegExp(`/work/${cache}`));
   }
 });
