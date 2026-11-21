@@ -1,5 +1,5 @@
 import { lstat, open, unlink } from 'node:fs/promises';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { coreRoot, hostFile, boundedHostFile } from './host-adoption.mjs';
 import { rootOwnedPath } from './host-paths.mjs';
 import { isId, requireThat } from './identity.mjs';
@@ -59,14 +59,23 @@ export async function intakeClaudeCredential(input = process.stdin) {
   requireThat(isId(host.uid) && host.installation?.directory === coreRoot,
     'CLAUDE_CREDENTIAL_INVALID_HOST');
   await verifyInstalledSource(coreRoot, host.installation.pin);
-  const { gid } = await privateResource(credentials, host.uid, true);
+  return storeClaudeCredential(input, credentials, host.uid);
+}
+
+// Stores one value in a private credential directory owned by `uid`. Production
+// reaches it only through the verified-host intake above; tests pass a fixture.
+export async function storeClaudeCredential(input, directory, uid) {
+  const { gid } = await privateResource(directory, uid, true);
+  const files = Object.fromEntries(Object.entries(claudeCredentialKinds)
+    .map(([kind, { file }]) => [kind, join(directory, basename(file))]));
+  const lockFile = join(directory, '.claude-intake.lock');
   // The operation is exclusive and never replaces or adds a second credential.
-  const lock = await open(join(credentials, '.claude-intake.lock'), 'wx', 0o600);
+  const lock = await open(lockFile, 'wx', 0o600);
   const chunks = [];
   const timer = setTimeout(
     () => input.destroy(new Error('CLAUDE_CREDENTIAL_UNAVAILABLE')), 10000);
   try {
-    for (const { file } of Object.values(claudeCredentialKinds))
+    for (const file of Object.values(files))
       requireThat(await absent(file), 'CLAUDE_CREDENTIAL_EXISTS');
     let size = 0;
     for await (const chunk of input) {
@@ -79,14 +88,13 @@ export async function intakeClaudeCredential(input = process.stdin) {
     try {
       credentialKind = claudeCredentialKind(bytes.toString().trim());
       requireThat(credentialKind, 'CLAUDE_CREDENTIAL_UNAVAILABLE');
-      await publishPrivate(claudeCredentialKinds[credentialKind].file, bytes,
-        { uid: host.uid, gid });
+      await publishPrivate(files[credentialKind], bytes, { uid, gid });
     } finally { bytes.fill(0); }
     return { status: 'stored', credentialKind };
   } finally {
     clearTimeout(timer);
     for (const chunk of chunks) chunk.fill(0);
     await lock.close();
-    await unlink(join(credentials, '.claude-intake.lock'));
+    await unlink(lockFile);
   }
 }
