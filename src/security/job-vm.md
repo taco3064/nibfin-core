@@ -34,3 +34,27 @@ HTTPS package and project domains through Core's existing egress checks.
 When an Issue selects project tools, Core copies the tool directory from the
 selected Agent image into the guest. Core leaves
 the host Agent and Hook image selection on the existing path.
+
+## Writer routes
+
+Codex runs Writer commands through its exec-server on vsock port 4021,
+mounted in the Agent container as `/job-vm.sock`. Codex keeps this route and
+its readiness probe.
+
+Claude uses a separate guest shell endpoint on vsock port 4023. Core mounts it
+in the Claude container as `/job-vm-shell.sock` and copies the shell client to
+`/input/vm-shell.mjs`. `nibfin-bash` forwards each Bash tool script and sends
+only the Core tool environment. The guest accepts the project tool paths,
+`PATH`, `LANG`, `GOMAXPROCS`, `GOFLAGS`, `NODE_USE_ENV_PROXY`, `NO_PROXY`, the
+local proxy and `DOCKER_HOST`, and rejects every other variable or value.
+Each connection runs one command under `/work`, with up to 32 commands at a time.
+The guest streams stdout, stderr, the final cwd and the exit code, and stops a
+command after 8 MiB of output.
+
+Each command runs in its own cgroup v2 leaf. The guest kills the leaf with
+`cgroup.kill` when the command ends, its connection closes or it exceeds the
+output limit. The guest refuses commands when `cgroup.kill` is unavailable.
+Before each Claude execution, Core runs one command through the shell route.
+If it fails, Core reports `JOB_VM_EXEC_INITIALIZE_UNAVAILABLE` and prints the
+reason. After the execution, Core asks the guest to quiesce: it kills every
+live command and accepts no new ones. Core then collects the workspace.

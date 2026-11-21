@@ -1,5 +1,5 @@
 #!/usr/bin/python3
-"""Receive workspace copies and run the Codex executor inside a disposable VM."""
+"""Receive workspace copies and run the Codex executor or Claude shell in a VM."""
 
 import base64
 import selectors
@@ -11,6 +11,7 @@ import socket
 import stat
 import subprocess
 import threading
+import time
 from pathlib import Path
 
 WORKSPACE_PORT = 4020
@@ -251,10 +252,305 @@ def listen(port, handler):
                     continue
 
 
+# Claude guest shell (Claude executions only). One connection carries one
+# command; Codex's exec handler, port and serial listen() above stay unchanged.
+class ShellRefused(Exception):
+    def __init__(self, code):
+        super().__init__(code)
+        self.code = code
+
+
+SHELL_PORT = 4023
+SHELL_SESSIONS = 32
+SHELL_OUTPUT = 8 * 1024 * 1024
+SHELL_REQUEST = 4 * 1024 * 1024
+SHELL_KILL_WAIT = 10
+SHELL_WORK = "/work"
+SHELL_CGROUP = Path("/sys/fs/cgroup/nibfin-shell")
+SHELL_CWD_FILE = re.compile(r"/tmp/claude-[0-9a-f]{1,64}-cwd")
+SHELL_LOCK = threading.Condition()
+SHELL = {"closed": False, "live": set(),
+         "slots": threading.BoundedSemaphore(SHELL_SESSIONS)}
+# The Codex VM tool environment (forwardJobVmArguments and projectToolPaths).
+SHELL_FIXED = {
+    "PATH": ENV["PATH"], "LANG": "C.UTF-8", "NODE_USE_ENV_PROXY": "1",
+    "NO_PROXY": "127.0.0.1,localhost", "HTTP_PROXY": ENV["HTTP_PROXY"],
+    "HTTPS_PROXY": ENV["HTTPS_PROXY"], "DOCKER_HOST": ENV["DOCKER_HOST"],
+}
+SHELL_PATHS = ("HOME", "TMPDIR", "TMP", "TEMP", "XDG_CACHE_HOME", "XDG_CONFIG_HOME",
+               "GOCACHE", "GOPATH", "PIP_CACHE_DIR", "npm_config_cache")
+SHELL_PATTERNS = {"GOMAXPROCS": r"[1-9][0-9]{0,3}", "GOFLAGS": r"-p=[1-9][0-9]{0,3}"}
+# The child joins its own cgroup before bash starts, so every descendant is in it.
+SHELL_ENTRY = 'echo 0 > "$1/cgroup.procs" && exec /bin/bash -c "$2"'
+
+
+def shell_environment(values):
+    if not isinstance(values, dict):
+        raise ShellRefused("JOB_VM_SHELL_REQUEST_INVALID")
+    environment = dict(ENV)
+    for key, value in values.items():
+        if not isinstance(value, str):
+            allowed = False
+        elif key in SHELL_FIXED:
+            allowed = value == SHELL_FIXED[key]
+        elif key in SHELL_PATHS:
+            allowed = (value.startswith("/work/.nibfin-cache/")
+                       and bool(safe_path(value[6:])))
+        else:
+            allowed = (key in SHELL_PATTERNS
+                       and re.fullmatch(SHELL_PATTERNS[key], value) is not None)
+        if not allowed:
+            raise ShellRefused("JOB_VM_SHELL_ENVIRONMENT_REJECTED")
+        environment[key] = value
+    return environment
+
+
+def shell_directory(value):
+    if (not isinstance(value, str) or len(value) > 4096 or "\0" in value
+            or "\n" in value or os.path.normpath(value) != value
+            or not (value == SHELL_WORK or value.startswith(SHELL_WORK + "/"))):
+        raise ShellRefused("JOB_VM_SHELL_REQUEST_INVALID")
+    # A directory the guest no longer has starts at the workspace root.
+    return value if os.path.isdir(value) else SHELL_WORK
+
+
+def create_leaf():
+    SHELL_CGROUP.mkdir(exist_ok=True)
+    leaf = SHELL_CGROUP / os.urandom(16).hex()
+    leaf.mkdir()
+    if not (leaf / "cgroup.kill").is_file():
+        leaf.rmdir()
+        raise ShellRefused("JOB_VM_SHELL_CGROUP_UNSUPPORTED")
+    return leaf
+
+
+def kill_leaf(leaf):
+    (leaf / "cgroup.kill").write_text("1")
+    deadline = time.monotonic() + SHELL_KILL_WAIT
+    while "populated 0" not in (leaf / "cgroup.events").read_text().splitlines():
+        if time.monotonic() > deadline:
+            raise OSError("Shell cgroup still populated")
+        time.sleep(0.05)
+    leaf.rmdir()
+
+
+class ShellSession:
+    def __init__(self, leaf, process):
+        self.leaf = leaf
+        self.process = process
+        self.lock = threading.Lock()
+        self.state = "running"
+
+    def stop(self):
+        with self.lock:
+            if self.state == "stopped":
+                return
+            if self.state == "failed":
+                raise OSError("Shell cgroup still populated")
+            try:
+                # Before it joins its cgroup the child has no descendants.
+                self.process.kill()
+                self.process.wait()
+                kill_leaf(self.leaf)
+                self.state = "stopped"
+            except OSError:
+                self.state = "failed"
+                raise
+
+
+def send_frame(client, frame):
+    client.sendall(json.dumps(frame, separators=(",", ":")).encode() + b"\n")
+
+
+def read_request(client):
+    data = b""
+    while b"\n" not in data:
+        chunk = client.recv(65536)
+        if not chunk:
+            return None
+        data += chunk
+        if len(data) > SHELL_REQUEST:
+            raise ShellRefused("JOB_VM_SHELL_REQUEST_INVALID")
+    if not data.endswith(b"\n"):
+        raise ShellRefused("JOB_VM_SHELL_REQUEST_INVALID")
+    return json.loads(data)
+
+
+def read_cwd(path):
+    try:
+        descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+    except OSError:
+        return None
+    with os.fdopen(descriptor, "rb") as stream:
+        data = stream.read(4098)
+    os.unlink(path)
+    try:
+        value = data.decode("utf-8").rstrip("\n")
+    except UnicodeDecodeError:
+        return None
+    if (len(value) > 4096 or not value.startswith("/") or "\0" in value
+            or "\n" in value):
+        return None
+    return value
+
+
+def stream_command(client, session, cwd_file):
+    process = session.process
+    total, pipes, exited = 0, 2, False
+    with selectors.DefaultSelector() as selector:
+        selector.register(process.stdout, selectors.EVENT_READ, "stdout")
+        selector.register(process.stderr, selectors.EVENT_READ, "stderr")
+        selector.register(client, selectors.EVENT_READ, None)
+        while pipes or not exited:
+            if not exited and process.poll() is not None:
+                exited = True
+                # Completion retires every remaining descendant of the command.
+                session.stop()
+            for key, _ in selector.select(0.1):
+                if key.data is None:
+                    # Disconnect or unexpected input: the caller's cleanup kills.
+                    client.recv(1)
+                    return
+                chunk = os.read(key.fileobj.fileno(), 65536)
+                if not chunk:
+                    selector.unregister(key.fileobj)
+                    pipes -= 1
+                    continue
+                total += len(chunk)
+                if total > SHELL_OUTPUT:
+                    session.stop()
+                    send_frame(client, {"type": "error",
+                                        "code": "JOB_VM_SHELL_OUTPUT_LIMIT"})
+                    return
+                send_frame(client, {"type": key.data,
+                                    "data": base64.b64encode(chunk).decode("ascii")})
+    code = process.returncode
+    cwd = read_cwd(cwd_file) if cwd_file else None
+    if cwd:
+        send_frame(client, {"type": "cwd", "path": cwd})
+    send_frame(client, {"type": "exit", "code": code if code >= 0 else 128 - code})
+
+
+def quiesce():
+    with SHELL_LOCK:
+        SHELL["closed"] = True
+        sessions = list(SHELL["live"])
+    for session in sessions:
+        try:
+            session.stop()
+        except OSError:
+            pass
+    with SHELL_LOCK:
+        if not SHELL_LOCK.wait_for(lambda: not SHELL["live"], SHELL_KILL_WAIT):
+            raise ShellRefused("JOB_VM_SHELL_QUIESCE_FAILED")
+    return {"quiesced": True}
+
+
+def run_command(client, request):
+    if set(request) - {"operation", "script", "cwd", "env", "cwdFile"}:
+        raise ShellRefused("JOB_VM_SHELL_REQUEST_INVALID")
+    script, cwd_file = request["script"], request.get("cwdFile")
+    if (not isinstance(script, str) or not script or "\0" in script
+            or cwd_file is not None and (not isinstance(cwd_file, str)
+                                         or not SHELL_CWD_FILE.fullmatch(cwd_file))):
+        raise ShellRefused("JOB_VM_SHELL_REQUEST_INVALID")
+    environment = shell_environment(request["env"])
+    directory = shell_directory(request["cwd"])
+    if not SHELL["slots"].acquire(blocking=False):
+        raise ShellRefused("JOB_VM_SHELL_BUSY")
+    try:
+        if cwd_file:
+            Path(cwd_file).unlink(missing_ok=True)
+        with SHELL_LOCK:
+            if SHELL["closed"]:
+                raise ShellRefused("JOB_VM_SHELL_CLOSED")
+            leaf = create_leaf()
+            try:
+                process = subprocess.Popen(
+                    ["/bin/sh", "-c", SHELL_ENTRY, "nibfin-shell", str(leaf), script],
+                    stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE, cwd=directory, env=environment,
+                    start_new_session=True)
+            except OSError:
+                leaf.rmdir()
+                raise
+            session = ShellSession(leaf, process)
+            SHELL["live"].add(session)
+        try:
+            stream_command(client, session, cwd_file)
+        finally:
+            try:
+                # A cgroup that cannot be emptied stays live and blocks quiesce.
+                session.stop()
+                with SHELL_LOCK:
+                    SHELL["live"].discard(session)
+                    SHELL_LOCK.notify_all()
+            finally:
+                process.stdout.close()
+                process.stderr.close()
+    finally:
+        SHELL["slots"].release()
+
+
+def shell(client):
+    try:
+        request = read_request(client)
+        if request is None:
+            return
+        if request == {"operation": "quiesce"}:
+            send_frame(client, quiesce())
+        elif isinstance(request, dict) and request.get("operation") == "run":
+            run_command(client, request)
+        else:
+            raise ShellRefused("JOB_VM_SHELL_REQUEST_INVALID")
+    except ShellRefused as error:
+        send_frame(client, {"type": "error", "code": error.code})
+    except (ValueError, KeyError, TypeError):
+        send_frame(client, {"type": "error", "code": "JOB_VM_SHELL_REQUEST_INVALID"})
+
+
+def admit_shell(client, connections):
+    # One spare connection beyond the command cap keeps quiesce reachable.
+    if not connections.acquire(blocking=False):
+        with client:
+            send_frame(client, {"type": "error", "code": "JOB_VM_SHELL_BUSY"})
+        return None
+
+    def serve():
+        try:
+            with client:
+                shell(client)
+        except OSError:
+            pass
+        finally:
+            connections.release()
+
+    thread = threading.Thread(target=serve, daemon=True)
+    thread.start()
+    return thread
+
+
+def listen_shell(port):
+    connections = threading.BoundedSemaphore(SHELL_SESSIONS + 1)
+    with socket.socket(socket.AF_VSOCK, socket.SOCK_STREAM) as server:
+        server.bind((socket.VMADDR_CID_ANY, port))
+        server.listen(SHELL_SESSIONS)
+        while True:
+            client, (cid, _) = server.accept()
+            if cid != socket.VMADDR_CID_HOST:
+                client.close()
+                continue
+            try:
+                admit_shell(client, connections)
+            except OSError:
+                continue
+
+
 if __name__ == "__main__":
     os.umask(0o077)
     Path("/session").mkdir(exist_ok=True)
     threading.Thread(target=listen, args=(EXEC_PORT, execute), daemon=True).start()
+    threading.Thread(target=listen_shell, args=(SHELL_PORT,), daemon=True).start()
     for port, family, address in (
         (PROXY_PORT, socket.AF_VSOCK, (socket.VMADDR_CID_HOST, EGRESS_PORT)),
         (2375, socket.AF_UNIX, "/run/nibfin-docker/docker.sock"),

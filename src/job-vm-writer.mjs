@@ -8,6 +8,9 @@ import { guestWorkspace } from './job-vm-guest-workspace.mjs';
 import {
   jobVmExecutorFailures, openJobVmExecRelay, probeJobVmExecutor,
 } from './job-vm-exec-relay.mjs';
+import {
+  jobVmShellPort, probeJobVmShell, quiesceJobVmShell,
+} from './job-vm-shell.mjs';
 import { snapshotJobVmWorkspace } from './job-vm-workspace.mjs';
 import { projectToolDirectories, projectToolRoot } from './project-tool-paths.mjs';
 import { installJobVmWorkspace } from './job-vm-install.mjs';
@@ -46,7 +49,11 @@ async function openJobVmEgress(directory, domains) {
 
 export async function runJobVmWriter(config, input, execute, {
   runVm = runJobVm, observe = observeHostPressure, capacity = acquireWriterCapacity,
+  provider = 'codex',
 } = {}) {
+  // The adopted provider selects the guest route; Codex is the default.
+  requireThat(['codex', 'claude'].includes(provider) &&
+    (input.plan?.provider ?? 'codex') === provider, 'INVALID_AGENT_PLAN');
   const abort = new AbortController();
   const cancel = () => {
     const code = 'JOB_VM_CANCELLED';
@@ -87,7 +94,8 @@ export async function runJobVmWriter(config, input, execute, {
         const domains = input.plan?.additionalDomains;
         const closeEgress = await openJobVmEgress(directory, domains);
         try {
-          return await runWriter(connect, directory, input, executeOwned, signal);
+          return await runWriter(connect, directory, input, executeOwned, signal,
+            provider);
         } finally { await closeEgress(); }
       },
     });
@@ -132,7 +140,7 @@ export async function runJobVmWriter(config, input, execute, {
   }
 }
 
-async function runWriter(connect, directory, input, execute, signal) {
+async function runWriter(connect, directory, input, execute, signal, provider) {
   const workspace = guestWorkspace(connect, signal);
   const output = {
     directories: (input.plan?.toolDirectories ??
@@ -143,13 +151,18 @@ async function runWriter(connect, directory, input, execute, signal) {
     const files = await snapshotJobVmWorkspace(input[name]);
     await workspace.prepare(name, files, name === 'work' ? output : undefined);
   }
-  const relay = join(directory, 'exec.sock');
-  const close = await openJobVmExecRelay(relay, connect);
+  // Claude gets only its guest shell socket; Codex only the exec-server socket.
+  const claude = provider === 'claude';
+  const relay = join(directory, claude ? 'shell.sock' : 'exec.sock');
+  const close = claude ? await openJobVmExecRelay(relay, connect, jobVmShellPort) :
+    await openJobVmExecRelay(relay, connect);
   try {
-    await probeJobVmExecutor(relay, signal);
+    if (claude) await probeJobVmShell(relay, signal);
+    else await probeJobVmExecutor(relay, signal);
     const result = await execute({ ...input, jobVmSocket: relay });
     signal.throwIfAborted();
     if (result.status !== 'completed') return { result };
+    if (claude) await quiesceJobVmShell(connect, signal);
     return { result, files: await workspace.collect() };
   } finally { await close(); }
 }

@@ -132,3 +132,23 @@ test('an interrupted Claude run scans private output for the credential',
     await assert.rejects(new CodexRoleAgent(f.config, isolator, f.options)
       .run('shape', stageFixture('shape')), { message: 'CREDENTIAL_OUTPUT_REJECTED' });
   });
+
+test('a Firecracker writer selects the Claude VM-mode plan, never Codex\'s',
+  async t => {
+    const f = await fixture(t, 'claude');
+    f.config.jobVm = true;
+    // Only a writer has a VM mode; a read role cannot be given one.
+    await assert.rejects(new CodexRoleAgent(f.config, f.isolator, f.options)
+      .run('shape', stageFixture('shape')), /INVALID_CLAUDE_PLAN/);
+    assert.equal(f.inputs.length, 0);
+    const docker = await fixture(t, 'claude');
+    await new CodexRoleAgent(docker.config, docker.isolator, docker.options)
+      .run('shape', stageFixture('shape'));
+    assert.equal(docker.inputs[0].plan.jobVm, undefined);
+    const codex = await fixture(t, 'codex');
+    codex.config.jobVm = true;
+    await new CodexRoleAgent(codex.config, codex.isolator, codex.options)
+      .run('shape', stageFixture('shape'));
+    assert.equal(codex.inputs[0].plan.jobVm, undefined);
+    assert.equal(codex.inputs[0].plan.provider, undefined);
+  });

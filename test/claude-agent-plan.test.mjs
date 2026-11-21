@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  claudeAgentPlan, claudePolicyHash, claudeSocketPaths,
+  claudeAgentPlan, claudePolicyHash, claudeSocketPaths, jobVmToolEnvironment,
 } from '../src/claude-agent-plan.mjs';
 import { codexPlan } from '../src/codex-plan.mjs';
 import { resultSchema } from '../src/agent-result.mjs';
@@ -123,4 +123,32 @@ test('a selected project Python reaches the plan as for Codex', () => {
       codexPlan('deliver', { ...options('deliver'), projectTools }).projectPython);
     assert.equal(plan.projectPython, projectTools?.python ?? null);
   }
+});
+
+test('Firecracker writer mode: Bash only, Claude sandbox off, guest tool env', () => {
+  const docker = claudeAgentPlan('deliver', options('deliver'));
+  const plan = claudeAgentPlan('deliver', { ...options('deliver'), jobVm: true });
+  assert.equal(plan.jobVm, true);
+  assert.equal(docker.jobVm, undefined);
+  assert.deepEqual(plan.tools, ['Bash']);
+  assert.equal(flag(plan.args, '--tools'), 'Bash');
+  assert.equal(flag(plan.args, '--allowedTools'), 'Bash');
+  assert.deepEqual(plan.settings.sandbox, { enabled: false });
+  assert.deepEqual(JSON.parse(flag(plan.args, '--settings')), plan.settings);
+  assert.deepEqual(plan.settings.permissions, docker.settings.permissions);
+  assert.deepEqual(plan.environment, { ...docker.environment,
+    CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: '1' });
+  assert.deepEqual(plan.toolEnvironment, { ...docker.toolEnvironment,
+    ...jobVmToolEnvironment });
+  assert.deepEqual(plan.toolDirectories, docker.toolDirectories);
+  assert.equal(plan.policyHash, claudePolicyHash(plan));
+  assert.notEqual(claudePolicyHash({ ...plan, jobVm: undefined }), plan.policyHash);
+  // The docker plan hash keeps its A1 inputs.
+  assert.equal(docker.policyHash, digest({ args: docker.args,
+    environment: docker.environment, toolEnvironment: docker.toolEnvironment }));
+  for (const stage of ['shape', 'validate-shape', 'accept', 'review-pr'])
+    assert.throws(() => claudeAgentPlan(stage, { ...options(stage), jobVm: true }),
+      /INVALID_CLAUDE_PLAN/, stage);
+  assert.throws(() => claudeAgentPlan('deliver', { ...options('deliver'),
+    jobVm: 'yes' }), /INVALID_CLAUDE_PLAN/);
 });

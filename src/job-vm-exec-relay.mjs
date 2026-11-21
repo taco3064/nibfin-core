@@ -41,9 +41,10 @@ export async function probeJobVmExecutor(path, signal, attemptTimeout = 10_000) 
   }
 }
 
-// Mount only this socket in the Codex container. It can initiate an executor
-// session but the guest has no connection back to the controller.
-export async function openJobVmExecRelay(path, connect) {
+// Mount only this socket in the agent container. It can initiate an executor
+// (or, for Claude, guest shell) session but the guest has no connection back
+// to the controller.
+export async function openJobVmExecRelay(path, connect, port = jobVmExecPort) {
   const sessions = new Set();
   const server = createServer(async client => {
     const session = new AbortController();
@@ -55,7 +56,7 @@ export async function openJobVmExecRelay(path, connect) {
     client.on('error', () => client.destroy());
     try {
       const deadline = AbortSignal.any([session.signal, AbortSignal.timeout(60_000)]);
-      const guest = await connect(jobVmExecPort, deadline);
+      const guest = await connect(port, deadline);
       if (client.destroyed) {
         guest.destroy();
         return;

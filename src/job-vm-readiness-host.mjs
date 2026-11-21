@@ -8,12 +8,14 @@ import { runJobVmReadiness } from './job-vm-readiness.mjs';
 import { writeCommandResult } from './command-result.mjs';
 import { requireThat } from './identity.mjs';
 
-const executionFiles = new Set([
+// Any VM-behaviour module, including the Claude guest shell route, re-runs readiness.
+export const executionFiles = new Set([
   'src/security/job-vm-init.sh', 'src/security/job-vm-executor.py',
   'src/job-vm.mjs', 'src/job-vm-tools.mjs', 'src/job-vm-payload.py',
   'src/job-vm-writer.mjs', 'src/job-vm-guest-workspace.mjs',
   'src/job-vm-workspace.mjs', 'src/job-vm-channel.mjs',
   'src/job-vm-exec-relay.mjs', 'src/project-tool-paths.mjs',
+  'src/job-vm-shell.mjs', 'src/claude-vm-shell.mjs',
 ]);
 const assetKeys = ['executable', 'kernel', 'rootDisk'];
 
