@@ -2,14 +2,15 @@ import { randomUUID } from 'node:crypto';
 import { digest, requireThat } from './identity.mjs';
 import { verifyNamespace } from './docker-backend.mjs';
 
-const profile = 'codex-security-container';
+const codexProfile = 'codex-security-container';
 const readLabel =
   "require('node:fs').writeSync(1," +
   "require('node:fs').readFileSync('/proc/self/attr/current'))";
 
 // Docker's requested/inspect profile may be ignored by an unsupported daemon.
 // This fixed probe has no credentials, host mounts, network or Agent input.
-export async function verifyAppArmor(docker, image, namespace) {
+export async function verifyAppArmor(docker, image, namespace,
+  profile = codexProfile) {
   const name = `nibfin-apparmor-${randomUUID()}`;
   try {
     const result = await docker(

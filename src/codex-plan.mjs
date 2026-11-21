@@ -9,6 +9,15 @@ import {
   projectToolPaths, projectToolDirectories, projectToolRoot,
 } from './project-tool-paths.mjs';
 
+// The standard tool command environment shared by every provider.
+export function projectToolEnvironment(writable, executionId) {
+  return {
+    PATH: projectToolPath, LANG: 'C.UTF-8',
+    ...projectToolPaths(writable, executionId),
+    GOMAXPROCS: '2', GOFLAGS: '-p=1',
+  };
+}
+
 // Fixed paths belong to the isolated image contract, never the candidate. The
 // controller starts in /session, outside /work, to avoid candidate configuration
 // discovery. Configuration alone is not proof that a host enforces this policy.
@@ -39,11 +48,8 @@ export function codexPlan(stage, {
     'shell_environment_policy.inherit': 'none',
     'shell_environment_policy.experimental_use_profile': false,
     'shell_environment_policy.ignore_default_excludes': false,
-    'shell_environment_policy.set': {
-      PATH: projectToolPath, LANG: 'C.UTF-8',
-      ...projectToolPaths(writable, context.execution?.id),
-      GOMAXPROCS: '2', GOFLAGS: '-p=1',
-    },
+    'shell_environment_policy.set': projectToolEnvironment(writable,
+      context.execution?.id),
     'permissions.nibfin.filesystem': {
       ':minimal': 'read', '/work': writable ? 'write' : 'read', '/input': 'read',
       // The fresh tmpfs has no Git metadata. A synthetic /tmp/.git would make

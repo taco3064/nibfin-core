@@ -42,6 +42,22 @@ import {
   mcpPolicyEnvironment, mcpPolicyMount,
 } from './mcp-egress.mjs';
 import { projectDomains } from './egress-proxy.mjs';
+import { claudeIdleDiagnostic } from './claude-bootstrap.mjs';
+import {
+  claudeAppArmorProfile, claudePolicyHash, claudeVersionPattern,
+} from './claude-agent-plan.mjs';
+import { validClaudeCredential } from './claude-model-credentials.mjs';
+
+// Provider branch points; the adopted binding selects one, Codex by default.
+const providers = Object.freeze({
+  codex: { version: /^codex-cli \d+\.\d+\.\d+$/, apparmor: 'codex-security-container',
+    bootstrap: 'src/codex-bootstrap.mjs', idleDiagnostic,
+    policyHash: plan => digest({ config: plan.config,
+      requirements: plan.requirements }) },
+  claude: { version: claudeVersionPattern, apparmor: claudeAppArmorProfile,
+    bootstrap: 'src/claude-bootstrap.mjs', idleDiagnostic: claudeIdleDiagnostic,
+    policyHash: claudePolicyHash },
+});
 
 async function privateJSON(path, limit) {
   const file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
@@ -71,6 +87,8 @@ export class CodexSandbox {
   #containerLabel;
   #gatewayLabel;
   #gatewayImage;
+  #provider;
+  #claude;
   constructor(
     config,
     {
@@ -85,6 +103,9 @@ export class CodexSandbox {
   ) {
     this.#pressureObserver = pressureObserver;
     this.#backend = dockerBackend(backend);
+    this.#claude = config?.provider === 'claude';
+    this.#provider = Object.hasOwn(providers, config?.provider ?? 'codex') ?
+      providers[config?.provider ?? 'codex'] : undefined;
     requireThat(
       config &&
         /^(?:[A-Za-z0-9._:/-]+@)?sha256:[a-f0-9]{64}$/.test(config.image) &&
@@ -92,7 +113,8 @@ export class CodexSandbox {
         /^[a-f0-9]{64}$/.test(config.gatewayId) &&
         /^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/.test(config.network) &&
         !['host', 'bridge', 'none', 'default'].includes(config.network) &&
-        /^codex-cli \d+\.\d+\.\d+$/.test(config.codexVersion) &&
+        // The bound CLI's version line, for either provider.
+        this.#provider?.version.test(config.codexVersion) &&
         isAbsolute(config.coreRoot) &&
         isAbsolute(config.proxyScript),
       'INVALID_CODEX_SANDBOX',
@@ -145,6 +167,7 @@ export class CodexSandbox {
       (args, options) => this.#docker(args, options),
       c.image,
       this.#backend.namespace,
+      this.#provider.apparmor,
     );
     const networks = await this.#inspect(['network', 'inspect', c.network]),
       gateways = await this.#inspect(['inspect', c.gatewayId]);
@@ -219,22 +242,27 @@ export class CodexSandbox {
     };
   }
   async execute({ plan, executionId, work, main, input, output, session, auth,
-    mcp = null, jobVmSocket, onTermination, pressureBinding,
+    credential, mcp = null, jobVmSocket, onTermination, pressureBinding,
     onLocalHandback, onInterruptedCleanup }) {
-    const c = this.#config;
+    const c = this.#config, provider = this.#provider, claude = this.#claude;
     requireThat(
-      plan?.policyHash ===
-        digest({ config: plan.config, requirements: plan.requirements }) &&
+      (plan?.provider ?? 'codex') === (c.provider ?? 'codex') &&
+        plan.policyHash === provider.policyHash(plan) &&
         /^[a-f0-9-]{36}$/.test(executionId),
       'INVALID_AGENT_PLAN',
     );
+    // Docker writer mode only: no Codex login file, user MCP or job VM route.
+    // The Claude credential travels only on the attached container stdin.
+    requireThat(claude ? auth === undefined && !mcp && !jobVmSocket &&
+      validClaudeCredential(credential) : credential === undefined,
+    'AGENT_PROVIDER_MODE_UNSUPPORTED');
     requireThat((plan.mcpPolicyHash ?? null) === (mcp?.policyHash ?? null),
       'USER_MCP_PROFILE_CHANGED');
     requireThat(digest(projectDomains(plan.additionalDomains)) ===
       digest(c.additionalDomains), 'PROJECT_EGRESS_PLAN_CHANGED');
     requireThat(!c.additionalDomains.length || c.mcpPolicyDirectory,
       'PROJECT_EGRESS_NOT_ADOPTED');
-    const paths = [work, main, input, output, session, auth];
+    const paths = [work, main, input, output, session, ...(claude ? [] : [auth])];
     for (const path of paths) {
       requireThat(
         typeof path === 'string' &&
@@ -263,15 +291,17 @@ export class CodexSandbox {
     const security = [
       'no-new-privileges',
       `seccomp=${JSON.stringify(seccomp)}`,
-      'apparmor=codex-security-container',
+      `apparmor=${provider.apparmor}`,
     ];
-    const bootstrap = await readFile(join(c.coreRoot, 'src/codex-bootstrap.mjs'));
+    const bootstrap = await readFile(join(c.coreRoot, provider.bootstrap));
     await writeFile(join(input, 'bootstrap.mjs'), bootstrap,
       { flag: 'wx', mode: 0o400 });
+    // Claude receives its prompt with the credential on stdin, not in a file.
+    const { prompt, ...claudeInvocationPlan } = claude ? plan : {};
     await writeFile(
       join(input, 'invocation.json'),
       JSON.stringify({
-        plan,
+        plan: claude ? claudeInvocationPlan : plan,
         codexVersion: c.codexVersion,
         proxyHost: preflight.proxyHost,
         jobVm: Boolean(jobVmSocket),
@@ -279,13 +309,23 @@ export class CodexSandbox {
       }),
       { flag: 'wx', mode: 0o400 },
     );
-    const requirements = jobVmSocket ? plan.requirements.replace(
-      '[network_proxy]\nenabled = true', '[network_proxy]\nenabled = false')
-      : plan.requirements;
-    await writeFile(join(input, 'requirements.toml'), requirements, {
-      flag: 'wx',
-      mode: 0o400,
-    });
+    if (claude) {
+      // nibfin-bash exports these NUL-separated entries for tool commands.
+      const entries = Object.entries(plan.toolEnvironment);
+      requireThat(entries.every(entry => !/[\0=]/.test(entry[0]) &&
+        !entry[1].includes('\0')), 'INVALID_AGENT_PLAN');
+      await writeFile(join(input, 'tool-environment'),
+        entries.map(([key, value]) => `${key}=${value}\0`).join(''),
+        { flag: 'wx', mode: 0o444 });
+    } else {
+      const requirements = jobVmSocket ? plan.requirements.replace(
+        '[network_proxy]\nenabled = true', '[network_proxy]\nenabled = false')
+        : plan.requirements;
+      await writeFile(join(input, 'requirements.toml'), requirements, {
+        flag: 'wx',
+        mode: 0o400,
+      });
+    }
     for (const [path, writable] of [
       [work, plan.writable && !jobVmSocket],
       [main, false],
@@ -296,23 +336,28 @@ export class CodexSandbox {
       await shareAgentMount(path, writable);
     }
     await privateMountParent(output);
-    const authRoot = await mkdtemp(join(dirname(output), 'agent-auth-'));
-    const authCopy = join(authRoot, 'auth.json');
-    await copyFile(auth, authCopy);
-    await chmod(authCopy, 0o444);
     const mounts = [
       { source: main, destination: '/main', rw: false },
       { source: work, destination: '/work', rw: plan.writable && !jobVmSocket },
       { source: input, destination: '/input', rw: false },
       { source: output, destination: '/io', rw: true },
       { source: session, destination: '/agent-home', rw: true },
-      { source: authCopy, destination: '/auth/auth.json', rw: false },
-      {
-        source: join(input, 'requirements.toml'),
-        destination: '/etc/codex/requirements.toml',
-        rw: false,
-      },
     ];
+    let authRoot;
+    if (!claude) {
+      authRoot = await mkdtemp(join(dirname(output), 'agent-auth-'));
+      const authCopy = join(authRoot, 'auth.json');
+      await copyFile(auth, authCopy);
+      await chmod(authCopy, 0o444);
+      mounts.push(
+        { source: authCopy, destination: '/auth/auth.json', rw: false },
+        {
+          source: join(input, 'requirements.toml'),
+          destination: '/etc/codex/requirements.toml',
+          rw: false,
+        },
+      );
+    }
     if (jobVmSocket) {
       requireThat(plan.writable && (await this.#host.lstat(jobVmSocket)).isSocket() &&
         (await this.#host.realpath(jobVmSocket)) === jobVmSocket,
@@ -342,6 +387,7 @@ export class CodexSandbox {
     const args = [
       'create',
       '--init',
+      ...(claude ? ['--interactive'] : []),
       '--pull=never',
       '--name',
       name,
@@ -357,7 +403,7 @@ export class CodexSandbox {
       '--security-opt=no-new-privileges',
       '--security-opt',
       `seccomp=${seccompPath}`,
-      '--security-opt=apparmor=codex-security-container',
+      `--security-opt=apparmor=${provider.apparmor}`,
       '--pids-limit=256',
       '--memory=4g',
       '--cpus=2',
@@ -436,7 +482,9 @@ export class CodexSandbox {
           host.PidsLimit === 256 &&
           digest(host.CapDrop) === digest(['ALL']) &&
           digest(host.SecurityOpt) === digest(security) &&
-          observed.AppArmorProfile === 'codex-security-container' &&
+          observed.AppArmorProfile === provider.apparmor &&
+          (!claude || observed.Config.OpenStdin === true &&
+            observed.Config.StdinOnce === true) &&
           !host.CapAdd?.length &&
           !host.Devices?.length &&
           !host.DeviceRequests?.length &&
@@ -475,9 +523,11 @@ export class CodexSandbox {
         ownershipTimer.unref();
       }
       try {
-        attached = await this.#docker(['start', '--attach', id], {
+        attached = await this.#docker(['start', '--attach',
+          ...(claude ? ['--interactive'] : []), id], {
           timeout: plan.diagnosis ? 120_000 : deliveryRoleTimeout,
           allowedExitCodes: entryExitCodes,
+          ...(claude ? { input: `${credential}\n${plan.prompt}` } : {}),
         });
       } catch (error) {
         if (!['PROCESS_TIMEOUT', 'PROCESS_FAILED'].includes(error.code)) throw error;
@@ -496,7 +546,7 @@ export class CodexSandbox {
           Object.keys(codexPreflightExits)
             .find(reason => codexPreflightExits[reason] === ended.State.ExitCode);
         const lastProgress = code === codexIdle.code
-          ? idleDiagnostic(attached.stderr.toString()) : undefined;
+          ? provider.idleDiagnostic(attached.stderr.toString()) : undefined;
         outcome = code
           ? { status: 'interrupted', executionId, code,
             ...(lastProgress ? { lastProgress } : {}) }
@@ -574,7 +624,7 @@ export class CodexSandbox {
         await toolOutput?.dispose();
         cleanupStep = 'credential and session removal';
         if (discard) {
-          await rm(authRoot, { recursive: true });
+          if (authRoot) await rm(authRoot, { recursive: true });
           for (const entry of await readdir(session))
             await rm(join(session, entry), { recursive: true, force: true });
         }

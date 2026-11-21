@@ -176,3 +176,26 @@ test('Proposal input is supplied without a role-side checksum gate', () => {
     /Read \/input\/proposal\.md for current product requirements/);
   assert.doesNotMatch(plan.prompt, /Content hash|sha256sum/);
 });
+
+// Values captured from origin/main before the Claude provider branch was added.
+test('Codex plan policy, argv and configuration stay byte-identical', () => {
+  const golden = {
+    shape: ['765e50861c57c4aa95bbc4d10585fbdbc2afe0615f307cd5db062016144b1605',
+      '72973df3ac7b51e0aba2a2b3e063648755e21bc484b3f86b959f1abfe4fe9665',
+      '99c9b39d3567fef2e5024c3cb99f1485fe503c81e7e2c2800a1c9c3c3951c8f0',
+      '07a3438b548cd94ac5953dc0f5985c707959bd6151d950cc31e0a5858d29dec1'],
+    deliver: ['db64675ae30ba5b1d2332158845639b699a5e155f82735bd5c51b0dfb4ba8459',
+      '1c541a1df7de1212c6bd8064a8197fa0a9cf5f4b9350d7db3de61ed2fdb3c459',
+      '232e300566276125adb528fecf1755ff9c698d19f64c601a350367a461140243',
+      'f7b75747c6582122f2c32e9b42efdf9d8ccee138613e4280177d56b37fe69145'],
+  };
+  for (const stage of ['shape', 'deliver']) {
+    const plan = codexPlan(stage, { model: 'configured-model', skill: skill(stage),
+      context: { execution: { id: '00000000-0000-4000-8000-000000000001' } },
+      additionalDomains: ['api.example.com'], projectTools: { python: '3.13.7' } });
+    const withoutPrompt = Object.fromEntries(Object.entries(plan)
+      .filter(([key]) => key !== 'prompt'));
+    assert.deepEqual([plan.policyHash, digest(plan.args), digest(plan.config),
+      digest(withoutPrompt)], golden[stage], stage);
+  }
+});
