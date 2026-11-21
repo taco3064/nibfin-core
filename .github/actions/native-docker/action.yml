@@ -68,6 +68,14 @@ runs:
             --entrypoint /opt/nibfin/claude/bin/claude nibfin-claude-test --version)"
           test "$version" = "2.1.326 (Claude Code)"
         fi
+    - name: Build and check the managed Claude agent image without credentials
+      if: github.event_name == 'pull_request'
+      shell: bash
+      run: |
+        set -euo pipefail
+        if [[ "$(node scripts/test-changes.mjs --claude-agent-image)" == true ]]; then
+          node scripts/verify-live-claude-agent-image.mjs
+        fi
     - name: Stop disposable test daemon
       if: always() && env.NIBFIN_TEST_DAEMON_READY == '1'
       shell: bash

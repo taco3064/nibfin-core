@@ -15,7 +15,7 @@ import { prepareSharedAccounts } from './shared-host-setup.mjs';
 import { managedPaths } from './managed-credential-files.mjs';
 import { resourcePreparationGate } from './managed-resource-admission.mjs';
 import {
-  prepareAgentInputs, resolvedAgentRecipe, agentVersions,
+  prepareAgentInputs, managedAgentRecipe, resolvedClaudeRecipe, agentVersions,
 } from './agent-image-inputs.mjs';
 import { browserRuntimeProbe } from './browser-runtime-inputs.mjs';
 import { versionProbe } from './tool-recipe.mjs';
@@ -76,7 +76,9 @@ export function managedResourceHost(confirmSource, engine = engineHost(), {
       }
       requireThat(false, 'RESOURCE_PROBE_TERMINATION_UNKNOWN');
     },
-    async inputs(architecture) {
+    // Only an explicit Claude request adds the Claude recipe, its pinned package
+    // script and tool shell; the Codex inputs and their digest stay unchanged.
+    async inputs(architecture, { claude = false } = {}) {
       const inputs = {};
       for (const name of Object.values(resources.recipes))
         inputs[name] = await boundedHostFile(join(security, name), 16384);
@@ -87,8 +89,14 @@ export function managedResourceHost(confirmSource, engine = engineHost(), {
         join(security, 'agent.Dockerfile'), 16384);
       inputs['core-package.json'] = await boundedHostFile(
         join(coreRoot, 'package.json'), 16384);
+      if (claude) {
+        for (const name of [resources.claude.recipe, resources.claude.package,
+          resources.claude.shell])
+          inputs[name] = await boundedHostFile(join(security, name), 16384);
+      }
       inputs.versions = agentVersions(inputs['agent.Dockerfile'],
-        JSON.parse(inputs['core-package.json']), JSON.parse(inputs['package.json']));
+        JSON.parse(inputs['core-package.json']), JSON.parse(inputs['package.json']),
+        inputs[resources.claude.package]);
       inputs.native = await prepareAgentInputs(inputs['agent.Dockerfile'],
         architecture, docker);
       inputs.policy = await boundedHostFile(
@@ -129,15 +137,11 @@ export function managedResourceHost(confirmSource, engine = engineHost(), {
       if (!found) {
         requireThat(!observe, 'RESOURCE_IMAGE_RECONCILIATION_REQUIRED');
         let recipe = inputs[resources.recipes[kind]];
-        if (kind === 'agent') {
-          recipe = resolvedAgentRecipe(recipe, inputs.native);
-          recipe = recipe.replace('ARG CODEX_VERSION',
-            `ARG CODEX_VERSION=${inputs.versions.codex.slice('codex-cli '.length)}`);
-          recipe = recipe.replace('ARG GO_VERSION',
-            `ARG GO_VERSION=${inputs.versions.go}`);
-          recipe = recipe.replace('ARG NPM_VERSION',
-            `ARG NPM_VERSION=${inputs.versions.npm}`);
-        }
+        if (kind === resources.claude.kind)
+          recipe = resolvedClaudeRecipe(inputs[resources.claude.recipe],
+            state.images.agent, inputs.versions?.claude);
+        if (kind === 'agent')
+          recipe = managedAgentRecipe(recipe, inputs.native, inputs.versions);
         if (kind === 'hooks')
           recipe = await derivedRecipe(recipe, state.images.agent, arch, docker);
         await engine.docker(true, ['build', '--no-cache', '--network=host',
@@ -162,8 +166,12 @@ export function managedResourceHost(confirmSource, engine = engineHost(), {
     },
     async availability(id, kind, inputs) {
       const versions = inputs.versions;
+      const claude = kind === resources.claude.kind;
+      requireThat(!claude || typeof versions.claude === 'string',
+        'RESOURCE_INPUT_CONTRACT_INVALID');
       const probe = versionProbe({ go: versions.go }, versions,
-        { codex: kind === 'agent', npm: versions.npm });
+        { codex: kind === 'agent', npm: versions.npm,
+          claude: claude ? versions.claude : undefined });
       let output;
       try {
         output = await docker(['exec', '--user=1000:1000', id,
@@ -171,7 +179,7 @@ export function managedResourceHost(confirmSource, engine = engineHost(), {
       } catch { requireThat(false, 'RESOURCE_NATIVE_EXECUTABLE_UNAVAILABLE'); }
       requireThat(output === 'NIBFIN_TOOLS_VERIFIED\n',
         'RESOURCE_NATIVE_EXECUTABLE_UNAVAILABLE');
-      // Both maintained images carry the Chromium runtime libraries. Probe only
+      // All maintained images carry the Chromium runtime libraries. Probe only
       // those inputs here; this does not acquire an unrelated browser binary.
       try {
         output = await docker(['exec', '--user=1000:1000', id,
