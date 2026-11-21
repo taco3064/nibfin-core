@@ -45,10 +45,12 @@ export function deliveryLifecycle(context) {
   return Math.max(0, ...reopened.map(event => event.id));
 }
 
-export function checkpointMessage(issue, { shape, lifecycle }, candidate) {
+export function checkpointMessage(
+  issue, { shape, lifecycle, mode = 'completed' }, candidate,
+) {
   return [`Deliver #${issue.number}`, '', `Issue: ${issue.id}`,
     `Reopened: ${lifecycle}`, `Shape: ${JSON.stringify(requirementsText(shape))}`,
-    `Candidate: ${digest(candidate)}`, ''].join('\n');
+    `Status: ${mode}`, `Candidate: ${digest(candidate)}`, ''].join('\n');
 }
 
 export async function readDeliveryCheckpoint(reader, issue, { shape, lifecycle }) {
@@ -79,13 +81,20 @@ export async function readDeliveryCheckpoint(reader, issue, { shape, lifecycle }
   requireThat(commit.sha === head && isSha(commit.tree?.sha) &&
     commit.parents?.length === 1 && isSha(commit.parents[0].sha),
   'DELIVER_BRANCH_UNAVAILABLE');
-  const publication = await readDeliveryPublication(reader, issue, head);
+  const status = /^Status: (.+)$/m.exec(commit.message)?.[1];
+  if (status && !['progress', 'completed'].includes(status))
+    return { branch, head, owned };
+  const mode = status ?? 'completed';
+  const publication = mode === 'completed'
+    ? await readDeliveryPublication(reader, issue, head) : {};
   if (publication.retired) return { branch, head, owned };
-  return { branch, head, owned, tree: commit.tree.sha, parent: commit.parents[0].sha,
+  return { branch, head, owned, mode, tree: commit.tree.sha,
+    parent: commit.parents[0].sha,
     originalCandidate: /^Candidate: ([a-f0-9]{64})$/m.exec(commit.message)?.[1] ?? null,
     ...publication };
 }
 
-export function matchesDeliveryCheckpoint(checkpoint, candidate) {
-  return checkpoint?.tree === candidate.tree && checkpoint.parent === candidate.base;
+export function matchesDeliveryCheckpoint(checkpoint, candidate, mode = 'completed') {
+  return (checkpoint?.mode ?? 'completed') === mode &&
+    checkpoint?.tree === candidate.tree && checkpoint.parent === candidate.base;
 }

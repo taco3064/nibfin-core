@@ -562,3 +562,29 @@ test('Deliver uses the admitted main when it moves during entry observation', as
   });
   assert.equal(result.status, 'completed');
 });
+
+
+test('progress is nonterminal and a settled Deliver binding can reenter', async t => {
+  const f = await fixture(t, 'deliver');
+  let invocations = 0;
+  f.adapters.handlers = { deliver: {
+    perform: async () => { invocations++; },
+    readBack: async () => ({ outcome: invocations > 2 ? 'ready' : 'progress',
+      findings: [],
+      references: ['fixture:progress'], artifacts: { shapeHash: f.context.shape.hash },
+      deliveryCheckpoint: { branch: 'nibfin/deliver-2', head: 'a'.repeat(40) } }),
+  } };
+  const runtime = new StageRuntime(f.adapters);
+  for (let i = 0; i < 2; i++) {
+    const result = await runtime.run({ schemaVersion: 1, stage: 'deliver' });
+    assert.equal(result.status, 'pending');
+    assert.equal(result.code, 'DELIVER_PROGRESS_SAVED');
+  }
+  assert.equal(invocations, 2);
+  assert.equal(f.saved[0].outcome, 'progress');
+  assert.equal((await runtime.run({ schemaVersion: 1, stage: 'deliver' })).status,
+    'completed');
+  assert.equal((await runtime.run({ schemaVersion: 1, stage: 'deliver' })).code,
+    'REPLAYED_OPERATION');
+  assert.equal(invocations, 3);
+});

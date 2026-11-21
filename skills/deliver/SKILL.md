@@ -121,7 +121,23 @@ current authorized Issue or governing authority, return a structured Shape/autho
 with exact clauses and references. Do not broaden the Shape or decide new product
 semantics yourself. Preserve useful partial work and state uncertainty precisely.
 
-Return only the runtime-supplied structured result schema. Use `ready` when
+Return only the runtime-supplied structured result schema. When that schema supports
+Deliver's `progress` outcome, you may voluntarily hand back one coherent meaningful
+implementation point before final readiness. Return `progress` with no unresolved
+blocking findings; identify the maintained changes, checks and unfinished work.
+This is a completed Writer execution, not an interruption or a live snapshot.
+Core proves termination, collects the safe workspace and confirms the tracked tree
+through its existing GitHub work branch. Ignored and non-tree files are not durable
+progress. Progress cannot authorize hooks, Accept or PR publication.
+
+On trusted resume context confirming saved progress, continue implementation toward
+final readiness. Do not yield the same progress again or require another save
+because the Runner changed. Without meaningful implementation progress, continue
+working instead of inventing a save. Only Core commits and pushes; Writer never
+publishes progress. A successful read finding no eligible progress permits normal
+Deliver; failed observations follow normal retry, not assumed absence.
+
+Use `ready` when
 the implementation and checks assigned to Deliver are complete. Record
 later verification for its owning stage. Supply evidence references, the
 factual root cause and supported failure classification. Never add
@@ -154,7 +170,8 @@ establish a fresh remote observation. If trusted observation is unavailable, ret
 work and report the exact missing observation through a structured blocker.
 
 At handoff, finish the authorized implementation and report its checks.
-Return ready once; do not create interim commits or push from the Writer.
+Return `ready` for the finished handoff; an earlier voluntary `progress` result
+never replaces it. Do not create interim commits or push from the Writer.
 Core saves the finished Candidate on its bound GitHub work branch before
 independent Accept. After proven
 Writer termination and scratch cleanup, Core captures actual changes and observes

@@ -39,7 +39,7 @@ export function stageHandlers({
   const checkpointURL = (context, head) =>
     `https://github.com/${context.approval.record.issue.repository}/commit/${head}`;
   const captureDelivery = async (
-    context, decision, candidate, references, checkpoint,
+    context, decision, candidate, references, checkpoint, progress = false,
   ) => {
     const shapeHash = context.shape.hash;
     const restricted = enforcementPaths(candidate.paths);
@@ -50,16 +50,19 @@ export function stageHandlers({
         artifacts: { shapeHash } };
     }
     const handoff = await handoffDelivery({
-      workspace, context, candidate, observeMain, clock,
+      workspace, context, candidate, observeMain, clock, partial: progress,
     });
     if (handoff.outcome)
       return { outcome: handoff.outcome, findings: handoff.findings, references,
         artifacts: { shapeHash, ...(handoff.candidate ? {
           candidateHash: await store.put(handoff.candidate),
         } : {}) } };
+    requireThat(!progress || handoff.candidate.paths.length > 0,
+      'EMPTY_DELIVER_PROGRESS');
     const saved = saveDeliver && await saveDeliver(context, decision,
-      handoff.candidate, checkpoint);
-    return { outcome: 'ready', findings: [], references: saved
+      handoff.candidate, checkpoint, progress ? 'progress' : 'completed');
+    requireThat(!progress || saved, 'DELIVER_PROGRESS_SAVE_REQUIRED');
+    return { outcome: progress ? 'progress' : 'ready', findings: [], references: saved
       ? [...new Set([...references, checkpointURL(context, saved.head)])] : references,
       ...(saved ? {
         deliveryCheckpoint: { branch: saved.branch, head: saved.head },
@@ -114,7 +117,8 @@ export function stageHandlers({
           return receipt?.outcome === 'changes_required' &&
             receipt.artifacts.shapeHash === context.shape?.hash;
         });
-        if (checkpoint?.tree && !candidate && !context.adoptedCandidate &&
+        if (checkpoint?.tree && (!candidate || checkpoint.mode === 'progress') &&
+            !context.adoptedCandidate &&
             !context.ciFailure && !hasCorrection) {
           candidate = await restoreDeliver(checkpoint, context.shape.body);
           if (candidate) reference = checkpointURL(context, checkpoint.head);
@@ -153,7 +157,8 @@ export function stageHandlers({
           (context.candidate && matchesDeliveryCheckpoint(checkpoint, context.candidate));
         const retain = reference || saveExisting ||
           (retainedRemote && context.candidate && rebase?.status === 'rebased');
-        if (!findings && retain && rebase &&
+        if (checkpoint?.mode !== 'progress' && previousDelivery?.outcome !== 'progress' &&
+          !findings && retain && rebase &&
           ['unchanged', 'rebased'].includes(rebase.status) && !rebase.contentChanged) {
           return { retainedCandidate: rebase?.candidate ?? candidate,
             reference, checkpoint };
@@ -161,6 +166,9 @@ export function stageHandlers({
         const execution = await agent.run(stage, {
           ...context,
           ...(rebase ? { rebase } : {}),
+          ...(checkpoint?.mode === 'progress' ? { deliveryProgress: {
+            branch: checkpoint.branch, head: checkpoint.head, saved: true,
+          } } : {}),
           ...(findings ? { correctionFindings: findings } : {}),
         });
         if (execution?.status === 'interrupted')
@@ -277,7 +285,8 @@ export function stageHandlers({
           execution.lastMessage,
           execution.expectedThread,
         );
-        const passed = ['ready', 'approved', 'accepted'].includes(result.outcome);
+        const passed = ['ready', 'approved', 'accepted', 'progress']
+          .includes(result.outcome);
         const report = passed ? undefined : makeBlockerReport(context, stage, {
           result, termination: execution.terminationObservation });
         if (report) await persistReport(report);
@@ -310,9 +319,11 @@ export function stageHandlers({
               execution.terminationHash,
             );
           }
-          const candidate = await workspace.capture(context.shape.body);
+          const progress = result.outcome === 'progress';
+          const candidate = await workspace.capture(context.shape.body, false, progress);
+          requireThat(!progress || candidate.paths.length > 0, 'EMPTY_DELIVER_PROGRESS');
           return captureDelivery(context, decision, candidate,
-            result.evidenceReferences, execution.checkpoint);
+            result.evidenceReferences, execution.checkpoint, progress);
         }
         const blockedGuidance = stage === 'deliver' && result.outcome === 'blocked'
           ? await deliverBlockedGuidance?.(

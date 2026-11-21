@@ -194,7 +194,8 @@ export class StageRuntime {
             );
             requireThat(
               verified &&
-                [success[stage], 'blocked', 'changes_required'].includes(
+                [success[stage], 'blocked', 'changes_required',
+                  ...(stage === 'deliver' ? ['progress'] : [])].includes(
                   verified.outcome,
                 ) &&
                 Array.isArray(verified.findings) &&
@@ -213,7 +214,7 @@ export class StageRuntime {
               'INVALID_STAGE_READBACK',
             );
             requireThat(
-              verified.outcome === success[stage]
+              (verified.outcome === success[stage] || verified.outcome === 'progress')
                 ? verified.findings.length === 0
                 : verified.findings.length > 0,
               'INCONSISTENT_STAGE_OUTCOME',
@@ -244,7 +245,9 @@ export class StageRuntime {
             receiptHash = await this.#receipts.append(receipt);
             requireThat(receiptHash === digest(receipt), 'RECEIPT_PERSISTENCE_FAILED');
             blockedGuidance = verified.blockedGuidance;
-            return decision.requestHash;
+            return stage === 'deliver' && verified.outcome === 'progress'
+              ? { bindingHash: decision.requestHash, outcome: 'progress' }
+              : decision.requestHash;
           },
         },
       );
@@ -284,9 +287,11 @@ export class StageRuntime {
       return {
         schemaVersion: 1,
         stage,
-        status: receipt.outcome === success[stage] ? 'completed' : 'denied',
+        status: receipt.outcome === 'progress' ? 'pending'
+          : receipt.outcome === success[stage] ? 'completed' : 'denied',
         code:
-          receipt.outcome === success[stage]
+          receipt.outcome === 'progress' ? 'DELIVER_PROGRESS_SAVED'
+            : receipt.outcome === success[stage]
             ? 'STAGE_COMPLETED'
             : code,
         receiptHash,

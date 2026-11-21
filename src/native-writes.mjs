@@ -98,18 +98,19 @@ export function nativeWrites({
     observeDeliver,
     restoreDeliver: (checkpoint, shape) =>
       workspace.restoreDeliveryCheckpoint(checkpoint, shape, token),
-    saveDeliver: async (context, decision, candidate, checkpoint) => {
+    saveDeliver: async (context, decision, candidate, checkpoint, mode = 'completed') => {
       requireThat(context.approval.record.operations.includes('commit-pr') &&
         context.approval.record.roles.publisher === context.execution.actorId,
       'DELIVER_CHECKPOINT_PUBLICATION_NOT_APPROVED');
       const read = () => observeDeliver(context);
       const observed = await read();
-      if (matchesDeliveryCheckpoint(observed, candidate)) return observed;
+      if (matchesDeliveryCheckpoint(observed, candidate, mode)) return observed;
       requireThat(observed.head === checkpoint.head, 'DELIVER_BRANCH_ADVANCED');
       requireThat(observed.head === null || observed.owned,
         'DELIVER_BRANCH_OWNERSHIP_UNPROVEN');
       const committed = await workspace.commit(candidate, context.shape.body,
-        new Date(clock()).toISOString(), false, checkpointBinding(context));
+        new Date(clock()).toISOString(), mode === 'progress',
+        { ...checkpointBinding(context), mode });
       const guard = async write => {
         const admission = await guardFor('deliver', context, decision)(write);
         const fresh = await observe('deliver');
@@ -124,7 +125,7 @@ export function nativeWrites({
       } catch (error) { writeError = error; }
       // Native readback also covers a push that landed but lost its local reply.
       const actual = await read();
-      if (matchesDeliveryCheckpoint(actual, candidate)) return actual;
+      if (matchesDeliveryCheckpoint(actual, candidate, mode)) return actual;
       if (writeError && writeError.code !== 'PROCESS_FAILED') throw writeError;
       if (writeError) throw Object.assign(new Error('DELIVER_CHECKPOINT_PUSH_FAILED'), {
         code: 'DELIVER_CHECKPOINT_PUSH_FAILED', cause: writeError,

@@ -566,3 +566,70 @@ for (const missingProof of [false, true])
     assert.equal(writers, 1);
     assert.equal(await f.workspace.comparisonBase(), latest);
   });
+
+
+test('progress restores missing final artifacts and preserves later edits', async t => {
+  const f = await fixture(t);
+  await writeFile(join(f.workspace.work, 'source.txt'), 'Meaningful progress\n');
+  const candidate = await f.workspace.capture(shape, false, true);
+  const committed = await f.workspace.commit(candidate, shape,
+    '2026-11-18T00:00:00Z', true, { shape, lifecycle: 0, mode: 'progress' });
+  await f.workspace.push(committed.head, 'nibfin/deliver-2', 'synthetic-token',
+    async ({ targetHash }) => ({ targetHash, bindingHash: 'a'.repeat(64) }),
+    null, 'deliver');
+  const root = join(f.directory, 'fresh-progress-runner');
+  await mkdir(root, { mode: 0o700 });
+  const fresh = new CandidateWorkspace(root, stageFixture().approval.record.issue,
+    { run: f.run });
+  await fresh.prepare(f.base);
+  const pin = { head: committed.head, parent: committed.base, tree: committed.tree,
+    mode: 'progress' };
+  assert.deepEqual(await fresh.restoreDeliveryCheckpoint(pin, shape, 'fixture-token'),
+    candidate);
+  await assert.rejects(fresh.capture(shape), { code: 'REQUIRED_ARTIFACT_MISSING' });
+  await writeFile(join(fresh.work, 'source.txt'), 'Later edits\n');
+  assert.equal(await fresh.restoreDeliveryCheckpoint(pin, shape, 'fixture-token'), null);
+  assert.equal(await readFile(join(fresh.work, 'source.txt'), 'utf8'), 'Later edits\n');
+});
+
+for (const conflict of [false, true]) {
+  test(`restored progress aligns with current main, conflict: ${conflict}`, async t => {
+    const f = await fixture(t);
+    await writeFile(join(f.workspace.work, 'source.txt'), 'Saved implementation\n');
+    const candidate = await f.workspace.capture(shape, false, true);
+    const committed = await f.workspace.commit(candidate, shape,
+      '2026-11-18T00:00:00Z', true, { shape, lifecycle: 0, mode: 'progress' });
+    await f.workspace.push(committed.head, 'nibfin/deliver-2', 'fixture-token',
+      async ({ targetHash }) => ({ targetHash, bindingHash: 'a'.repeat(64) }),
+      null, 'deliver');
+    const root = join(f.directory, 'progress-alignment');
+    await mkdir(root, { mode: 0o700 });
+    const fresh = new CandidateWorkspace(root, stageFixture().approval.record.issue,
+      { run: f.run });
+    await fresh.prepare(f.base);
+    const pin = { head: committed.head, parent: committed.base, tree: committed.tree,
+      mode: 'progress' };
+    const restored = await fresh.restoreDeliveryCheckpoint(pin, shape, 'fixture-token');
+    await writeFile(join(f.seed, conflict ? 'source.txt' : 'main.txt'), 'New main\n');
+    await f.git(['add', '.']);
+    await f.git(['commit', '-m', 'Advance main']);
+    const main = await f.git(['rev-parse', 'HEAD']);
+    const aligned = await fresh.rebase(restored, shape, main,
+      '2026-11-18T01:00:00Z', true);
+    if (conflict) {
+      assert.equal(aligned.status, 'changes_required');
+      assert.equal(await fresh.restoreDeliveryCheckpoint(pin, shape, 'fixture-token'),
+        null);
+      assert.equal((await fresh.pendingRebase(shape)).latestMain, main);
+      await writeFile(join(fresh.work, 'source.txt'), 'Resolved implementation\n');
+      assert.equal((await fresh.continueRebase(shape, main, 'a'.repeat(64))).status,
+        'rebased');
+    } else {
+      assert.equal(aligned.status, 'rebased');
+      assert.equal(aligned.candidate.base, main);
+      assert.equal(await readFile(join(fresh.work, 'main.txt'), 'utf8'), 'New main\n');
+    }
+    assert.equal((await fresh.capture(shape, false, true)).artifacts.length, 0);
+    assert.equal(await fresh.pendingRebase(shape), null);
+  });
+}
