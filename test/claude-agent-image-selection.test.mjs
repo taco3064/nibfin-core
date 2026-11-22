@@ -59,7 +59,9 @@ test('Claude agent image inputs and resolvers select the live image check', () =
     'src/security/managed-npm/package-lock.json', 'src/agent-image-inputs.mjs',
     'src/claude-agent-plan.mjs', 'src/managed-derived-image.mjs',
     'scripts/verify-live-claude-agent-image.mjs',
-    'scripts/live-docker-profile.mjs']) {
+    'scripts/live-docker-profile.mjs', 'src/security/nibfin-claude.apparmor',
+    'src/security/codex-security.apparmor', 'src/claude-bootstrap.mjs',
+    'src/security/seccomp.json']) {
     assert.equal(select('--claude-agent-image', path), 'true\n', path);
     assert.equal(select('--native-docker', path), 'native_docker=true\n', path);
   }
@@ -79,4 +81,11 @@ test('the native Docker route runs the live check only for selected PRs',
     assert.match(step,
       /if \[\[ "\$\(node scripts\/test-changes\.mjs --claude-agent-image\)" == true/);
     assert.match(step, /node scripts\/verify-live-claude-agent-image\.mjs/);
+    // Both profiles load before the daemon starts and unload at the end.
+    for (const profile of ['codex-security', 'nibfin-claude']) {
+      const file = `src/security/${profile}.apparmor`;
+      const load = action.indexOf(`sudo apparmor_parser -r ${file}\n`);
+      assert(load >= 0 && load < action.indexOf('/usr/bin/dockerd'), profile);
+      assert(action.includes(`sudo apparmor_parser -R ${file}\n`), profile);
+    }
   });

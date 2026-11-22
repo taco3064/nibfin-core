@@ -21,6 +21,7 @@ runs:
         namespace=$(jq -cn --argjson uid "$uid_start" --argjson gid "$gid_start" \
           '{uidStart: $uid, gidStart: $gid, size: 65536}')
         sudo apparmor_parser -r src/security/codex-security.apparmor
+        sudo apparmor_parser -r src/security/nibfin-claude.apparmor
         sudo systemd-run --unit=nibfin-ci-docker --property=Delegate=yes \
           --property=Type=notify --property=RuntimeDirectory=nibfin-engine \
           /usr/bin/dockerd --host=unix:///run/nibfin-engine/docker.sock \
@@ -83,3 +84,4 @@ runs:
         sudo systemctl stop nibfin-ci-docker.service
         sudo userdel nibfin-ci-remap
         sudo apparmor_parser -R src/security/codex-security.apparmor
+        sudo apparmor_parser -R src/security/nibfin-claude.apparmor
