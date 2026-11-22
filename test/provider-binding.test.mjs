@@ -116,8 +116,9 @@ test('unknown or incomplete compositions never advertise execution', () => {
   stub.components.roleAdapter = '/repo/stub-provider.mjs';
   assert.throws(() => validateProviderBinding(stub),
     { code: 'PROVIDER_COMPOSITION_UNAVAILABLE' });
+  // Claude needs its one stored credential kind; none is a refusal.
   assert.throws(() => createProviderBinding(providerHost(), 'claude'),
-    { code: 'PROVIDER_COMPOSITION_UNAVAILABLE' });
+    { code: 'PROVIDER_CREDENTIAL_KIND_INVALID' });
 });
 
 test('two-slot and repository overrides fail before native execution selection', () => {

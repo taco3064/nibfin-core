@@ -39,6 +39,7 @@ function message(context, stage, body, rejected) {
     executionId: context.execution.id,
     terminationHash: 'a'.repeat(64),
     lastMessage: text,
+    result,
     stdout: [
       { type: 'thread.started', thread_id: context.execution.sessionId },
       { type: 'turn.started' },

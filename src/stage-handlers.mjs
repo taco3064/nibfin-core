@@ -3,11 +3,11 @@ import {
 } from './host-memory-pressure.mjs';
 import { makeBlockerReport } from './blocker-report.mjs';
 import { digest, isDigest, requireThat } from './identity.mjs';
-import { parseAgentResult } from './agent-result.mjs';
+import { validateAgentResult } from './agent-result.mjs';
 import { enforcementPaths, sameCandidate } from './candidate-evidence.mjs';
 import { candidateContract } from './candidate-contract.mjs';
 import { runCandidateHooks } from './hooks.mjs';
-import { codexIdle, codexPreflightExits, idleDiagnostic } from './codex-bootstrap.mjs';
+import { codexIdle, codexPreflightExits } from './codex-bootstrap.mjs';
 import { jobVmExecutorFailures } from './job-vm-exec-relay.mjs';
 import { writerPressureWait } from './job-vm-pressure.mjs';
 import { alignDelivery, handoffDelivery } from './deliver-freshness.mjs';
@@ -258,7 +258,8 @@ export function stageHandlers({
               jobVmExecutorFailures.includes(execution.code)
               ? `Agent environment check failed before the role ran (${execution.code}).`
               : 'Agent process failed and was stopped.');
-          const lastProgress = idleDiagnostic(execution.lastProgress ?? '');
+          // The sandbox already kept only its provider's own progress line.
+          const lastProgress = execution.lastProgress;
           console.error(`Nibfin ${stage}: ${finding}` +
             (lastProgress ? ` (${lastProgress})` : ''));
           const proof = await store.put({
@@ -279,12 +280,9 @@ export function stageHandlers({
           return { outcome: 'blocked', findings: [finding], report,
             references: ['evidence:' + proof], artifacts: execution.artifacts };
         }
-        const { result } = parseAgentResult(
-          stage,
-          execution.stdout,
-          execution.lastMessage,
-          execution.expectedThread,
-        );
+        // The role adapter already parsed its provider's stream; adopt that
+        // provider-neutral result under the same schema and outcome rules.
+        const result = validateAgentResult(stage, execution.result);
         const passed = ['ready', 'approved', 'accepted', 'progress']
           .includes(result.outcome);
         const report = passed ? undefined : makeBlockerReport(context, stage, {

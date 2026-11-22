@@ -84,3 +84,37 @@ test('failed preparation stays failed within the Job and launches no sandbox',
     }
     assert.equal(attempts, 1);
   });
+
+test('the adopted provider reaches the sandbox and preparer for Claude only',
+  async () => {
+    const tools = { node: '22.15.0' };
+    const run = async provider => {
+      const prepared = [], built = [];
+      class Preparer {
+        constructor(...args) { prepared.push(args); }
+        async prepare() { return `sha256:${'a'.repeat(64)}`; }
+      }
+      class Consumer { constructor(...args) { built.push(args); } }
+      await codexEnvironment(profile, '/core', undefined, { tools }, {
+        AgentSandbox: Consumer, HookSandbox: Consumer,
+        toolEnvironment: jobToolEnvironment(tools, Preparer),
+        ...(provider ? { provider } : {}),
+      });
+      const [[config, options]] = prepared;
+      return { config, options, agent: built[0][0], hooks: built[1][0] };
+    };
+    // Codex golden: constructor arguments carry no provider key at all.
+    const codex = await run();
+    assert.deepEqual(codex.config, endpoint);
+    assert.deepEqual(Object.keys(codex.options), ['backend', 'baseImage']);
+    assert.deepEqual(Object.keys(codex.agent), ['docker', 'socket', 'image',
+      'coreRoot', 'projectTools', 'additionalDomains']);
+    const claude = await run('claude');
+    assert.deepEqual(Object.keys(claude.options), ['backend', 'baseImage',
+      'provider']);
+    assert.equal(claude.options.provider, 'claude');
+    assert.equal(claude.agent.provider, 'claude');
+    assert.equal(claude.hooks.provider, undefined);
+    await assert.rejects(codexEnvironment(profile, '/core', undefined, {},
+      { provider: 'codex' }), { code: 'PROVIDER_COMPOSITION_UNAVAILABLE' });
+  });

@@ -145,7 +145,7 @@ test('blocked Deliver returns guidance through the Controller and keeps its find
       },
       agent: { run: async () => ({
         executionId: context.execution.id, terminationHash: 'a'.repeat(64),
-        lastMessage: message,
+        lastMessage: message, result: JSON.parse(message),
         stdout: [
           { type: 'thread.started', thread_id: context.execution.sessionId },
           { type: 'turn.started' },
@@ -206,6 +206,7 @@ test('a finished Author with invalid obligations writes a blocked receipt', asyn
   f.adapters.handlers = stageHandlers({
     agent: { run: async () => ({
       executionId: execution.id, terminationHash: 'a'.repeat(64), lastMessage: message,
+      result: JSON.parse(message),
       stdout: [
         { type: 'thread.started', thread_id: execution.sessionId },
         { type: 'turn.started' },
@@ -526,6 +527,7 @@ test('Agent-authored host pressure claims cannot authorize recovery', async t =>
     store: { put: async value => digest(value) },
     agent: { run: async () => ({
     executionId: execution.id, terminationHash: 'a'.repeat(64), lastMessage: message,
+    result: JSON.parse(message),
     stdout: [
       { type: 'thread.started', thread_id: execution.sessionId },
       { type: 'turn.started' },

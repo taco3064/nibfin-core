@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { CodexRoleAgent } from '../src/codex-agent.mjs';
 import { claudePolicyHash } from '../src/claude-agent-plan.mjs';
+import { claudeCredentialReader } from '../src/claude-composition.mjs';
 import { digest } from '../src/identity.mjs';
 import { stageFixture } from './stage-fixture.mjs';
 
@@ -151,4 +152,22 @@ test('a Firecracker writer selects the Claude VM-mode plan, never Codex\'s',
       .run('shape', stageFixture('shape'));
     assert.equal(codex.inputs[0].plan.jobVm, undefined);
     assert.equal(codex.inputs[0].plan.provider, undefined);
+  });
+
+test('a stored Claude credential of another kind than the binding is unavailable',
+  async t => {
+    const f = await fixture(t, 'claude');
+    // The binding names the API key kind; the stored value is a subscription token.
+    f.options.readCredential = claudeCredentialReader('anthropic-api-key',
+      async () => claudeToken);
+    await assert.rejects(new CodexRoleAgent(f.config, f.isolator, f.options)
+      .run('shape', stageFixture('shape')),
+    { message: 'CLAUDE_CREDENTIAL_UNAVAILABLE' });
+    assert.equal(f.inputs.length, 0);
+    const bound = await fixture(t, 'claude');
+    bound.options.readCredential = claudeCredentialReader('claude-subscription-token',
+      async () => claudeToken);
+    await new CodexRoleAgent(bound.config, bound.isolator, bound.options)
+      .run('shape', stageFixture('shape'));
+    assert.equal(bound.inputs[0].credential, claudeToken);
   });

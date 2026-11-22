@@ -29,7 +29,8 @@ test('Deliver cleans Writer scratch for blocked and interrupted executions', asy
     { type: 'turn.completed' },
   ].map(event => JSON.stringify(event)).join('\n');
   const stopped = { executionId: 'writer', terminationHash: proof };
-  const blocked = await deliver.readBack(context, { ...stopped, stdout, lastMessage });
+  const blocked = await deliver.readBack(context, { ...stopped, stdout, lastMessage,
+    result: JSON.parse(lastMessage) });
   assert.equal(blocked.outcome, 'blocked');
   assert.deepEqual(blocked.findings, ['Missing input']);
   const interrupted = await deliver.readBack(context, {
