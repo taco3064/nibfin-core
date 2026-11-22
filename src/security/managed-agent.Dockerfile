@@ -1,8 +1,10 @@
 FROM nibfin-reviewed-go-input AS go
 FROM nibfin-reviewed-node-input
-# Immutable Debian snapshot over plain HTTP: the base image has no CA bundle.
-# Authenticity comes from apt verifying the snapshot's signed InRelease against
-# the base image's Debian keyring, plus per-file hashes; TLS adds no integrity.
+# Immutable Debian snapshot over plain HTTP: the base image has no CA bundle, so
+# TLS is unavailable here. Authenticity comes from apt verifying the snapshot's
+# signed InRelease against the base image's Debian keyring, plus per-file hashes.
+# Accepted limit: with check-valid-until=no, HTTP does not stop an on-path replay
+# of an older genuinely signed snapshot index.
 # No moving suite, repository mirror or npm version range is consulted.
 RUN rm -f /etc/apt/sources.list /etc/apt/sources.list.d/* \
     && . /etc/os-release \
