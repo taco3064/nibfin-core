@@ -79,21 +79,36 @@ export function engineFileStore(operations = nativeFiles) {
     return JSON.parse(bytes);
   }
 
+  // Atomic replacement only over the exact previous contents that were read back.
+  async function replaceExact(path, bytes, previous, mode) {
+    await exactFile(path, previous, mode);
+    const temp = `${path}.${randomUUID()}`;
+    try {
+      await installEngineFile(temp, bytes, mode);
+      await rename(temp, path);
+      await syncRecoveryDirectory(dirname(path));
+      await exactFile(path, bytes, mode);
+    } finally {
+      await unlink(temp).catch(error => { if (error.code !== 'ENOENT') throw error; });
+    }
+  }
+
   // A durable intent precedes every privileged effect. Atomic replacement is only
   // allowed for the private journal whose exact previous contents were read back.
   async function saveEngineState(path, state, previous) {
     const bytes = JSON.stringify(state, null, 2) + '\n';
     if (!previous) return installEngineFile(path, bytes);
-    await exactFile(path, JSON.stringify(previous, null, 2) + '\n');
-    const temp = `${path}.${randomUUID()}`;
-    try {
-      await installEngineFile(temp, bytes);
-      await rename(temp, path);
-      await syncRecoveryDirectory(dirname(path));
-      await exactFile(path, bytes);
-    } finally {
-      await unlink(temp).catch(error => { if (error.code !== 'ENOENT') throw error; });
-    }
+    await replaceExact(path, bytes, JSON.stringify(previous, null, 2) + '\n', 0o600);
+  }
+
+  // Like installEngineFile, but an exact `previous` file that Core computed itself
+  // is atomically replaced. Any other existing content is kept and refused.
+  async function replaceEngineFile(path, bytes, previous, mode = 0o600) {
+    await rootOwnedPath(dirname(path));
+    const current = await optionalStat(path) &&
+      await boundedHostFile(path, 1024 * 1024).catch(() => null);
+    if (current !== previous) return installEngineFile(path, bytes, mode);
+    await replaceExact(path, bytes, previous, mode);
   }
 
   async function requireEmptyDirectory(path) {
@@ -105,13 +120,13 @@ export function engineFileStore(operations = nativeFiles) {
   }
   return {
     requireDirectoryEntries,
-    optionalStat, exactFile, ownedDirectory, installEngineFile,
+    optionalStat, exactFile, ownedDirectory, installEngineFile, replaceEngineFile,
     readEngineState, saveEngineState, requireEmptyDirectory,
   };
 }
 
 export const {
   requireDirectoryEntries,
-  optionalStat, exactFile, ownedDirectory, installEngineFile,
+  optionalStat, exactFile, ownedDirectory, installEngineFile, replaceEngineFile,
   readEngineState, saveEngineState, requireEmptyDirectory,
 } = engineFileStore();

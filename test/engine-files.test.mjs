@@ -47,6 +47,30 @@ test('changed journal contents and directory owners prevent adoption', async () 
     { code: 'ENGINE_DIRECTORY_CONFLICT' });
 });
 
+test('a guarded replace swaps only the exact previous bytes and leaves no scratch',
+  async () => {
+    const { nodes, store } = fileDouble();
+    await store.replaceEngineFile('/owned/profile', 'codex', 'none', 0o644);
+    await store.replaceEngineFile('/owned/profile', 'claude', 'codex', 0o644);
+    // A resumed replace accepts the new bytes as already published.
+    await store.replaceEngineFile('/owned/profile', 'claude', 'codex', 0o644);
+    assert.deepEqual([...nodes.keys()].sort(), ['/owned', '/owned/profile']);
+    const node = nodes.get('/owned/profile');
+    assert.deepEqual([node.bytes, node.mode, node.nlink], ['claude', 0o644, 1]);
+    for (const change of [node => { node.bytes = 'manual'; },
+      node => { node.mode = 0o600; }, node => { node.nlink = 2; },
+      node => { node.kind = 'link'; }]) {
+      const { nodes, store } = fileDouble();
+      await store.installEngineFile('/owned/profile', 'codex', 0o644);
+      change(nodes.get('/owned/profile'));
+      const before = structuredClone(nodes.get('/owned/profile'));
+      await assert.rejects(
+        store.replaceEngineFile('/owned/profile', 'claude', 'codex', 0o644));
+      assert.deepEqual(nodes.get('/owned/profile'), before);
+      assert.deepEqual([...nodes.keys()].sort(), ['/owned', '/owned/profile']);
+    }
+  });
+
 test('unexpected managed directory entries are refused and preserved', async () => {
   const { nodes, store } = fileDouble();
   await store.installEngineFile('/owned/config', 'fixed');

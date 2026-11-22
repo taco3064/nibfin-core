@@ -1,5 +1,5 @@
 import { managedPaths } from './managed-credential-files.mjs';
-import { managedModel } from './managed-model.mjs';
+import { managedModel, managedModels } from './managed-model.mjs';
 import { engine } from './engine-contract.mjs';
 import { managedSharedAdmission } from './shared-admission-policy.mjs';
 import { claudeAppArmorProfile } from './claude-agent-plan.mjs';
@@ -50,26 +50,33 @@ export const managedPreparationCapability = Object.freeze({
   architectures: Object.freeze(['amd64', 'arm64']),
 });
 
-export function managedProfile(namespace, images) {
+// `claude = { image, version }` publishes the Claude Agent in both slots. Its
+// CLI version keeps the `codexVersion` field the sandbox already reads. Without
+// it the Codex profile is unchanged and carries no `provider` key.
+export function managedProfile(namespace, images, { claude } = {}) {
   const isolation = slot => ({
     kind: 'linux-rootful-docker-v1', namespace: structuredClone(namespace),
     agent: {
-      docker: '/usr/bin/docker', socket: engine.socket, image: images.agent,
-      codexVersion: 'codex-cli 0.166.0',
+      docker: '/usr/bin/docker', socket: engine.socket,
+      image: claude ? claude.image : images.agent,
+      codexVersion: claude ? claude.version : 'codex-cli 0.166.0',
       mcpPolicyDirectory: `/var/lib/nibfin/controller/slot-${slot}/egress`,
     },
     hooks: { docker: '/usr/bin/docker', socket: engine.socket, image: images.hooks },
   });
   return {
-    schemaVersion: 1, ...managedPaths, model: managedModel,
+    schemaVersion: 1, ...claude && { provider: 'claude' }, ...managedPaths,
+    model: claude ? managedModels.claude : managedModel,
     sharedAdmission: managedSharedAdmission,
     managedEgressNetwork: managedResources.egress,
     isolation: isolation(1), secondaryIsolation: isolation(2),
   };
 }
 
-export function preparedResult(images) {
+// `images.claudeAgent` is added only when the Claude profile is published.
+export function preparedResult(images, claudeAgent) {
   return { status: 'prepared', code: managedPreparationCapability.preparedCode,
-    profile: managedResources.profile, images: { ...images },
+    profile: managedResources.profile,
+    images: { ...images, ...claudeAgent && { claudeAgent } },
     adoption: false, servicesReady: false };
 }

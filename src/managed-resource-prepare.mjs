@@ -6,6 +6,7 @@ import {
 import { resourceProbe } from './managed-resource-probe.mjs';
 
 const claude = managedResources.claude;
+const claudeProfileEffect = 'profile:claude';
 
 // Only the Claude-specific inputs; the Codex digest in `state.inputs` never moves.
 function claudeDigest(inputs) {
@@ -34,12 +35,13 @@ async function admitClaude(io, state, inputs) {
 
 // Pure orchestration; only the installed entry constructs privileged capabilities.
 // A Claude request adds its own journal section after the unchanged Codex steps.
+// Once that section exists, every later run keeps Claude: it never reverts the host.
 export async function deliverManagedResources(io, { claude: requested = false } = {}) {
   const engine = await io.verifyEngine();
   const architecture = engine.architecture ?? 'amd64';
   const inputs = await io.inputs(architecture);
-  const claudeInputs = requested
-    ? await io.inputs(architecture, { claude: true }) : null;
+  const claudeRead = () => io.inputs(architecture, { claude: true });
+  let claudeInputs = requested ? await claudeRead() : null;
   let state = await io.load();
   if (!state) {
     await io.pristine();
@@ -53,6 +55,7 @@ export async function deliverManagedResources(io, { claude: requested = false } 
     state.images && state.effects, 'RESOURCE_STATE_CONFLICT');
   requireThat(!state.probe || state.probe.phase === 'complete',
     'RESOURCE_PROBE_RECONCILIATION_REQUIRED');
+  if (!claudeInputs && state.claude) claudeInputs = await claudeRead();
   if (claudeInputs) await admitClaude(io, state, claudeInputs);
   await io.gate(state.owner);
   let saved = structuredClone(state);
@@ -120,9 +123,20 @@ export async function deliverManagedResources(io, { claude: requested = false } 
   }
   const finalEngine = await io.verifyEngine();
   requireThat(finalEngine.identity === engine.identity, 'RESOURCE_ENGINE_CHANGED');
-  await effect('profile', () => io.publish(profile));
+  // The Claude profile replaces only the Codex profile computed from this journal.
+  // Once its publish has started, the Claude effect alone checks the profile, so
+  // a resumed replace accepts either computed profile and nothing else.
+  if (!state.claude?.effects[claudeProfileEffect])
+    await effect('profile', () => io.publish(profile));
+  const claudeAgent = claudeInputs ? state.claude.images[claude.kind] : undefined;
+  if (claudeInputs) {
+    const published = managedProfile(engine.namespace, state.images, { claude: {
+      image: claudeAgent, version: claudeInputs.versions.claude } });
+    await effect(claudeProfileEffect, () => io.publish(published, profile),
+      state.claude.effects);
+  }
   state.phase = 'prepared';
   await save();
   await io.clearGate(state.owner);
-  return preparedResult(state.images);
+  return preparedResult(state.images, claudeAgent);
 }

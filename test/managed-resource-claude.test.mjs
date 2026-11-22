@@ -11,7 +11,7 @@ import {
 import {
   prepareManagedSharedHost, preparationAgent,
 } from '../src/managed-resource-install.mjs';
-import { fixture, image } from './managed-resource-fixture.mjs';
+import { fixture, image, claudeVersion } from './managed-resource-fixture.mjs';
 
 // One line per IO call; probe names and the random owner are normalized.
 function traced(io) {
@@ -68,19 +68,24 @@ const claudeImage = image(claudeKind);
 const claudeOptions = { claude: true };
 const withoutClaude = ({ claude, ...journal }) => journal;
 const withoutProbe = ({ probe, ...journal }) => journal;
+// The Codex result plus only the Claude Agent image.
+const claudeResult = codex => ({ ...codex,
+  images: { ...codex.images, claudeAgent: claudeImage } });
+const claudeEffects = [`image:${claudeKind}`, 'policy:claude', 'profile:claude'];
 
 test('a fresh Claude request prepares Codex first, then its own section', async () => {
   const io = fixture();
   const calls = traced(io);
   const result = await deliverManagedResources(io, claudeOptions);
   const [codex] = await golden();
-  assert.deepEqual(result, codex.result);
+  assert.deepEqual(result, claudeResult(codex.result));
+  verifyPreparationResult(result);
   const journal = normalized(io.state);
   assert.deepEqual(withoutProbe(withoutClaude(journal)), withoutProbe(codex.journal));
   assert.deepEqual(journal.claude, {
     inputs: digest({ recipe: 'claude recipe', package: 'script', shell: 'shell',
-      profile: 'claude policy', version: '2.1.326' }),
-    effects: { [`image:${claudeKind}`]: 'complete', 'policy:claude': 'complete' },
+      profile: 'claude policy', version: claudeVersion }),
+    effects: Object.fromEntries(claudeEffects.map(key => [key, 'complete'])),
     images: { [claudeKind]: claudeImage } });
   assert.equal(journal.probe.key, `2:${claudeKind}`);
   const first = name => calls.indexOf(name);
@@ -99,6 +104,9 @@ test('a fresh Claude request prepares Codex first, then its own section', async 
     first(`policy claude policy true ${claudeProfile}`));
   assert(first(`policy claude policy true ${claudeProfile}`) < last('verifyEngine'));
   assert(last('verifyEngine') < first('publish'));
+  // The Codex profile first, then its replacement by the Claude profile.
+  assert.equal(calls.filter(call => call === 'publish').length, 2);
+  assert.equal(io.profile.provider, 'claude');
   assert.equal(io.proofs, 6);
 });
 
@@ -106,16 +114,30 @@ test('an existing prepared Codex journal only gains the Claude section', async (
   const io = fixture();
   const codex = await deliverManagedResources(io);
   const before = structuredClone(io.state);
-  assert.deepEqual(await deliverManagedResources(io, claudeOptions), codex);
+  assert.deepEqual(await deliverManagedResources(io, claudeOptions),
+    claudeResult(codex));
   assert.deepEqual(withoutProbe(withoutClaude(io.state)), withoutProbe(before));
-  assert.deepEqual(Object.keys(io.state.claude.effects),
-    [`image:${claudeKind}`, 'policy:claude']);
-  // A later run without the request leaves the Claude section untouched.
-  const claude = structuredClone(io.state.claude);
+  assert.deepEqual(Object.keys(io.state.claude.effects), claudeEffects);
+});
+
+test('a later run without the request keeps the published Claude host', async () => {
+  const io = fixture();
+  const result = await deliverManagedResources(io, claudeOptions);
+  const journal = structuredClone(io.state);
+  const profile = structuredClone(io.profile);
   const calls = traced(io);
-  assert.deepEqual(await deliverManagedResources(io), codex);
-  assert.deepEqual(io.state.claude, claude);
-  assert(!calls.some(call => call.includes(claudeKind) || call === 'claudePristine'));
+  assert.deepEqual(await deliverManagedResources(io), result);
+  assert.deepEqual(withoutProbe(io.state), withoutProbe(journal));
+  assert.deepEqual(io.profile, profile);
+  // It reads the Claude inputs and re-observes the Claude image and policy only.
+  assert.equal(calls.filter(call => call === 'inputs').length, 2);
+  assert(!calls.includes('claudePristine'));
+  assert(!calls.includes(`image ${claudeKind} false`));
+  assert.equal(calls.filter(call => call === `image ${claudeKind} true`).length, 2);
+  assert.equal(calls.filter(call =>
+    call === `policy claude policy true ${claudeProfile}`).length, 2);
+  // Only the Claude effect checks the profile: one publish, never the Codex one.
+  assert.equal(calls.filter(call => call === 'publish').length, 1);
 });
 
 test('an interrupted Claude effect resumes only by observation', async () => {
@@ -163,18 +185,23 @@ test('changed Claude inputs conflict before the gate or any Claude effect',
       return value;
     };
     const calls = traced(io);
-    await assert.rejects(deliverManagedResources(io, claudeOptions),
-      { code: 'RESOURCE_STATE_CONFLICT' });
-    assert.deepEqual(io.state, before);
+    // With or without the request: a recorded Claude section never follows them.
+    for (const options of [claudeOptions, undefined]) {
+      await assert.rejects(deliverManagedResources(io, options),
+        { code: 'RESOURCE_STATE_CONFLICT' });
+      assert.deepEqual(io.state, before);
+    }
     assert(!calls.includes('gate') && !calls.includes('claudePristine'));
+    assert(!calls.includes('publish'));
     // Claude-inclusive inputs without the Claude pin are not a Claude request.
     io.inputs = async (architecture, options) => ({
       ...await inputs(architecture, options), ...options?.claude && { versions: {} } });
     await assert.rejects(deliverManagedResources(io, claudeOptions),
       { code: 'RESOURCE_INPUT_CONTRACT_INVALID' });
-    // The Codex flow alone is unaffected by the Claude inputs.
+    // The recorded Claude inputs prepare again without the request.
     io.inputs = inputs;
     await deliverManagedResources(io);
+    assert.equal(io.profile.provider, 'claude');
   });
 
 test('foreign Claude resources refuse the request before its section exists',
