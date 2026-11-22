@@ -3,6 +3,7 @@ export { observeLocalWork } from './local-work-observation.mjs';
 import { managedPreparationCapability } from './managed-resource-contract.mjs';
 import { managedSharedAdmission } from './shared-admission-policy.mjs';
 import { claudeModelComponent } from './claude-model-runner.mjs';
+import { claudeCredentialKinds } from './claude-credential-kinds.mjs';
 import { coreMaintenanceContract } from './core-maintenance-contract.mjs';
 import { upgradeContinuationContract } from './upgrade-continuation-contract.mjs';
 import maintenanceInstallation from './core-maintenance-installation.json'
@@ -54,6 +55,11 @@ export const consumerContract = Object.freeze({
     executionAuthority: false }),
   claudeModel: claudeModelComponent,
   managedResourcePreparation: managedPreparationCapability,
+  // The Claude intake envelope replaces `codex` with this key; one known kind.
+  managedCredentials: Object.freeze({
+    claude: Object.freeze({ envelopeKey: 'claude',
+      credentialKinds: Object.freeze(Object.keys(claudeCredentialKinds)) }),
+  }),
   administratorCoreRollout: Object.freeze({
     schemaVersion: 1, command: 'rollout-core',
     preparationCommand: 'install-core-rollout-manager',

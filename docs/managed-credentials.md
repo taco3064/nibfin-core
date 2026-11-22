@@ -22,6 +22,9 @@ an Anthropic API key (`sk-ant-api…`). An unrecognized value returns
 or `claude`. Its provider must match the published host profile's `provider`
 (absent means Codex); otherwise Core returns
 `MANAGED_CREDENTIAL_PROVIDER_MISMATCH` and writes nothing.
+`consumerContract.managedCredentials.claude` advertises this envelope: its
+`envelopeKey` (`claude`) and the accepted `credentialKinds`
+(`claude-subscription-token`, `anthropic-api-key`).
 
 The complete envelope is limited to 65,536 bytes and ten seconds of input.
 Do not put this envelope in arguments, environment variables, a repository,
@@ -68,8 +71,11 @@ Codex set, and `status` reports `credentialKind` only for Claude. Intake refuses
 manual files; Claude intake also refuses any existing Claude kind file.
 Replacement requires active managed state and the same bound member, and renews
 only the same provider and kind. Switching provider or Claude kind is
-`disconnect` followed by `intake`. Replacement reuses the existing files only
-when both the GitHub token and the provider credential are unchanged.
+`disconnect` followed by `intake`; after a switch to Claude, the Codex
+`codex/auth.json` is absent and Claude adoption names the kind from the one
+stored Claude file (see [installed provider](installed-provider.md)).
+Replacement reuses the existing files only when both the GitHub token and the
+provider credential are unchanged.
 File publication is exclusive for intake, checked against owned inodes for
 replacement, atomic per file, and synchronized with its parent directory.
 An interrupted multi-file publication remains `installing`, blocking admission.

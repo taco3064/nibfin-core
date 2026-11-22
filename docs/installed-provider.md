@@ -10,16 +10,36 @@ Agent image and code-owned adapter, runner, tool-channel and host-profile contra
 Existing package/source and actual host isolation checks remain mandatory.
 
 `provider-binding.mjs` owns identity and compatibility validation. The finite
-identities are `codex` and `claude`. This release composes only Codex; Claude is
-unavailable even if an administrator supplies all component names. A future
-implementation must provide its compatible role adapter, model runner, credential
-boundary, fixed work-tool channel and isolated host profile before enabling package
-selection. No module path, command, registry or repository-defined implementation
-can satisfy compatibility. Controlled tests are not live Claude or host certification.
+identities are `codex` and `claude`, and Core composes both from a code-owned
+table:
 
-Adoption obtains the provider from the trusted installation profile (`provider`,
-defaulting to Codex for existing Codex installers), verifies the source, profile and
-both native registrations, then stores the binding. Inspection, service startup,
+- **Codex:** `codex-role-v1`, `codex-exec-v1`, `codex-isolated-tools-v1` and the
+  fixed `codex-chatgpt` credential kind.
+- **Claude:** `claude-role-v1`, `claude-code-v1`, `claude-sandbox-tools-v1` and a
+  required `credentialKind` naming its one stored credential
+  (`claude-subscription-token` or `anthropic-api-key`).
+
+No module path, command, registry or repository-defined implementation can
+satisfy compatibility. Controlled tests are not live Claude or host certification.
+
+Adoption obtains the provider from the trusted installation profile: `provider`
+absent or `codex` is Codex, `claude` is Claude, and any other value is
+`UNKNOWN_INSTALLED_PROVIDER`. It verifies the source, profile and both native
+registrations, then stores the binding; the slot gateways receive the bound
+provider. A Codex profile requires the private `tokenFile` and `authFile`.
+A Claude profile, published by [Claude preparation](managed-resource-preparation.md),
+requires `tokenFile` in the fixed managed directory
+`/var/lib/nibfin/controller/credentials` (otherwise `SHARED_HOST_PROFILE_INVALID`)
+and exactly one Claude kind file beside it, both private controller files.
+The binding's `credentialKind` comes from which kind file exists; adoption never
+reads the secret, and a mismatched value still fails at stage time as
+`CLAUDE_CREDENTIAL_UNAVAILABLE`. `authFile` stays a path in the host record and
+need not exist, but its directory must still be private.
+
+A Claude pool has no user MCP route: a configured host or target MCP source returns
+Pending `CLAUDE_MCP_UNSUPPORTED` before any role or MCP resource starts. Local
+blocker diagnosis runs the Codex plan only and refuses a Claude pool with
+`CLAUDE_DIAGNOSIS_UNSUPPORTED`. Inspection, service startup,
 Core adoption loading, slot selection, peer enrollment and rollout validate it.
 The launcher selects `installedProviderExecutor` before preparing project tools.
 Project configuration, Issue text, Workflow input, labels and environment cannot
@@ -42,7 +62,11 @@ and credential renewal retain provider identity and pool association. Recognized
 legacy pools can continue through same-provider updates without inventing an
 original record; when explicitly adopting a binding during an update, retain the
 pre-update original record. Switching provider requires retirement and rebuilding
-the pool. AGENT-4 implements retirement separately; these checks do not retire it.
+the pool; [managed retirement](managed-retirement.md) allows the replacement to
+bind a different provider. Retirement settles only Core-created provider copies:
+the per-run `agent-auth-*` copy of a Codex execution and the session homes. A
+Claude execution makes no per-run credential copy, so only its session homes are
+listed.
 
 ## Component boundaries for downstream implementations
 
@@ -60,11 +84,10 @@ the pool. AGENT-4 implements retirement separately; these checks do not retire i
 - **Fixed work-tool channel (AGENT-7):** consumes only bounded role capabilities
   and workspace operations. It must enforce those bounds without forwarding
   model credentials, arbitrary trusted-host commands, Docker/host control or
-  caller-selected executables. Codex currently uses the fixed isolated tool policy
-  in `codexPlan` and the existing sandbox; this contract does not implement a
-  separate Claude tool executor or permit a generic plugin.
-  The Claude-specific stdio handoff and per-execution operation guard are
-  defined in `src/claude-work-channel.mjs` and [the adapter contract](claude-adapter.md).
+  caller-selected executables. Codex uses the fixed isolated tool policy in
+  `codexPlan` and the existing sandbox. Claude uses the stdio handoff and
+  per-execution operation guard in `src/claude-work-channel.mjs` and
+  [the adapter contract](claude-adapter.md). Neither permits a generic plugin.
 - **Termination:** the runner returns `completed` or safely `interrupted`, bound
   to `executionId` and a confirmed `terminationHash`. Completion also binds policy,
   isolation and probe evidence. `requireModelTermination` rejects missing,
@@ -74,5 +97,5 @@ the pool. AGENT-4 implements retirement separately; these checks do not retire i
   it never authorizes workspace acceptance, cleanup or subsequent execution.
 
 No readiness assertion here replaces native package verification, single Writer,
-Hooks, independent Acceptance, PR CI or Final Review. Claude adapter, credentials,
-isolation, work tools, retirement and real deployment remain separately scoped.
+Hooks, independent Acceptance, PR CI or Final Review. Live Claude accounts and
+real Claude pool deployment remain unverified by these controlled tests.

@@ -32,22 +32,32 @@ export const policyTargets = Object.freeze({
   claude: Object.freeze({ path: managedResources.claude.policy,
     name: managedResources.claude.apparmor, proof: 'policy-claude.json' }),
 });
+const preparationArguments = Object.freeze(['--consent-resource-preparation']);
+const preparationImageKeys = Object.freeze(['agent', 'hooks']);
 export const managedPreparationCapability = Object.freeze({
   kind: 'linux-managed-resources-v1',
   executable: '/opt/nibfin/core/bin/nibfin-prepare-shared-host.mjs',
-  arguments: Object.freeze(['--consent-resource-preparation']),
+  arguments: preparationArguments,
   statuses: Object.freeze(['prepared', 'denied', 'pending']),
   preparedCode: 'MANAGED_RESOURCES_PREPARED',
   profile: managedResources.profile,
   resultKeys: Object.freeze(['status', 'code', 'profile', 'images',
     'adoption', 'servicesReady']),
-  imageKeys: Object.freeze(['agent', 'hooks']),
+  imageKeys: preparationImageKeys,
   exitCodes: Object.freeze({ prepared: 0, denied: 1, pending: 2 }),
   adoption: false,
   servicesReady: false,
   credentialsRequired: false,
   registrationsRequired: false,
   architectures: Object.freeze(['amd64', 'arm64']),
+  // Additive: the keys above stay the Codex request consumers already check.
+  // A Claude request appends its agent argument; its result adds `claudeAgent`.
+  agents: Object.freeze({
+    claude: Object.freeze({
+      arguments: Object.freeze([...preparationArguments, '--agent=claude']),
+      imageKeys: Object.freeze([...preparationImageKeys, 'claudeAgent']),
+    }),
+  }),
 });
 
 // `claude = { image, version }` publishes the Claude Agent in both slots. Its

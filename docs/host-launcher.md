@@ -46,9 +46,9 @@ The adoption file has these fields; credentials are never embedded in it:
 | `installation` | `{directory: "/opt/nibfin/core", pin}` using the verified public package pin |
 | `stateRoot` | Canonical existing controller-owned 0700 directory; persistent across jobs |
 | `tokenFile` | Controller-owned 0600 single-link file in a private directory; native read/write credential |
-| `authFile` | Existing private subscription login file, validated by the Agent adapter |
+| `authFile` | Codex: existing private subscription login file, validated by the Agent adapter. Claude: path only; the Agent reads the one managed Claude kind file beside `tokenFile` (see `installed-provider.md`) |
 | `globalInstructionsFile` | Optional absolute path to the user's global `AGENTS.md` |
-| `model` | Adopted Codex model |
+| `model` | Adopted model of the bound provider |
 | `issues` | Map keyed by positive Issue number, containing the records below |
 
 At Job start, Core reads the configured global instructions once and supplies the
