@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, readFile, writeFile, rm, symlink } from 'node:fs/promises';
+import {
+  mkdtemp, mkdir, readdir, readFile, writeFile, rm, symlink,
+} from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -16,6 +18,8 @@ import { bindMcpProfile } from '../src/mcp-resolve.mjs';
 import { digest } from '../src/identity.mjs';
 import { prepareHostJobMcp } from '../src/mcp-job-host.mjs';
 import { createMcpDelegation } from '../src/mcp-delegation.mjs';
+import { storePrivateMcpDelegation } from '../src/mcp-transfer.mjs';
+import { mcpJobCopyPath } from '../src/mcp-copy-settlement.mjs';
 
 const binding = { repositoryId: 1, memberId: 2, runnerId: 3,
   runId: 4, attempt: 1, jobId: 5 };
@@ -240,9 +244,20 @@ test('host shares one acquisition and refuses completed-Job replay', async t => 
     runner_id: runner.runnerId, status: 'in_progress', conclusion: null,
     };
   };
-  const options = { host, runner, approval, reader: { get } };
+  const issueRoot = join(root, 'issue-1-7');
+  await mkdir(issueRoot, { mode: 0o700 });
+  const options = { host, issueRoot, runner, approval, reader: { get } };
+  const copyOf = value => mcpJobCopyPath(issueRoot, mcpJobBinding(value));
   const adapters = {
     inspectEndpoint: async () => {},
+    store: async (file, value) => {
+      // The owner record precedes the delegated source in the copy.
+      const owner = JSON.parse(await readFile(join(copyOf(runner), 'owner.json')));
+      assert.deepEqual(Object.keys(owner).sort(), ['pid', 'schemaVersion', 'startTicks']);
+      assert.equal(owner.pid, process.pid);
+      await assert.rejects(readFile(file), { code: 'ENOENT' });
+      return storePrivateMcpDelegation(file, value);
+    },
     acquire: async (_source, actual, { signal }) => {
       signal.throwIfAborted();
       assert.deepEqual(actual, binding);
@@ -259,7 +274,13 @@ test('host shares one acquisition and refuses completed-Job replay', async t => 
   assert.equal(first, await job.read());
   assert.equal(acquisitions, 1);
   assert.equal(loads, 1);
+  // Copies are attributed to the Issue; the host-wide directory keeps claims.
+  assert.deepEqual((await readdir(copyOf(runner))).sort(),
+    ['owner.json', 'source.json']);
+  assert.deepEqual(await readdir(join(root, 'mcp-jobs')),
+    [digest(binding) + '.json']);
   await job.retire(true);
+  await assert.rejects(readdir(copyOf(runner)), { code: 'ENOENT' });
   job.stop();
   await assert.rejects(prepareHostJobMcp(options, adapters), {
     code: 'MCP_JOB_ALREADY_CLAIMED',
@@ -277,9 +298,8 @@ test('host shares one acquisition and refuses completed-Job replay', async t => 
     },
   }), { name: 'AbortError' });
   const cancelled = digest(mcpJobBinding(runner));
-  const cancelledDirectory = join(root, 'mcp-jobs', cancelled + '.copies');
-  await assert.rejects(readFile(join(cancelledDirectory, 'source.json')),
-    { code: 'ENOENT' });
+  // A failed preparation removes its source and owner record with the copy.
+  await assert.rejects(readdir(copyOf(runner)), { code: 'ENOENT' });
   assert.ok((await readFile(join(root, 'mcp-jobs', cancelled + '.json'))).length);
   await assert.rejects(prepareHostJobMcp({ ...options,
     runner: { ...runner, actionCommit: 'c'.repeat(40) } }, adapters), {

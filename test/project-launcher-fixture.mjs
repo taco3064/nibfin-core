@@ -1,6 +1,8 @@
 import { mock } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
+import {
+  mkdtemp, mkdir, readFile, writeFile, rm, stat,
+} from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { retryDelay } from '../scripts/retry-shared-runner.mjs';
@@ -11,6 +13,10 @@ import * as retirement from '../src/retirement-admission.mjs';
 import { issueProgress } from '../src/issue-progress.mjs';
 import { OperationJournal } from '../src/operation-journal.mjs';
 import { continueStages } from '../src/stage-continuation.mjs';
+import {
+  createMcpJobCopy, mcpCopyOwner, mcpCopyOwnerFile, mcpJobCopyPath,
+} from '../src/mcp-copy-settlement.mjs';
+import { removeMcpJobCopy } from '../src/mcp-job.mjs';
 import { runPreparationScenario } from './launcher-preparation-scenarios.mjs';
 
 const scenario = process.argv[2];
@@ -128,16 +134,22 @@ moduleMock('../src/operation-journal.mjs', { OperationJournal: class
     });
   }
 } });
-moduleMock('../src/mcp-job-host.mjs', { prepareHostJobMcp: async () => {
+let copy;
+moduleMock('../src/mcp-job-host.mjs', { prepareHostJobMcp: async ({ issueRoot }) => {
   prepared++;
   if (scenario === 'prep-mcp') throw diagnostic();
   if (scenario === 'prep-mcp-read') throw Object.assign(diagnostic(), {
     githubApiRead: true, status: 429,
   });
+  // The real preparer leaves an owned Issue-root copy until retirement.
+  const current = scenario === 'mcp' ? mcpJobCopyPath(issueRoot, { prepared }) : null;
+  if (current) await createMcpJobCopy(current, await mcpCopyOwner());
+  copy = current ?? copy;
   return {
     async retire(terminated) {
       assert.equal(terminated, true);
       if (unsafeMcp) throw new Error('MCP retirement unresolved');
+      if (current) await removeMcpJobCopy(current);
       retired++;
     },
     stop() { stopped++; },
@@ -246,11 +258,30 @@ try {
         assert.equal(retry.code, 'EXTERNAL_EFFECT_UNKNOWN');
         assert.equal(prepared, 1);
       } else {
-        // GITHUB_RUN_ID 20 is reused, so this retry models the same Job; the
-        // mocked prepareHostJobMcp bypasses its claimMcpJob refusal. No entry
-        // refuses a new Job after unresolved MCP retirement yet, so MCP is
-        // prepared again (follow-up production change).
-        assert.equal(retry.code, 'HOST_EXECUTION_UNRESOLVED');
+        // The unretired copy's owner (this live process) may still serve a
+        // consumer: the entry stays Pending and prepares or runs nothing.
+        assert.equal(retry.status, 'pending');
+        assert.equal(retry.code, 'MCP_JOB_TERMINATION_UNPROVEN');
+        assert.equal(prepared, 2);
+        assert.equal(runs, 2);
+        assert.equal(retired, 1);
+        const [, id] = retry.reportReference.split(':');
+        const report = JSON.parse(await readFile(join(root, 'issue-2-189',
+          'receipts', 'reports', id + '.json'), 'utf8'));
+        assert.equal(report.code, 'MCP_JOB_TERMINATION_UNPROVEN');
+        await stat(join(copy, mcpCopyOwnerFile));
+        // Once the recorded owner no longer exists, the entry clears the copy.
+        const owner = join(copy, mcpCopyOwnerFile);
+        const record = JSON.parse(await readFile(owner, 'utf8'));
+        await rm(owner);
+        await writeFile(owner, JSON.stringify({ ...record,
+          startTicks: String(BigInt(record.startTicks) + 1n) }), { mode: 0o600 });
+        unsafeMcp = false;
+        const settled = await launchStage('189', 'deliver', env);
+        assert.equal(settled.status, 'ready');
+        assert.equal(prepared, 3);
+        assert.equal(runs, 3);
+        await assert.rejects(stat(copy), { code: 'ENOENT' });
       }
     }
   }

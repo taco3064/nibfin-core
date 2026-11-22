@@ -97,7 +97,7 @@ separate from these observations. Closing the controller request direction close
 the native request pipe and requests outer Job Object termination. Job status and
 approval polling request cancellation instead of imposing a preparation deadline.
 Existing native protocol/output limits remain. Lost proof, uncertain termination,
-a surviving consumer or failed output scan retains Pending and the host fence.
+a surviving consumer or failed output scan retains Pending and the Job copy.
 
 Restricted discovery runs once into the Job profile. Role output scans finish
 before per-consumer private configuration and egress leases retire. The launcher
@@ -105,8 +105,22 @@ removes generated source copies only after all tracked consumers finish and its
 normal host/container inspection succeeds. A failed preparation is never retried.
 Original configuration, OAuth stores and installed verified helpers are retained.
 
-Claims in `stateRoot/mcp-jobs` contain only Job bindings. Retiring `.copies` does
-not remove claims. There is no stale-PID, elapsed-time or automatic deletion rule.
+Each Job copy lives under its Issue state root in
+`mcp-copies/<digest(binding)>`. The preparer creates the private directory, then
+an owner record (`owner.json`: the launcher PID and its `/proc` start time), and
+only then the delegated `source.json`. A copy left by a Pending result or a
+crash is settled at the next entry for that Issue, after its containers and Job
+VMs are idle and the previous launcher lease is retired. The copy is removed
+only when no live process matches the recorded PID and start time and no
+discovery journal remains; an empty copy, which never held an owner record or a
+source, is also removed. Any other state returns Pending
+`MCP_JOB_TERMINATION_UNPROVEN` before workspace, MCP or role preparation, and the
+copy is kept. Copies in the earlier host-wide `mcp-jobs/<digest>.copies`
+location are neither scanned nor blocking.
+
+Claims in `stateRoot/mcp-jobs` contain only Job bindings. Retiring a copy does
+not remove claims, so a copy is never reused. Claims have no stale-PID,
+elapsed-time or automatic deletion rule.
 Administrative retention may be bounded only after independently establishing
 that the native Job can no longer authenticate, its authorization is retired and
 all unknown effects are reconciled. These claims are replay protection, not a

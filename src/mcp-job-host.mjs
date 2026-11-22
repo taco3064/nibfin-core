@@ -1,11 +1,14 @@
-import { mkdir, rm, rmdir } from 'node:fs/promises';
+import { rm, rmdir } from 'node:fs/promises';
 import { join } from 'node:path';
-import { digest, requireThat } from './identity.mjs';
+import { requireThat } from './identity.mjs';
 import { repoPath } from './github-read.mjs';
 import { claimMcpJob, jobMcpProfile } from './mcp-job.mjs';
 import { acquireNativeJobMcp, inspectMcpJobEndpoint } from './mcp-job-transport.mjs';
 import { storePrivateMcpDelegation } from './mcp-transfer.mjs';
 import { loadUserMcp } from './mcp-source.mjs';
+import {
+  createMcpJobCopy, mcpCopyOwner, mcpCopyOwnerFile, mcpJobCopyPath,
+} from './mcp-copy-settlement.mjs';
 
 // Reviewed entry behavior remains valid across Core package pin updates.
 const singleEntryAction = {
@@ -26,10 +29,12 @@ async function verifyActionEntry(reader, commit) {
   }
 }
 
-export async function prepareHostJobMcp({ host, runner, reader, approval }, {
+export async function prepareHostJobMcp({
+  host, issueRoot, runner, reader, approval,
+}, {
   claimJob = claimMcpJob, inspectEndpoint = inspectMcpJobEndpoint,
   acquire = acquireNativeJobMcp, store = storePrivateMcpDelegation,
-  load = loadUserMcp, authorize = async () => {},
+  load = loadUserMcp, authorize = async () => {}, identity,
 } = {}) {
   if (host.mcp === undefined) return null;
   // readRunnerBinding has already checked the exact single-step Caller recipe.
@@ -37,9 +42,11 @@ export async function prepareHostJobMcp({ host, runner, reader, approval }, {
   requireThat(!runner.reusable &&
     !runner.wakeWorkflow, 'UNSUPPORTED_MCP_JOB_CALLER');
   if (!runner.target) await verifyActionEntry(reader, runner.actionCommit);
+  // An unknown owner identity could never prove a leftover copy unconsumed.
+  const owner = await mcpCopyOwner(identity);
   const claim = await claimJob(host.stateRoot, runner);
   await inspectEndpoint(host.mcp);
-  const copies = join(claim.directory, digest(claim.binding) + '.copies');
+  const copies = mcpJobCopyPath(issueRoot, claim.binding);
   const controller = new AbortController();
   let closed = false, timer;
   const abort = () => controller.abort();
@@ -73,7 +80,7 @@ export async function prepareHostJobMcp({ host, runner, reader, approval }, {
     });
     await authorize();
     controller.signal.throwIfAborted();
-    await mkdir(copies, { mode: 0o700 });
+    await createMcpJobCopy(copies, owner);
     const file = join(copies, 'source.json');
     try {
       await store(file, value);
@@ -87,6 +94,7 @@ export async function prepareHostJobMcp({ host, runner, reader, approval }, {
     } catch (error) {
       // Discovery may leave a session journal. Retain it for reconciliation.
       await rm(file, { force: true });
+      await rm(join(copies, mcpCopyOwnerFile), { force: true });
       await rmdir(copies).catch(cleanup => {
         if (cleanup.code !== 'ENOTEMPTY') throw cleanup;
       });

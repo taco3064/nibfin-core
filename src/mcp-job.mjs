@@ -101,14 +101,18 @@ export function jobMcpProfile(prepare) {
         'MCP_JOB_TERMINATION_UNPROVEN');
       // Failed/unknown preparation cannot acquire a cleanup privilege.
       if (promise) await promise;
-      for (const path of copies) {
-        await privateHostDirectory(path);
-        const stat = await lstat(path);
-        requireThat(stat.isDirectory(), 'UNTRUSTED_MCP_JOB_COPY');
-        await rm(path, { recursive: true });
-      }
+      for (const path of copies) await removeMcpJobCopy(path);
       promise = undefined;
       retired = true;
     },
   };
+}
+
+// The single private removal routine for a Job copy whose consumers are proven
+// terminated, both after in-process retirement and at a later Issue entry.
+export async function removeMcpJobCopy(path) {
+  await privateHostDirectory(path);
+  const stat = await lstat(path);
+  requireThat(stat.isDirectory(), 'UNTRUSTED_MCP_JOB_COPY');
+  await rm(path, { recursive: true });
 }
