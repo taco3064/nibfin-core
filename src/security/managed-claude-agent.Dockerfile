@@ -3,15 +3,21 @@
 # Core replaces the input token with the managed Agent tag of the prepared ID.
 FROM nibfin-managed-agent-input
 RUN rm /usr/local/bin/codex
-# The same immutable Debian snapshot line the Agent recipe wrote (plain HTTP,
-# authenticated by apt's InRelease signature check); apt resolves the
-# dependencies. No other source may be consulted.
-RUN prefix='deb \[check-valid-until=no\] http://snapshot\.debian\.org/archive/debian/' \
-    && snapshot="${prefix}[0-9]{8}T[0-9]{6}Z/ [a-z]+ main" \
-    && grep -Eqx "$snapshot" /etc/apt/sources.list \
-    && ! grep -Evqx "$snapshot" /etc/apt/sources.list \
-    && test -z "$(ls -A /etc/apt/sources.list.d)" \
-    && apt-get update \
+# apt may consult only the exact two snapshot lines the Agent recipe wrote: main
+# and security at one fixed timestamp for this image's codename (plain HTTP,
+# authenticated by apt's InRelease signature check). Anything else fails closed.
+RUN list=/etc/apt/sources.list && . /etc/os-release \
+    && test -n "$VERSION_CODENAME" \
+    && archive=http://snapshot.debian.org/archive \
+    && stamp="$(sed -En '1s#^deb .*/debian/([0-9]{8}T[0-9]{6}Z)/ .*#\1#p' "$list")" \
+    && test -n "$stamp" \
+    && printf 'deb [check-valid-until=no] %s %s main\n' \
+       "$archive/debian/$stamp/" "$VERSION_CODENAME" \
+       "$archive/debian-security/$stamp/" "$VERSION_CODENAME-security" \
+       | cmp -s - "$list" \
+    && test -z "$(ls -A /etc/apt/sources.list.d)"
+# apt resolves the dependencies from those sources only.
+RUN apt-get update \
     && apt-get install -y --no-install-recommends bubblewrap socat \
     && rm -rf /var/lib/apt/lists/* \
     && test -x /usr/bin/bwrap && test -x /usr/bin/socat
