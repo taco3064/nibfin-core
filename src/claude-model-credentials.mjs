@@ -1,5 +1,5 @@
 import { lstat, open, unlink } from 'node:fs/promises';
-import { basename, join } from 'node:path';
+import { join } from 'node:path';
 import { coreRoot, hostFile, boundedHostFile } from './host-adoption.mjs';
 import { rootOwnedPath } from './host-paths.mjs';
 import { isId, requireThat } from './identity.mjs';
@@ -8,28 +8,18 @@ import { privateCredentialPipe } from './managed-credential-input.mjs';
 import { managedBase, privateResource, publishPrivate, readPrivate }
   from './managed-credential-files.mjs';
 
-const credentials = join(managedBase, 'credentials');
-// One pool stores exactly one Claude credential. The subscription token comes
-// from the official `claude setup-token`; an API key uses API billing instead.
-export const claudeCredentialKinds = Object.freeze({
-  'claude-subscription-token': Object.freeze({
-    file: join(credentials, 'claude-oauth-token'),
-    pattern: /^sk-ant-oat[0-9]{2}-[A-Za-z0-9_-]{20,500}$/,
-  }),
-  'anthropic-api-key': Object.freeze({
-    file: join(credentials, 'anthropic-api-key'),
-    pattern: /^sk-ant-api[0-9]{2}-[A-Za-z0-9_-]{20,500}$/,
-  }),
-});
-export const claudeApiKeyFile = claudeCredentialKinds['anthropic-api-key'].file;
+import { claudeCredentialKind, claudeCredentialKinds }
+  from './claude-credential-kinds.mjs';
 
-export function claudeCredentialKind(value) {
-  if (typeof value !== 'string') return undefined;
-  return Object.keys(claudeCredentialKinds)
-    .find(kind => claudeCredentialKinds[kind].pattern.test(value));
-}
-export const validClaudeCredential = value =>
-  claudeCredentialKind(value) !== undefined;
+export { claudeCredentialKind, claudeCredentialKinds, validClaudeCredential }
+  from './claude-credential-kinds.mjs';
+
+const credentials = join(managedBase, 'credentials');
+// The fixed managed path of each kind's one stored file.
+const kindFiles = (directory = credentials) => Object.fromEntries(
+  Object.entries(claudeCredentialKinds)
+    .map(([kind, { name }]) => [kind, join(directory, name)]));
+export const claudeApiKeyFile = kindFiles()['anthropic-api-key'];
 
 const absent = path => lstat(path).then(() => false, error => {
   if (error.code === 'ENOENT') return true;
@@ -39,7 +29,7 @@ const absent = path => lstat(path).then(() => false, error => {
 // Returns the one stored value. `files` relocates the fixed paths for tests only.
 export async function readClaudeCredential(uid = process.getuid(), files) {
   const found = [];
-  for (const [kind, { file: fixed }] of Object.entries(claudeCredentialKinds)) {
+  for (const [kind, fixed] of Object.entries(kindFiles())) {
     const file = files?.[kind] ?? fixed;
     if (await absent(file)) continue;
     const value = (await readPrivate(file, { uid }, 1024).catch(() => null))?.trim();
@@ -66,8 +56,7 @@ export async function intakeClaudeCredential(input = process.stdin) {
 // reaches it only through the verified-host intake above; tests pass a fixture.
 export async function storeClaudeCredential(input, directory, uid) {
   const { gid } = await privateResource(directory, uid, true);
-  const files = Object.fromEntries(Object.entries(claudeCredentialKinds)
-    .map(([kind, { file }]) => [kind, join(directory, basename(file))]));
+  const files = kindFiles(directory);
   const lockFile = join(directory, '.claude-intake.lock');
   // The operation is exclusive and never replaces or adds a second credential.
   const lock = await open(lockFile, 'wx', 0o600);
