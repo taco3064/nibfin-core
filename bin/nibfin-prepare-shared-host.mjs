@@ -1,14 +1,18 @@
 #!/usr/bin/env node
-import { prepareManagedSharedHost } from '../src/managed-resource-install.mjs';
+import {
+  prepareManagedSharedHost, preparationAgent,
+} from '../src/managed-resource-install.mjs';
 import { requireThat } from '../src/identity.mjs';
 import { lstat } from 'node:fs/promises';
 import { resourcePreparationGate } from '../src/managed-resource-admission.mjs';
 
 try {
-  const args = process.argv.slice(2);
-  requireThat(args.length === 1 && args[0] === '--consent-resource-preparation',
-    'RESOURCE_PREPARATION_CONSENT_REQUIRED');
-  const result = await prepareManagedSharedHost(true);
+  const [consent, request, ...extra] = process.argv.slice(2);
+  requireThat(consent === '--consent-resource-preparation' && extra.length === 0 &&
+    (request === undefined || request.startsWith('--agent=')),
+  'RESOURCE_PREPARATION_CONSENT_REQUIRED');
+  const agent = preparationAgent(request?.slice('--agent='.length));
+  const result = await prepareManagedSharedHost(true, { agent });
   process.stdout.write(JSON.stringify(result) + '\n');
   if (result.status === 'pending') process.exitCode = 2;
 } catch (error) {

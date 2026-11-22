@@ -7,7 +7,8 @@ import { rootOwnedPath } from './host-paths.mjs';
 import { engineHost } from './engine-host.mjs';
 import { verifyManagedEngine } from './engine-verify.mjs';
 import { engineFileStore } from './engine-files.mjs';
-import { managedResources as resources } from './managed-resource-contract.mjs';
+import { managedResources as resources, policyTargets }
+  from './managed-resource-contract.mjs';
 import { prepareSharedAccounts } from './shared-host-setup.mjs';
 import { managedPaths } from './managed-credential-files.mjs';
 import { resourcePreparationGate } from './managed-resource-admission.mjs';
@@ -26,14 +27,7 @@ import {
 const security = join(coreRoot, 'src/security');
 const journal = `${resources.state}/state.json`;
 
-// Each installed AppArmor policy: its file, kernel profile name and load proof.
-// The Claude policy is installed only on an explicit Claude request.
-export const policyTargets = Object.freeze({
-  codex: Object.freeze({ path: resources.policy, name: resources.apparmor,
-    proof: 'policy.json' }),
-  claude: Object.freeze({ path: resources.claude.policy,
-    name: resources.claude.apparmor, proof: 'policy-claude.json' }),
-});
+export { policyTargets };
 
 const nativeKernel = { readdir, readFile };
 
@@ -119,13 +113,10 @@ export function managedResourceHost(confirmSource, engine = engineHost(), {
         join(security, 'codex-security.apparmor'), 16384);
       return inputs;
     },
-    async pristine({ claude = false } = {}) {
-      const policies = [policyTargets.codex, ...(claude ? [policyTargets.claude] : [])];
-      for (const path of [resources.profile, ...policies.map(policy => policy.path),
-        resourcePreparationGate])
+    async pristine() {
+      for (const path of [resources.profile, resources.policy, resourcePreparationGate])
         requireThat(!await optionalStat(path), 'RESOURCE_FOREIGN_CONFIGURATION');
-      for (const policy of policies)
-        requireThat(!await loaded(policy.name), 'RESOURCE_FOREIGN_POLICY');
+      requireThat(!await loaded(resources.apparmor), 'RESOURCE_FOREIGN_POLICY');
       for (const kind of ['agent', 'hooks']) {
         for (const arch of ['amd64', 'arm64'])
           requireThat(!(await docker(['image', 'ls', '-q', platformTag(kind, arch)]))
@@ -133,6 +124,15 @@ export function managedResourceHost(confirmSource, engine = engineHost(), {
       }
       requireThat(!(await docker(['network', 'ls', '-q', '--filter',
         `name=^${resources.egress}$`])).trim(), 'RESOURCE_FOREIGN_NETWORK');
+    },
+    // Runs once, before a Claude request first records its journal section.
+    async claudePristine() {
+      requireThat(!await optionalStat(policyTargets.claude.path),
+        'RESOURCE_FOREIGN_CONFIGURATION');
+      requireThat(!await loaded(policyTargets.claude.name), 'RESOURCE_FOREIGN_POLICY');
+      for (const arch of ['amd64', 'arm64'])
+        requireThat(!(await docker(['image', 'ls', '-q',
+          platformTag(resources.claude.kind, arch)])).trim(), 'RESOURCE_FOREIGN_IMAGE');
     },
     async gate(owner) {
       await installEngineFile(resourcePreparationGate, owner + '\n', 0o644);
@@ -147,7 +147,13 @@ export function managedResourceHost(confirmSource, engine = engineHost(), {
       await prepareStorageReclamation(installReclamation);
     },
     async image(kind, state, inputs, observe) {
-      const marker = digest({ owner: state.owner, inputs: state.inputs, kind });
+      // A Claude image also binds the Claude inputs of its journal section.
+      const claude = kind === resources.claude.kind;
+      requireThat(!claude || typeof state.claude?.inputs === 'string',
+        'RESOURCE_STATE_CONFLICT');
+      const marker = digest(claude
+        ? { owner: state.owner, inputs: state.inputs, claude: state.claude.inputs, kind }
+        : { owner: state.owner, inputs: state.inputs, kind });
       const arch = state.architecture ?? 'amd64';
       const name = platformTag(kind, arch);
       if (kind === 'agent') requireThat(inputs.native?.platform === `linux/${arch}`,

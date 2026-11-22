@@ -5,8 +5,9 @@ import { managedResources as resources } from './managed-resource-contract.mjs';
 
 // A journal is saved before create. Interrupted creates/cleanup never spawn a
 // replacement probe. The administrator must reconcile any uncertain effect.
+// The probe runs under the AppArmor profile its image is published with.
 export async function resourceProbe(
-  io, state, image, namespace, save, key, availability,
+  io, state, image, namespace, save, key, availability, profile = resources.apparmor,
 ) {
   requireThat(!state.probe || state.probe.phase === 'complete',
     'RESOURCE_PROBE_RECONCILIATION_REQUIRED');
@@ -18,7 +19,7 @@ export async function resourceProbe(
     'create', '--pull=never', '--name', name,
     '--label', `${resources.label}=${state.owner}`, '--read-only', '--network=none',
     '--ipc=none', '--cap-drop=ALL', '--security-opt=no-new-privileges',
-    `--security-opt=apparmor=${resources.apparmor}`, '--user=1000:1000',
+    `--security-opt=apparmor=${profile}`, '--user=1000:1000',
     '--pids-limit=32', '--memory=128m', '--cpus=1',
     '--entrypoint=/usr/bin/sleep', image, '300',
   ])).trim();
@@ -47,7 +48,7 @@ export async function resourceProbe(
     await save();
     const proof = await io.kernelProof(pid);
     verifyNamespace(proof, namespace);
-    requireThat(proof.label.trim() === `${resources.apparmor} (enforce)`,
+    requireThat(proof.label.trim() === `${profile} (enforce)`,
       'RESOURCE_APPARMOR_NOT_ENFORCED');
     await availability();
     const after = await inspect();
