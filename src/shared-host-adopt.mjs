@@ -5,8 +5,8 @@ import { writeRetirementFile } from './retirement-files.mjs';
 import { withReplacementAwareAdoptionLock } from './retirement-lock.mjs';
 import { createProviderBinding } from './provider-binding.mjs';
 import { withManagedAdmission } from './managed-credential-admission.mjs';
-import { link, lstat, open, realpath, unlink } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
+import { link, lstat, open, unlink } from 'node:fs/promises';
+import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { GitHubReader, repoPath } from './github-read.mjs';
 import { digest, gitBlob, isId, isSha, requireThat } from './identity.mjs';
@@ -23,6 +23,7 @@ import { command } from './process.mjs';
 import { syncRecoveryDirectory } from './recovery-lock.mjs';
 import { installSharedRelay, prepareSharedAccounts } from './shared-host-setup.mjs';
 import { prepareSharedGateways } from './shared-gateway-setup.mjs';
+import { controllerCredentials } from './shared-host-credentials.mjs';
 
 import { managedSharedAdmission, requireSharedBranch }
   from './shared-admission-policy.mjs';
@@ -31,19 +32,10 @@ const profileName = 'shared-host-profile.json';
 const issueWorkflow = '.github/workflows/issue.yml';
 const limit = 262144;
 
-// Claude adoption needs credential intake and host record writing (B2) first.
-export function adoptedProviderBinding(host, provider) {
-  requireThat(provider !== 'claude', 'CLAUDE_ADOPTION_UNAVAILABLE');
-  return createProviderBinding(host, provider);
-}
-
-async function privatePath(path, uid, directory = false) {
-  requireThat(typeof path === 'string' && await realpath(path) === path,
-    'SHARED_HOST_CONTROLLER_RESOURCE_INVALID');
-  const stat = await lstat(path);
-  requireThat(stat.uid === uid && (stat.mode & 0o077) === 0 &&
-    (directory ? stat.isDirectory() : stat.isFile() && stat.nlink === 1),
-  'SHARED_HOST_CONTROLLER_RESOURCE_INVALID');
+// Claude records the kind of its one stored credential; the Codex call is unchanged.
+export function adoptedProviderBinding(host, provider, { credentialKind } = {}) {
+  if (provider !== 'claude') return createProviderBinding(host, provider);
+  return createProviderBinding(host, provider, { credentialKind });
 }
 
 async function accountUid(name) {
@@ -86,11 +78,10 @@ async function controllerProfile(profile) {
   }
   const [uid, runnerUid, secondUid] = await Promise.all(
     ['nibfin-controller', 'nibfin-runner-1', 'nibfin-runner-2'].map(accountUid));
-  for (const path of [stateRoot, dirname(tokenFile), dirname(authFile)])
-    await privatePath(path, uid, true);
-  for (const path of [tokenFile, authFile]) await privatePath(path, uid);
+  const credentialKind = await controllerCredentials(profile, uid);
   return { uid, runnerUid, secondUid, stateRoot, tokenFile, authFile, model,
-    isolation, secondaryIsolation, globalInstructionsFile, mcp, managedEgressNetwork };
+    isolation, secondaryIsolation, globalInstructionsFile, mcp, managedEgressNetwork,
+    credentialKind };
 }
 
 export async function observeExecutionPool(reader, name, repoId, memberId, ids,
@@ -200,8 +191,8 @@ export async function adoptSharedHost(name, id, memberId, actionCommit, ids, pin
     await rootOwnedPath(path);
     const bytes = await boundedHostFile(path, limit);
     const { uid, runnerUid, secondUid, stateRoot, tokenFile, authFile, model, isolation,
-      secondaryIsolation, globalInstructionsFile, mcp, managedEgressNetwork } =
-      await controllerProfile(JSON.parse(bytes));
+      secondaryIsolation, globalInstructionsFile, mcp, managedEgressNetwork,
+      credentialKind } = await controllerProfile(JSON.parse(bytes));
     const token = (await boundedHostFile(tokenFile, 16384)).trim();
     const reader = new GitHubReader(token);
     await verifyAdoptionAction(reader, actionCommit, pin);
@@ -225,7 +216,8 @@ export async function adoptSharedHost(name, id, memberId, actionCommit, ids, pin
       sharedRunner: { runner, caller, repositories: [id],
         additionalRunner: { uid: secondUid, id: second.runnerId,
           name: second.runnerName, isolation: secondaryIsolation } } };
-    host.providerBinding = adoptedProviderBinding(host, profile.provider);
+    host.providerBinding = adoptedProviderBinding(host, profile.provider,
+      { credentialKind });
     if (managedEgressNetwork !== undefined) {
       const [primary, secondary] = await prepareSharedGateways(
         [isolation, secondaryIsolation], runner, second, managedEgressNetwork,
