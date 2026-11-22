@@ -15,7 +15,7 @@ const proposalCodes = new Set([
 ]);
 
 // Called only after native Job, caller and Issue approval verification. These
-// reads precede the execution fence and cannot start an Agent or settle work.
+// reads precede any owned work and cannot start an Agent or settle work.
 export async function readHostStageInputs(context, binding, stage, {
   readProposal = readNotionProposal, readInstructions = readGlobalInstructions,
 } = {}) {

@@ -325,7 +325,7 @@ export async function dispatchIssueWake({
         }
       }
       // Any journal entry may leave unresolved durable intent. After this point
-      // an exception must retain the host fence, even without an observed POST.
+      // an exception must stay Pending, even without an observed POST.
       journalEntered = true;
       const result = await new WakeDispatcher({
         token,

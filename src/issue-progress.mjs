@@ -57,7 +57,7 @@ async function readLegacyProgress(root, directory, approval) {
   };
 }
 
-// The caller holds the existing Issue fence. New workspace selection is based on
+// The caller is the admitted Job launcher. New workspace selection is based on
 // the Issue directory. Prior installations retain their original evidence bytes.
 export async function issueProgress(root, approval) {
   const binding = evidenceBinding({ approval });

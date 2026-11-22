@@ -1,4 +1,4 @@
-// Unlike pre-effect CI waits, these states must retain the host-wide fence.
+// Unlike pre-effect CI waits, these states stay Pending without retry settlement.
 export function pendingMcpObservation(code) {
   return [
     'USER_MCP_DISCOVERY_UNRESOLVED',

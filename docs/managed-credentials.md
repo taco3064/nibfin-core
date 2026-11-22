@@ -62,10 +62,10 @@ Temporary publication files are removed on errors. Unexpected file identities
 are conflicts; Core does not overwrite or delete them.
 
 Managed admissions register private consumer leases while holding the lifecycle
-mutex, then run concurrently using the existing Issue fences and journals.
+mutex, then run concurrently using the existing Issue journals.
 Replacement requires all consumers and effects to be settled. Disconnect first
 sets `disconnecting`, stopping new work, and removes credentials only after
-leases, stage/recovery fences, and pending journal effects are settled.
+leases, recovery fences, and pending journal effects are settled.
 An unknown process or effect remains Pending; no automatic kill or blind retry
 is performed. A crash-retained mutex or consumer lease also remains Pending and
 requires trusted host recovery that proves termination. Existing bounded

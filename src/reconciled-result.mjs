@@ -60,7 +60,7 @@ async function verifyPublication(reader, store, issue, publication) {
   'CONTROLLER_RESULT_PUBLICATION_CHANGED');
 }
 
-// Read-only and invoked under the reconciliation invocation's own fence.
+// Read-only and invoked only by the reconciliation invocation.
 export async function reconciledResult({ store, binding, approval, runner, reader,
   stage, execution, live }) {
   if (!store.readControllerResult) return null;

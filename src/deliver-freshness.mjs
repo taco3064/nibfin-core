@@ -3,7 +3,7 @@ import { enforcementPaths, sameCandidate } from './candidate-evidence.mjs';
 import { observationFailureCode, retryGitHubObservation }
   from './observation-failure.mjs';
 
-// Called only inside admitted Deliver, while the host owns the exclusive fence.
+// Called only inside admitted Deliver, within its single native Job.
 // Capture partial work as well as ready Candidates; never reset a retained tree.
 export async function alignDelivery(
   workspace, context, candidate, clock, partial = false,
@@ -29,7 +29,7 @@ export async function alignDelivery(
 }
 
 // No Writer may start here. Conflicts or changed content return to normal stage
-// admission, including authorization, isolation and the single-Writer fence.
+// admission, including authorization, isolation and Writer inspection.
 export async function handoffDelivery({
   workspace, context, candidate, observeMain, clock, partial = false,
 }) {

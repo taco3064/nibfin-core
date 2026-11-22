@@ -67,7 +67,7 @@ async function resumableCorrection(store, result) {
 
 // This only drives the existing ordered stage contract. There is no second
 // lifecycle store: every next operation still enters StageRuntime admission.
-// The installed launcher holds its host fence across this entire call.
+// The installed launcher runs this entire call within one native Job.
 async function sameShape(store, left, right) {
   if (left === right) return true;
   if (!left || !right) return false;
