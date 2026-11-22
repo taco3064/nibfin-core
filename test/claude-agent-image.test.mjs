@@ -12,6 +12,7 @@ import {
 import {
   preparationRecipe, toolProbe, versionProbe,
 } from '../src/tool-recipe.mjs';
+import { derivedBaseInput } from '../src/managed-derived-image.mjs';
 import { claudeToolShell, claudeVersionPattern } from '../src/claude-agent-plan.mjs';
 import { claudeModelComponent } from '../src/claude-model-runner.mjs';
 
@@ -106,16 +107,16 @@ test('the CLI pin comes from the verified package script', async () => {
     assert.throws(() => claudePackageVersion(changed),
       { code: 'RESOURCE_INPUT_CONTRACT_INVALID' });
   const recipe = await source(resources.claude.recipe);
-  const resolved = resolvedClaudeRecipe(recipe, agentImage, pin);
-  assert(resolved.startsWith(`${recipe.split('FROM')[0]}FROM ${agentImage}\n`));
-  assert(resolved.includes('\nARG CLAUDE_VERSION=2.1.326\n'));
-  assert(!resolved.includes('nibfin-managed-agent-input'));
-  for (const [value, image, version] of [[recipe, 'nibfin-agent:latest', pin],
-    [recipe, agentImage, '2.1.326'], [recipe, agentImage, undefined],
-    [recipe + 'FROM nibfin-managed-agent-input\n', agentImage, pin],
-    [recipe.replace('ARG CLAUDE_VERSION\n', ''), agentImage, pin],
-    [undefined, agentImage, pin]])
-    assert.throws(() => resolvedClaudeRecipe(value, image, version),
+  const resolved = resolvedClaudeRecipe(recipe, pin);
+  // Only the version is pinned; the base input is left for derivedRecipe.
+  assert.equal(resolved, recipe.replace('\nARG CLAUDE_VERSION\n',
+    '\nARG CLAUDE_VERSION=2.1.326\n'));
+  assert(resolved.includes(`\nFROM ${derivedBaseInput}\n`));
+  for (const [value, version] of [[recipe, '2.1.326'], [recipe, undefined],
+    [`${recipe}FROM ${derivedBaseInput}\n`, pin],
+    [recipe.replace(derivedBaseInput, agentImage), pin],
+    [recipe.replace('ARG CLAUDE_VERSION\n', ''), pin], [undefined, pin]])
+    assert.throws(() => resolvedClaudeRecipe(value, version),
       { code: 'RESOURCE_INPUT_CONTRACT_INVALID' });
 });
 
@@ -172,43 +173,62 @@ test('Codex inputs are unchanged; a Claude request adds its pinned inputs', asyn
   assert.notEqual(marker(moved), marker(claude));
 });
 
-test('the Claude Agent image builds from the prepared Agent ID with the pin',
-  async () => {
-    const recipe = await source(resources.claude.recipe);
-    const inputs = { [resources.claude.recipe]: recipe,
-      versions: { ...goldenVersions, claude: pin } };
-    const state = { owner: 'owned', inputs: 'fixed', architecture: 'arm64',
-      images: { agent: agentImage, hooks: `sha256:${'b'.repeat(64)}` } };
-    const name = 'nibfin-managed-resource:claude-agent-arm64';
-    let built = 0;
-    const io = managedResourceHost(async () => {}, {
-      async docker(managed, args, options) {
-        assert.equal(managed, true);
-        if (args[0] === 'build') {
-          built++;
-          assert.equal(args[args.indexOf('--platform') + 1], 'linux/arm64');
-          assert.equal(args[args.indexOf('--tag') + 1], name);
-          assert(args.at(-1).endsWith('/src/security'));
-          assert.equal(options.input, resolvedClaudeRecipe(recipe, agentImage, pin));
-          return '';
-        }
-        if (args[1] === 'ls') return built ? claudeImage : '';
-        return JSON.stringify([{ Id: claudeImage, Os: 'linux',
-          Architecture: 'arm64', RepoTags: [name], Config: { Labels: {
-            [resources.label]: digest({ owner: 'owned', inputs: 'fixed',
-              kind: 'claude-agent' }) } } }]);
-      },
-    });
-    assert.equal(await io.image('claude-agent', state, inputs, false), claudeImage);
-    assert.equal(await io.image('claude-agent', state, inputs, true), claudeImage);
-    assert.equal(built, 1);
-    built = 0;
-    for (const [target, value] of [[{ ...state, images: {} }, inputs],
-      [state, { ...inputs, versions: goldenVersions }]])
-      await assert.rejects(io.image('claude-agent', target, value, false),
-        { code: 'RESOURCE_INPUT_CONTRACT_INVALID' });
-    assert.equal(built, 0);
+test('the Claude Agent image builds FROM the managed Agent tag with the pin and ' +
+  'sits on the prepared Agent layers', async () => {
+  const recipe = await source(resources.claude.recipe);
+  const inputs = { [resources.claude.recipe]: recipe,
+    versions: { ...goldenVersions, claude: pin } };
+  const state = { owner: 'owned', inputs: 'fixed', architecture: 'arm64',
+    images: { agent: agentImage, hooks: `sha256:${'b'.repeat(64)}` } };
+  const name = 'nibfin-managed-resource:claude-agent-arm64';
+  const base = 'nibfin-managed-resource:agent-arm64';
+  const expected = resolvedClaudeRecipe(recipe, pin)
+    .replace(derivedBaseInput, base);
+  let built = 0;
+  let tagged = agentImage;
+  let layers = ['sha256:l1', 'sha256:l2', 'sha256:l3'];
+  const io = managedResourceHost(async () => {}, {
+    async docker(managed, args, options) {
+      assert.equal(managed, true);
+      if (args[0] === 'build') {
+        built++;
+        assert.equal(args[args.indexOf('--platform') + 1], 'linux/arm64');
+        assert.equal(args[args.indexOf('--tag') + 1], name);
+        assert(args.at(-1).endsWith('/src/security'));
+        assert.equal(options.input, expected);
+        assert(!options.input.includes(agentImage));
+        return '';
+      }
+      if (args[1] === 'ls') return built ? claudeImage : '';
+      assert.deepEqual(args.slice(0, 2), ['image', 'inspect']);
+      if (args[2] === base) return JSON.stringify([{ Id: tagged }]);
+      if (args[2] === agentImage)
+        return JSON.stringify([{ Id: agentImage, RootFS: { Layers: ['sha256:l1',
+          'sha256:l2'] } }]);
+      assert.equal(args[2], claudeImage);
+      return JSON.stringify([{ Id: claudeImage, Os: 'linux',
+        Architecture: 'arm64', RepoTags: [name], RootFS: { Layers: layers },
+        Config: { Labels: { [resources.label]: digest({ owner: 'owned',
+          inputs: 'fixed', kind: 'claude-agent' }) } } }]);
+    },
   });
+  assert.equal(await io.image('claude-agent', state, inputs, false), claudeImage);
+  assert.equal(await io.image('claude-agent', state, inputs, true), claudeImage);
+  assert.equal(built, 1);
+  // An image off the prepared Agent layers is a conflict, even when observed.
+  layers = ['sha256:other', 'sha256:l2', 'sha256:l3'];
+  await assert.rejects(io.image('claude-agent', state, inputs, true),
+    { code: 'RESOURCE_IMAGE_CONFLICT' });
+  built = 0;
+  await assert.rejects(io.image('claude-agent', state,
+    { ...inputs, versions: goldenVersions }, false),
+  { code: 'RESOURCE_INPUT_CONTRACT_INVALID' });
+  // The managed Agent tag must still name the prepared ID before any build.
+  tagged = `sha256:${'d'.repeat(64)}`;
+  await assert.rejects(io.image('claude-agent', state, inputs, false),
+    { code: 'RESOURCE_IMAGE_CONFLICT' });
+  assert.equal(built, 0);
+});
 
 test('Claude availability checks its CLI and sandbox tools, never Codex',
   async () => {

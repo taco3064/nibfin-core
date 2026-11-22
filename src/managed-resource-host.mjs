@@ -139,11 +139,11 @@ export function managedResourceHost(confirmSource, engine = engineHost(), {
         let recipe = inputs[resources.recipes[kind]];
         if (kind === resources.claude.kind)
           recipe = resolvedClaudeRecipe(inputs[resources.claude.recipe],
-            state.images.agent, inputs.versions?.claude);
+            inputs.versions?.claude);
+        // Hook and Claude images both derive from the prepared Agent image.
         if (kind === 'agent')
           recipe = managedAgentRecipe(recipe, inputs.native, inputs.versions);
-        if (kind === 'hooks')
-          recipe = await derivedRecipe(recipe, state.images.agent, arch, docker);
+        else recipe = await derivedRecipe(recipe, state.images.agent, arch, docker);
         await engine.docker(true, ['build', '--no-cache', '--network=host',
           '--platform', `linux/${arch}`,
           '--label', `${resources.label}=${marker}`, '--tag', name,

@@ -57,7 +57,8 @@ test('Claude agent image inputs and resolvers select the live image check', () =
     'src/security/claude-package.mjs', 'src/security/nibfin-bash',
     'src/security/managed-agent.Dockerfile', 'src/security/agent.Dockerfile',
     'src/security/managed-npm/package-lock.json', 'src/agent-image-inputs.mjs',
-    'src/claude-agent-plan.mjs', 'scripts/verify-live-claude-agent-image.mjs',
+    'src/claude-agent-plan.mjs', 'src/managed-derived-image.mjs',
+    'scripts/verify-live-claude-agent-image.mjs',
     'scripts/live-docker-profile.mjs']) {
     assert.equal(select('--claude-agent-image', path), 'true\n', path);
     assert.equal(select('--native-docker', path), 'native_docker=true\n', path);

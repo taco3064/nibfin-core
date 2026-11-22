@@ -10,6 +10,9 @@ import { linuxArchitecture } from '../src/linux-architecture.mjs';
 import {
   agentVersions, managedAgentRecipe, prepareAgentInputs, resolvedClaudeRecipe,
 } from '../src/agent-image-inputs.mjs';
+import {
+  derivedRecipe, platformTag, requireDerivedLayers,
+} from '../src/managed-derived-image.mjs';
 import { claudeToolShell } from '../src/claude-agent-plan.mjs';
 import { liveDockerProfile } from './live-docker-profile.mjs';
 
@@ -83,14 +86,24 @@ async function verify(progress) {
     return id;
   };
   const images = [];
+  // Core's managed Agent tag, which derived recipes build FROM.
+  const base = platformTag('agent', architecture);
+  let tagged = false;
   try {
-    images.push(await build('managed-agent', managedAgentRecipe(
-      await text('src/security/managed-agent.Dockerfile'), native, versions)));
-    const image = await build('claude-agent', resolvedClaudeRecipe(claudeRecipe,
-      images[0], versions.claude));
+    const agentImage = await build('managed-agent', managedAgentRecipe(
+      await text('src/security/managed-agent.Dockerfile'), native, versions));
+    images.push(agentImage);
+    progress.step = 'tag managed-agent';
+    await docker(['image', 'tag', agentImage, base]);
+    tagged = true;
+    progress.step = 'resolve claude-agent';
+    const recipe = await derivedRecipe(resolvedClaudeRecipe(claudeRecipe,
+      versions.claude), agentImage, architecture, docker);
+    const image = await build('claude-agent', recipe);
     images.push(image);
-    progress.step = 'inspect labels';
+    progress.step = 'inspect layers and labels';
     const [row] = JSON.parse(await docker(['image', 'inspect', image]));
+    await requireDerivedLayers(row, agentImage, docker);
     const labels = row.Config.Labels;
     assert.equal(`${labels['io.nibfin.claude-version']} (Claude Code)`,
       versions.claude);
@@ -120,6 +133,7 @@ async function verify(progress) {
   } finally {
     // Cleanup reports under its own step and never replaces the failing step.
     const cleanup = diagnosedDocker(command, socket, { step: 'cleanup' });
+    if (tagged) await cleanup(['image', 'rm', base]).catch(() => {});
     for (const image of images.reverse())
       await cleanup(['image', 'rm', '--force', image]).catch(() => {});
     await rm(scratch, { recursive: true, force: true });

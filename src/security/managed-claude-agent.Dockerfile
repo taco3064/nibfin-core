@@ -1,6 +1,6 @@
 # Separate maintained recipe for the Claude agent: the prepared managed Agent
 # image plus Claude Code's tool sandbox, the pinned CLI and Nibfin's tool shell.
-# Core replaces the input token with the prepared Agent image ID.
+# Core replaces the input token with the managed Agent tag of the prepared ID.
 FROM nibfin-managed-agent-input
 RUN rm /usr/local/bin/codex
 # The same immutable Debian snapshot line the Agent recipe wrote (plain HTTP,
