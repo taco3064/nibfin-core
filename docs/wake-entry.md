@@ -166,7 +166,7 @@ Reruns remain refused. No journal is deleted to enable automatic retries.
 GITHUB_TOKEN Issue writes do not imply event recursion. Such a Scope publisher
 must explicitly use the adopted Dispatch handoff; do not assume a label change
 will start the Issue workflow. Each stage re-enters native admission and reads
-its receipt under the same host fence. Failed evidence requires authorized
+its receipt. Failed evidence requires authorized
 correction; this entry does not add automatic repair or cross-host recovery.
 
 Tests and package installation establish reproducible code behavior only.

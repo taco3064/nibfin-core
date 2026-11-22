@@ -97,7 +97,7 @@ Relevant upstream code: [Codex 0.138 mount ordering](https://github.com/openai/c
 ## Remaining Core #1 work
 
 C14 now includes hosted Issue-event/Dispatch wiring and bounded stage
-continuation under the existing host fence. Actual Runner/OIDC, independent
+continuation within one native Job. Actual Runner/OIDC, independent
 authenticated Agent stages and complete external execution remain unverified. A legal test Issue and approval are required; manual #1 cannot substitute.
 C17 still needs sufficient runtime evidence, reviewed source, authorized formal
 publication and publisher/source/asset read-back. Phase 0 needs one safe route,

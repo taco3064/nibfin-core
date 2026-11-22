@@ -12,7 +12,7 @@ The installed CLI now executes one bounded stage:
 
 The first argument selects an already adopted Issue. It supplies no authority.
 Stage names are those returned by `contract`; `continue` drives their existing
-ordered contract under one host fence, with a distinct execution per role.
+ordered contract within one native Job, with a distinct execution per role.
 Continuation output uses `stage: continue`, with the actual `terminalStage` and
 its persisted receipt hash. JSON output retains interface v1:
 `completed` exits 0, `denied` exits 1, and `pending` exits 2. When re-admission
@@ -112,7 +112,7 @@ placing this file on a branch is not a supported live deployment claim.
 ## State, cancellation and recovery
 
 After the merged delivery has closed the Issue, Core checks the local files against
-the recorded Candidate while it still holds the Issue fence. Matching working
+the recorded Candidate after the Job's local effects are settled. Matching working
 files can be removed while Git objects, artifacts and receipts stay available.
 Local edits, unrelated ignored files and unresolved executions keep the workspace.
 
@@ -143,8 +143,8 @@ Workspace creation also writes its authority binding into the existing evidence
 store. An existing workspace without that current binding stops Pending; changed
 Scope, approval or Core source cannot silently reuse it.
 
-Before any workspace mutation, a per-Issue exclusive file is created and synced.
-It serializes stages for that Issue on the host. Every writer inspection confirms its
+GitHub admits one native Job for an Issue; local state is evidence of previous
+work, not a lock. Before any workspace mutation, every writer inspection confirms its
 identity, the exact adopted Runner ID/name registration with the member route,
 online status and busy state, and the absence of all containers except the adopted
 egress gateway on the dedicated daemon. Other same-member or unrelated registrations
@@ -153,13 +153,20 @@ Job; its full Runner binding remains mandatory. Agent/hook preflights remain
 mandatory.
 
 Only a known non-Pending result or an explicit pre-effect CI observation timeout,
-followed by a clean host inspection, releases the fence. Nonterminal native CI,
-not-yet-registered checks and unknown mergeability have distinct pending codes.
-Exceptions, process death, unknown writes or leftover containers
-retain `stage.lock`; a subsequent job returns Pending. Never delete it based on
-a PID, age, canceled job or apparent offline Runner. An administrator must first
-reconcile previous processes, containers and native writes. Moving/replacing the
-host or its Runner registration also requires reconciliation; removing a GitHub
+followed by a clean host inspection, settles the stage and retires its Job MCP
+copy. Nonterminal native CI, not-yet-registered checks and unknown mergeability
+have distinct pending codes.
+Exceptions, process death, unknown writes or leftover containers stay Pending
+and keep their evidence. A later Job's entry inspects this Issue's containers and
+Job VMs and retires only a stopped previous launcher lease before any workspace
+use. It then settles leftover Job MCP copies under the Issue state root: a copy
+is removed only when its recorded owner launcher (PID and `/proc` start time) no
+longer exists and it holds no discovery journal. A live or unreadable owner, a
+missing owner record or a discovery journal returns Pending
+`MCP_JOB_TERMINATION_UNPROVEN` before workspace, MCP or role preparation. An
+administrator reconciles previous processes, containers and native writes.
+Moving/replacing the host or its Runner registration also requires
+reconciliation; removing a GitHub
 registration is not proof that the old host stopped. This launcher does not
 automatically adopt a replacement host or claim cross-host crash recovery.
 
@@ -169,14 +176,14 @@ stage. A proven complete delivery is returned without starting another stage.
 The Controller retains the last settled pre-merge response for the same admitted
 Issue, requested stage, and native run, attempt and job. It records the actual
 terminal stage and role execution when a role produced the outcome. It writes
-the result while it still owns the Issue fence, after local effects are settled.
-A later read also has to acquire its own fence and verify the relevant current
+the result during the Job's settlement, after local effects are settled.
+A later read also has to verify the relevant current
 Issue, receipts and native PR. A retained response grants no authority and does
 not replace proof of complete delivery.
 
 If a successful live Issue read establishes open, unfinished work, reconciliation
 checks existing progress and proves that the journal and containers are settled.
-It rechecks settlement and releases only its own fence before returning an
+It rechecks settlement before returning an
 internal unfinished disposition. Missing optional local results or initial
 receipt directories do not prevent this observation. Closed Issues without a
 complete proof, contradictory evidence and unknown effects remain unresolved.
@@ -194,21 +201,22 @@ Temporary GitHub read failures use the existing observation retry path. Exhauste
 read waits keep their recognized diagnostics. Automatic workflow retry metadata
 is emitted only after Controller-owned settlement, bound to the current Run and
 Attempt where applicable. An unavailable read, malformed observation or missing
-receipt is never treated as successful absence. Retained fences still require
-the recovery procedure below; this handoff path never reclaims another fence.
+receipt is never treated as successful absence. Retained legacy fences still
+require the recovery procedure below; this handoff path never reclaims one.
 
 For a published PR repair whose head read-back was interrupted, stop the adopted
-Runner and wait for GitHub to report it offline. Recovery requires the same
-trusted Linux host to have entered a different kernel boot. The durable host
-fence records `/proc/sys/kernel/random/boot_id` before any Writer starts. A
-missing PID, a completed Job, a rerun or a removed Label cannot replace this
-proof. Same-boot interruptions and legacy fences without a valid boot identity
-remain Pending. As the host controller, run
+Runner and wait for GitHub to report it offline. The operation journal records
+`/proc/sys/kernel/random/boot_id`, the controller PID and its start time with the
+pending decision. Recovery requires the same trusted Linux host to have entered a
+different kernel boot, or, within that boot, the recorded controller process to
+be gone. A legacy `stage.lock` fence always requires a different boot. A
+completed Job, a rerun or a removed Label cannot replace this proof. Legacy
+fences without a valid boot identity remain Pending. As the host controller, run
 `nibfin-core.mjs recover-commit-pr <issue-number> <observed-pr-head>` from a
 verified, administrator-installed Core package. This can use a separate recovery
 package while the previous Core remains adopted. It verifies the original
 pending decision against the terminal Job, open PR, branch, and exact Candidate
-tree and parent. It records the observed publication and archives the fence
+tree and parent. It records the observed publication and archives a legacy fence
 after confirming there are no remaining execution containers. It does not push
 or retry the GitHub operation. Restart the adopted Runner after settlement.
 The existing `recover-review <issue-number> <observed-pr-head>` command uses the
@@ -233,11 +241,12 @@ claim and one shared restricted profile before constructing any stage executor.
 See [Native MCP within an Actions Job](mcp-job.md) for the supported single-entry
 Caller, finite Windows-owner startup handoff and separate adoption requirements.
 Unarmed hosts, retired Jobs and persistent-capsule fallbacks fail closed. Unknown
-preparation or retirement preserves the host fence and never automatically retries.
+preparation or retirement keeps the Issue's Job MCP copy for the next entry's
+settlement and never automatically retries.
 
 Tests cover native identity discovery against provider fixtures, duplicate/offline
-registered routes, concurrent launch refusal, a real killed child retaining its
-fence, unsafe paths and CLI request rejection. Existing installed-executor tests
+registered routes, legacy stage-fence fixtures (concurrent refusal and a real
+killed child retaining its fence), unsafe paths and CLI request rejection. Existing installed-executor tests
 cover signed caller/native approval and stage receipt persistence. These do not
 establish a live authenticated Agent execution through the new launcher. That
 requires a genuinely adopted host, protected caller and subscription login; the

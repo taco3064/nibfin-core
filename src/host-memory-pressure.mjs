@@ -1,6 +1,6 @@
 import { constants, readFileSync } from 'node:fs';
 import { open, readFile } from 'node:fs/promises';
-import { isId } from './identity.mjs';
+import { isId, requireThat } from './identity.mjs';
 
 const uuid = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/;
 
@@ -69,6 +69,21 @@ export async function processIdentity(pid) {
     const stat = await readFile(`/proc/${pid}/stat`, 'utf8');
     return parseIdentity(pid, stat);
   } catch { return null; }
+}
+
+// Fail closed: only an absent /proc entry proves that no process has this PID.
+// Unreadable or unparsable process state is never evidence of termination.
+export async function observedProcessIdentity(pid, read = readFile) {
+  requireThat(isId(pid), 'PROCESS_IDENTITY_UNAVAILABLE');
+  let stat;
+  try { stat = await read(`/proc/${pid}/stat`, 'utf8'); }
+  catch (error) {
+    if (error?.code === 'ENOENT') return null;
+    throw error;
+  }
+  const identity = typeof stat === 'string' ? parseIdentity(pid, stat) : null;
+  requireThat(identity, 'PROCESS_IDENTITY_UNAVAILABLE');
+  return identity;
 }
 
 async function uptime() {

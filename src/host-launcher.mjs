@@ -39,6 +39,7 @@ import {
 } from './observation-failure.mjs';
 import { readHostStageInputs } from './host-stage-inputs.mjs';
 import { prepareHostJobMcp } from './mcp-job-host.mjs';
+import { settleMcpJobCopies } from './mcp-copy-settlement.mjs';
 
 import {
   loadHostAdoption, inspectHostAdoption,
@@ -264,6 +265,14 @@ async function launchAdmittedStage(issueNumber, stage, env, runnerUid,
     await retryGitHubObservation(inspectWriter);
     await journal.retireStoppedLease();
     if (openPr) await journal.assertIdle();
+    if (!await settleMcpJobCopies(root)) {
+      // A previous Job copy may still have a consumer. Keep it and run nothing:
+      // release is deliberately skipped, so no retirement or cleanup happens.
+      return retainHostOutcome(root, { approval, runner, execution }, stage, {
+        schemaVersion: 1, stage, status: 'pending',
+        code: 'MCP_JOB_TERMINATION_UNPROVEN',
+      });
+    }
     const { workspaceRoot, binding, store, marker: workspaceBinding } = progress;
     const workspace = new CandidateWorkspace(workspaceRoot, issue);
     let observedMain;
@@ -346,7 +355,8 @@ async function launchAdmittedStage(issueNumber, stage, env, runnerUid,
     if (!proposal) {
       mcpEntered = true;
       mcpJob = await prepareHostJobMcp({
-        host: { ...host, mcp: mcpSource }, runner, reader, approval,
+        host: { ...host, mcp: mcpSource }, issueRoot: root, runner, reader,
+        approval,
       }, {
         authorize: async () => {
           const fresh = await retryGitHubObservation(() =>
