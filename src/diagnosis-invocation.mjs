@@ -19,6 +19,8 @@ export async function prepareDiagnosisInvocation(host, issue, {
   requireThat(adopted && process.getuid() === host.uid &&
     adopted.uid === host.uid, 'CONTROLLER_ACCESS_REQUIRED');
   const provider = installedProvider(adopted);
+  // Diagnosis runs the Codex plan only; a Claude pool has no diagnosis route.
+  requireThat(provider.provider !== 'claude', 'CLAUDE_DIAGNOSIS_UNSUPPORTED');
   await verify(adopted.installation.directory, adopted.installation.pin);
   const secrets = subscriptionSecrets(JSON.parse(
     await read(adopted.authFile, 128 * 1024, true)));

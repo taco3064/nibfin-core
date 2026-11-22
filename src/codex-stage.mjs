@@ -13,6 +13,7 @@ import { preflightJobVm } from './job-vm.mjs';
 import { issueContainerLabel } from './host-containers.mjs';
 import { GitHubReader } from './github-read.mjs';
 import { command } from './process.mjs';
+import { claudeCredentialReader } from './claude-composition.mjs';
 
 // Fixed composition for the provisional Codex adapter. The privileged launcher
 // supplies adopted paths and native writer proof. No request can import a host
@@ -41,6 +42,8 @@ export async function codexStageExecutor({
   inspectWriter,
   observeResult,
   token,
+  provider,
+  credentialKind,
   fetcher = fetch,
   clock = Date.now,
 }) {
@@ -49,10 +52,19 @@ export async function codexStageExecutor({
   const actor = structuredClone(execution),
     profile = structuredClone(isolation);
   requireThat(typeof inspectWriter === 'function', 'SUPPORTED_HOST_PROOF_REQUIRED');
+  // Only the adopted binding names a provider (installed-provider.mjs); absent
+  // means Codex. Claude has no user MCP route and reads one bound credential.
+  requireThat(provider === undefined || provider === 'claude',
+    'PROVIDER_COMPOSITION_UNAVAILABLE');
+  const claude = provider === 'claude';
+  requireThat(!claude || (mcpSource === undefined && !mcpJob),
+    'CLAUDE_MCP_UNSUPPORTED');
+  const readCredential = claude ? claudeCredentialReader(credentialKind) : undefined;
+  const writerVm = Boolean(jobVm) && actor.role === 'writer';
   const coreRoot = resolve(installed.directory);
   await verifyInstalledSource(coreRoot, installed.pin);
   // Capture under the verified composition's existing source lifetime.
-  const executorSnapshot = jobVm && actor.role === 'writer'
+  const executorSnapshot = writerVm
     ? await readFile(join(coreRoot, 'src/security/job-vm-executor.py')) : undefined;
   // Do not permit separately configured executable/Skill trees: all runtime
   // files used by this adapter must come from the verified installation.
@@ -84,12 +96,14 @@ export async function codexStageExecutor({
     coreRoot,
     adopted.runner,
     project,
-    { toolEnvironment },
+    { toolEnvironment, ...(claude ? { provider } : {}) },
   );
   const { agent: agentSandbox, hooks: hookSandbox, image } = environment;
   if (actor.role === 'writer')
     console.error(`Nibfin Writer backend: ${jobVm ? 'firecracker' : 'docker'}`);
-  const writer = jobVm && actor.role === 'writer' ? {
+  // The adopted provider selects the guest route; Codex keeps the default.
+  const vmOptions = claude ? [{ provider }] : [];
+  const writer = writerVm ? {
     async preflight(...args) {
       await preflightJobVm(jobVm);
       return agentSandbox.preflight(...args);
@@ -100,17 +114,20 @@ export async function codexStageExecutor({
         image, endpoint: profile.agent, label: issueContainerLabel(profile.issue),
       } } : {}),
     },
-      options => agentSandbox.execute(options)),
+      options => agentSandbox.execute(options), ...vmOptions),
   } : agentSandbox;
-  const inheritedAgent = withUserMcp(writer, mcpSource,
+  const inheritedAgent = claude ? writer : withUserMcp(writer, mcpSource,
     source => mcpJob ? mcpJob.read() : loadUserMcp(source, {
       discoveryRoot: agentStateRoot, memberId: adopted.runner.memberId,
     }), mcpJob);
+  // Claude's credential never becomes a file: no authFile, and the VM-mode plan
+  // only for the Firecracker writer (the sandbox requires that equality).
+  const providerConfig = claude ? { provider, jobVm: writerVm } : { authFile };
   const roleAgent = new CodexRoleAgent(
     {
       stateRoot: agentStateRoot,
       reportRoot: config.stateRoot,
-      authFile,
+      ...providerConfig,
       model,
       proposal,
       globalInstructions,
@@ -123,7 +140,7 @@ export async function codexStageExecutor({
     inheritedAgent,
     { settlement, upstream: {
       core: installed.pin, reader: new GitHubReader(token, fetcher),
-    } },
+    }, ...(claude ? { readCredential } : {}) },
   );
   const agent = {
     async run(stage, context) {

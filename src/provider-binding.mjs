@@ -1,11 +1,24 @@
 import { validProviderModel as model } from './provider-contract.mjs';
 import { executionProfile } from './execution-profiles.mjs';
 import { digest, isDigest, isId, isSha, requireThat } from './identity.mjs';
+import { claudeCredentialKinds } from './claude-model-credentials.mjs';
 
 const providers = ['codex', 'claude'];
-const codexComponents = Object.freeze({ contract: 1, roleAdapter: 'codex-role-v1',
-  modelRunner: 'codex-exec-v1', toolChannel: 'codex-isolated-tools-v1' });
-const credentialKind = 'codex-chatgpt';
+// Code-owned composition per provider; Codex keeps its original identity.
+const providerTable = Object.freeze({
+  codex: Object.freeze({
+    components: Object.freeze({ contract: 1, roleAdapter: 'codex-role-v1',
+      modelRunner: 'codex-exec-v1', toolChannel: 'codex-isolated-tools-v1' }),
+    credentialKind: kind => kind === codexCredentialKind,
+  }),
+  claude: Object.freeze({
+    components: Object.freeze({ contract: 1, roleAdapter: 'claude-role-v1',
+      modelRunner: 'claude-code-v1', toolChannel: 'claude-sandbox-tools-v1' }),
+    credentialKind: kind => typeof kind === 'string' &&
+      Object.hasOwn(claudeCredentialKinds, kind),
+  }),
+});
+const codexCredentialKind = 'codex-chatgpt';
 const compatibleProfile = name => {
   try { executionProfile(name); return true; } catch { return false; }
 };
@@ -20,11 +33,10 @@ export function providerIdentity(value) {
 }
 
 // These names describe code in the verified Core package, never loadable paths.
-// Claude has no installed implementation in this release.
-export function providerComponents(host) {
+export function providerComponents(host, provider = 'codex') {
   const isolation = host.repository?.isolation;
-  return { ...codexComponents, hostProfile: isolation?.kind,
-    source: structuredClone(host.installation?.pin),
+  return { ...providerTable[providerIdentity(provider)].components,
+    hostProfile: isolation?.kind, source: structuredClone(host.installation?.pin),
     agentImage: isolation?.agent?.image };
 }
 
@@ -32,10 +44,23 @@ function compatibleComponents(binding) {
   const c = binding.components;
   requireThat(c?.contract === 1 && pin(c.source) && image(c.agentImage),
     'INCOMPLETE_PROVIDER_COMPOSITION');
-  requireThat(binding.provider === 'codex' &&
-    Object.entries(codexComponents).every(([key, value]) => c[key] === value) &&
-    compatibleProfile(c.hostProfile) && binding.credentialKind === credentialKind,
+  const entry = providerTable[binding.provider];
+  requireThat(Object.entries(entry.components).every(([key, value]) =>
+    c[key] === value) && compatibleProfile(c.hostProfile) &&
+    entry.credentialKind(binding.credentialKind),
   'PROVIDER_COMPOSITION_UNAVAILABLE');
+}
+
+// Codex has one fixed kind; a Claude pool names its one stored credential kind.
+function bindingCredentialKind(provider, kind) {
+  if (provider === 'codex') {
+    requireThat(kind === undefined || kind === codexCredentialKind,
+      'PROVIDER_CREDENTIAL_KIND_INVALID');
+    return codexCredentialKind;
+  }
+  requireThat(providerTable.claude.credentialKind(kind),
+    'PROVIDER_CREDENTIAL_KIND_INVALID');
+  return kind;
 }
 
 function poolIdentity(host) {
@@ -67,14 +92,17 @@ function compatibleHost(host) {
 
 // Only administrator-owned adoption calls this. Source and native Runner
 // verification precede persistence; this structural check does not replace them.
-export function createProviderBinding(host, provider = 'codex') {
+export function createProviderBinding(host, provider = 'codex', {
+  credentialKind,
+} = {}) {
   providerIdentity(provider);
   compatibleHost(host);
   const binding = { schemaVersion: 1, provider,
     original: { provider, installation: structuredClone(host.installation.pin),
       pool: poolIdentity(host) },
-    modelProfile: { model: host.model }, credentialKind,
-    components: providerComponents(host) };
+    modelProfile: { model: host.model },
+    credentialKind: bindingCredentialKind(provider, credentialKind),
+    components: providerComponents(host, provider) };
   compatibleComponents(binding);
   return binding;
 }
@@ -108,7 +136,8 @@ export function installedProvider(host, requested) {
   if (requested !== undefined) requireThat(requested === binding.provider,
     'PROVIDER_CHANGE_REQUIRES_RETIREMENT_REBUILD');
   requireThat(binding.modelProfile.model === host.model &&
-    same(binding.components, providerComponents(host)), 'PROVIDER_COMPONENT_MISMATCH');
+    same(binding.components, providerComponents(host, binding.provider)),
+  'PROVIDER_COMPONENT_MISMATCH');
   requireThat(same(binding.original.pool, poolIdentity(host)),
     'PROVIDER_POOL_BINDING_MISMATCH');
   validateViews(host, binding);
