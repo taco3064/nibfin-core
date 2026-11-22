@@ -1,5 +1,6 @@
 import { fstatSync } from 'node:fs';
 import { requireThat } from './identity.mjs';
+import { claudeCredentialKind } from './claude-credential-kinds.mjs';
 
 export const credentialInputLimit = 65536;
 const invalid = 'MANAGED_CREDENTIAL_INPUT_INVALID';
@@ -10,15 +11,31 @@ export function privateCredentialPipe(fd = 0) {
   requireThat(stat.isFIFO() && (stat.mode & 0o077) === 0, invalid);
 }
 
+// Only fixed codes leave this module; credential text never does.
+const passed = new Set(['MANAGED_CODEX_DEDICATED_LOGIN_REQUIRED',
+  'MANAGED_CLAUDE_CREDENTIAL_INVALID']);
+const safeCode = error => passed.has(error.code) ? error.code : invalid;
+
+// A Claude envelope carries one whole credential of a known kind.
+function claudeMaterial(token, credential) {
+  const credentialKind = claudeCredentialKind(credential);
+  requireThat(credentialKind, 'MANAGED_CLAUDE_CREDENTIAL_INVALID');
+  return { token, credentialKind, credential: credential + '\n' };
+}
+
 export function decodeCredentialInput(bytes) {
   try {
     requireThat(bytes.length > 0 && bytes.length <= credentialInputLimit, invalid);
     const text = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
     const value = JSON.parse(text);
-    requireThat(value && Object.keys(value).sort().join(',') ===
-      'codex,githubToken,schemaVersion' && value.schemaVersion === 1 &&
+    const keys = value && Object.keys(value).sort().join(',');
+    requireThat(['codex,githubToken,schemaVersion',
+      'claude,githubToken,schemaVersion'].includes(keys) &&
+      value.schemaVersion === 1 &&
       typeof value.githubToken === 'string' &&
       /^[A-Za-z0-9_]{20,16300}$/.test(value.githubToken), invalid);
+    if (Object.hasOwn(value, 'claude'))
+      return claudeMaterial(value.githubToken, value.claude);
     const auth = value.codex;
     requireThat(auth?.auth_mode === 'chatgpt' && !auth.OPENAI_API_KEY &&
       auth.tokens && typeof auth.tokens === 'object' &&
@@ -39,8 +56,7 @@ export function decodeCredentialInput(bytes) {
     'MANAGED_CODEX_DEDICATED_LOGIN_REQUIRED');
     return { token: value.githubToken, auth: JSON.stringify(auth) + '\n' };
   } catch (error) {
-    const code = error.code === 'MANAGED_CODEX_DEDICATED_LOGIN_REQUIRED'
-      ? error.code : invalid;
+    const code = safeCode(error);
     throw Object.assign(new Error(code), { code });
   }
 }
@@ -59,8 +75,7 @@ export async function readCredentialInput(input) {
     try { return decodeCredentialInput(bytes); }
     finally { bytes.fill(0); }
   } catch (error) {
-    const code = error.code === 'MANAGED_CODEX_DEDICATED_LOGIN_REQUIRED'
-      ? error.code : invalid;
+    const code = safeCode(error);
     throw Object.assign(new Error(code), { code });
   } finally {
     clearTimeout(timeout);

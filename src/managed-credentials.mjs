@@ -5,7 +5,13 @@ import { coreRoot } from './host-adoption.mjs';
 import { rootOwnedPath } from './host-paths.mjs';
 import { withSharedAdoptionLock } from './shared-peer-adoption.mjs';
 import { requireThat } from './identity.mjs';
-import { managedCredentialHost } from './managed-credential-host.mjs';
+import { managedCredentialHost, publishedCredentialTarget } from
+  './managed-credential-host.mjs';
+import { claudeCredentialKind } from './claude-credential-kinds.mjs';
+import {
+  claudeCredentialPaths, codexCredentialKind, credentialKindOf,
+  credentialKindProvider, credentialPaths,
+} from './managed-credential-set.mjs';
 import { privateCredentialPipe, readCredentialInput } from
   './managed-credential-input.mjs';
 import {
@@ -21,7 +27,10 @@ export const credentialGuidance =
   'their provider permissions. Disconnect removes only Controller-managed access; ' +
   'original login stores and unrelated authorizations remain unchanged.';
 
-const paths = host => [host.tokenFile, host.authFile];
+// `value` is a lifecycle record or decoded input; without a kind it is Codex.
+const paths = (host, value) => credentialPaths(host, credentialKindOf(value));
+// Codex records and status keep their original fields; a Claude set names its kind.
+const kindField = kind => kind === codexCredentialKind ? {} : { credentialKind: kind };
 const consumerScopes = new WeakMap();
 async function absent(path) {
   try { await lstat(path); requireThat(false, 'MANAGED_CREDENTIAL_FILE_CONFLICT'); }
@@ -29,8 +38,13 @@ async function absent(path) {
 }
 
 async function assertOwned(host, state) {
-  for (const [index, path] of paths(host).entries())
+  for (const [index, path] of paths(host, state).entries())
     await sameResource(path, host, state.files?.[index]);
+}
+
+function inputKind(material) {
+  try { return credentialKindOf(material); }
+  catch { return requireThat(false, 'MANAGED_CREDENTIAL_INPUT_INVALID'); }
 }
 
 export async function assertNoCredentialConsumers(host) {
@@ -58,8 +72,9 @@ async function consumersSettled(host) {
 
 // Shared implementation exercised with disposable private directories in tests.
 // The command entry never accepts host, reader or settlement callbacks as input.
+// `provider` is the published profile's intake target, never an input field.
 export async function manageCredentials(host, operation, material, {
-  verify = verifyManagedAuthority, settle = consumersSettled,
+  verify = verifyManagedAuthority, settle = consumersSettled, provider = 'codex',
 } = {}) {
   requireThat(['intake', 'replace', 'disconnect', 'status'].includes(operation),
     'MANAGED_CREDENTIAL_OPERATION_INVALID');
@@ -82,7 +97,7 @@ export async function manageCredentials(host, operation, material, {
       status = 'pending';
     else if (access === 'unauthorized') status = 'denied';
     return { status, phase: state.phase, access, memberId: state.memberId,
-      guidance: credentialGuidance };
+      ...kindField(credentialKindOf(state)), guidance: credentialGuidance };
   });
   return withCredentialLock(host, async () => {
     const state = await lifecycleState(host);
@@ -99,7 +114,7 @@ export async function manageCredentials(host, operation, material, {
       catch { return { status: 'pending', code: 'MANAGED_CREDENTIAL_SETTLEMENT_PENDING',
         guidance: credentialGuidance }; }
       const removable = [];
-      for (const [index, path] of paths(host).entries()) {
+      for (const [index, path] of paths(host, state).entries()) {
         try { await sameResource(path, host, state.files?.[index]); }
         catch (error) { if (error.code === 'ENOENT') continue; throw error; }
         removable.push({ path, identity: state.files[index] });
@@ -113,34 +128,50 @@ export async function manageCredentials(host, operation, material, {
         phase: 'disconnected', files: [] });
       return { status: 'disconnected', guidance: credentialGuidance };
     }
+    const kind = inputKind(material);
+    // The published profile chooses the provider; a different input writes nothing.
+    requireThat(credentialKindProvider(kind) === provider,
+      'MANAGED_CREDENTIAL_PROVIDER_MISMATCH');
+    const targets = credentialPaths(host, kind);
     if (operation === 'replace') {
       requireThat(state?.phase === 'active', 'MANAGED_CREDENTIAL_NOT_REPLACEABLE');
+      // Replacement renews one set; changing kind is disconnect, then intake.
+      requireThat(credentialKindOf(state) === kind,
+        'MANAGED_CREDENTIAL_KIND_CHANGE_REQUIRES_DISCONNECT');
       await assertOwned(host, state);
     } else {
       requireThat(!state || state.phase === 'disconnected',
         'MANAGED_CREDENTIAL_ALREADY_ENROLLED');
-      for (const path of paths(host)) await absent(path);
+      for (const path of targets) await absent(path);
+      // One Claude pool stores exactly one Claude credential of any kind.
+      if (kind !== codexCredentialKind)
+        for (const path of claudeCredentialPaths(host)) await absent(path);
     }
+    const secret = kind === codexCredentialKind ? material?.auth : material?.credential;
     requireThat(material && typeof material.token === 'string' &&
-      typeof material.auth === 'string', 'MANAGED_CREDENTIAL_INPUT_INVALID');
+      typeof secret === 'string' && (kind === codexCredentialKind ||
+        claudeCredentialKind(secret.trimEnd()) === kind),
+    'MANAGED_CREDENTIAL_INPUT_INVALID');
     await verify(host, material.token);
     await settle(host);
+    // Reuse only when the whole set, token and provider credential, is unchanged.
     if (operation === 'replace' &&
-        (await readPrivate(host.tokenFile, host, 16384)).trim() === material.token)
+        (await readPrivate(host.tokenFile, host, 16384)).trim() === material.token &&
+        await readPrivate(targets[1], host) === secret)
       return { status: 'active', memberId: host.memberId, reused: true,
         guidance: credentialGuidance };
     const next = { schemaVersion: 1, memberId: host.memberId,
-      phase: 'installing', files: [...(state?.files ?? [])] };
+      phase: 'installing', ...kindField(kind), files: [...(state?.files ?? [])] };
     await writeLifecycle(host, next);
     // An interrupted multi-file transition remains blocked, never partly active.
     try {
-      const values = [material.token + '\n', material.auth];
+      const values = [material.token + '\n', secret];
       for (const [index, bytes] of values.entries()) {
-        next.files[index] = await publishPrivate(paths(host)[index], bytes, host,
+        next.files[index] = await publishPrivate(targets[index], bytes, host,
           state?.files?.[index]);
         await writeLifecycle(host, next);
       }
-      for (const [index, path] of paths(host).entries())
+      for (const [index, path] of targets.entries())
         requireThat(await readPrivate(path, host) === values[index],
           'MANAGED_CREDENTIAL_READBACK_FAILED');
       await writeLifecycle(host, { ...next, phase: 'active' });
@@ -150,7 +181,7 @@ export async function manageCredentials(host, operation, material, {
       let rolledBack = false;
       if (operation === 'intake') {
         try {
-          for (const [index, path] of paths(host).entries()) {
+          for (const [index, path] of targets.entries()) {
             if (!next.files[index]) continue;
             await sameResource(path, host, next.files[index]);
             await unlink(path);
@@ -158,7 +189,7 @@ export async function manageCredentials(host, operation, material, {
           }
           // A publication may have linked a file before failing its final sync.
           // An unrecorded inode is unknown: never claim its removal or delete it.
-          for (const path of paths(host)) await absent(path);
+          for (const path of targets) await absent(path);
           await writeLifecycle(host, { schemaVersion: 1, memberId: host.memberId,
             phase: 'disconnected', files: [] });
           rolledBack = true;
@@ -178,12 +209,13 @@ export async function credentialAdministrator(operation, input = process.stdin) 
     await rootOwnedPath(coreRoot);
     return await withSharedAdoptionLock(async () => {
       const host = await managedCredentialHost(true, operation === 'intake');
-      let material;
+      let material, provider;
       if (['intake', 'replace'].includes(operation)) {
         privateCredentialPipe();
         material = await readCredentialInput(input);
+        provider = await publishedCredentialTarget();
       }
-      return manageCredentials(host, operation, material);
+      return manageCredentials(host, operation, material, { provider });
     });
   } catch (error) {
     const code = /^MANAGED_[A-Z_]{1,75}$/.test(error.code ?? '')

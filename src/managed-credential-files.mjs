@@ -4,6 +4,7 @@ import { dirname, join, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { requireThat } from './identity.mjs';
 import { syncRecoveryDirectory } from './recovery-lock.mjs';
+import { credentialKindOf } from './managed-credential-set.mjs';
 
 const unsafe = 'MANAGED_CREDENTIAL_PATH_UNSAFE';
 export const managedBase = '/var/lib/nibfin/controller';
@@ -52,6 +53,9 @@ export async function lifecycleState(host) {
     requireThat(value.schemaVersion === 1 && value.memberId === host.memberId &&
       ['installing', 'active', 'disconnecting', 'disconnected'].includes(value.phase),
     'MANAGED_CREDENTIAL_STATE_INVALID');
+    // A record without `credentialKind` is the original Codex set.
+    try { credentialKindOf(value); }
+    catch { requireThat(false, 'MANAGED_CREDENTIAL_STATE_INVALID'); }
     return value;
   } catch (error) { if (error.code === 'ENOENT') return null; throw error; }
 }

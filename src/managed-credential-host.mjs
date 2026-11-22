@@ -11,6 +11,7 @@ import { prepareSharedAccounts } from './shared-host-setup.mjs';
 import { requireManagerContext } from './rollout-manager-context.mjs';
 import { requireNoLegacyRolloutConsumer } from './legacy-rollout-consumer.mjs';
 import { credentialRolloutPeers } from './managed-credential-rollout-peers.mjs';
+import { publishedCredentialProvider } from './managed-credential-set.mjs';
 
 const profileFile = '/etc/nibfin/shared-host-profile.json';
 
@@ -24,6 +25,16 @@ function repositoryIdentity(profile) {
   requireThat(value?.kind === 'repository-admission-v1',
     'MANAGED_CREDENTIAL_REPOSITORY_NOT_ADOPTED');
   return { repository: value.repository, repositoryId: value.repositoryId };
+}
+
+// The intake target is the published profile's provider, read separately from
+// the host facts; without a published profile the existing target is Codex.
+export async function publishedCredentialTarget() {
+  const profile = await trustedJson(profileFile).catch(error => {
+    if (error.code === 'ENOENT') return null;
+    throw error;
+  });
+  return publishedCredentialProvider(profile);
 }
 
 export async function managedCredentialHost(administrator = false, prepare = false) {

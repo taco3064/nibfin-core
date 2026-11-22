@@ -15,6 +15,14 @@ The UTF-8 JSON envelope has exactly these fields:
   `auth_mode: "chatgpt"` and `tokens.access_token`, `tokens.refresh_token`, and
   `tokens.id_token`. Optional `tokens.account_id` and `last_refresh` are retained.
 
+A Claude pool replaces `codex` with `claude`: one whole credential string, either
+a subscription token from the official `claude setup-token` (`sk-ant-oat…`) or
+an Anthropic API key (`sk-ant-api…`). An unrecognized value returns
+`MANAGED_CLAUDE_CREDENTIAL_INVALID`. The envelope carries exactly one of `codex`
+or `claude`. Its provider must match the published host profile's `provider`
+(absent means Codex); otherwise Core returns
+`MANAGED_CREDENTIAL_PROVIDER_MISMATCH` and writes nothing.
+
 The complete envelope is limited to 65,536 bytes and ten seconds of input.
 Do not put this envelope in arguments, environment variables, a repository,
 command output, installation PRs, Actions, Runner, Agent, or Hook inputs.
@@ -53,8 +61,15 @@ The token retains its actual provider permissions; private storage does not
 attenuate them. Original gh and Codex stores remain untouched.
 
 The private `credentials/managed.json` records lifecycle state and owned file
-identities, not token values or repository authorizations. Intake refuses manual
-files. Replacement requires active managed state and the same bound member.
+identities, not token values or repository authorizations. A Claude set stores
+its file in `credentials/` under its kind's name (`claude-oauth-token` or
+`anthropic-api-key`) and records `credentialKind`; a record without it is the
+Codex set, and `status` reports `credentialKind` only for Claude. Intake refuses
+manual files; Claude intake also refuses any existing Claude kind file.
+Replacement requires active managed state and the same bound member, and renews
+only the same provider and kind. Switching provider or Claude kind is
+`disconnect` followed by `intake`. Replacement reuses the existing files only
+when both the GitHub token and the provider credential are unchanged.
 File publication is exclusive for intake, checked against owned inodes for
 replacement, atomic per file, and synchronized with its parent directory.
 An interrupted multi-file publication remains `installing`, blocking admission.

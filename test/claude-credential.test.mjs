@@ -1,15 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {
-  chmod, mkdtemp, readdir, readFile, rm, stat, writeFile,
-} from 'node:fs/promises';
+import { chmod, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { Readable } from 'node:stream';
 import { spawnSync } from 'node:child_process';
 import {
-  claudeCredentialKind, claudeCredentialKinds, intakeClaudeCredential,
-  readClaudeCredential, storeClaudeCredential, validClaudeCredential,
+  claudeCredentialKind, claudeCredentialKinds, readClaudeCredential,
+  validClaudeCredential,
 } from '../src/claude-model-credentials.mjs';
 import { claudeModelComponent } from '../src/claude-model-runner.mjs';
 import { modelContainerArgs } from '../src/claude-model-container.mjs';
@@ -136,53 +133,12 @@ test('stored credential must be exactly one private file of its own kind',
       { message: 'CLAUDE_CREDENTIAL_UNAVAILABLE' });
   });
 
-test('public intake refuses a non-administrator caller',
-  { skip: process.platform === 'linux' && process.getuid() === 0 }, async () => {
-    await assert.rejects(intakeClaudeCredential(Readable.from([token])),
-      { message: 'CLAUDE_CREDENTIAL_REQUIRES_ADMIN' });
-  });
-
-test('intake stores one credential of its kind and refuses any second one',
-  { skip: process.platform !== 'linux' }, async t => {
-    const uid = process.getuid();
-    const fixture = async () => {
-      const root = await mkdtemp(join(tmpdir(), 'claude-intake-'));
-      t.after(() => rm(root, { recursive: true, force: true }));
-      await chmod(root, 0o700);
-      return root;
-    };
-    const files = root => ({
-      'claude-subscription-token': join(root, 'claude-oauth-token'),
-      'anthropic-api-key': join(root, 'anthropic-api-key') });
-    const store = (root, value) =>
-      storeClaudeCredential(Readable.from([Buffer.from(value)]), root, uid);
-
-    for (const [kind, value] of [['claude-subscription-token', token],
-      ['anthropic-api-key', apiKey]]) {
-      const root = await fixture();
-      assert.deepEqual(await store(root, `${value}\n`),
-        { status: 'stored', credentialKind: kind });
-      assert.deepEqual(await readdir(root), [kind === 'anthropic-api-key'
-        ? 'anthropic-api-key' : 'claude-oauth-token']);
-      assert.equal((await stat(files(root)[kind])).mode & 0o777, 0o600);
-      assert.equal(await readClaudeCredential(uid, files(root)), value);
-      for (const second of [token, apiKey]) {
-        await assert.rejects(store(root, second),
-          { message: 'CLAUDE_CREDENTIAL_EXISTS' });
-        assert.equal(await readFile(files(root)[kind], 'utf8'), `${value}\n`);
-      }
-      assert.equal((await readdir(root)).length, 1, 'lock removed, nothing added');
-    }
-
-    const root = await fixture();
-    for (const value of ['sk-ant-' + 'g'.repeat(40), `${token} extra`, '',
-      'sk-ant-oat01-' + 'h'.repeat(1100)]) {
-      await assert.rejects(store(root, value),
-        { message: 'CLAUDE_CREDENTIAL_UNAVAILABLE' });
-      assert.deepEqual(await readdir(root), []);
-    }
-    await chmod(root, 0o755);
-    await assert.rejects(store(root, token),
-      { message: 'MANAGED_CREDENTIAL_PATH_UNSAFE' });
-    assert.deepEqual(await readdir(root), []);
+test('legacy Claude intake entry is removed in favor of managed credentials',
+  async () => {
+    const module = await import('../src/claude-model-credentials.mjs');
+    for (const name of ['intakeClaudeCredential', 'storeClaudeCredential',
+      'claudeApiKeyFile'])
+      assert.equal(module[name], undefined, name);
+    await assert.rejects(stat(new URL('../bin/nibfin-intake-claude-credential.mjs',
+      import.meta.url)), { code: 'ENOENT' });
   });

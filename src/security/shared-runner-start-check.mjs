@@ -4,6 +4,7 @@ import { requireNoRetirement } from '../retirement-admission.mjs';
 import { requirePoolOpen } from '../retirement-admission.mjs';
 import { pendingReplacement } from '../retirement-rebind.mjs';
 import { installedProvider } from '../provider-binding.mjs';
+import { credentialPaths } from '../managed-credential-set.mjs';
 import { access, constants, lstat, readFile, readdir, realpath } from 'node:fs/promises';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { join } from 'node:path';
@@ -24,7 +25,7 @@ async function check() {
   if (await rolloutListenerReady(host))
     await requireNoRetirement({ rollout: true });
   else if (!await pendingReplacement(host)) await requirePoolOpen();
-  installedProvider(host);
+  const binding = installedProvider(host);
   const second = host.sharedRunner?.additionalRunner;
   const primary = host.sharedRunner?.runner;
   requireThat(controllerRoute(host) && primary && second &&
@@ -34,13 +35,20 @@ async function check() {
   const expected = slot === '1'
     ? { id: primary.runnerId, name: primary.runnerName } : second;
   await checkSharedRunnerSlot(directory, expected, primary.repository);
-  for (const path of [host.stateRoot, host.tokenFile, host.authFile,
-    '/run/nibfin-engine/docker.sock']) {
+  for (const path of controllerResources(host, binding)) {
     await requireDenied(path, constants.R_OK);
     await requireDenied(path, constants.W_OK);
   }
   await requireDenied(host.stateRoot, constants.X_OK);
   await checkWslMounts();
+}
+
+// Controller resources a Runner account must not reach. The credential set is
+// the bound provider's: Codex keeps its original list, a Claude pool replaces
+// the Codex file with its one bound credential kind. An observable absence fails.
+export function controllerResources(host, binding) {
+  return [host.stateRoot, ...credentialPaths(host, binding.credentialKind),
+    '/run/nibfin-engine/docker.sock'];
 }
 
 export async function checkSharedRunnerSlot(
