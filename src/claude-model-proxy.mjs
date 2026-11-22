@@ -1,3 +1,3 @@
-import { createProxy } from './egress-proxy.mjs';
+import { createProxy, modelHosts } from './egress-proxy.mjs';
 
-createProxy({ hosts: ['api.anthropic.com'] }).listen(3128, '0.0.0.0');
+createProxy({ hosts: modelHosts.claude }).listen(3128, '0.0.0.0');

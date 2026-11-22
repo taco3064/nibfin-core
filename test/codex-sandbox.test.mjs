@@ -97,6 +97,12 @@ async function fixture(t, fault, rootful = false, mcp = false, project = false,
       nlink: 1,
     }),
   };
+  // The shared gateway's provider selection, as setup writes it for Claude only.
+  const gatewayProvider = {
+    'gateway-provider-absent': [],
+    'gateway-provider-mismatch': ['NIBFIN_EGRESS_PROVIDER=codex'],
+    'gateway-provider-claude': ['NIBFIN_EGRESS_PROVIDER=claude'],
+  }[fault] ?? (provider === 'claude' ? ['NIBFIN_EGRESS_PROVIDER=claude'] : []);
   const calls = [], startOptions = [];
   let container,
     exists = false,
@@ -143,7 +149,7 @@ async function fixture(t, fault, rootful = false, mcp = false, project = false,
               ? '/usr/local/bin/node' : 'node'],
             Cmd: ['/proxy.mjs'],
             Env: [fault === 'selected-image' ? 'PATH=/usr/local/bin:/usr/bin'
-              : 'PATH=/usr/bin', ...((mcp || project) ?
+              : 'PATH=/usr/bin', ...gatewayProvider, ...((mcp || project) ?
               ['NIBFIN_MCP_POLICY_DIRECTORY=/mcp-policy'] : [])]
               .sort()
               .concat(fault === 'gateway-env-extra' ? ['FOREIGN=1'] : [])
@@ -742,6 +748,24 @@ test('Claude writers get the same private tool output as Codex writers', async t
     assert.match(cleanup[cleanup.indexOf('-e') + 1], new RegExp(`/work/${cache}`));
   }
 });
+
+test('gateway check requires the Claude provider env, and Codex its absence',
+  async t => {
+    for (const project of [false, true]) {
+      await (await claudeFixture(t, undefined, { project })).sandbox.preflight();
+      for (const fault of ['gateway-provider-absent', 'gateway-provider-mismatch']) {
+        const f = await claudeFixture(t, fault, { project });
+        await assert.rejects(f.sandbox.preflight(), /AGENT_EGRESS_NOT_ISOLATED/);
+        assert.equal(f.calls.some(c => c[0] === 'create'), false);
+      }
+    }
+    const codex = await fixture(t, 'gateway-provider-claude');
+    await assert.rejects(codex.sandbox.preflight(), /AGENT_EGRESS_NOT_ISOLATED/);
+    const changed = await fixture(t, 'gateway-provider-claude', true, true);
+    await assert.rejects(changed.sandbox.execute(changed.request),
+      /AGENT_EGRESS_NOT_ISOLATED/);
+    assert.equal(changed.calls.some(c => c[0] === 'create'), false);
+  });
 
 const vmMounts = create => create.filter(v => v.startsWith('type=bind'))
   .map(v => [/dst=([^,]+)/.exec(v)[1], !v.includes(',readonly')]);

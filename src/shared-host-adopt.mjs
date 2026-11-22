@@ -228,7 +228,8 @@ export async function adoptSharedHost(name, id, memberId, actionCommit, ids, pin
     host.providerBinding = adoptedProviderBinding(host, profile.provider);
     if (managedEgressNetwork !== undefined) {
       const [primary, secondary] = await prepareSharedGateways(
-        [isolation, secondaryIsolation], runner, second, managedEgressNetwork);
+        [isolation, secondaryIsolation], runner, second, managedEgressNetwork,
+        { provider: host.providerBinding.provider });
       host.repository.isolation = primary;
       host.sharedRunner.additionalRunner.isolation = secondary;
     }
