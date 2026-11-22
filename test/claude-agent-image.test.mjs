@@ -58,8 +58,20 @@ test('the Claude recipe derives from the prepared Agent image and adds only the 
   assert.deepEqual(recipe.match(/^FROM .*$/gm), ['FROM nibfin-managed-agent-input']);
   assert.match(recipe, /^RUN rm \/usr\/local\/bin\/codex$/m);
   assert.match(recipe, /apt-get install -y --no-install-recommends bubblewrap socat/);
-  assert.match(recipe, /snapshot='\^deb \\\[check-valid-until=no\\\] https:\/\/snapshot/);
-  assert.match(recipe, /! grep -qv "\$snapshot" \/etc\/apt\/sources\.list/);
+  assert.match(recipe, /&& grep -Eqx "\$snapshot" \/etc\/apt\/sources\.list/);
+  assert.match(recipe, /! grep -Evqx "\$snapshot" \/etc\/apt\/sources\.list/);
+  // The whole-line pattern accepts exactly the line the Agent recipe writes.
+  const prefix = /^RUN prefix='(.+)' \\$/m.exec(recipe)[1];
+  const suffix = /&& snapshot="\$\{prefix\}(.+)" \\$/m.exec(recipe)[1];
+  const line = new RegExp(`^${prefix}${suffix}$`);
+  const agent = await source('managed-agent.Dockerfile');
+  assert.match(agent, /printf 'deb \[check-valid-until=no\] %s %s main\\n'/);
+  const url = /^\s+(http:\/\/snapshot\.debian\.org\/\S+) \\$/m.exec(agent)[1];
+  assert.match(`deb [check-valid-until=no] ${url} bookworm main`, line);
+  for (const other of [`deb [check-valid-until=no] ${url.replace('http:', 'https:')} ` +
+    'bookworm main', `deb [check-valid-until=no] ${url} bookworm main contrib`,
+  'deb http://deb.debian.org/debian bookworm main'])
+    assert.doesNotMatch(other, line);
   assert.match(recipe, /test -z "\$\(ls -A \/etc\/apt\/sources\.list\.d\)"/);
   assert.doesNotMatch(recipe, /sources\.list\s*>|deb\.debian\.org|curl|wget|npm i/);
   assert.match(recipe, /^ARG CLAUDE_VERSION$/m);

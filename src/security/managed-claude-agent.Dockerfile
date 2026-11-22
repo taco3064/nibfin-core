@@ -3,11 +3,13 @@
 # Core replaces the input token with the prepared Agent image ID.
 FROM nibfin-managed-agent-input
 RUN rm /usr/local/bin/codex
-# The same immutable Debian snapshot the Agent recipe configured; apt resolves
-# the dependencies. No other source may be consulted.
-RUN snapshot='^deb \[check-valid-until=no\] https://snapshot.debian.org/archive/debian/' \
-    && grep -q "$snapshot" /etc/apt/sources.list \
-    && ! grep -qv "$snapshot" /etc/apt/sources.list \
+# The same immutable Debian snapshot line the Agent recipe wrote (plain HTTP,
+# authenticated by apt's InRelease signature check); apt resolves the
+# dependencies. No other source may be consulted.
+RUN prefix='deb \[check-valid-until=no\] http://snapshot\.debian\.org/archive/debian/' \
+    && snapshot="${prefix}[0-9]{8}T[0-9]{6}Z/ [a-z]+ main" \
+    && grep -Eqx "$snapshot" /etc/apt/sources.list \
+    && ! grep -Evqx "$snapshot" /etc/apt/sources.list \
     && test -z "$(ls -A /etc/apt/sources.list.d)" \
     && apt-get update \
     && apt-get install -y --no-install-recommends bubblewrap socat \
