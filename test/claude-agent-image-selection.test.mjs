@@ -15,6 +15,13 @@ test('live image check failures name the step, exit code and bounded stderr',
     assert.equal(tail.length, 40);
     assert(tail[0].startsWith('line 20 ') && tail.at(-1).startsWith('line 59 '));
     assert(tail.every(line => line.length <= 300));
+    // A RUN's own error stays visible even when later build output follows it.
+    const build = ['#8 0.017 runc run failed: error mounting "sysfs"',
+      'E: Unable to locate package bubblewrap', ...stderr.split('\n')].join('\n');
+    const shown = failureTail(build).split('\n');
+    assert.deepEqual(shown.slice(0, 3), ['#8 0.017 runc run failed: error mounting ' +
+      '"sysfs"', 'E: Unable to locate package bubblewrap', '...']);
+    assert.equal(shown.length, 43);
     const logged = [];
     const progress = { step: 'build managed-agent' };
     const calls = [];
