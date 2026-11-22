@@ -64,10 +64,13 @@ test('a host record built from the Claude profile has a valid Claude binding', (
   assert.equal(binding.provider, 'claude');
   assert.equal(binding.modelProfile.model, managedModels.claude);
   assert.equal(binding.components.agentImage, claude.image);
-  // Until C4 lifts it, adoption still refuses the published Claude provider.
+  // Adoption binds the published Claude provider only with its stored kind.
+  const expected = host.providerBinding;
   delete host.providerBinding;
   assert.throws(() => adoptedProviderBinding(host, claudeProfile.provider),
-    { code: 'CLAUDE_ADOPTION_UNAVAILABLE' });
+    { code: 'PROVIDER_CREDENTIAL_KIND_INVALID' });
+  assert.deepEqual(adoptedProviderBinding(host, claudeProfile.provider,
+    { credentialKind: 'claude-subscription-token' }), expected);
 });
 
 test('the Claude publish never overwrites a profile Core did not compute', async () => {
