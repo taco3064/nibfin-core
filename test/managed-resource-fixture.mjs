@@ -1,9 +1,12 @@
 import assert from 'node:assert/strict';
+import { isDeepStrictEqual } from 'node:util';
 import { managedResources as resources } from '../src/managed-resource-contract.mjs';
 
 const ids = { agent: 'a', hooks: 'b', [resources.claude.kind]: 'f' };
 export const image = kind => `sha256:${ids[kind].repeat(64)}`;
 export const namespace = { uidStart: 65536, gidStart: 131072, size: 65536 };
+// The pinned CLI's `--version` line, as agentVersions reports it.
+export const claudeVersion = '2.1.326 (Claude Code)';
 // Claude-specific input bytes; only a Claude request reads them.
 export const claudeInputs = Object.freeze({
   [resources.claude.recipe]: 'claude recipe', [resources.claude.package]: 'script',
@@ -14,13 +17,13 @@ export const claudeInputs = Object.freeze({
 // container whose kernel label is the AppArmor profile it was created under.
 export function fixture(fault) {
   let container;
-  let profile;
   const commands = [];
   const io = {
     state: null, gateOwner: null, images: {}, commands, proofs: 0,
+    profile: undefined,
     inputs: async (architecture, { claude = false } = {}) => ({
       policy: 'fixed policy', recipe: 'fixed recipe',
-      ...(claude ? { ...claudeInputs, versions: { claude: '2.1.326' } } : {}),
+      ...(claude ? { ...claudeInputs, versions: { claude: claudeVersion } } : {}),
     }),
     verifyEngine: async () => ({ identity: 'engine', namespace, accounts: {} }),
     load: async () => structuredClone(io.state),
@@ -28,7 +31,7 @@ export function fixture(fault) {
       assert.deepEqual(io.state, previous);
       io.state = structuredClone(state);
     },
-    pristine: async () => { assert.equal(profile, undefined); },
+    pristine: async () => { assert.equal(io.profile, undefined); },
     claudePristine: async () => {},
     gate: async owner => { io.gateOwner = owner; },
     clearGate: async owner => {
@@ -46,10 +49,14 @@ export function fixture(fault) {
     },
     policy: async () => {}, egress: async () => 'd'.repeat(64),
     confirmSource: async () => {},
-    async publish(value) {
+    // Like the host: an existing profile is kept unless it equals the new one
+    // or is exactly the `replaceable` profile, which is replaced.
+    async publish(value, replaceable) {
       if (fault === 'profile-conflict') throw { code: 'ENGINE_FILE_CONFLICT' };
-      if (profile) assert.deepEqual(value, profile);
-      profile = structuredClone(value);
+      const same = other => isDeepStrictEqual(io.profile, other);
+      if (io.profile && !same(value) && !(replaceable && same(replaceable)))
+        throw { code: 'ENGINE_FILE_CONFLICT' };
+      io.profile = structuredClone(value);
     },
     processIdentity: async () => fault === 'process-unknown' ? null : '42',
     async verifyStopped() {

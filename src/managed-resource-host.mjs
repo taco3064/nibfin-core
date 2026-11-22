@@ -55,7 +55,7 @@ export function managedResourceHost(confirmSource, engine = engineHost(), {
   files = engineFileStore(), kernelProfiles = nativeKernel,
 } = {}) {
   const {
-    optionalStat, ownedDirectory, exactFile, installEngineFile,
+    optionalStat, ownedDirectory, exactFile, installEngineFile, replaceEngineFile,
     readEngineState, saveEngineState, requireDirectoryEntries,
   } = files;
   const loaded = name => kernelPolicy(name, kernelProfiles);
@@ -255,10 +255,13 @@ export function managedResourceHost(confirmSource, engine = engineHost(), {
       'RESOURCE_NETWORK_CONFLICT');
       return id;
     },
-    async publish(profile) {
+    // Only the `replaceable` profile Core computed from this journal is replaced.
+    async publish(profile, replaceable) {
       await rootOwnedPath('/etc/nibfin');
-      await installEngineFile(resources.profile, JSON.stringify(profile, null, 2) + '\n',
-        0o644);
+      const text = value => JSON.stringify(value, null, 2) + '\n';
+      if (replaceable) await replaceEngineFile(resources.profile, text(profile),
+        text(replaceable), 0o644);
+      else await installEngineFile(resources.profile, text(profile), 0o644);
       const stat = await lstat(resources.profile);
       requireThat(stat.uid === 0, 'RESOURCE_PROFILE_NOT_ROOT_OWNED');
     },
