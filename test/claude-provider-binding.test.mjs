@@ -95,9 +95,11 @@ test('legacy hosts without a binding are inferred only as Codex', () => {
   assert.equal(installedProvider(host).credentialKind, 'codex-chatgpt');
 });
 
-test('adoption keeps refusing Claude until credential intake exists', () => {
+test('adoption binds Claude only with its stored credential kind', () => {
   assert.throws(() => adoptedProviderBinding(providerHost(), 'claude'),
-    { code: 'CLAUDE_ADOPTION_UNAVAILABLE' });
+    { code: 'PROVIDER_CREDENTIAL_KIND_INVALID' });
+  assert.equal(adoptedProviderBinding(providerHost(), 'claude',
+    { credentialKind: kind }).credentialKind, kind);
   assert.equal(digest(adoptedProviderBinding(providerHost(), undefined)),
     digest(createProviderBinding(providerHost())));
   assert.throws(() => adoptedProviderBinding(providerHost(), 'external-plugin'),
