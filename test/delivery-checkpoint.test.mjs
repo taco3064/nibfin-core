@@ -107,7 +107,8 @@ function fixture(outcome = 'ready') {
       { type: 'turn.started' }, { type: 'item.completed',
         item: { type: 'agent_message', text: lastMessage } }, { type: 'turn.completed' }];
     return { executionId: context.execution.id, terminationHash: digest('termination'),
-      lastMessage, stdout: events.map(JSON.stringify).join('\n') };
+      lastMessage, result: JSON.parse(lastMessage),
+      stdout: events.map(JSON.stringify).join('\n') };
   } };
   const callbacks = stageHandlers({ agent, workspace, ...native,
     store: { put: async value => digest(value) }, observeMain: async () => context.main,

@@ -31,6 +31,12 @@ const profileName = 'shared-host-profile.json';
 const issueWorkflow = '.github/workflows/issue.yml';
 const limit = 262144;
 
+// Claude adoption needs credential intake and host record writing (B2) first.
+export function adoptedProviderBinding(host, provider) {
+  requireThat(provider !== 'claude', 'CLAUDE_ADOPTION_UNAVAILABLE');
+  return createProviderBinding(host, provider);
+}
+
 async function privatePath(path, uid, directory = false) {
   requireThat(typeof path === 'string' && await realpath(path) === path,
     'SHARED_HOST_CONTROLLER_RESOURCE_INVALID');
@@ -219,7 +225,7 @@ export async function adoptSharedHost(name, id, memberId, actionCommit, ids, pin
       sharedRunner: { runner, caller, repositories: [id],
         additionalRunner: { uid: secondUid, id: second.runnerId,
           name: second.runnerName, isolation: secondaryIsolation } } };
-    host.providerBinding = createProviderBinding(host, profile.provider);
+    host.providerBinding = adoptedProviderBinding(host, profile.provider);
     if (managedEgressNetwork !== undefined) {
       const [primary, secondary] = await prepareSharedGateways(
         [isolation, secondaryIsolation], runner, second, managedEgressNetwork);

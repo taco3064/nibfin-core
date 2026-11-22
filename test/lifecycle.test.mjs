@@ -57,6 +57,7 @@ test(
           executionId: context.execution.id,
           terminationHash: 'a'.repeat(64),
           lastMessage: message,
+          result: JSON.parse(message),
           stdout: [
             { type: 'thread.started', thread_id: context.execution.sessionId },
             { type: 'turn.started' },

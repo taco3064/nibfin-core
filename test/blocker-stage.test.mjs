@@ -24,7 +24,7 @@ test('blocked readback preserves validated cause with actual Core execution',
       blockingFindings: ['Matching native result is required.'], contractConflicts: [] };
     const message = JSON.stringify(result);
     const execution = { executionId: context.execution.id,
-      terminationHash: 'a'.repeat(64), lastMessage: message,
+      terminationHash: 'a'.repeat(64), lastMessage: message, result,
       stdout: [
         { type: 'thread.started', thread_id: context.execution.sessionId },
         { type: 'turn.started' },

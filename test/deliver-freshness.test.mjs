@@ -74,7 +74,7 @@ test('handoff observes after termination, cleanup and capture', async () => {
   }).deliver;
   const result = await handler.readBack(f.context, {
     executionId: f.context.execution.id, terminationHash: 'a'.repeat(64),
-    lastMessage: message,
+    lastMessage: message, result: JSON.parse(message),
     stdout: [
       { type: 'thread.started', thread_id: f.context.execution.sessionId },
       { type: 'turn.started' },
@@ -198,6 +198,7 @@ test('a semantic conflict blocker retains the rebase without continuing it', asy
   const result = await handler.readBack(f.context, {
     executionId: f.context.execution.id, terminationHash: 'a'.repeat(64),
     rebaseStatus: 'changes_required', rebaseTarget: moved, lastMessage: message,
+    result: JSON.parse(message),
     stdout: [
       { type: 'thread.started', thread_id: f.context.execution.sessionId },
       { type: 'turn.started' },
@@ -246,7 +247,7 @@ test('handoff conflict repair enters perform again before continuing the rebase'
       agent: { run: async () => {
         writers++;
         return { executionId: f.context.execution.id, terminationHash: 'a'.repeat(64),
-          lastMessage: message, stdout: [
+          lastMessage: message, result: JSON.parse(message), stdout: [
             { type: 'thread.started', thread_id: f.context.execution.sessionId },
             { type: 'turn.started' },
             { type: 'item.completed', item: { type: 'agent_message', text: message } },

@@ -27,6 +27,7 @@ async function fixture(t) {
         executionId: context.execution.id,
         terminationHash: 'a'.repeat(64),
         lastMessage,
+        result: JSON.parse(lastMessage),
         stdout: [
           { type: 'thread.started', thread_id: context.execution.sessionId },
           { type: 'turn.started' },
@@ -244,6 +245,7 @@ for (const boundary of ['entry', 'handoff'])
             executionId: execution.id,
             terminationHash: 'a'.repeat(64),
             lastMessage,
+            result: JSON.parse(lastMessage),
             stdout: items.map((item) => JSON.stringify(item)).join('\n'),
           };
         },
