@@ -10,7 +10,7 @@ daily OS or obtain a physical Linux computer. Implemented is not live-verified.
 | --- | --- |
 | `host-launcher.mjs` | Trusted adoption and native OIDC/job binding are required; root-owned `/etc` and installed paths implement the current Linux backend. |
 | `operation-journal.mjs` | Durable intent, exclusion and unknown-write Pending are required; UID/mode, no-follow opens, directory sync and replacement are current Linux mechanisms. |
-| `host-fence.mjs` | Single Writer and reconciliation before release are required; canonical private directories and exclusive files currently use POSIX semantics. |
+| `host-fence.mjs` | Issue state paths (`issueStatePath`) and private host directory checks (`privateHostDirectory`: owner UID, no group/other access, canonical path) currently use POSIX semantics. |
 | `codex-sandbox.mjs` | Existing Linux backend: rootless daemon, fixed UID/socket, resource limits, isolated proxy, upstream seccomp/AppArmor, actual denial probes and cleanup. |
 | `sandbox.mjs` | Existing Hooks backend: same rootless daemon, fixed mounts, dropped privileges, no network and verified cleanup. |
 | `codex-agent.mjs` | Independent roles, restricted subscription access and verified outputs are invariant; UID/private-file and mount handling remain backend-specific. |
