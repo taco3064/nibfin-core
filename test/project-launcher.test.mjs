@@ -22,7 +22,7 @@ test('launcher retries setup reads and authenticates settled continuation retry'
 });
 
 for (const scenario of ['initial', 'success', 'journal', 'containers',
-  'unobserved', 'changed', 'mcp', 'mcp-read', 'compose', 'compose-read',
+  'unobserved', 'mcp', 'mcp-read', 'compose', 'compose-read',
   'incomplete', 'active', 'inspection']) {
   test(`preparation settlement: ${scenario}`, () => {
     const result = spawnSync(process.execPath, [

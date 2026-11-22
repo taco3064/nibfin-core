@@ -1,17 +1,17 @@
 import assert from 'node:assert/strict';
-import { access, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { digest } from '../src/identity.mjs';
+import { hostExecution } from '../src/host-execution.mjs';
 import { retryDelay } from '../scripts/retry-shared-runner.mjs';
 
-// Controlled host adapters exercise the real fence, receipt store, journal and
-// continuation. No Docker, provider or external GitHub mutation is performed.
+// Controlled host adapters exercise the real receipt store, journal, settlement
+// and continuation. No Docker, provider or external GitHub mutation is performed.
 export async function runPreparationScenario({
-  scenario, root, issue, approval, env, launchStage, diagnostic,
+  scenario, root, issue, runner, approval, env, launchStage, diagnostic,
   issueProgress, OperationJournal, setBeforeProgress, setUnsafe, counters,
 }) {
   const state = join(root, 'issue-2-189');
-  const lock = join(state, 'stage.lock');
   await mkdir(join(state, 'receipts'), { recursive: true, mode: 0o700 });
   const progress = await issueProgress(state, approval);
   const workspace = progress.workspaceRoot;
@@ -53,15 +53,11 @@ export async function runPreparationScenario({
   }
   const early = !['prep-mcp', 'prep-mcp-read', 'prep-compose',
     'prep-compose-read', 'prep-incomplete', 'prep-inspection'].includes(scenario);
-  let original;
-  let competing;
+  // A continue entry prepares as shape in the Job that resolveHostJob observed.
+  const original = hostExecution({ ...runner, runId: 20, attempt: 1, jobId: 30 },
+    'shape');
   setBeforeProgress(async () => {
-    if (!early) return;
-    original = JSON.parse(await readFile(lock, 'utf8')).binding.execution;
-    competing = await launchStage('189', 'continue', {
-      ...env, GITHUB_RUN_ID: '21',
-    });
-    throw diagnostic();
+    if (early) throw diagnostic();
   });
   setUnsafe();
   const result = await launchStage('189', 'continue', env);
@@ -70,12 +66,10 @@ export async function runPreparationScenario({
   assert.equal(retryDelay(JSON.stringify(result), 20, 1), null);
   assert.equal(counters().runs, 0);
   const safe = ['prep-success', 'prep-initial'].includes(scenario);
-  if (early) assert.equal(competing.code, 'HOST_EXECUTION_UNRESOLVED');
   if (safe) {
     assert.equal(result.code, 'LIVE_OBSERVATION_UNAVAILABLE');
     assert.deepEqual(result.preparationSettlement,
       { status: 'settled', execution: original });
-    await assert.rejects(access(lock), { code: 'ENOENT' });
     assert.equal(counters().prepared, 0);
     if (initial) return;
     assert.deepEqual(await progress.store.load(), prior);
@@ -87,7 +81,6 @@ export async function runPreparationScenario({
     assert.equal(resumed.terminalStage, 'deliver');
     assert.equal(counters().runs, 1);
     assert.equal(counters().retired, 1);
-    await assert.rejects(access(lock), { code: 'ENOENT' });
     assert.deepEqual(await progress.store.load(), prior);
     assert.equal((await journal.run(request, adapters)).code, 'REPLAYED_OPERATION');
     assert.equal(writes, 1);
@@ -99,19 +92,21 @@ export async function runPreparationScenario({
       'prep-journal': 'EXTERNAL_EFFECT_UNKNOWN',
       'prep-active': 'WRITER_NOT_PROVEN_TERMINATED',
       'prep-containers': 'WRITER_NOT_PROVEN_TERMINATED',
-      'prep-changed': 'HOST_FENCE_CHANGED',
       'prep-unobserved': 'HOST_EXECUTION_UNRESOLVED',
       'prep-mcp-read': 'LIVE_OBSERVATION_HTTP_429',
       'prep-compose-read': 'LIVE_OBSERVATION_HTTP_429',
     };
     assert.equal(result.code, expected[scenario] ?? 'LIVE_OBSERVATION_UNAVAILABLE');
-    await access(lock);
+    const before = counters().prepared;
     const blocked = await launchStage('189', 'continue', {
       ...env, GITHUB_RUN_ID: '23',
     });
-    assert.equal(blocked.code, 'HOST_EXECUTION_UNRESOLVED');
+    // A later Job meets the same unresolved settlement or failure again.
+    assert.equal(blocked.code, result.code);
     assert.equal(counters().retired, 0);
-    if (scenario === 'prep-changed')
-      assert.equal(await readFile(lock, 'utf8'), 'changed');
+    // MCP preparation precedes these failures, so a later Job prepares again.
+    const prepares = ['prep-mcp', 'prep-mcp-read', 'prep-compose',
+      'prep-compose-read'].includes(scenario);
+    if (!prepares) assert.equal(counters().prepared, before);
   }
 }
