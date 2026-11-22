@@ -1,5 +1,6 @@
 import { requireThat } from './identity.mjs';
 import { linuxArchitecture } from './linux-architecture.mjs';
+import { derivedBaseInput } from './managed-derived-image.mjs';
 
 const immutable = /^sha256:[a-f0-9]{64}$/;
 const indexTypes = new Set([
@@ -116,15 +117,15 @@ export function claudePackageVersion(script) {
   return `${version} (Claude Code)`;
 }
 
-// The Claude Agent image derives from the prepared Agent image by its ID.
-export function resolvedClaudeRecipe(recipe, agentImage, claudeVersion) {
+// The Claude Agent recipe with its pinned CLI version. Its single base input is
+// left for derivedRecipe, which resolves it like every derived managed image.
+export function resolvedClaudeRecipe(recipe, claudeVersion) {
   const version = /^(\d+\.\d+\.\d+) \(Claude Code\)$/.exec(claudeVersion)?.[1];
-  requireThat(typeof recipe === 'string' && version && immutable.test(agentImage) &&
-    recipe.split('nibfin-managed-agent-input').length === 2 &&
+  requireThat(typeof recipe === 'string' && version &&
+    recipe.split(derivedBaseInput).length === 2 &&
     recipe.split('\nARG CLAUDE_VERSION\n').length === 2,
   'RESOURCE_INPUT_CONTRACT_INVALID');
-  return recipe.replace('nibfin-managed-agent-input', agentImage)
-    .replace('\nARG CLAUDE_VERSION\n', `\nARG CLAUDE_VERSION=${version}\n`);
+  return recipe.replace('\nARG CLAUDE_VERSION\n', `\nARG CLAUDE_VERSION=${version}\n`);
 }
 
 export function agentVersions(recipe, projectPackage, managedPackage, claudePackage) {
