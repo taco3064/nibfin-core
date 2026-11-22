@@ -81,7 +81,7 @@ profile. Its temporary profile and Docker compatibility override were removed;
 neither was retained as a rootless workaround. The separately adopted rootful
 backend now ships and verifies that restriction; see
 [rootful-host.md](rootful-host.md). A synthetic storage probe also survived an actual WSL
-shutdown/restart with an unchanged durable fence and unknown-effect Pending;
+shutdown/restart with an unchanged durable fence (since retired) and unknown-effect Pending;
 this proves local storage behavior only, not a native delivery or crash recovery
 of an actual Issue. Original work, login material and Docker configuration were
 preserved.

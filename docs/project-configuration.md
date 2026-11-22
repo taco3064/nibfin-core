@@ -52,10 +52,10 @@ remain absent; explicit empty objects/arrays remain explicit empty declarations.
 An unusable present file is an ordinary error naming `.nibfin.json` and the
 relevant field; diagnostics do not quote file contents or untrusted values.
 The configuration file must be regular and cannot be a symlink.
-Before any role starts, a configuration error retires prepared MCP resources and
-releases the stage fence only after the operation journal and containers are
-proven settled. Correcting the file then permits a new invocation. Unresolved
-writes, containers or MCP retirement retain the fence for existing recovery.
+Before any role starts, a configuration error retires prepared MCP resources only
+after the operation journal and containers are proven settled. Correcting the
+file then permits a new invocation. Unresolved writes, containers or MCP
+retirement stay Pending and keep their evidence for existing recovery.
 
 Validated tools reach the Agent and offline Hooks environment boundaries;
 additional domains reach the Agent network configuration boundary. This reader

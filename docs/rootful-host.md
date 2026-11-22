@@ -64,7 +64,7 @@ The existing CLI relays a bounded stage request or raw Issue-event bytes on
 stdin. It cannot select privileged files, modules, commands, sockets or policy.
 Only seven native Actions identity/context fields cross the boundary. These
 remain untrusted claims until existing native job, source, approval and OIDC
-checks pass. The controller reuses the existing stage/wake entry and fence.
+checks pass. The controller reuses the existing stage/wake entry.
 There is no additional listener, scheduler or alternative authorization path.
 Pre-job hooks are not a substitute for this OS identity separation.
 
@@ -127,8 +127,8 @@ certificate validation or copy private host trust material to mask this failure.
 Before adoption, independently review the installed source and privilege rule,
 verify private credential access and real Runner invocation, and test failure
 and cancellation across sudo. A canceled or timed-out relay is not evidence
-that the privileged child or external write stopped. Preserve the durable
-fence and Pending journal until processes, containers and native effects are
+that the privileged child or external write stopped. Preserve the Pending
+journal until processes, containers and native effects are
 reconciled. Do not retry blindly or delete a lock based on job/PID age.
 
 References: [Docker socket authority](https://docs.docker.com/engine/install/linux-postinstall/),
