@@ -18,6 +18,16 @@ import {
 } from '../src/mcp-copy-settlement.mjs';
 import { removeMcpJobCopy } from '../src/mcp-job.mjs';
 import { runPreparationScenario } from './launcher-preparation-scenarios.mjs';
+import { createProviderBinding } from '../src/provider-binding.mjs';
+import { providerHost } from './provider-fixture.mjs';
+
+function claudeProviderHost() {
+  const pool = providerHost();
+  pool.model = 'claude-opus-4';
+  pool.providerBinding = createProviderBinding(pool, 'claude',
+    { credentialKind: 'claude-subscription-token' });
+  return pool;
+}
 
 const scenario = process.argv[2];
 const preparationScenario = scenario.startsWith('prep-');
@@ -58,8 +68,13 @@ const reader = {
   issue: async () => ({ ...issue, body: 'requirements' }),
 };
 const adopted = { runner, approval: {}, isolation: { issue } };
-const host = { stateRoot: root };
-const context = { host, hostBytes: 'host', adopted, reader };
+// A Claude pool whose target repository alone configures user MCP.
+const claudePool = scenario.startsWith('claude-');
+const host = claudePool ? { ...claudeProviderHost(), stateRoot: root }
+  : { stateRoot: root };
+if (scenario === 'claude-proposal') adopted.notionProposal = { page: 'fixture' };
+const context = { host, hostBytes: 'host', adopted, reader,
+  ...(claudePool ? { targetHost: { mcp: { servers: {} } } } : {}) };
 const moduleMock = (path, namedExports) => mock.module(path, { namedExports });
 moduleMock('../src/issue-progress.mjs', {
   issueProgress: async (...args) => {
@@ -67,7 +82,9 @@ moduleMock('../src/issue-progress.mjs', {
     return issueProgress(...args);
   },
 });
-moduleMock('../src/notion-proposal.mjs', { readNotionProposal: async () => {} });
+moduleMock('../src/notion-proposal.mjs', { readNotionProposal: async () =>
+  scenario === 'claude-proposal' ? { markdown: 'Proposal', hash: 'f'.repeat(64) }
+    : undefined });
 moduleMock('../src/host-relay.mjs', { relayHostCommand: async () => null });
 moduleMock('../src/host-adoption.mjs', {
   ...hostAdoption,
@@ -197,6 +214,26 @@ try {
       },
       counters: () => ({ runs, prepared, retired, stopped }),
     });
+  } else if (claudePool) {
+    assert.equal((await launchStage('189', 'deliver', env)).code,
+      'PROJECT_CONFIG_INVALID');
+    await writeFile(join(work, '.nibfin.json'), '{"tools":{"node":"22.15.0"}}');
+    const result = await launchStage('189', 'deliver', env);
+    if (scenario === 'claude-proposal') {
+      // A proposal run prepares no MCP, so the Claude refusal never applies.
+      assert.equal(result.status, 'ready', JSON.stringify(result));
+      assert.equal(runs, 1);
+    } else {
+      assert.equal(result.status, 'pending');
+      assert.equal(result.code, 'CLAUDE_MCP_UNSUPPORTED');
+      assert.equal(runs, 0);
+      const [, id] = result.reportReference.split(':');
+      const report = JSON.parse(await readFile(join(root, 'issue-2-189',
+        'receipts', 'reports', id + '.json'), 'utf8'));
+      assert.equal(report.code, 'CLAUDE_MCP_UNSUPPORTED');
+    }
+    // The refusal precedes MCP preparation from either source.
+    assert.equal(prepared, 0);
   } else {
     const invalid = await launchStage('189', 'deliver', env);
     assert.equal(mainReads, 2, 'Workspace observation retries transient failure');
