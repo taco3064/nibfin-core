@@ -2,7 +2,8 @@
 
 `claude-plan.mjs`, `claude-result.mjs` and `claude-agent.mjs` implement the
 component adapter. `createClaudePrivateRunner` supplies the model launcher.
-Installing Claude as the selected provider is a separate integration step.
+An installed pool runs it when its adopted `providerBinding` names `claude`; see
+[installed provider](installed-provider.md).
 
 The trusted caller supplies the stage, protected effective Skill, context and
 model profile. Component configuration pins the official unmodified
@@ -113,14 +114,19 @@ A pool stores exactly one Claude credential of one of two kinds:
 - `anthropic-api-key`: an Anthropic API key with API billing (`sk-ant-api…`),
   received as `ANTHROPIC_API_KEY`.
 
-The administrator intake entry accepts either value over a private pipe on an
-adopted host, detects its kind and refuses to replace or add to an existing
-credential. The model launcher reads the single stored value, sends it over
-container stdin and checks that model output contains no credential. The model
-entry selects the variable from the value's kind. The packaged stdio bridge
-rejects a child environment containing either variable; the pinned CLI's
-subprocess scrub removes both. Provider selection and real-account
-verification remain separate.
+Managed credential intake (`nibfin-core managed-credentials intake`) accepts
+either value in the envelope's `claude` key over the private pipe, detects its
+kind and stores it beside the GitHub token; see
+[managed credentials](managed-credentials.md). `replace` renews only the same
+kind; switching kind or provider is `disconnect` then `intake`. The published
+host profile's `provider` selects the intake target, and the adopted
+`providerBinding` records the stored kind and selects the Claude composition
+(see [installed provider](installed-provider.md)). The model launcher reads the
+single stored value, sends it over container stdin and checks that model output
+contains no credential. The model entry selects the variable from the value's
+kind. The packaged stdio bridge rejects a child environment containing either
+variable; the pinned CLI's subprocess scrub removes both. Real-account
+verification remains separate.
 
 ### Work bridge and Linux worker package
 
@@ -135,7 +141,7 @@ executable.
 no environment variable or command argument selects a transport. The bridge
 forwards newline-delimited stdio MCP with backpressure and finite frame bounds.
 The model launcher must still verify that its credential is stripped from this
-child; this package does not enable installed Claude support.
+child.
 
 `src/security/claude-work.Dockerfile` packages the credential-free worker with
 the required Python 3.13.7 runtime. Its `PROJECT_IMAGE` build argument is Core's

@@ -245,6 +245,24 @@ test('only bounded settled provider copies are removed; Writer evidence survives
     assert.equal(await readFile(join(evidence, 'result.json'), 'utf8'), '{}');
   });
 
+test('a Claude pool lists only session homes; the Codex listing is unchanged',
+  async t => {
+    const f = await fixture(t);
+    const agent = join(f.host.stateRoot, 'issue-6-1', 'agent');
+    const home = join(agent, 'session-' + 'b'.repeat(64), 'home');
+    const execution = join(agent, 'execution-' + 'b'.repeat(36));
+    await mkdir(home, { recursive: true, mode: 0o700 });
+    // A Claude execution has no per-run credential copy: its credential
+    // travels on container stdin, so only its own input and output remain.
+    for (const name of ['input', 'output'])
+      await mkdir(join(execution, name), { recursive: true, mode: 0o700 });
+    const listed = async () => (await retirementCopies(f.host)).map(copy => copy.path);
+    assert.deepEqual(await listed(), [home]);
+    const auth = join(execution, 'agent-auth-Ef34Gh');
+    await mkdir(auth, { mode: 0o700 });
+    assert.deepEqual((await listed()).sort(), [auth, home].sort());
+  });
+
 test('process death after quarantine keeps durable intent for a fresh invocation',
   async t => {
     const f = await fixture(t);

@@ -22,6 +22,31 @@ profile path, with `adoption: false` and `servicesReady: false`. `denied` reject
 configuration; `pending` requires reconciliation of unresolved effects. Exit codes
 are 0, 1 and 2 respectively. Diagnostics never include credential or exception text.
 
+## Claude preparation
+
+A Claude pool is prepared by appending `--agent=claude` after the consent flag;
+any other agent value returns `RESOURCE_PREPARATION_AGENT_UNSUPPORTED`. The
+capability's `arguments` and `imageKeys` stay the Codex request. The additive
+`agents.claude` entry advertises the Claude vector
+`["--consent-resource-preparation", "--agent=claude"]` and its result image keys
+`agent`, `hooks` and `claudeAgent`.
+
+A Claude run performs the unchanged Codex steps first, then builds the
+`claude-agent` image, installs the `nibfin-claude-container` AppArmor policy and
+probes both slots under it. Its journal section `state.claude` holds its own
+inputs digest, effects and images, so the Codex `state.inputs` never moves. The
+section is created only on a host with no Claude policy, kernel profile or
+`claude-agent` tag; changed Claude inputs later conflict. The published profile
+then carries `provider: "claude"`, the Claude Agent image in both slots and the
+managed Claude model. Core replaces only the exact Codex profile it computed from
+this journal; any other profile is refused, so a manual profile is never
+overwritten.
+
+Once `state.claude` exists, every later run keeps Claude, with or without
+`--agent=claude`: it re-reads the Claude inputs, re-observes the Claude image and
+policy and keeps the Claude profile. Preparation never reverts a host to Codex;
+switching provider is retirement and rebuild.
+
 The separate journal is `/var/lib/nibfin-resource-prepare`. Retry verifies owned
 resources and refuses foreign resources, profile conflicts, changed package inputs,
 image drift or uncertain probes. Do not delete recovery files to force retry.
