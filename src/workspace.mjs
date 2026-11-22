@@ -143,7 +143,7 @@ export class CandidateWorkspace {
     await writeFile(join(this.#root, 'base'), base, { flag: 'wx', mode: 0o600 });
     return { base, directory: this.work };
   }
-  // The launcher holds the Issue fence and verifies settlement before refresh.
+  // The launcher verifies journal and Writer settlement before refresh.
   async refreshForShape(base, blockedReceipt) {
     await this.#privateRoot();
     requireThat(blockedReceipt === null || isDigest(blockedReceipt),

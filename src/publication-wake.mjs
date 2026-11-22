@@ -7,7 +7,7 @@ import { digest, isId, isSha } from './identity.mjs';
 import { repoPath } from './github-read.mjs';
 import { issueBodyChange } from './issue-body-change.mjs';
 
-// Read trusted evidence without preparing delivery state or taking its fence.
+// Read trusted evidence without preparing delivery state.
 export async function readWakePublication(stateRoot, approval) {
   const root = issueStatePath(stateRoot, approval.record.issue);
   const receiptsRoot = join(root, 'receipts');

@@ -84,7 +84,7 @@ prepares the workspace and constructs the existing Codex executor. The current
 Core workflow entry is `.github/workflows/shared-runner.yml`. Core CI and Core CD
 use the shared packaging action.
 See the [host adoption and execution contract](host-launcher.md) for inputs,
-permissions, durable cancellation fences and the single-host support boundary.
+permissions, durable cancellation evidence and the single-host support boundary.
 Automatic enrollment, live authenticated execution and public release remain
 separate requirements; the entry's existence does not establish those outcomes.
 

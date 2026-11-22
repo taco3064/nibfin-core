@@ -100,7 +100,7 @@ Acceptance, PR-head CI, native isolation checks and installed provider availabil
 remain owned by their respective stages.
 
 Pre-Agent Proposal and global-instruction read failures are retained after native
-Job, caller and Issue approval verification, before acquiring an execution fence.
+Job, caller and Issue approval verification, before any owned work.
 Their report binds the admission attempt and native Job, with no Agent execution
 or session identity. Proposal credential, sharing, retrieval and incomplete-data
 failures use fixed codes; global-instruction reads use

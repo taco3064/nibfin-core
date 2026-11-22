@@ -34,7 +34,7 @@ export async function settleHostStage(run, release, report, settleLocal) {
 }
 
 // This closure belongs to the launcher, never to a Worker result or error.
-// Its release closure captures the acquired fence and initialized journal.
+// Its release closure captures the initialized journal and Issue inspection.
 export function hostPreparationSettlement(execution, release, report) {
   const original = structuredClone(execution);
   let entered = false;

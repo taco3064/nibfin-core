@@ -110,7 +110,7 @@ export class EvidenceStore {
       });
     }
   }
-  // These methods are called only while the existing Issue fence is held.
+  // These methods are called only by the launcher of the admitted native Job.
   async replaceControllerResult(reference) {
     requireThat(reference === null || isDigest(reference), 'INVALID_EVIDENCE_ID');
     await this.#prepare();
