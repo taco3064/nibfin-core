@@ -1,5 +1,6 @@
 // Build the managed Agent and Claude Agent recipes exactly as Core resolves them,
-// then check the Claude image without credentials, network or inference.
+// then check the Claude image without credentials, network or inference, confined
+// as Core confines it: the Claude AppArmor profile with the Codex seccomp profile.
 import assert from 'node:assert/strict';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -13,12 +14,38 @@ import {
 import {
   derivedRecipe, platformTag, requireDerivedLayers,
 } from '../src/managed-derived-image.mjs';
-import { claudeToolShell } from '../src/claude-agent-plan.mjs';
+import { claudeAppArmorProfile, claudeToolShell } from '../src/claude-agent-plan.mjs';
 import { liveDockerProfile } from './live-docker-profile.mjs';
 
 const text = path => readFile(new URL(`../${path}`, import.meta.url), 'utf8');
 const context = fileURLToPath(new URL('../src/security', import.meta.url));
 const anyExit = Array.from({ length: 256 }, (_, code) => code);
+const seccomp = fileURLToPath(new URL('../src/security/seccomp.json', import.meta.url));
+// Core mounts this trusted bootstrap read-only at /input/bootstrap.mjs.
+const bootstrap = fileURLToPath(new URL('../src/claude-bootstrap.mjs', import.meta.url));
+
+// Drives the bootstrap's own probes: every environ read is denied (self, threads,
+// tasks, a sibling holding a sentinel and the parent) and the bubblewrap sandbox
+// still hides state and the network. Ordinary procfs status stays readable.
+export const probeModule = [
+  "import { readFileSync } from 'node:fs';",
+  "import { denialProbe } from '/input/bootstrap.mjs';",
+  "if (!readFileSync('/proc/self/status', 'utf8').startsWith('Name:'))",
+  "  throw new Error('NIBFIN_PROC_STATUS_UNREADABLE');",
+  "try { await denialProbe('127.0.0.1'); } catch (error) {",
+  '  console.error(error.cause?.message ?? error.message);',
+  '  process.exit(1);',
+  '}',
+  "console.log('NIBFIN_CLAUDE_APPARMOR_VERIFIED');",
+].join('\n');
+
+// Core's Claude confinement, without credentials or network.
+export function confinement() {
+  return ['--network', 'none', '--read-only', '--cap-drop', 'ALL',
+    '--security-opt', 'no-new-privileges', '--security-opt', `seccomp=${seccomp}`,
+    '--security-opt', `apparmor=${claudeAppArmorProfile}`, '--user', '1000:1000',
+    '--tmpfs', '/tmp:rw,nosuid,nodev,size=64m,mode=1777'];
+}
 
 // A failing RUN's own error lines, wherever they appear in the build output.
 const errorLine = /runc|\bERROR\b|^\S*\s*E: |\bErr:|\berror\b|npm ERR!/i;
@@ -57,11 +84,17 @@ export function diagnosedDocker(run, socket, progress, log = console.error) {
 async function verify(progress) {
   const { socket, backend } = liveDockerProfile();
   const docker = diagnosedDocker(command, socket, progress);
-  // Build-context files the recipes COPY; scripts/test-changes.mjs selects this
-  // check from these literals and the imported resolvers.
+  // Build-context files the recipes COPY, and the profiles and bootstrap the
+  // container runs under; scripts/test-changes.mjs selects this check from these
+  // literals and the imported resolvers.
   for (const path of ['src/security/nibfin-bash', 'src/security/claude-package.mjs',
-    'src/security/managed-npm/package-lock.json'])
+    'src/security/managed-npm/package-lock.json',
+    'src/security/codex-security.apparmor', 'src/claude-bootstrap.mjs'])
     assert((await text(path)).length > 0, path);
+  const profile = await text('src/security/nibfin-claude.apparmor');
+  assert(profile.includes(`\nprofile ${claudeAppArmorProfile} `));
+  // The profile assertions need the host AppArmor policy; they never skip.
+  assert.equal(backend.mode, 'rootful', 'the Claude AppArmor check needs rootful Docker');
   const architecture = linuxArchitecture('linux', process.arch);
   const agent = await text('src/security/agent.Dockerfile');
   const claudeRecipe = await text('src/security/managed-claude-agent.Dockerfile');
@@ -89,6 +122,7 @@ async function verify(progress) {
   // Core's managed Agent tag, which derived recipes build FROM.
   const base = platformTag('agent', architecture);
   let tagged = false;
+  let container;
   try {
     const agentImage = await build('managed-agent', managedAgentRecipe(
       await text('src/security/managed-agent.Dockerfile'), native, versions));
@@ -122,17 +156,28 @@ async function verify(progress) {
     ].join('\n');
     progress.step = 'run image checks';
     // Run as uid 1000 on a read-only root; Claude's state goes under /tmp only.
-    const output = await docker(['run', '--rm', '--network', 'none', '--read-only',
-      '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges',
-      ...(backend.mode === 'rootful'
-        ? ['--security-opt', 'apparmor=codex-security-container'] : []),
-      '--user', '1000:1000', '--tmpfs', '/tmp:rw,nosuid,nodev,size=64m,mode=1777',
+    const output = await docker(['run', '--rm', ...confinement(),
       '--env', 'HOME=/tmp/home', '--env', 'CLAUDE_CONFIG_DIR=/tmp/home/.claude',
       '--entrypoint', '/bin/sh', image, '-c', script]);
     assert.equal(output, `${versions.claude}\nNIBFIN_CLAUDE_IMAGE_VERIFIED\n`);
+    progress.step = 'run AppArmor probes';
+    // Core's mount points: the read-only bootstrap and empty /agent-home and /io.
+    container = (await docker(['create', ...confinement(), '--mount',
+      `type=bind,source=${bootstrap},target=/input/bootstrap.mjs,readonly`,
+      '--tmpfs', '/agent-home', '--tmpfs', '/io', '--workdir', '/',
+      '--entrypoint', '/usr/local/bin/node', image,
+      '--input-type=module', '-e', probeModule])).trim();
+    assert.match(container, /^[a-f0-9]{64}$/);
+    assert.equal(await docker(['start', '--attach', container]),
+      'NIBFIN_CLAUDE_APPARMOR_VERIFIED\n');
+    progress.step = 'inspect AppArmor profile';
+    const [run] = JSON.parse(await docker(['container', 'inspect', container]));
+    assert.equal(run.AppArmorProfile, claudeAppArmorProfile);
   } finally {
     // Cleanup reports under its own step and never replaces the failing step.
     const cleanup = diagnosedDocker(command, socket, { step: 'cleanup' });
+    if (container)
+      await cleanup(['container', 'rm', '--force', container]).catch(() => {});
     if (tagged) await cleanup(['image', 'rm', base]).catch(() => {});
     for (const image of images.reverse())
       await cleanup(['image', 'rm', '--force', image]).catch(() => {});
