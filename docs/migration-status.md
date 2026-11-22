@@ -73,15 +73,15 @@ checking out repository code. The launcher reads fixed root-owned adoption data,
 verifies installed source and native job/OIDC/approval, prepares or reuses the
 private Issue workspace and composes the existing Codex stage executor.
 
-A durable host-wide fence serializes stages and survives process death. Native
+GitHub admits one native Job per Issue; local state is evidence, not a lock. Native
 registration inspection denies duplicate member routes, including offline ones;
 the dedicated daemon must contain only the adopted gateway outside an invocation.
-Unknown execution retains the fence and returns Pending, never automatic retry.
+Unknown execution retains its evidence and returns Pending, never automatic retry.
 The supported initial boundary is a manually adopted single host; automatic
 enrollment and cross-host recovery are not implemented.
 
 Tests cover native job discovery, source/job mismatch, duplicate registered
-routes, concurrent launches, a real killed process retaining the fence, unsafe
+routes, legacy stage-fence fixtures (concurrent refusal, a killed process), unsafe
 adoption paths and CLI request refusal. These are launcher integration controls,
 not a new live authenticated Agent claim. Protected caller/approval setup,
 subscription-backed execution, authorized wakeup, independent merge and release

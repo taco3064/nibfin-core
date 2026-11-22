@@ -114,7 +114,7 @@ Package CI verifies the installed resolver export. These are reproducible code
 checks, not a live authenticated workflow/Agent claim.
 
 The Dispatch bridge now invokes `stage <issue> continue`. The installed host
-holds one Writer fence and follows the existing ordered stage definitions.
+runs them within one native Job and follows the existing ordered stage definitions.
 Each stage constructs a separate role execution, re-enters native admission,
 and reads its persisted receipt before continuing. Successful receipt prefixes
 are not executed again; malformed, failed or stale prerequisites stop. There is
@@ -122,9 +122,9 @@ no parallel phase store. Existing single-stage calls remain available.
 
 Only explicit pre-effect nonterminal CI observations wait (five-second reads,
 ten-minute limit). A known CI timeout is Pending after clean host inspection;
-an unknown effect retains the fence. Failed checks, changed authority and
-arbitrary observation failures do not enter that wait loop. Later dispatches
-still need current authorization and valid receipts; no stale-lock recovery or
+an unknown effect stays Pending with its journal evidence. Failed checks,
+changed authority and arbitrary observation failures do not enter that wait
+loop. Later dispatches still need current authorization and valid receipts; no stale-lock recovery or
 cross-member handoff is added.
 
 ## Issue-event entry and durable dispatch
@@ -143,8 +143,8 @@ its historical secret name does not grant permission to write.
 
 The second job invokes only the fixed installed `dispatch-event <issue>` entry.
 It checks the administrator-adopted event Runner/job, signed OIDC, protected
-source, current approval, publisher role and single-host identity. It holds the
-same host-wide fence as stages and uses the existing OperationJournal under
+source, current approval, publisher role and single-host identity. It uses the
+existing OperationJournal under
 private persistent `stateRoot/wake`. No workflow input selects its token,
 directory, command, adapter or security policy.
 
@@ -160,7 +160,7 @@ resolve current state. Labeled events only consider `scope`. Closed fanout
 rechecks actual delivered status and both native dependency directions. Target
 adoption is resolved independently of eligibility: one known unready target
 does not prevent a ready sibling. Unknown effects stop fanout and retain the
-journal/fence; identical completed dispatch decisions are never posted again.
+journal; identical completed dispatch decisions are never posted again.
 Reruns remain refused. No journal is deleted to enable automatic retries.
 
 GITHUB_TOKEN Issue writes do not imply event recursion. Such a Scope publisher
