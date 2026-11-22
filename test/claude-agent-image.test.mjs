@@ -201,10 +201,13 @@ test('Codex inputs are unchanged; a Claude request adds its pinned inputs', asyn
     assert.deepEqual(claude[key], codex[key], key);
   assert.deepEqual(claude.versions, { ...codex.versions, claude: pin });
   assert.deepEqual(Object.keys(claude).filter(key => !codexInputKeys.includes(key)),
-    [resources.claude.recipe, resources.claude.package, resources.claude.shell]);
+    [resources.claude.recipe, resources.claude.package, resources.claude.shell,
+      resources.claude.profileFile]);
   for (const name of [resources.claude.recipe, resources.claude.package,
-    resources.claude.shell])
+    resources.claude.shell, resources.claude.profileFile])
     assert.equal(claude[name], await source(name));
+  // The Codex profile stays the only `policy` input.
+  assert.equal(claude.policy, await source('codex-security.apparmor'));
   assert.notEqual(digest(claude), digest(codex));
   // The pin and package script are hashed into the image identity.
   const script = claude[resources.claude.package];

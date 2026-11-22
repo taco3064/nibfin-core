@@ -6,10 +6,7 @@ import { boundedHostFile, coreRoot } from './host-adoption.mjs';
 import { rootOwnedPath } from './host-paths.mjs';
 import { engineHost } from './engine-host.mjs';
 import { verifyManagedEngine } from './engine-verify.mjs';
-import {
-  optionalStat, ownedDirectory, exactFile, installEngineFile,
-  readEngineState, saveEngineState, requireDirectoryEntries,
-} from './engine-files.mjs';
+import { engineFileStore } from './engine-files.mjs';
 import { managedResources as resources } from './managed-resource-contract.mjs';
 import { prepareSharedAccounts } from './shared-host-setup.mjs';
 import { managedPaths } from './managed-credential-files.mjs';
@@ -29,12 +26,23 @@ import {
 const security = join(coreRoot, 'src/security');
 const journal = `${resources.state}/state.json`;
 
-async function kernelPolicy() {
+// Each installed AppArmor policy: its file, kernel profile name and load proof.
+// The Claude policy is installed only on an explicit Claude request.
+export const policyTargets = Object.freeze({
+  codex: Object.freeze({ path: resources.policy, name: resources.apparmor,
+    proof: 'policy.json' }),
+  claude: Object.freeze({ path: resources.claude.policy,
+    name: resources.claude.apparmor, proof: 'policy-claude.json' }),
+});
+
+const nativeKernel = { readdir, readFile };
+
+async function kernelPolicy(name, { readdir, readFile }) {
   const base = '/sys/kernel/security/apparmor/policy/profiles';
   const matches = [];
   for (const directory of await readdir(base)) {
     const path = join(base, directory);
-    if ((await readFile(join(path, 'name'), 'utf8')).trim() === resources.apparmor) {
+    if ((await readFile(join(path, 'name'), 'utf8')).trim() === name) {
       const hash = (await readFile(join(path, 'sha1'), 'utf8')).trim();
       requireThat(/^[a-f0-9]{40,64}$/.test(hash) &&
         (await readFile(join(path, 'mode'), 'utf8')).trim() === 'enforce',
@@ -50,7 +58,13 @@ async function kernelPolicy() {
 export function managedResourceHost(confirmSource, engine = engineHost(), {
   prepareController = prepareSharedAccounts,
   installReclamation = installStorageReclamation,
+  files = engineFileStore(), kernelProfiles = nativeKernel,
 } = {}) {
+  const {
+    optionalStat, ownedDirectory, exactFile, installEngineFile,
+    readEngineState, saveEngineState, requireDirectoryEntries,
+  } = files;
+  const loaded = name => kernelPolicy(name, kernelProfiles);
   const docker = (args, options) => engine.docker(true, args, options);
   const io = {
     ...engine,
@@ -59,7 +73,8 @@ export function managedResourceHost(confirmSource, engine = engineHost(), {
     async initialize() {
       await ownedDirectory(resources.state);
       await requireDirectoryEntries(resources.state,
-        ['state.json', 'policy.json', 'recovery.lock']);
+        ['state.json', policyTargets.codex.proof, policyTargets.claude.proof,
+          'recovery.lock']);
     },
     load: () => readEngineState(journal),
     save: (state, previous) => saveEngineState(journal, state, previous),
@@ -77,7 +92,8 @@ export function managedResourceHost(confirmSource, engine = engineHost(), {
       requireThat(false, 'RESOURCE_PROBE_TERMINATION_UNKNOWN');
     },
     // Only an explicit Claude request adds the Claude recipe, its pinned package
-    // script and tool shell; the Codex inputs and their digest stay unchanged.
+    // script, tool shell and AppArmor profile; the Codex inputs and their digest
+    // stay unchanged.
     async inputs(architecture, { claude = false } = {}) {
       const inputs = {};
       for (const name of Object.values(resources.recipes))
@@ -91,7 +107,7 @@ export function managedResourceHost(confirmSource, engine = engineHost(), {
         join(coreRoot, 'package.json'), 16384);
       if (claude) {
         for (const name of [resources.claude.recipe, resources.claude.package,
-          resources.claude.shell])
+          resources.claude.shell, resources.claude.profileFile])
           inputs[name] = await boundedHostFile(join(security, name), 16384);
       }
       inputs.versions = agentVersions(inputs['agent.Dockerfile'],
@@ -103,10 +119,13 @@ export function managedResourceHost(confirmSource, engine = engineHost(), {
         join(security, 'codex-security.apparmor'), 16384);
       return inputs;
     },
-    async pristine() {
-      for (const path of [resources.profile, resources.policy, resourcePreparationGate])
+    async pristine({ claude = false } = {}) {
+      const policies = [policyTargets.codex, ...(claude ? [policyTargets.claude] : [])];
+      for (const path of [resources.profile, ...policies.map(policy => policy.path),
+        resourcePreparationGate])
         requireThat(!await optionalStat(path), 'RESOURCE_FOREIGN_CONFIGURATION');
-      requireThat(!await kernelPolicy(), 'RESOURCE_FOREIGN_POLICY');
+      for (const policy of policies)
+        requireThat(!await loaded(policy.name), 'RESOURCE_FOREIGN_POLICY');
       for (const kind of ['agent', 'hooks']) {
         for (const arch of ['amd64', 'arm64'])
           requireThat(!(await docker(['image', 'ls', '-q', platformTag(kind, arch)]))
@@ -189,22 +208,22 @@ export function managedResourceHost(confirmSource, engine = engineHost(), {
       requireThat(output === 'NIBFIN_BROWSER_RUNTIME_VERIFIED\n',
         'RESOURCE_BROWSER_INPUT_UNAVAILABLE');
     },
-    async policy(bytes, observe) {
-      const proofPath = `${resources.state}/policy.json`;
+    async policy(bytes, observe, target = policyTargets.codex) {
+      const proofPath = `${resources.state}/${target.proof}`;
       // Intent alone does not prove which policy the kernel loaded. A crash in
       // the load/record window requires reconciliation, never blind replacement.
       if (observe) {
         const proof = await readEngineState(proofPath);
         requireThat(proof && proof.input === digest(bytes) &&
-          proof.kernel === await kernelPolicy(),
+          proof.kernel === await loaded(target.name),
         'RESOURCE_POLICY_RECONCILIATION_REQUIRED');
-        await exactFile(resources.policy, bytes, 0o644);
+        await exactFile(target.path, bytes, 0o644);
         return;
       }
-      requireThat(!await kernelPolicy(), 'RESOURCE_FOREIGN_POLICY');
-      await installEngineFile(resources.policy, bytes, 0o644);
-      await engine.run('/usr/sbin/apparmor_parser', ['--add', resources.policy]);
-      const kernel = await kernelPolicy();
+      requireThat(!await loaded(target.name), 'RESOURCE_FOREIGN_POLICY');
+      await installEngineFile(target.path, bytes, 0o644);
+      await engine.run('/usr/sbin/apparmor_parser', ['--add', target.path]);
+      const kernel = await loaded(target.name);
       requireThat(kernel, 'RESOURCE_POLICY_RECONCILIATION_REQUIRED');
       await saveEngineState(proofPath, { input: digest(bytes), kernel }, null);
     },

@@ -2,6 +2,7 @@ import { managedPaths } from './managed-credential-files.mjs';
 import { managedModel } from './managed-model.mjs';
 import { engine } from './engine-contract.mjs';
 import { managedSharedAdmission } from './shared-admission-policy.mjs';
+import { claudeAppArmorProfile } from './claude-agent-plan.mjs';
 
 export const managedResources = Object.freeze({
   state: '/var/lib/nibfin-resource-prepare',
@@ -18,6 +19,8 @@ export const managedResources = Object.freeze({
   claude: Object.freeze({
     kind: 'claude-agent', recipe: 'managed-claude-agent.Dockerfile',
     package: 'claude-package.mjs', shell: 'nibfin-bash',
+    policy: '/etc/apparmor.d/nibfin-managed-claude',
+    apparmor: claudeAppArmorProfile, profileFile: 'nibfin-claude.apparmor',
   }),
 });
 export const managedPreparationCapability = Object.freeze({
