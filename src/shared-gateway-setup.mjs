@@ -10,6 +10,7 @@ import { rootOwnedPath } from './host-paths.mjs';
 import { containerLabelArgs, runnerGatewayLabel } from './host-containers.mjs';
 import { CodexSandbox } from './codex-sandbox.mjs';
 import { mcpPolicyEnvironment, mcpPolicyMount } from './mcp-egress.mjs';
+import { gatewayEnvironment } from './egress-proxy.mjs';
 
 const dockerPath = '/usr/bin/docker';
 const settings = {
@@ -47,14 +48,24 @@ async function ensure(docker, kind, name, create) {
   return created;
 }
 
-export async function prepareSharedGateway(profile, runner, uplink, run = docker) {
+// Only Claude is named, so every Codex input stays byte-identical.
+function providerSelection(provider = 'codex') {
+  requireThat(['codex', 'claude'].includes(provider), 'SHARED_GATEWAY_SETUP_INVALID');
+  return provider === 'claude' ? { provider } : {};
+}
+
+export async function prepareSharedGateway(profile, runner, uplink, run = docker,
+  { provider } = {}) {
+  const selected = providerSelection(provider);
   const label = runnerGatewayLabel(runner);
   const name = `nibfin-gateway-${label[1]}`;
   const proxyScript = join(coreRoot, 'src/egress-proxy.mjs');
   const { image, mcpPolicyDirectory } = profile.agent;
   const marker = digest({
-    binding: label[1], image, uplink, mcp: mcpPolicyDirectory ?? null,
+    binding: label[1], image, uplink, mcp: mcpPolicyDirectory ?? null, ...selected,
   });
+  const providerEnvironment = gatewayEnvironment(selected.provider)
+    .flatMap(entry => ['--env', entry]);
   requireThat(/^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/.test(uplink) &&
     !['bridge', 'host', 'none', 'default', name].includes(uplink) &&
     (!mcpPolicyDirectory || /^\/[A-Za-z0-9._/-]+$/.test(mcpPolicyDirectory)),
@@ -79,8 +90,8 @@ export async function prepareSharedGateway(profile, runner, uplink, run = docker
     '--pull=never', '--name', name, '--network', name, '--network', uplink,
     '--read-only', '--cap-drop=ALL', '--security-opt=no-new-privileges',
     ...containerLabelArgs(label), '--label', `${managedGatewayLabel}=${marker}`,
-    '--mount', `type=bind,src=${proxyScript},dst=/proxy.mjs,readonly`, ...mcp,
-    '--entrypoint', 'node', image, '/proxy.mjs']);
+    '--mount', `type=bind,src=${proxyScript},dst=/proxy.mjs,readonly`,
+    ...providerEnvironment, ...mcp, '--entrypoint', 'node', image, '/proxy.mjs']);
   const attached = gateway.NetworkSettings?.Networks ?? {};
   requireThat(gateway.Name === `/${name}` && gateway.State?.Running === true &&
     gateway.Config?.Labels?.[managedGatewayLabel] === marker &&
@@ -92,7 +103,9 @@ export async function prepareSharedGateway(profile, runner, uplink, run = docker
     network: name, proxyScript } };
 }
 
-export async function prepareSharedGateways(profiles, runner, second, uplink) {
+export async function prepareSharedGateways(profiles, runner, second, uplink,
+  { provider } = {}) {
+  const selected = providerSelection(provider);
   await verifyManagedEngine();
   for (const path of [dockerPath, process.execPath, '/usr/sbin/runuser'])
     await rootOwnedPath(path);
@@ -101,11 +114,12 @@ export async function prepareSharedGateways(profiles, runner, second, uplink) {
   for (const [index, id] of [runner.runnerId, second.runnerId].entries()) {
     dockerInfo(info, dockerBackend(profiles[index]));
     const slot = { repositoryId: runner.repositoryId, runnerId: id };
-    const profile = await prepareSharedGateway(profiles[index], slot, uplink);
+    const profile = await prepareSharedGateway(profiles[index], slot, uplink, docker,
+      selected);
     const script = fileURLToPath(import.meta.url);
     await command('/usr/sbin/runuser', [
       '-u', 'nibfin-controller', '--', process.execPath, script,
-    ], { ...settings, input: JSON.stringify({ profile, slot }) });
+    ], { ...settings, input: JSON.stringify({ profile, slot, ...selected }) });
     result.push(profile);
   }
   return result;
@@ -119,9 +133,10 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
       input += chunk;
       requireThat(Buffer.byteLength(input) <= 32768, 'SHARED_GATEWAY_SETUP_INVALID');
     }
-    const { profile, slot } = JSON.parse(input);
+    const { profile, slot, provider } = JSON.parse(input);
     const backend = dockerBackend(profile);
-    await new CodexSandbox({ ...profile.agent, coreRoot },
+    await new CodexSandbox({ ...profile.agent, coreRoot,
+      ...providerSelection(provider) },
       { backend, gatewayLabel: runnerGatewayLabel(slot) }).preflight();
   } catch {
     process.exitCode = 1;

@@ -10,9 +10,25 @@ import { constants } from 'node:fs';
 export const toolDownloadHosts = Object.freeze([
   'registry.npmjs.org', 'cdn.playwright.dev', 'playwright.download.prss.microsoft.com',
 ]);
-export const allowedHosts = [
-  'chatgpt.com', 'auth.openai.com', ...toolDownloadHosts,
-];
+// One table of model endpoints per provider; every gateway list derives from it.
+export const modelHosts = Object.freeze({
+  codex: Object.freeze(['chatgpt.com', 'auth.openai.com']),
+  claude: Object.freeze(['api.anthropic.com']),
+});
+export const allowedHosts = [...modelHosts.codex, ...toolDownloadHosts];
+// The shared gateway selects its provider here; absent keeps the Codex hosts.
+export const egressProviderEnvironment = 'NIBFIN_EGRESS_PROVIDER';
+export function gatewayEnvironment(provider = 'codex') {
+  if (provider === 'codex') return [];
+  if (provider !== 'claude') throw Error('INVALID_EGRESS_PROVIDER');
+  return [`${egressProviderEnvironment}=${provider}`];
+}
+// Fail closed: any value other than the Claude selection stops the gateway.
+export function gatewayHosts(value) {
+  if (value === undefined) return allowedHosts;
+  if (value !== 'claude') throw Error('INVALID_EGRESS_PROVIDER');
+  return [...modelHosts.claude, ...toolDownloadHosts];
+}
 // Shared by declarations and the standalone installed gateway.
 export function exactProjectHost(value) {
   if (typeof value !== 'string' || value.trim() !== value ||
@@ -146,6 +162,8 @@ export function createProxy({ mcpPolicyDirectory, hosts = allowedHosts,
   });
   return server;
 }
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href)
-  createProxy({ mcpPolicyDirectory: process.env.NIBFIN_MCP_POLICY_DIRECTORY })
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  const hosts = gatewayHosts(process.env[egressProviderEnvironment]);
+  createProxy({ mcpPolicyDirectory: process.env.NIBFIN_MCP_POLICY_DIRECTORY, hosts })
     .listen(3128,'0.0.0.0');
+}

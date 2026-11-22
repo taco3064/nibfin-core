@@ -41,7 +41,9 @@ import {
   acquireMcpEgress, acquireProjectEgress, verifyMcpPolicyDirectory,
   mcpPolicyEnvironment, mcpPolicyMount,
 } from './mcp-egress.mjs';
-import { projectDomains } from './egress-proxy.mjs';
+import {
+  projectDomains, gatewayEnvironment as providerGatewayEnvironment,
+} from './egress-proxy.mjs';
 import { claudeIdleDiagnostic } from './claude-bootstrap.mjs';
 import {
   claudeAppArmorProfile, claudePolicyHash, claudeVersionPattern,
@@ -191,6 +193,7 @@ export class CodexSandbox {
         gatewayImages[0].RepoDigests?.includes(this.#gatewayImage)),
     'AGENT_IMAGE_UNAVAILABLE');
     const gatewayEnvironment = [...(gatewayImages[0].Config?.Env ?? []),
+      ...providerGatewayEnvironment(this.#claude ? 'claude' : 'codex'),
       ...(c.mcpPolicyDirectory ?
         [`${mcpPolicyEnvironment}=${mcpPolicyMount}`] : [])];
     requireThat(
