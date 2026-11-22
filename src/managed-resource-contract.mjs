@@ -23,6 +23,15 @@ export const managedResources = Object.freeze({
     apparmor: claudeAppArmorProfile, profileFile: 'nibfin-claude.apparmor',
   }),
 });
+
+// Each installed AppArmor policy: its file, kernel profile name and load proof.
+// The Claude policy is installed only on an explicit Claude request.
+export const policyTargets = Object.freeze({
+  codex: Object.freeze({ path: managedResources.policy,
+    name: managedResources.apparmor, proof: 'policy.json' }),
+  claude: Object.freeze({ path: managedResources.claude.policy,
+    name: managedResources.claude.apparmor, proof: 'policy-claude.json' }),
+});
 export const managedPreparationCapability = Object.freeze({
   kind: 'linux-managed-resources-v1',
   executable: '/opt/nibfin/core/bin/nibfin-prepare-shared-host.mjs',

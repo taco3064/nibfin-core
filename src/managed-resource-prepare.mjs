@@ -1,13 +1,45 @@
 import { randomUUID } from 'node:crypto';
 import { digest, requireThat } from './identity.mjs';
-import { managedProfile, preparedResult } from './managed-resource-contract.mjs';
+import {
+  managedProfile, preparedResult, managedResources, policyTargets,
+} from './managed-resource-contract.mjs';
 import { resourceProbe } from './managed-resource-probe.mjs';
 
+const claude = managedResources.claude;
+
+// Only the Claude-specific inputs; the Codex digest in `state.inputs` never moves.
+function claudeDigest(inputs) {
+  const names = [claude.recipe, claude.package, claude.shell, claude.profileFile];
+  const version = inputs.versions?.claude;
+  requireThat(typeof version === 'string' &&
+    names.every(name => typeof inputs[name] === 'string'),
+  'RESOURCE_INPUT_CONTRACT_INVALID');
+  return digest({ recipe: inputs[claude.recipe], package: inputs[claude.package],
+    shell: inputs[claude.shell], profile: inputs[claude.profileFile], version });
+}
+
+// Like the Codex journal, the Claude section is created only on a pristine
+// Claude host and never follows changed Claude inputs.
+async function admitClaude(io, state, inputs) {
+  const claudeInputs = claudeDigest(inputs);
+  if (!state.claude) {
+    await io.claudePristine();
+    const previous = structuredClone(state);
+    state.claude = { inputs: claudeInputs, effects: {}, images: {} };
+    await io.save(state, previous);
+  }
+  requireThat(state.claude.inputs === claudeInputs && state.claude.effects &&
+    state.claude.images, 'RESOURCE_STATE_CONFLICT');
+}
+
 // Pure orchestration; only the installed entry constructs privileged capabilities.
-export async function deliverManagedResources(io) {
+// A Claude request adds its own journal section after the unchanged Codex steps.
+export async function deliverManagedResources(io, { claude: requested = false } = {}) {
   const engine = await io.verifyEngine();
   const architecture = engine.architecture ?? 'amd64';
   const inputs = await io.inputs(architecture);
+  const claudeInputs = requested
+    ? await io.inputs(architecture, { claude: true }) : null;
   let state = await io.load();
   if (!state) {
     await io.pristine();
@@ -21,33 +53,34 @@ export async function deliverManagedResources(io) {
     state.images && state.effects, 'RESOURCE_STATE_CONFLICT');
   requireThat(!state.probe || state.probe.phase === 'complete',
     'RESOURCE_PROBE_RECONCILIATION_REQUIRED');
+  if (claudeInputs) await admitClaude(io, state, claudeInputs);
   await io.gate(state.owner);
   let saved = structuredClone(state);
   const save = async () => {
     await io.save(state, saved);
     saved = structuredClone(state);
   };
-  const effect = async (key, action) => {
-    const previous = state.effects[key];
+  const effect = async (key, action, effects = state.effects) => {
+    const previous = effects[key];
     requireThat(previous === undefined || ['pending', 'complete'].includes(previous),
       'RESOURCE_STATE_CONFLICT');
     if (!previous) {
-      state.effects[key] = 'pending';
+      effects[key] = 'pending';
       await save();
     }
     await action(previous !== undefined);
-    state.effects[key] = 'complete';
+    effects[key] = 'complete';
     await save();
   };
-  await effect('controller', () => io.controller(engine.accounts));
-  for (const kind of ['agent', 'hooks']) {
-    await effect(`image:${kind}`, async observe => {
-      const id = await io.image(kind, state, inputs, observe);
+  const image = (kind, kindInputs, { images, effects } = state) =>
+    effect(`image:${kind}`, async observe => {
+      const id = await io.image(kind, state, kindInputs, observe);
       requireThat(/^sha256:[a-f0-9]{64}$/.test(id) &&
-        (!state.images[kind] || state.images[kind] === id), 'RESOURCE_IMAGE_DRIFT');
-      state.images[kind] = id;
-    });
-  }
+        (!images[kind] || images[kind] === id), 'RESOURCE_IMAGE_DRIFT');
+      images[kind] = id;
+    }, effects);
+  await effect('controller', () => io.controller(engine.accounts));
+  for (const kind of ['agent', 'hooks']) await image(kind, inputs);
   await effect('policy', observe => io.policy(inputs.policy, observe));
   await effect('egress', async observe => {
     const id = await io.egress(state.owner, observe);
@@ -61,6 +94,17 @@ export async function deliverManagedResources(io) {
           state.probe.id, kind, inputs));
     }
   }
+  const claudePolicy = observe => io.policy(claudeInputs[claude.profileFile],
+    observe, policyTargets.claude);
+  if (claudeInputs) {
+    await image(claude.kind, claudeInputs, state.claude);
+    await effect('policy:claude', claudePolicy, state.claude.effects);
+    for (const slot of [1, 2]) {
+      await resourceProbe(io, state, state.claude.images[claude.kind],
+        engine.namespace, save, `${slot}:${claude.kind}`, () => io.availability(
+          state.probe.id, claude.kind, claudeInputs), claude.apparmor);
+    }
+  }
   const profile = managedProfile(engine.namespace, state.images);
   await io.confirmSource();
   for (const kind of ['agent', 'hooks'])
@@ -69,6 +113,11 @@ export async function deliverManagedResources(io) {
   await io.policy(inputs.policy, true);
   requireThat(await io.egress(state.owner, true) === state.network,
     'RESOURCE_NETWORK_DRIFT');
+  if (claudeInputs) {
+    requireThat(await io.image(claude.kind, state, claudeInputs, true) ===
+      state.claude.images[claude.kind], 'RESOURCE_IMAGE_DRIFT');
+    await claudePolicy(true);
+  }
   const finalEngine = await io.verifyEngine();
   requireThat(finalEngine.identity === engine.identity, 'RESOURCE_ENGINE_CHANGED');
   await effect('profile', () => io.publish(profile));

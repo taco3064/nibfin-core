@@ -226,7 +226,8 @@ test('the Claude Agent image builds FROM the managed Agent tag with the pin and 
   const inputs = { [resources.claude.recipe]: recipe,
     versions: { ...goldenVersions, claude: pin } };
   const state = { owner: 'owned', inputs: 'fixed', architecture: 'arm64',
-    images: { agent: agentImage, hooks: `sha256:${'b'.repeat(64)}` } };
+    images: { agent: agentImage, hooks: `sha256:${'b'.repeat(64)}` },
+    claude: { inputs: 'claude-fixed', effects: {}, images: {} } };
   const name = 'nibfin-managed-resource:claude-agent-arm64';
   const base = 'nibfin-managed-resource:agent-arm64';
   const expected = resolvedClaudeRecipe(recipe, pin)
@@ -256,12 +257,18 @@ test('the Claude Agent image builds FROM the managed Agent tag with the pin and 
       return JSON.stringify([{ Id: claudeImage, Os: 'linux',
         Architecture: 'arm64', RepoTags: [name], RootFS: { Layers: layers },
         Config: { Labels: { [resources.label]: digest({ owner: 'owned',
-          inputs: 'fixed', kind: 'claude-agent' }) } } }]);
+          inputs: 'fixed', claude: 'claude-fixed', kind: 'claude-agent' }) } } }]);
     },
   });
   assert.equal(await io.image('claude-agent', state, inputs, false), claudeImage);
   assert.equal(await io.image('claude-agent', state, inputs, true), claudeImage);
   assert.equal(built, 1);
+  // A tag labelled for other Claude inputs, or no Claude section, is refused.
+  await assert.rejects(io.image('claude-agent', { ...state,
+    claude: { ...state.claude, inputs: 'claude-moved' } }, inputs, true),
+  { code: 'RESOURCE_IMAGE_CONFLICT' });
+  await assert.rejects(io.image('claude-agent', { ...state, claude: undefined },
+    inputs, true), { code: 'RESOURCE_STATE_CONFLICT' });
   // An image off the prepared Agent layers is a conflict, even when observed.
   layers = ['sha256:other', 'sha256:l2', 'sha256:l3'];
   await assert.rejects(io.image('claude-agent', state, inputs, true),

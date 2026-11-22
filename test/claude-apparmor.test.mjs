@@ -79,8 +79,11 @@ function hostWorld() {
       throw Object.assign(Error('ENOENT'), { code: 'ENOENT' });
     },
   };
+  const tags = new Set();
   const engine = {
-    async docker() { return ''; },
+    async docker(managed, args) {
+      return args[0] === 'image' && tags.has(args.at(-1)) ? 'sha256:foreign\n' : '';
+    },
     async run(file, args) {
       runs.push([file, ...args]);
       assert.equal(file, '/usr/sbin/apparmor_parser');
@@ -90,7 +93,7 @@ function hostWorld() {
   };
   const io = managedResourceHost(async () => {}, engine,
     { files: store, kernelProfiles });
-  return { io, nodes, kernel, runs, loadProfile };
+  return { io, nodes, kernel, runs, tags, loadProfile };
 }
 
 test('Codex and Claude policies install, load and prove under their own names',
@@ -139,32 +142,36 @@ test('an already loaded Claude profile is foreign only to the Claude install',
     assert.equal(world.runs.length, 1);
   });
 
-test('pristine refuses a foreign Claude policy only when Claude is requested',
+test('Claude and Codex pristine checks each refuse only their own foreign resources',
   async () => {
-    const pristine = async (change, options) => {
+    const check = async (change, name) => {
       const world = hostWorld();
       change(world);
-      return world.io.pristine(options);
+      return world.io[name]();
     };
     const none = () => {};
     const file = path => world => world.nodes.set(path,
       { kind: 'file', mode: 0o644, uid: 0, gid: 0, nlink: 1, bytes: 'foreign' });
     const loaded = name => world => world.loadProfile(name);
-    await pristine(none);
-    await pristine(none, { claude: true });
-    for (const [change, code] of [
+    const tagged = tag => world => { world.tags.add(tag); };
+    await check(none, 'pristine');
+    await check(none, 'claudePristine');
+    const claude = [
       [file(policyTargets.claude.path), 'RESOURCE_FOREIGN_CONFIGURATION'],
-      [loaded(claudeAppArmorProfile), 'RESOURCE_FOREIGN_POLICY']]) {
-      await pristine(change);
-      await pristine(change, { claude: false });
-      await assert.rejects(pristine(change, { claude: true }), { code });
-    }
-    for (const [change, code] of [
+      [loaded(claudeAppArmorProfile), 'RESOURCE_FOREIGN_POLICY'],
+      [tagged('nibfin-managed-resource:claude-agent'), 'RESOURCE_FOREIGN_IMAGE'],
+      [tagged('nibfin-managed-resource:claude-agent-arm64'), 'RESOURCE_FOREIGN_IMAGE']];
+    const codex = [
       [file(policyTargets.codex.path), 'RESOURCE_FOREIGN_CONFIGURATION'],
       [file(resourcePreparationGate), 'RESOURCE_FOREIGN_CONFIGURATION'],
-      [loaded(codexName), 'RESOURCE_FOREIGN_POLICY']])
-      for (const options of [undefined, { claude: true }])
-        await assert.rejects(pristine(change, options), { code });
+      [loaded(codexName), 'RESOURCE_FOREIGN_POLICY'],
+      [tagged('nibfin-managed-resource:agent-arm64'), 'RESOURCE_FOREIGN_IMAGE']];
+    for (const [own, other, name] of [[claude, codex, 'claudePristine'],
+      [codex, claude, 'pristine']]) {
+      for (const [change, code] of own)
+        await assert.rejects(check(change, name), { code }, name);
+      for (const [change] of other) await check(change, name);
+    }
   });
 
 test('the state directory admits the Claude proof and still refuses unknown files',
