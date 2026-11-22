@@ -1,7 +1,12 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { createHash } from 'node:crypto';
-import { readFile, access } from 'node:fs/promises';
+import {
+  readFile, access, mkdtemp, mkdir, rm, writeFile,
+} from 'node:fs/promises';
+import { spawnSync } from 'node:child_process';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { runInNewContext } from 'node:vm';
 import { digest } from '../src/identity.mjs';
 import { managedResourceHost } from '../src/managed-resource-host.mjs';
@@ -23,6 +28,7 @@ const id = 'a'.repeat(64);
 const agentImage = `sha256:${id}`;
 const claudeImage = `sha256:${'c'.repeat(64)}`;
 const pin = '2.1.326 (Claude Code)';
+const sourceCheckStart = 'RUN list=/etc/apt/sources.list && . /etc/os-release';
 
 // Golden values computed from origin/main (f9f60e1) before the Claude image kind.
 const codexInputKeys = ['managed-agent.Dockerfile', 'managed-hook.Dockerfile',
@@ -59,21 +65,8 @@ test('the Claude recipe derives from the prepared Agent image and adds only the 
   assert.deepEqual(recipe.match(/^FROM .*$/gm), ['FROM nibfin-managed-agent-input']);
   assert.match(recipe, /^RUN rm \/usr\/local\/bin\/codex$/m);
   assert.match(recipe, /apt-get install -y --no-install-recommends bubblewrap socat/);
-  assert.match(recipe, /&& grep -Eqx "\$snapshot" \/etc\/apt\/sources\.list/);
-  assert.match(recipe, /! grep -Evqx "\$snapshot" \/etc\/apt\/sources\.list/);
-  // The whole-line pattern accepts exactly the line the Agent recipe writes.
-  const prefix = /^RUN prefix='(.+)' \\$/m.exec(recipe)[1];
-  const suffix = /&& snapshot="\$\{prefix\}(.+)" \\$/m.exec(recipe)[1];
-  const line = new RegExp(`^${prefix}${suffix}$`);
-  const agent = await source('managed-agent.Dockerfile');
-  assert.match(agent, /printf 'deb \[check-valid-until=no\] %s %s main\\n'/);
-  const url = /^\s+(http:\/\/snapshot\.debian\.org\/\S+) \\$/m.exec(agent)[1];
-  assert.match(`deb [check-valid-until=no] ${url} bookworm main`, line);
-  for (const other of [`deb [check-valid-until=no] ${url.replace('http:', 'https:')} ` +
-    'bookworm main', `deb [check-valid-until=no] ${url} bookworm main contrib`,
-  'deb http://deb.debian.org/debian bookworm main'])
-    assert.doesNotMatch(other, line);
-  assert.match(recipe, /test -z "\$\(ls -A \/etc\/apt\/sources\.list\.d\)"/);
+  // The source check runs in its own layer before apt-get update.
+  assert(recipe.indexOf(sourceCheckStart) < recipe.indexOf('RUN apt-get update'));
   assert.doesNotMatch(recipe, /sources\.list\s*>|deb\.debian\.org|curl|wget|npm i/);
   assert.match(recipe, /^ARG CLAUDE_VERSION$/m);
   assert.match(recipe, /^COPY claude-package\.mjs \/opt\/nibfin\/claude\/install\.mjs$/m);
@@ -96,6 +89,57 @@ test('the Claude recipe derives from the prepared Agent image and adds only the 
     ['claude-package.mjs', 'nibfin-bash']);
   for (const line of recipe.split('\n')) assert(line.length <= 90, line);
 });
+
+// The recipe's sources.list check as one shell command, pointed at fixtures.
+function sourceCheck(recipe, root) {
+  const start = recipe.indexOf(sourceCheckStart);
+  const end = recipe.indexOf('\n# ', start);
+  assert(start > 0 && end > start && !root.includes("'"));
+  return recipe.slice(start + 'RUN '.length, end).replace(/ \\\n/g, ' ')
+    .replace('list=/etc/apt/sources.list', `list='${root}/sources.list'`)
+    .replace('/etc/os-release', `'${root}/os-release'`)
+    .replace('/etc/apt/sources.list.d', `'${root}/sources.list.d'`);
+}
+
+test('apt sources must be exactly the Agent snapshot main and security lines',
+  async () => {
+    const recipe = await source(resources.claude.recipe);
+    const agent = await source('managed-agent.Dockerfile');
+    assert.match(agent, /printf 'deb \[check-valid-until=no\] %s %s main\\n'/);
+    // The Agent recipe writes main then security, with one shared timestamp.
+    const urls = [...agent.matchAll(/^\s+(http:\/\/snapshot\.debian\.org\/\S+) \\$/gm)]
+      .map(match => match[1]);
+    assert.equal(urls.length, 2);
+    assert.match(urls[0], /\/archive\/debian\/\d{8}T\d{6}Z\/$/);
+    assert.equal(urls[1], urls[0].replace('/debian/', '/debian-security/'));
+    const deb = (url, suite) => `deb [check-valid-until=no] ${url} ${suite} main\n`;
+    const good = deb(urls[0], 'bookworm') + deb(urls[1], 'bookworm-security');
+    const other = '20260101T000000Z';
+    const root = await mkdtemp(join(tmpdir(), 'nibfin-claude-sources-'));
+    try {
+      const check = sourceCheck(recipe, root);
+      const run = async (list, { codename = 'bookworm', extra } = {}) => {
+        await rm(join(root, 'sources.list.d'), { recursive: true, force: true });
+        await mkdir(join(root, 'sources.list.d'));
+        if (extra) await writeFile(join(root, 'sources.list.d', extra), good);
+        await writeFile(join(root, 'sources.list'), list);
+        await writeFile(join(root, 'os-release'), `VERSION_CODENAME=${codename}\n`);
+        return spawnSync('sh', ['-c', check]).status;
+      };
+      assert.equal(await run(good), 0);
+      for (const [list, options] of [
+        [deb(urls[0], 'bookworm')], [deb(urls[1], 'bookworm-security')],
+        [deb(urls[1], 'bookworm-security') + deb(urls[0], 'bookworm')],
+        [deb(urls[0], 'bookworm') + deb(urls[1].replace(/\d{8}T\d{6}Z/, other),
+          'bookworm-security')],
+        [good + 'deb http://deb.debian.org/debian bookworm main\n'],
+        [good + '\n'], [good.replace(/main\n$/, 'main contrib\n')],
+        [good.replaceAll('http:', 'https:')], [good.slice(0, -1)], [''],
+        [good, { codename: 'trixie' }], [good, { codename: '' }],
+        [good, { extra: 'debian.sources' }]])
+        assert.notEqual(await run(list, options), 0, JSON.stringify([list, options]));
+    } finally { await rm(root, { recursive: true, force: true }); }
+  });
 
 test('the CLI pin comes from the verified package script', async () => {
   const script = await source('claude-package.mjs');
