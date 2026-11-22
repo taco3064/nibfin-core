@@ -4,6 +4,7 @@ import { readFile } from 'node:fs/promises';
 import { digest } from '../src/identity.mjs';
 import { managedResourceHost } from '../src/managed-resource-host.mjs';
 import { managedResources as resources } from '../src/managed-resource-contract.mjs';
+import { fileDouble } from './file-store-fixture.mjs';
 
 const id = 'a'.repeat(64);
 const image = `sha256:${id}`;
@@ -234,4 +235,39 @@ test('managed Agent builds bind child inputs, target, versions and ownership',
       await assert.rejects(io.image('agent', target, inputs, true),
         { code: 'RESOURCE_IMAGE_CONFLICT' });
     }
+  });
+
+test('profile publish installs, keeps, and replaces only the computed profile',
+  async () => {
+    const { nodes, store } = fileDouble();
+    nodes.set('/etc/nibfin', { kind: 'directory', mode: 0o755, uid: 0, gid: 0,
+      nlink: 1, bytes: '' });
+    const io = managedResourceHost(async () => {}, {}, { files: store,
+      profilePaths: { rootOwnedPath: async path => assert(nodes.has(path)),
+        lstat: async path => nodes.get(path) } });
+    const text = value => JSON.stringify(value, null, 2) + '\n';
+    const bytes = () => nodes.get(resources.profile).bytes;
+    const codex = { model: 'codex' };
+    const claude = { provider: 'claude', model: 'claude' };
+    await io.publish(codex);
+    await io.publish(codex);
+    assert.equal(bytes(), text(codex));
+    await assert.rejects(io.publish(claude), { code: 'ENGINE_FILE_CONFLICT' });
+    await io.publish(claude, codex);
+    await io.publish(claude, codex);
+    assert.equal(bytes(), text(claude));
+    assert.equal(nodes.get(resources.profile).mode, 0o644);
+    assert.deepEqual([...nodes.keys()].filter(path => path.startsWith('/etc/nibfin/')),
+      [resources.profile]);
+    // Neither branch overwrites a manual profile.
+    nodes.get(resources.profile).bytes = 'manual';
+    for (const replaceable of [undefined, codex])
+      await assert.rejects(io.publish(claude, replaceable),
+        { code: 'ENGINE_FILE_CONFLICT' });
+    assert.equal(bytes(), 'manual');
+    nodes.get(resources.profile).bytes = text(claude);
+    const foreign = managedResourceHost(async () => {}, {}, { files: store,
+      profilePaths: { rootOwnedPath: async () => {}, lstat: async () => ({ uid: 1 }) } });
+    await assert.rejects(foreign.publish(claude, codex),
+      { code: 'RESOURCE_PROFILE_NOT_ROOT_OWNED' });
   });

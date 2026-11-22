@@ -30,6 +30,7 @@ const journal = `${resources.state}/state.json`;
 export { policyTargets };
 
 const nativeKernel = { readdir, readFile };
+const nativeProfilePaths = { rootOwnedPath, lstat };
 
 async function kernelPolicy(name, { readdir, readFile }) {
   const base = '/sys/kernel/security/apparmor/policy/profiles';
@@ -53,6 +54,7 @@ export function managedResourceHost(confirmSource, engine = engineHost(), {
   prepareController = prepareSharedAccounts,
   installReclamation = installStorageReclamation,
   files = engineFileStore(), kernelProfiles = nativeKernel,
+  profilePaths = nativeProfilePaths,
 } = {}) {
   const {
     optionalStat, ownedDirectory, exactFile, installEngineFile, replaceEngineFile,
@@ -257,12 +259,12 @@ export function managedResourceHost(confirmSource, engine = engineHost(), {
     },
     // Only the `replaceable` profile Core computed from this journal is replaced.
     async publish(profile, replaceable) {
-      await rootOwnedPath('/etc/nibfin');
+      await profilePaths.rootOwnedPath('/etc/nibfin');
       const text = value => JSON.stringify(value, null, 2) + '\n';
       if (replaceable) await replaceEngineFile(resources.profile, text(profile),
         text(replaceable), 0o644);
       else await installEngineFile(resources.profile, text(profile), 0o644);
-      const stat = await lstat(resources.profile);
+      const stat = await profilePaths.lstat(resources.profile);
       requireThat(stat.uid === 0, 'RESOURCE_PROFILE_NOT_ROOT_OWNED');
     },
   };
