@@ -22,12 +22,12 @@ import { versionProbe } from './tool-recipe.mjs';
 import { syncRecoveryDirectory } from './recovery-lock.mjs';
 import { installStorageReclamation, prepareStorageReclamation }
   from './storage-reclamation-install.mjs';
+import {
+  platformTag, derivedRecipe, requireDerivedLayers,
+} from './managed-derived-image.mjs';
 
 const security = join(coreRoot, 'src/security');
 const journal = `${resources.state}/state.json`;
-const tag = kind => `nibfin-managed-resource:${kind}`;
-const platformTag = (kind, arch) => arch === 'amd64'
-  ? tag(kind) : `${tag(kind)}-${arch}`;
 
 async function kernelPolicy() {
   const base = '/sys/kernel/security/apparmor/policy/profiles';
@@ -139,7 +139,7 @@ export function managedResourceHost(confirmSource, engine = engineHost(), {
             `ARG NPM_VERSION=${inputs.versions.npm}`);
         }
         if (kind === 'hooks')
-          recipe = recipe.replace('nibfin-managed-agent-input', state.images.agent);
+          recipe = await derivedRecipe(recipe, state.images.agent, arch, docker);
         await engine.docker(true, ['build', '--no-cache', '--network=host',
           '--platform', `linux/${arch}`,
           '--label', `${resources.label}=${marker}`, '--tag', name,
@@ -152,8 +152,11 @@ export function managedResourceHost(confirmSource, engine = engineHost(), {
       const rows = JSON.parse(await docker(['image', 'inspect', found]));
       const row = rows[0];
       requireThat(rows.length === 1 && row.Id === found &&
-        linuxArchitecture(row.Os, row.Architecture) === arch &&
-        row.Config?.Labels?.[resources.label] === marker &&
+        linuxArchitecture(row.Os, row.Architecture) === arch,
+      'RESOURCE_IMAGE_CONFLICT');
+      if (kind !== 'agent')
+        await requireDerivedLayers(row, state.images.agent, docker);
+      requireThat(row.Config?.Labels?.[resources.label] === marker &&
         row.RepoTags?.includes(name), 'RESOURCE_IMAGE_CONFLICT');
       return found;
     },

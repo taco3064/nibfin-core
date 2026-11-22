@@ -38,7 +38,9 @@ manual profile.
 
 Agent acquisition uses digest-pinned base images, an authenticated immutable
 Debian snapshot and an npm integrity lock including native Codex dependencies.
-The Hook recipe derives from the inspected Agent ID and removes the model CLI;
+The Hook recipe builds FROM the managed Agent tag only after verifying that the
+tag still names the prepared Agent ID, and removes the model CLI. A derived
+image is accepted only when its layers extend the prepared Agent layers.
 Hook execution remains offline under the existing sandbox contract. Building
 requires access to the pinned base registries, Debian snapshot and npm registry.
 Acquisition builds use fixed host networking with verified recipes and no private

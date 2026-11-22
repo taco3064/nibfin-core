@@ -7,39 +7,103 @@ import { managedResources as resources } from '../src/managed-resource-contract.
 
 const id = 'a'.repeat(64);
 const image = `sha256:${id}`;
-const state = { owner: 'owned', inputs: 'fixed', images: { agent: image } };
+const agentId = `sha256:${'b'.repeat(64)}`;
+const layer = digit => `sha256:${digit.repeat(64)}`;
+const agentLayers = [layer('1'), layer('2')];
+const state = { owner: 'owned', inputs: 'fixed', images: { agent: agentId } };
 const inputs = { 'managed-hook.Dockerfile': 'FROM nibfin-managed-agent-input\n' };
+const hookMarker = digest({ owner: state.owner, inputs: state.inputs, kind: 'hooks' });
 
-test('build binds Hook recipe to inspected Agent ID and refuses unknown effects',
+// Local Docker double: the Agent tag, the Agent ID and one Hook image.
+function hookEngine(world) {
+  return {
+    async docker(managed, args, options) {
+      assert.equal(managed, true);
+      world.calls.push(args);
+      if (args[0] === 'build') {
+        world.builds++;
+        world.input = options.input;
+        assert(args.includes('--no-cache'));
+        assert(args.includes('--network=host'));
+        assert.equal(args[args.indexOf('--platform') + 1], `linux/${world.arch}`);
+        world.exists = true;
+        throw new Error('Reply lost after successful build');
+      }
+      if (args[1] === 'ls') return world.exists ? image : '';
+      assert.equal(args[1], 'inspect');
+      if (args[2] === world.agentTag) {
+        if (world.tagId === null) throw new Error('No such image');
+        return JSON.stringify([{ Id: world.tagId }]);
+      }
+      if (args[2] === agentId)
+        return JSON.stringify([{ Id: agentId, RootFS: { Layers: agentLayers } }]);
+      assert.equal(args[2], image);
+      return JSON.stringify([{ Id: image, Os: 'linux', Architecture: world.arch,
+        RootFS: { Layers: world.layers },
+        Config: { Labels: { [resources.label]: world.marker } },
+        RepoTags: [world.name] }]);
+    },
+  };
+}
+
+function hookWorld(arch = 'amd64') {
+  const suffix = arch === 'amd64' ? '' : `-${arch}`;
+  return { arch, calls: [], builds: 0, exists: false, tagId: agentId,
+    agentTag: `nibfin-managed-resource:agent${suffix}`,
+    name: `nibfin-managed-resource:hooks${suffix}`,
+    layers: [...agentLayers, layer('3')], marker: hookMarker };
+}
+
+test('build binds Hook recipe to the verified Agent tag and refuses unknown effects',
   async () => {
-    let exists = false;
-    let builds = 0;
-    const io = managedResourceHost(async () => {}, {
-      async docker(managed, args, options) {
-        assert.equal(managed, true);
-        if (args[0] === 'build') {
-          builds++;
-          assert.equal(options.input, `FROM ${image}\n`);
-          assert(args.includes('--no-cache'));
-          assert(args.includes('--network=host'));
-          exists = true;
-          throw new Error('Reply lost after successful build');
-        }
-        if (args[1] === 'ls') return exists ? image : '';
-        assert.equal(args[1], 'inspect');
-        return JSON.stringify([{ Id: image, Os: 'linux', Architecture: 'amd64',
-          Config: { Labels: { [resources.label]: digest({
-            owner: state.owner, inputs: state.inputs, kind: 'hooks',
-          }) } }, RepoTags: ['nibfin-managed-resource:hooks'] }]);
-      },
-    });
+    const world = hookWorld();
+    const io = managedResourceHost(async () => {}, hookEngine(world));
     assert.equal(await io.image('hooks', state, inputs, false), image);
+    assert.equal(world.input, 'FROM nibfin-managed-resource:agent\n');
+    assert(!world.input.includes('sha256:'));
+    const tagCheck = world.calls.findIndex(args => args[2] === world.agentTag);
+    const build = world.calls.findIndex(args => args[0] === 'build');
+    assert(tagCheck >= 0 && tagCheck < build);
     assert.equal(await io.image('hooks', state, inputs, true), image);
-    assert.equal(builds, 1);
-    exists = false;
+    assert.equal(world.builds, 1);
+    world.exists = false;
     await assert.rejects(io.image('hooks', state, inputs, true),
       { code: 'RESOURCE_IMAGE_RECONCILIATION_REQUIRED' });
-    assert.equal(builds, 1);
+    assert.equal(world.builds, 1);
+  });
+
+test('arm64 Hook builds FROM the arm64 Agent tag', async () => {
+  const world = hookWorld('arm64');
+  const io = managedResourceHost(async () => {}, hookEngine(world));
+  const target = { ...state, architecture: 'arm64' };
+  assert.equal(await io.image('hooks', target, inputs, false), image);
+  assert.equal(world.input, 'FROM nibfin-managed-resource:agent-arm64\n');
+});
+
+test('Hook build refuses an Agent tag that no longer names the prepared ID',
+  async () => {
+    for (const tagId of [image, null]) {
+      const world = { ...hookWorld(), tagId };
+      const io = managedResourceHost(async () => {}, hookEngine(world));
+      await assert.rejects(io.image('hooks', state, inputs, false),
+        { code: 'RESOURCE_IMAGE_CONFLICT' });
+      assert.equal(world.builds, 0);
+    }
+  });
+
+test('Hook image must extend the prepared Agent layers when built or found',
+  async () => {
+    for (const layers of [[layer('3')], [layer('1')], [layer('2'), layer('1')],
+      undefined]) {
+      const built = { ...hookWorld(), layers };
+      await assert.rejects(managedResourceHost(async () => {}, hookEngine(built))
+        .image('hooks', state, inputs, false), { code: 'RESOURCE_IMAGE_CONFLICT' });
+      assert.equal(built.builds, 1);
+      const found = { ...hookWorld(), layers, exists: true };
+      await assert.rejects(managedResourceHost(async () => {}, hookEngine(found))
+        .image('hooks', state, inputs, true), { code: 'RESOURCE_IMAGE_CONFLICT' });
+      assert.equal(found.builds, 0);
+    }
   });
 
 test('owned egress bridge does not depend on the default Docker bridge', async () => {
@@ -77,15 +141,11 @@ test('owned egress bridge does not depend on the default Docker bridge', async (
 });
 
 test('foreign image labels are never adopted', async () => {
-  const io = managedResourceHost(async () => {}, {
-    async docker(managed, args) {
-      if (args[1] === 'ls') return image;
-      return JSON.stringify([{ Id: image, Os: 'linux', Architecture: 'amd64',
-        Config: { Labels: {} }, RepoTags: ['nibfin-managed-resource:hooks'] }]);
-    },
-  });
+  const world = { ...hookWorld(), exists: true, marker: undefined };
+  const io = managedResourceHost(async () => {}, hookEngine(world));
   await assert.rejects(io.image('hooks', state, inputs, true),
     { code: 'RESOURCE_IMAGE_CONFLICT' });
+  assert(world.calls.some(args => args[2] === agentId));
 });
 
 test('availability checks the fixed Agent runtime and skips model CLI in Hooks',
