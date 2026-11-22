@@ -2,6 +2,7 @@ import { validProviderModel as model } from './provider-contract.mjs';
 import { executionProfile } from './execution-profiles.mjs';
 import { digest, isDigest, isId, isSha, requireThat } from './identity.mjs';
 import { claudeCredentialKinds } from './claude-credential-kinds.mjs';
+import { codexCredentialKind } from './managed-credential-set.mjs';
 
 const providers = ['codex', 'claude'];
 // Code-owned composition per provider; Codex keeps its original identity.
@@ -18,7 +19,6 @@ const providerTable = Object.freeze({
       Object.hasOwn(claudeCredentialKinds, kind),
   }),
 });
-const codexCredentialKind = 'codex-chatgpt';
 const compatibleProfile = name => {
   try { executionProfile(name); return true; } catch { return false; }
 };
