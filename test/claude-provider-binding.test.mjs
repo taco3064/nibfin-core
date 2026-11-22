@@ -4,7 +4,7 @@ import {
   createProviderBinding, installedProvider, providerComponents, validateProviderBinding,
 } from '../src/provider-binding.mjs';
 import { installedProviderExecutor } from '../src/installed-provider.mjs';
-import { refuseUnsupportedMcp } from '../src/provider-mcp.mjs';
+import { unsupportedMcp } from '../src/provider-mcp.mjs';
 import { claudeCredentialReader } from '../src/claude-composition.mjs';
 import { adoptedProviderBinding } from '../src/shared-host-adopt.mjs';
 import { prepareDiagnosisInvocation } from '../src/diagnosis-invocation.mjs';
@@ -126,19 +126,27 @@ test('Claude dispatch checks its CLI version instead of the login file', () => {
     { code: 'PROVIDER_CHANGE_REQUIRES_RETIREMENT_REBUILD' });
 });
 
-test('a Claude pool refuses user MCP from the host or the target repository', () => {
+test('Claude pools find host or target-repository MCP unsupported', () => {
   const host = claudeHost();
   const mcp = { servers: { fixture: {} } };
-  assert.throws(() => refuseUnsupportedMcp({ ...host, mcp }, mcp),
-    { code: 'CLAUDE_MCP_UNSUPPORTED' });
+  assert.equal(unsupportedMcp({ ...host, mcp }, mcp), true);
   // Only the target repository's host profile configures MCP.
-  assert.throws(() => refuseUnsupportedMcp(host, mcp),
-    { code: 'CLAUDE_MCP_UNSUPPORTED' });
-  assert.equal(refuseUnsupportedMcp(host, undefined), undefined);
+  assert.equal(unsupportedMcp(host, mcp), true);
+  assert.equal(unsupportedMcp(host, undefined), false);
   // An unconfigured source needs no provider observation at all.
-  assert.equal(refuseUnsupportedMcp({}, undefined), undefined);
+  assert.equal(unsupportedMcp({}, undefined), false);
   const codex = providerHost();
-  assert.equal(refuseUnsupportedMcp({ ...codex, mcp }, mcp), undefined);
+  assert.equal(unsupportedMcp({ ...codex, mcp }, mcp), false);
+});
+
+test('the binding loads no host or filesystem module for credential kinds', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const leaf = await readFile(new URL('../src/claude-credential-kinds.mjs',
+    import.meta.url), 'utf8');
+  assert.doesNotMatch(leaf, /^import /m);
+  const binding = await readFile(new URL('../src/provider-binding.mjs',
+    import.meta.url), 'utf8');
+  assert.doesNotMatch(binding, /claude-model-credentials/);
 });
 
 test('diagnosis on a Claude pool refuses before reading any credential', async () => {

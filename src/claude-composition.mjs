@@ -1,5 +1,6 @@
-import { claudeCredentialKind, claudeCredentialKinds, readClaudeCredential }
-  from './claude-model-credentials.mjs';
+import { claudeCredentialKind, claudeCredentialKinds }
+  from './claude-credential-kinds.mjs';
+import { readClaudeCredential } from './claude-model-credentials.mjs';
 import { requireThat } from './identity.mjs';
 
 // The binding names only a credential kind. The stored value must match it;

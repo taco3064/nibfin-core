@@ -1,7 +1,7 @@
 import { validProviderModel as model } from './provider-contract.mjs';
 import { executionProfile } from './execution-profiles.mjs';
 import { digest, isDigest, isId, isSha, requireThat } from './identity.mjs';
-import { claudeCredentialKinds } from './claude-model-credentials.mjs';
+import { claudeCredentialKinds } from './claude-credential-kinds.mjs';
 
 const providers = ['codex', 'claude'];
 // Code-owned composition per provider; Codex keeps its original identity.
