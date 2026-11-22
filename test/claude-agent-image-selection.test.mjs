@@ -3,6 +3,38 @@ import { test } from 'node:test';
 import { spawnSync } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
+import {
+  diagnosedDocker, failureTail,
+} from '../scripts/verify-live-claude-agent-image.mjs';
+
+test('live image check failures name the step, exit code and bounded stderr',
+  async () => {
+    const stderr = Array.from({ length: 60 }, (_, i) => `line ${i} ${'x'.repeat(400)}`)
+      .join('\n') + '\n\n';
+    const tail = failureTail(stderr).split('\n');
+    assert.equal(tail.length, 40);
+    assert(tail[0].startsWith('line 20 ') && tail.at(-1).startsWith('line 59 '));
+    assert(tail.every(line => line.length <= 300));
+    const logged = [];
+    const progress = { step: 'build managed-agent' };
+    const calls = [];
+    const run = async (file, args, options) => {
+      calls.push({ file, args, options });
+      return args.includes('ok') ? { exitCode: 0, stdout: Buffer.from('done') }
+        : { exitCode: 1, stdout: Buffer.alloc(0), stderr: Buffer.from(stderr) };
+    };
+    const docker = diagnosedDocker(run, '/run/test.sock', progress,
+      line => logged.push(line));
+    assert.equal(await docker(['image', 'ok'], { input: 'recipe' }), 'done');
+    assert.deepEqual(calls[0].args.slice(0, 2), ['--host', 'unix:///run/test.sock']);
+    assert.equal(calls[0].options.input, 'recipe');
+    assert.equal(calls[0].options.allowedExitCodes.length, 256);
+    await assert.rejects(docker(['build', '--file', '-']),
+      { code: 'PROCESS_FAILED', exitCode: 1 });
+    assert.equal(logged[0], 'NIBFIN_CLAUDE_IMAGE_STEP_FAILED ' +
+      'step=build managed-agent command=docker build exit=1');
+    assert.equal(logged[1], failureTail(stderr));
+  });
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const select = (flag, path) => {
