@@ -17,10 +17,18 @@ const text = path => readFile(new URL(`../${path}`, import.meta.url), 'utf8');
 const context = fileURLToPath(new URL('../src/security', import.meta.url));
 const anyExit = Array.from({ length: 256 }, (_, code) => code);
 
-// CI diagnostics: the end of a failing command's stderr, bounded in lines and
-// width. Only credential-free build and probe output reaches this path.
+// A failing RUN's own error lines, wherever they appear in the build output.
+const errorLine = /runc|\bERROR\b|^\S*\s*E: |\bErr:|\berror\b|npm ERR!/i;
+
+// CI diagnostics: the failing command's error lines, then the end of its stderr,
+// bounded in lines and width. Only credential-free build and probe output reaches
+// this path.
 export function failureTail(stderr, lines = 40, width = 300) {
-  return String(stderr).split('\n').filter(line => line.trim()).slice(-lines)
+  const all = String(stderr).split('\n').filter(line => line.trim());
+  const tail = all.slice(-lines);
+  const errors = all.slice(0, -lines).filter(line => errorLine.test(line))
+    .slice(-20);
+  return [...errors, ...(errors.length ? ['...'] : []), ...tail]
     .map(line => line.slice(0, width)).join('\n');
 }
 
@@ -60,12 +68,14 @@ async function verify(progress) {
   progress.step = 'resolve and pull Agent inputs';
   const native = await prepareAgentInputs(agent, architecture, docker);
   const scratch = await mkdtemp(join(tmpdir(), 'nibfin-claude-image-'));
-  // Core's managed build flags, plus plain progress so a failing RUN shows its
-  // own output in the stderr tail.
+  // Core's managed build flags except `--network=host`: on the userns-remapped CI
+  // daemon a RUN in the host network namespace cannot mount sysfs, so the build
+  // uses the daemon's default network like the other CI image builds. Plain
+  // progress keeps a failing RUN's own output in the diagnostics.
   const build = async (name, recipe) => {
     progress.step = `build ${name}`;
     const iid = join(scratch, `${name}.iid`);
-    await docker(['build', '--no-cache', '--network=host', '--progress=plain',
+    await docker(['build', '--no-cache', '--progress=plain',
       '--platform', native.platform, '--iidfile', iid, '--file', '-', context],
     { input: recipe });
     const id = (await readFile(iid, 'utf8')).trim();
@@ -108,9 +118,10 @@ async function verify(progress) {
       '--entrypoint', '/bin/sh', image, '-c', script]);
     assert.equal(output, `${versions.claude}\nNIBFIN_CLAUDE_IMAGE_VERIFIED\n`);
   } finally {
-    progress.step = 'cleanup';
+    // Cleanup reports under its own step and never replaces the failing step.
+    const cleanup = diagnosedDocker(command, socket, { step: 'cleanup' });
     for (const image of images.reverse())
-      await docker(['image', 'rm', '--force', image]).catch(() => {});
+      await cleanup(['image', 'rm', '--force', image]).catch(() => {});
     await rm(scratch, { recursive: true, force: true });
   }
 }
