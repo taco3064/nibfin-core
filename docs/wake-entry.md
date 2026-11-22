@@ -124,8 +124,8 @@ Only explicit pre-effect nonterminal CI observations wait (five-second reads,
 ten-minute limit). A known CI timeout is Pending after clean host inspection;
 an unknown effect stays Pending with its journal evidence. Failed checks,
 changed authority and arbitrary observation failures do not enter that wait
-loop. Later dispatches still need current authorization and valid receipts; no stale-lock recovery or
-cross-member handoff is added.
+loop. Later dispatches still need current authorization and valid receipts; no
+stale-lock recovery or cross-member handoff is added.
 
 ## Issue-event entry and durable dispatch
 
