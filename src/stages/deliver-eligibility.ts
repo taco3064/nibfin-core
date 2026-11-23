@@ -38,7 +38,8 @@ export type Eligibility =
     }
   | { eligible: false; description: string };
 
-function describeStage(stage: Stage): string {
+/** The derived stage as logged, with the reason of an ineligible one. */
+export function describeStage(stage: Stage): string {
   return stage.stage === "ineligible" ? `ineligible (${stage.reason})` : stage.stage;
 }
 

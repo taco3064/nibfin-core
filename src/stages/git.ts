@@ -198,6 +198,17 @@ async function remoteHead(git: Git, branch: string): Promise<string | undefined>
   return line?.split("\t")[0];
 }
 
+/**
+ * Brings `refs` from Core's repository into the workspace under the same names,
+ * unshallowing a shallow checkout so a merge base exists. No token is involved.
+ */
+async function fetchFromCore(git: Git, refs: readonly string[]): Promise<void> {
+  const shallow = (await git.run(["rev-parse", "--is-shallow-repository"])).trim();
+  const unshallow = shallow === "true" ? ["--unshallow"] : [];
+  const specs = refs.map((ref) => `+${ref}:${ref}`);
+  await git.run(["fetch", "--no-tags", ...unshallow, git.coreRepo, ...specs]);
+}
+
 export interface PreparedBranch {
   base: string;
   branch: string;
@@ -222,10 +233,7 @@ export async function prepareBranch(
   const tracking = (name: string) => `refs/remotes/origin/${name}`;
   const fromGitHub = names.map((name) => `+refs/heads/${name}:${tracking(name)}`);
   await git.remoteRequired(["fetch", "--no-tags", git.remoteUrl, ...fromGitHub]);
-  const shallow = (await git.run(["rev-parse", "--is-shallow-repository"])).trim();
-  const unshallow = shallow === "true" ? ["--unshallow"] : [];
-  const fromCore = names.map((name) => `+${tracking(name)}:${tracking(name)}`);
-  await git.run(["fetch", "--no-tags", ...unshallow, git.coreRepo, ...fromCore]);
+  await fetchFromCore(git, names.map(tracking));
   let fetched: string | undefined;
   if (existing !== undefined) {
     fetched = (
@@ -283,4 +291,33 @@ export async function refDirectory(git: Git, branch: string): Promise<string> {
   const parent = `refs/heads/${branch}`.split("/").slice(0, -1).join("/");
   const path = await git.run(["rev-parse", "--git-path", parent]);
   return resolve(git.workspace, path.replace(/\r?\n$/, ""));
+}
+
+/**
+ * Fetches the pinned `head` (by SHA) and the base into Core's repository, brings
+ * both into the workspace from there (unshallowing a shallow checkout) and checks
+ * `head` out detached. Returns the diff of `head` against its merge base with
+ * `origin/<base>`.
+ */
+export async function checkoutReviewedHead(
+  git: Git,
+  options: { base: string; head: string },
+): Promise<string> {
+  const { base, head } = options;
+  if (!/^[0-9a-f]{40,64}$/.test(head)) {
+    throw new StageError("STAGE_INPUT_INVALID", `Not a full commit SHA: ${head}`);
+  }
+  await git.initCoreRepo();
+  const baseRef = `refs/remotes/origin/${base}`;
+  const reviewed = "refs/nibfin/reviewed";
+  await git.remoteRequired([
+    "fetch",
+    "--no-tags",
+    git.remoteUrl,
+    `+refs/heads/${base}:${baseRef}`,
+    `+${head}:${reviewed}`,
+  ]);
+  await fetchFromCore(git, [baseRef, reviewed]);
+  await git.run(["checkout", "--quiet", "--detach", head]);
+  return git.run(["diff", `${baseRef}...${head}`]);
 }
