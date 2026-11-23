@@ -23,6 +23,7 @@ export {
   readDependencies,
 } from "./dependencies.ts";
 export { GitHubError, type GitHubErrorCode } from "./errors.ts";
+export { type IssueText, readIssueText } from "./issue-text.ts";
 export { nibfinLabels } from "./labels.ts";
 export { isNibfinWorkflow, nibfinWorkflowPrefix } from "./nibfin-workflows.ts";
 export type { IssueRef, Repo } from "./repo.ts";
