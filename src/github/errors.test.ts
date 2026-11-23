@@ -16,7 +16,9 @@ import {
   rejection,
 } from "./fake-github.test.ts";
 
-const answered = (status: number) => ({ status, response: { status } });
+const answered = (status: number) =>
+  Object.assign(new Error(`HTTP ${status}`), { status, response: { status } });
+const unanswered = (status: number) => Object.assign(new Error("x"), { status });
 
 describe("GitHubError", () => {
   it("keeps the code, operation and original cause", () => {
@@ -115,7 +117,7 @@ describe("error classification", () => {
 
 describe("read", () => {
   it("returns the result or fails with GITHUB_READ_FAILED and the cause", async () => {
-    assert.equal(await read("op", async () => 1), 1);
+    assert.equal(await read("op", () => Promise.resolve(1)), 1);
     const cause = answered(500);
     const error = await rejection(read("op", () => Promise.reject(cause)));
     assert.ok(error instanceof GitHubError);
@@ -135,11 +137,11 @@ describe("readOptional", () => {
       await readOptional("op", () => Promise.reject(answered(404))),
       undefined,
     );
-    assert.equal(await readOptional("op", async () => "x"), "x");
+    assert.equal(await readOptional("op", () => Promise.resolve("x")), "x");
   });
 
   it("fails on any other error, including a 404 without a response", async () => {
-    for (const cause of [{ status: 404 }, answered(403), answered(500)]) {
+    for (const cause of [unanswered(404), answered(403), answered(500)]) {
       const error = await rejection(readOptional("op", () => Promise.reject(cause)));
       assert.ok(error instanceof GitHubError);
       assert.equal(error.code, "GITHUB_READ_FAILED");

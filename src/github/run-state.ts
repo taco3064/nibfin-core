@@ -1,4 +1,4 @@
-﻿/** The result of a check run, commit status or workflow run for the stage rules. */
+/** The result of a check run, commit status or workflow run for the stage rules. */
 export type RunState = "success" | "failed" | "pending";
 
 const successConclusions = new Set(["success", "neutral", "skipped"]);

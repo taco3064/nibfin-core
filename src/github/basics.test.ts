@@ -15,9 +15,9 @@ describe("createClient", () => {
     assert.ok(Object.isFrozen(client.actor));
     let headers = new Headers();
     const original = globalThis.fetch;
-    globalThis.fetch = async (_input, init) => {
+    globalThis.fetch = (_input, init) => {
       headers = new Headers(init?.headers);
-      return Response.json({});
+      return Promise.resolve(Response.json({}));
     };
     try {
       await client.request("GET /rate_limit");
