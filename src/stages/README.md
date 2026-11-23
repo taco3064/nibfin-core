@@ -147,21 +147,33 @@ newest merged PR whose CD failed, with the log tails of their failed jobs
 
 ### Pushes
 
-Core pushes; the agent has no credentials. Each remote Git call (`ls-remote`,
-`fetch`, `push`) gets the header `AUTHORIZATION: basic <x-access-token:token>`
-through `GIT_CONFIG_COUNT=1`, `GIT_CONFIG_KEY_0=http.https://github.com/.extraheader`
-and `GIT_CONFIG_VALUE_0` in that one child's environment, never in arguments or
-`.git/config`. Those calls also run without hooks (`core.hooksPath` set to the null
-device, `--no-verify`), credential helpers, askpass programs or push signing, and
-with only the remote URL's protocol allowed (`GIT_ALLOW_PROTOCOL`), so nothing the
-workspace configures runs while the token is in the environment. Git output is
-redacted of the token and the header.
+Core pushes; the agent has no credentials. Core talks to GitHub only from its own
+bare repository, created for the run outside the workspace (`mkdtemp` under the
+system temp directory) without a template and removed when the run ends. It fetches
+the base and the Issue branch from GitHub into that repository, and the workspace
+fetches them from there. Before each push it fetches the branch from the workspace
+into its repository (without the token) and pushes from there to the explicit
+`https://github.com/<owner>/<repo>.git` URL. So the workspace's `.git/config`
+(`url.*.insteadOf`, `pushInsteadOf`, `http.proxy`, `http.sslVerify`, hooks, …),
+which the Writer can change, never applies to an authenticated command.
+
+Each remote call (`ls-remote`, `fetch`, `push`) gets the header
+`AUTHORIZATION: basic <x-access-token:token>` through `GIT_CONFIG_COUNT=1`,
+`GIT_CONFIG_KEY_0=http.https://github.com/.extraheader` and `GIT_CONFIG_VALUE_0` in
+that one child's environment, never in arguments or a config file. Commands in
+Core's repository ignore the global and system config (`GIT_CONFIG_GLOBAL=/dev/null`,
+`GIT_CONFIG_NOSYSTEM=1`) and run without hooks (`core.hooksPath=/dev/null`,
+`--no-verify`), credential helpers, askpass programs or push signing, with only the
+remote URL's protocol allowed (`GIT_ALLOW_PROTOCOL`). Git output is redacted of the
+token and the header.
 
 - **Lease.** Every push is `--force-with-lease=refs/heads/<branch>:<expected>`, where
   `<expected>` is the last head Core pushed, or the head fetched before the first
   push; empty (the branch must not exist) while it was never pushed. A rejected
   lease is `STAGE_PUSH_REJECTED` and is never retried as an overwrite; so is any
   other rejection, with a named cause for a missing workflows permission.
+- **Nothing ahead.** A head without commits ahead of `origin/<base>` is never
+  pushed, so a Writer that returns without commits leaves no remote branch.
 - **Order.** Pushes run one at a time; requests during a push collapse into one
   follow-up push of the then current head. Right before each push Core re-reads the
   snapshot; when the Issue is no longer eligible for this reason and branch (paused,
