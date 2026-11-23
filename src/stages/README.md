@@ -4,7 +4,8 @@ Implements the delivery stages that move an Issue from Shape to a merged pull re
 Owned by #671, #672 and #673. #671 adds the Shape stage and the harness the other
 stages reuse; #672 adds the Deliver stage; #673 adds the review stage, which reviews,
 merges, follows CD and closes the Issue. #674 gives each Deliver Job the run name
-`Nibfin · <owner>/<repo>#<n> · deliver`.
+`Nibfin · <owner>/<repo>#<n> · deliver`. #686 returns an Issue to the Shape stage when
+the Deliver Writer finds the approved Shape wrong (see Shape reported wrong).
 
 ## Job context
 
@@ -78,24 +79,35 @@ code and message and exits 1.
 `runShapeStage(context, client, deps?)`:
 
 1. Reads the snapshot. When `deriveStage` is not `shape`, it logs the actual stage
-   and exits 0, so a run after publication does nothing.
+   and exits 0 without running a role, so a run after publication does nothing (at
+   a delivery stage it may still name a next action, see Shape reported wrong).
 2. Reads the sources: the Issue's title, body and URL, and for each Blocked by Issue
    its URL, title, body and marked `shape` comment. An upstream Issue in another
    repository is flagged: its source is not in the workspace, so the Author reports a
    gap instead of guessing.
-3. With an existing marked `shape` comment (and no `shaped`) the Validator checks it
-   first; otherwise the Shape Author proposes one.
-4. The Shape Validator runs separately with only the sources and the proposed Shape.
-   `changes-required` sends its findings and the previous Shape to the Author for a
-   revision and a fresh validation, without a round limit; each round is logged.
+3. With a pending `shape-wrong` report the existing Shape is not validated: the
+   Author rewrites it ("Rewrite the Shape: the previous one was found wrong") from
+   the "Previous Shape" and "Why the previous Shape is wrong". Otherwise, with an
+   existing marked `shape` comment (and no `shaped`) the Validator checks it first;
+   else the Shape Author proposes one.
+4. The Shape Validator runs separately with only the sources and the proposed Shape,
+   plus the reason while a `shape-wrong` report is active (then it also checks that
+   the Shape resolves it). `changes-required` sends its findings and the previous
+   Shape (and an active reason) to the Author for a revision and a fresh
+   validation, without a round limit; each round is logged.
 5. Before publishing, the stage reads the snapshot and the sources again. If the
    Issue is no longer at the Shape stage (paused, closed, …) it stops without
    publishing. If the Issue's title or body changed, a fresh validation runs against
    the new text.
-6. It writes the marked `shape` comment (an unchanged body is not rewritten), checks
-   the read-back body, adds `shaped`, checks the read-back labels and marks an earlier
-   `shape-blocked` comment resolved. A failed read-back is
+6. It writes the marked `shape` comment (an unchanged body is not rewritten) and
+   confirms it with one read of its body and Shape version: when the body changed,
+   the version must have changed too. It then rewrites an active `shape-wrong`
+   report as resolved, adds `shaped`, checks the read-back labels and marks an
+   earlier `shape-blocked` comment resolved. A failed read-back is
    `GITHUB_WRITE_UNCONFIRMED`.
+7. **Next action.** After a rewrite (this run resolved a `shape-wrong` report) it
+   re-reads the snapshot and writes `shapeNextAction` of the derived stage; every
+   other exit, including a first Shape and every failure, writes none.
 
 Results:
 
@@ -113,11 +125,15 @@ written, so they follow the skill's Disclosure rules.
 
 `runDeliverStage(context, client, deps?)`:
 
-1. **Eligibility.** The snapshot must fit the reason: none → `deliver`;
-   `ci-failure` → `ci-failed`; `review` → `review` with the actor's marked `review`
-   comment on the PR whose `Reviewed head: <sha>` line equals the PR head;
-   `cd-failure` → `cd-failed` (work on `nextFixBranch`), or `deliver` on a fix branch
-   (a redo). Otherwise it logs the stage and exits 0.
+1. **Eligibility.** First, at any delivery stage (any or no reason) with a pending
+   `shape-wrong` report, no Writer runs: it removes `shaped`, confirms it and asks
+   for the Shape stage (a redo after a crash between the report and the label).
+   Then the snapshot must fit the reason: none → `deliver`; `ci-failure` →
+   `ci-failed`; `review` → `review` with the actor's marked `review` comment on the
+   PR whose `Reviewed head: <sha>` line equals the PR head and whose
+   `Reviewed Shape: <v>` line equals the current Shape version; `cd-failure` →
+   `cd-failed` (work on `nextFixBranch`), or `deliver` on a fix branch (a redo).
+   Otherwise it logs the stage and exits 0.
 2. **Writer check.** It lists the in-progress workflow runs of `NIBFIN_RUN_REPO`
    (every workflow and page) other than `NIBFIN_RUN_ID`. Another run named
    `Nibfin · <owner>/<repo>#<n> · deliver` (run name or workflow name) is
@@ -131,7 +147,12 @@ written, so they follow the skill's Disclosure rules.
    branch rules and, for a fix run, the fix context. `blocked` writes the marked
    `deliver-blocked` comment and stops with `STAGE_BLOCKED` (after the final push
    below). A `done` Writer must leave the branch checked out, no uncommitted changes
-   and commits ahead of `origin/<base>`.
+   and commits ahead of `origin/<base>`. `shape-wrong` (the Shape conflicts with the
+   current Issue or product authority) gets the same final push as `blocked`
+   (none with an open PR), then a re-check: when the Issue is still eligible it
+   writes the marked `shape-wrong` report for the Shape version the Writer was given,
+   removes `shaped`, confirms it and asks for the Shape stage; otherwise it stops
+   without writing. No Acceptor runs.
 5. **Closing keywords.** A commit ahead of the base whose message would close this
    Issue (`Closes #n`, `fixes owner/repo#n`, the Issue URL, …) goes back to the
    Writer as a defect; the PR body is `Part of #<n>`.
@@ -197,12 +218,19 @@ refs/heads/<dir>`) triggers a push whenever `refs/heads/<branch>` changed. The
 
 With `NIBFIN_NEXT_FILE` set, the stage writes `{ "stage": …, "reason": … }` there for
 #673 and #674: `{ "stage": "review", "reason": null }` when the snapshot after the PR
-derives `review`, and both `null` when the run ends ineligible, blocked, Pending, or
-waiting for CI events.
+derives `review`; `{ "stage": "shape", "reason": null }` after a Writer
+`shape-wrong`, on the redo that removes `shaped` for a pending report (any reason),
+and on an ineligible start at `shape` with an unresolved `shape-wrong` report (a
+redo after a crash before the next action); `{ "stage": "review", "reason": null }`
+when the run ends ineligible (at start or at any re-check, including the one after
+`shape-wrong`) at `review` with a review comment for the current head whose
+`Reviewed Shape` is missing or not current (no CI event follows); and both `null`
+when the run ends ineligible otherwise, blocked, Pending, or waiting for CI events.
 
 Results:
 
-- Writer: `{ outcome: "done" }` or `{ outcome: "blocked", reason }`.
+- Writer: `{ outcome: "done" }`, `{ outcome: "shape-wrong", reason }` or
+  `{ outcome: "blocked", reason }`; `reason` is a non-empty string.
 - Acceptor: `{ outcome: "pass" }`, `{ outcome: "defects", defects }` or
   `{ outcome: "blocked", reason }`.
 
@@ -223,9 +251,13 @@ Results:
 
 ### Review
 
-1. **Pin.** The head `H` of the open PR is pinned. If the actor's marked `review`
-   comment on the PR already records `H` (`Reviewed head: H`), the run asks for the
-   `review` fix again without reviewing.
+1. **Pin.** With a pending `shape-wrong` report the run neither reviews nor merges:
+   next `{ "deliver", null }`, whose start removes `shaped`. Otherwise the head `H`
+   of the open PR is pinned. If the actor's marked `review` comment on the PR
+   already records `H` (`Reviewed head: H`) and the current Shape version
+   (`Reviewed Shape: <v>`, read here), the run asks for the `review` fix again
+   without reviewing; a comment without a current `Reviewed Shape` line is stale and
+   the head is reviewed again.
 2. **Checkout.** Core fetches `H` (by SHA) and the base into its own bare repository
    outside the workspace, with the token in that one child's environment as for
    Deliver's pushes, brings both into the workspace and checks `H` out detached.
@@ -237,7 +269,9 @@ Results:
 4. **Re-read.** When the Issue is no longer at `review` on the same PR at `H`, the run
    stops without writing.
 5. **Verdict.** `problems` writes the marked `review` comment on the PR
-   (`Reviewed head: H`, then the problems as written) and asks for the `review` fix.
+   (`Reviewed head: H`, `Reviewed Shape: <v>` with the version read together with
+   the Shape text the reviewer got, then the problems as written) and asks for the
+   `review` fix. Its body changes whenever the version does.
    `blocked` writes the marked `review-blocked` comment on the Issue and stops with
    `STAGE_BLOCKED`. `clean` goes to the merge. A clean result never writes a `review`
    comment.
@@ -248,11 +282,13 @@ GitHub enforces the repository's own rules; Core imposes nothing the repository 
 not configure.
 
 1. Re-reads the snapshot: the Issue must still derive `review` on the same PR at `H`
-   (so `pause`, closing and new pushes stop the merge).
+   (so `pause`, closing and new pushes stop the merge). A pending `shape-wrong`
+   report stops it with next `{ "deliver", null }`; nothing is merged or written.
 2. Reads the PR: it must be open at `H`. `mergeable: null` or `mergeable_state:
 unknown` stops with no next action (GitHub is still computing).
    `behind` or `dirty` writes the `review` comment "Rebase onto `<base>` and resolve
-   conflicts: …" for `H` and asks for the `review` fix. `blocked` writes
+   conflicts: …" for `H` and the reviewed Shape version, and asks for the `review`
+   fix. `blocked` writes
    `review-blocked` naming the readable unmet ruleset requirements (approvals against
    the current count, code owner review, last push approval, resolved threads), or
    saying that classic protection is not readable.
@@ -299,14 +335,73 @@ downstream repository the token does not cover is logged as unreadable.
 
 ### Next action
 
-`{ "stage": "deliver" | "review" | null, "reason": …, "wake"?: [{ "repo":
+`{ "stage": "shape" | "deliver" | "review" | null, "reason": …, "wake"?: [{ "repo":
 "<owner>/<repo>", "issue": <n> }] }`: `{ "deliver", "review" }` after problems or a
-rebase request, `{ "deliver", "cd-failure" }` at `cd-failed`, `wake` after the close
-(also on the redo), and `null` otherwise, including every failure.
+rebase request (also instead of reusing a review comment whose `Reviewed Shape` is
+not current: the head is reviewed again first), `{ "deliver", null }` at `review`
+with a pending `shape-wrong` report (instead of reviewing or merging),
+`{ "deliver", "cd-failure" }` at `cd-failed`, `wake` after the close (also on the
+redo), and `null` otherwise, including every failure.
 
 Result: `{ outcome: "clean" | "problems" | "blocked", reviewedHead, problems?,
 reason? }`; `problems` is a non-empty list of non-empty strings, `reason` a non-empty
 string.
+
+## Shape reported wrong
+
+When the Deliver Writer finds the approved Shape in conflict with the current Issue
+or the product authority, the Issue goes back to the Shape stage with the reason
+(#686). Branches, commits and PRs stay; pushed work is the next Deliver run's
+starting point. Merged work is not revisited: after a rewrite, `awaiting-cd` and
+`done` continue as usual, and a CD fix fixes the cited CD failure under the current
+Shape.
+
+- **Shape version** `<shape comment id>.<versions>`, where the versions are the
+  comment's `userContentEdits` count read in the same GraphQL query as the Shape
+  text (`readCurrentShape`). It changes exactly when the Shape body is rewritten or
+  the comment recreated; nothing is stored locally and every check re-reads it.
+  That the count grows only on body edits and is current right after a write is an
+  assumption shared with the review-round count of #673 (GraphQL documents
+  `userContentEdits` only as "a list of edits"); the Shape stage's write check
+  guards it.
+- **Report.** The marked `shape-wrong` Issue comment: `The approved Shape is wrong
+(Writer).`, `Shape version: <v>` (the version the Writer was given), then the
+  reason. It is _pending_ while unresolved and for the current version,
+  _unresolved_ until it starts with `Resolved:`, and _active_ while unresolved or
+  resolved by the current version (`Rewritten as Shape version: <v>`). A missing or
+  malformed version line, or no Shape comment, makes it neither pending nor active
+  (logged). On publication an active report is (re)written as `Resolved: a
+rewritten Shape was approved and written.`, `Rewritten as Shape version: <new v>`,
+  then the original lines; this happens before `shaped` is added, so a rewrite
+  with unchanged text never leaves a pending report next to `shaped`.
+- **Prompts.** After a rewrite the Writer and the Acceptor get the same inputs as
+  always (the current Issue and the current Shape); the Writer's reason never
+  reaches the Acceptor.
+- **Reviews.** A `review` comment counts (Deliver `review` eligibility, review-stage
+  reuse) only when it records both the current head and the current Shape version.
+  Comments written before #686 have no `Reviewed Shape` line, so each in-flight PR
+  is reviewed once more.
+
+The next actions of this flow, all stages together:
+
+- Deliver: `{ "shape", null }` after a Writer `shape-wrong` (report written,
+  `shaped` removed), on a start at a delivery stage with a pending report (redo),
+  and on an ineligible start at `shape` with an unresolved report; `null` when the
+  Writer returns `shape-wrong` but the re-check finds the Issue ineligible (or
+  `{ "review", null }` for a stale review, as above).
+- Shape: `shapeNextAction` after a rewrite, and at a delivery stage with a report
+  resolved by the current version (redo); `{ "deliver", null }` at a delivery stage
+  with a pending report; `null` on any other exit (a first Shape, failures).
+- Review: `{ "deliver", null }` at `review` with a pending report.
+
+`shapeNextAction` maps the stage derived after `shaped` is back: `deliver` on the
+delivery branch → `{ "deliver", null }`; `deliver` on a CD fix branch →
+`{ "deliver", "cd-failure" }`; `ci-failed` → `{ "deliver", "ci-failure" }`;
+`review` → `{ "review", null }`; `cd-failed` → `{ "deliver", "cd-failure" }`; `done`
+→ `{ "review", null }` (closure); `awaiting-cd` and anything else → `null` (CD
+events follow). A Shape run at a delivery stage outside this flow re-emits the same
+delivery next action at most, which the delivery stages' own eligibility and Writer
+guard make idempotent.
 
 Tests use a fake GitHub API, fake agent runs and a fake configuration; only `git`
 runs for real, in repositories under the ignored `.test-tmp/`, with a local bare
