@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { resolve } from "node:path";
+import { join, resolve } from "node:path";
 import { describe, it } from "node:test";
 import { fakeToken } from "../github/fake-github.test.ts";
 import { parseJobOptions, readJobContext } from "./context.ts";
@@ -45,6 +45,76 @@ describe("readJobContext", () => {
     const context = readJobContext([...withProvider, "--model", "sonnet"], env);
     assert.equal(context.model, "sonnet");
   });
+
+  const deliver = ["--stage", "deliver", "--repo", "a/b", "--issue", "1"];
+  const deliverArgs = [...deliver, "--provider", "claude"];
+  const runEnv = {
+    ...env,
+    NIBFIN_RUN_REPO: "acme/runner",
+    NIBFIN_RUN_ID: "77",
+    NIBFIN_NEXT_FILE: resolve("/jobs/next.json"),
+  };
+
+  it("reads the Deliver reason, the execution run and the next-action file", () => {
+    const context = readJobContext([...deliverArgs, "--reason", "review"], runEnv);
+    assert.equal(context.reason, "review");
+    assert.deepEqual(context.runRepo, { owner: "acme", repo: "runner" });
+    assert.equal(context.runId, 77);
+    assert.equal(context.nextFile, runEnv.NIBFIN_NEXT_FILE);
+    const plain = readJobContext(deliverArgs, env);
+    for (const field of ["reason", "runRepo", "runId", "nextFile"]) {
+      assert.ok(!Object.hasOwn(plain, field), field);
+    }
+  });
+
+  for (const [name, options, change, message] of [
+    [
+      "a reason for another stage",
+      [...withProvider, "--reason", "review"],
+      {},
+      "--reason is only valid with --stage deliver",
+    ],
+    [
+      "an unknown reason",
+      [...deliverArgs, "--reason", "flaky"],
+      {},
+      "--reason must be one of ci-failure, review, cd-failure",
+    ],
+    [
+      "a bad run repo",
+      deliverArgs,
+      { NIBFIN_RUN_REPO: "x" },
+      "NIBFIN_RUN_REPO must be " + "<owner>/<repo>",
+    ],
+    [
+      "a bad run id",
+      deliverArgs,
+      { NIBFIN_RUN_ID: "1.5" },
+      "NIBFIN_RUN_ID must be a positive integer",
+    ],
+    [
+      "a relative next file",
+      deliverArgs,
+      { NIBFIN_NEXT_FILE: "next.json" },
+      "NIBFIN_NEXT_FILE must be an absolute path",
+    ],
+    [
+      "a next file in the workspace",
+      deliverArgs,
+      { NIBFIN_NEXT_FILE: join(workspace, "next.json") },
+      "NIBFIN_NEXT_FILE must be outside NIBFIN_WORKSPACE",
+    ],
+    [
+      "the workspace as next file",
+      deliverArgs,
+      { NIBFIN_NEXT_FILE: workspace },
+      "NIBFIN_NEXT_FILE must be outside NIBFIN_WORKSPACE",
+    ],
+  ] as const) {
+    it(`rejects ${name}`, () => {
+      inputError(() => readJobContext(options, { ...env, ...change }), message);
+    });
+  }
 
   for (const [name, options, message] of [
     ["a missing repo", ["--issue", "1", "--provider", "claude"], "--repo is missing"],
