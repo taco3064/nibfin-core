@@ -41,6 +41,8 @@ export {
 export {
   type PullRequestDetail,
   readApprovalCount,
+  readCommitsAhead,
+  readForcePushedHeads,
   readPullRequest,
   readPullRequestCommits,
 } from "./pull-request.ts";

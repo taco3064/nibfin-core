@@ -1,6 +1,6 @@
 import { type PullRequestSummary, summarizePullRequest } from "./branches.ts";
 import type { GitHubClient } from "./client.ts";
-import { read } from "./errors.ts";
+import { GitHubError, read, readOptional } from "./errors.ts";
 import type { Repo } from "./repo.ts";
 
 /** A pull request with GitHub's view of whether it can be merged. */
@@ -75,4 +75,90 @@ export async function readApprovalCount(
     }
   }
   return [...latest.values()].filter((state) => state === "APPROVED").length;
+}
+
+const forcePushQuery = `query(
+  $owner: String!
+  $repo: String!
+  $number: Int!
+  $cursor: String
+) {
+  repository(owner: $owner, name: $repo) {
+    pullRequest(number: $number) {
+      timelineItems(
+        itemTypes: [HEAD_REF_FORCE_PUSHED_EVENT]
+        first: 100
+        after: $cursor
+      ) {
+        pageInfo { hasNextPage endCursor }
+        nodes { ... on HeadRefForcePushedEvent { beforeCommit { oid } } }
+      }
+    }
+  }
+}`;
+
+interface ForcePushPage {
+  data?: {
+    repository?: {
+      pullRequest?: {
+        timelineItems?: {
+          pageInfo: { hasNextPage: boolean; endCursor: string | null };
+          nodes: Array<{ beforeCommit?: { oid: string } | null } | null>;
+        };
+      } | null;
+    } | null;
+  };
+  errors?: unknown[];
+}
+
+/**
+ * The heads a pull request had right before each force push, from GraphQL
+ * `HeadRefForcePushedEvent.beforeCommit`, all pages. A force push removes those heads
+ * from the pull request's commit list; GitHub's timeline keeps them.
+ */
+export async function readForcePushedHeads(
+  client: GitHubClient,
+  repo: Repo,
+  number: number,
+): Promise<string[]> {
+  const operation = `read force pushes of ${repo.owner}/${repo.repo}#${number}`;
+  const heads: string[] = [];
+  let cursor: string | null = null;
+  do {
+    const answer = await read(operation, () =>
+      client.request("POST /graphql", {
+        query: forcePushQuery,
+        variables: { ...repo, number, cursor },
+      }),
+    );
+    const page = (answer.data as ForcePushPage).data?.repository?.pullRequest;
+    const items = page?.timelineItems;
+    if ((answer.data as ForcePushPage).errors !== undefined || items === undefined) {
+      const cause = new Error("GraphQL returned no timeline");
+      throw new GitHubError("GITHUB_READ_FAILED", operation, cause);
+    }
+    heads.push(...items.nodes.flatMap((node) => node?.beforeCommit?.oid ?? []));
+    cursor = items.pageInfo.hasNextPage ? items.pageInfo.endCursor : null;
+  } while (cursor !== null);
+  return heads;
+}
+
+/**
+ * The commits of `head` that `base` does not have (`GET …/compare/{base}...{head}`,
+ * at most the 250 GitHub returns), or `undefined` when GitHub no longer has `head`.
+ */
+export async function readCommitsAhead(
+  client: GitHubClient,
+  repo: Repo,
+  base: string,
+  head: string,
+): Promise<string[] | undefined> {
+  const where = `${repo.owner}/${repo.repo} ${base}...${head}`;
+  const answer = await readOptional(`compare ${where}`, () =>
+    client.request("GET /repos/{owner}/{repo}/compare/{basehead}", {
+      ...repo,
+      basehead: `${base}...${head}`,
+    }),
+  );
+  return answer?.data.commits.map((commit) => commit.sha);
 }

@@ -138,6 +138,11 @@ otherwise it fails with `GITHUB_WRITE_UNCONFIRMED`.
   approves (plain comments do not decide).
 - `readPullRequestCommits(client, repo, n)`: the SHAs of the pull request's current
   commits (heads removed by a force push are not listed).
+- `readForcePushedHeads(client, repo, n)`: the head right before each force push,
+  from GraphQL `HeadRefForcePushedEvent.beforeCommit`, all pages.
+- `readCommitsAhead(client, repo, base, head)`: the commits of `head` that `base`
+  lacks (`GET …/compare/{base}...{head}`, at most the 250 GitHub returns);
+  `undefined` when GitHub no longer has `head` (404).
 - `readCommentVersions(client, repo, commentId)`: the comment's versions from GraphQL
   `userContentEdits`, which is empty for a comment never edited (1 version) and once
   edited lists every edit plus the original (`totalCount` versions).

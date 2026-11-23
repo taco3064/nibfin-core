@@ -5,6 +5,8 @@ import { fakeGitHub, networkError, paged, rejection, repo } from "./fake-github.
 import { pull } from "./fixtures.test.ts";
 import {
   readApprovalCount,
+  readCommitsAhead,
+  readForcePushedHeads,
   readPullRequest,
   readPullRequestCommits,
 } from "./pull-request.ts";
@@ -77,5 +79,60 @@ describe("readApprovalCount", () => {
   it("fails when the reviews cannot be read", async () => {
     const github = fakeGitHub();
     await expectReadFailure(readApprovalCount(github.client, repo, 7));
+  });
+});
+
+describe("readForcePushedHeads", () => {
+  function page(oids: Array<string | null>, cursor: string | null) {
+    const nodes = oids.map((oid) => (oid === null ? {} : { beforeCommit: { oid } }));
+    const pageInfo = { hasNextPage: cursor !== null, endCursor: cursor };
+    const timelineItems = { pageInfo, nodes };
+    return { data: { data: { repository: { pullRequest: { timelineItems } } } } };
+  }
+
+  it("reads the head before each force push, all pages", async () => {
+    const pages = [page(["a", null], "c1"), page(["b"], null)];
+    const github = fakeGitHub({ "POST /graphql": () => pages.shift()! });
+    assert.deepEqual(await readForcePushedHeads(github.client, repo, 7), ["a", "b"]);
+    const variables = github.calls.map(
+      (call) => (call.body as { variables: unknown }).variables,
+    );
+    assert.deepEqual(variables, [
+      { owner: "acme", repo: "app", number: 7, cursor: null },
+      { owner: "acme", repo: "app", number: 7, cursor: "c1" },
+    ]);
+  });
+
+  for (const [name, data] of [
+    ["GraphQL errors", { errors: [{ message: "x" }], data: null }],
+    ["a missing pull request", { data: { repository: { pullRequest: null } } }],
+  ] as const) {
+    it(`fails on ${name}`, async () => {
+      const github = fakeGitHub({ "POST /graphql": { data } });
+      await expectReadFailure(readForcePushedHeads(github.client, repo, 7));
+    });
+  }
+});
+
+describe("readCommitsAhead", () => {
+  it("lists the commits of a head that the base lacks", async () => {
+    const github = fakeGitHub({
+      "GET /repos/acme/app/compare/main...abc": {
+        data: { commits: [{ sha: "x" }, { sha: "abc" }] },
+      },
+    });
+    assert.deepEqual(await readCommitsAhead(github.client, repo, "main", "abc"), [
+      "x",
+      "abc",
+    ]);
+  });
+
+  it("treats a head GitHub no longer has as absent and fails otherwise", async () => {
+    const gone = fakeGitHub();
+    assert.equal(await readCommitsAhead(gone.client, repo, "main", "abc"), undefined);
+    const broken = fakeGitHub({
+      "GET /repos/acme/app/compare/main...abc": networkError(),
+    });
+    await expectReadFailure(readCommitsAhead(broken.client, repo, "main", "abc"));
   });
 });

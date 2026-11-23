@@ -5,6 +5,8 @@ import {
   type IssueSnapshot,
   type PullRequestState,
   readCommentVersions,
+  readCommitsAhead,
+  readForcePushedHeads,
   readIssueSnapshot,
   readPullRequestCommits,
   readRequiredCheckResults,
@@ -89,16 +91,35 @@ function cdLines(pull: PullRequestState): string[] {
   );
 }
 
-/** Heads of the Issue's pull requests with a failed required check, counted once. */
+/**
+ * Every commit a pull request has carried: its current commits and head, and the
+ * commits of each head it had right before a force push (a rebase). A head GitHub no
+ * longer has is logged and left out.
+ */
+async function pullRequestCommits(scope: ReviewScope, pull: PullRequestState) {
+  const { client, context, deps } = scope;
+  const commits = await readPullRequestCommits(client, context.repo, pull.number);
+  const all = new Set([...commits, pull.headSha]);
+  for (const before of await readForcePushedHeads(client, context.repo, pull.number)) {
+    const ahead = await readCommitsAhead(client, context.repo, pull.baseRef, before);
+    if (ahead === undefined) {
+      deps.log(`#${pull.number}: the force-pushed head ${before} is gone; not counted`);
+    }
+    for (const sha of ahead ?? []) {
+      all.add(sha);
+    }
+  }
+  return all;
+}
+
+/**
+ * Commits of the Issue's pull requests with a failed required check, counted once,
+ * including heads a force push replaced.
+ */
 async function ciFixRounds(scope: ReviewScope, ci: CiReader, pulls: PullRequestState[]) {
   const failed = new Set<string>();
   for (const pull of pulls) {
-    const commits = await readPullRequestCommits(
-      scope.client,
-      scope.context.repo,
-      pull.number,
-    );
-    for (const sha of new Set([...commits, pull.headSha])) {
+    for (const sha of await pullRequestCommits(scope, pull)) {
       const results = await ci.results(pull.baseRef, sha);
       if (results.some((result) => result.state === "failed")) {
         failed.add(sha);
