@@ -102,6 +102,23 @@ describe("error classification", () => {
     assert.equal(hasResponse({ status: 500 }), false);
     assert.equal(hasResponse(null), false);
     assert.equal(hasResponse(1), false);
+    assert.equal(hasResponse({ status: 500, response: undefined }), false);
+  });
+
+  it("describes a real network failure as no response", async () => {
+    const github = fakeGitHub({ "GET /repos/acme/app/issues/1": networkError() });
+    const error = await rejection(
+      read("read issue", () =>
+        github.client.request("GET /repos/{owner}/{repo}/issues/{issue_number}", {
+          owner: "acme",
+          repo: "app",
+          issue_number: 1,
+        }),
+      ),
+    );
+    assert.ok(error instanceof GitHubError);
+    assert.equal(error.message, "read issue: read failed (no response)");
+    assert.equal(isUnknownOutcome(error.cause), true);
   });
 
   it("treats no response and server errors as unknown outcomes", () => {
