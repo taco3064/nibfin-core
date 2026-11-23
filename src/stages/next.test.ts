@@ -18,6 +18,28 @@ describe("writeNextAction", () => {
     assert.equal(await readFile(nextFile, "utf8"), '{"stage":null,"reason":null}\n');
   });
 
+  it("writes a Deliver fix and the Issues to wake", async () => {
+    const dir = await makeTempDir("next-");
+    const nextFile = join(dir, "next.json");
+    await writeNextAction({ nextFile }, { stage: "deliver", reason: "review" });
+    assert.equal(
+      await readFile(nextFile, "utf8"),
+      '{"stage":"deliver","reason":"review"}\n',
+    );
+    const wake = [{ repo: "acme/lib", issue: 3, extra: true }];
+    await writeNextAction({ nextFile }, { stage: null, reason: null, wake });
+    assert.equal(
+      await readFile(nextFile, "utf8"),
+      '{"stage":null,"reason":null,"wake":[{"repo":"acme/lib","issue":3}]}\n',
+    );
+    await writeNextAction({ nextFile }, { ...noNextAction, wake: [] });
+    assert.deepEqual(JSON.parse(await readFile(nextFile, "utf8")), {
+      stage: null,
+      reason: null,
+      wake: [],
+    });
+  });
+
   it("does nothing without a next-action file", async () => {
     const dir = await makeTempDir("next-");
     await writeNextAction({}, noNextAction);
