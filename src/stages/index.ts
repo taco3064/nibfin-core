@@ -22,7 +22,7 @@ export {
 } from "./deliver.ts";
 export { reviewCommentKey } from "./deliver-eligibility.ts";
 export { StageError, type StageErrorCode } from "./errors.ts";
-export { type NextAction, writeNextAction } from "./next.ts";
+export { type NextAction, type WakeTarget, writeNextAction } from "./next.ts";
 export {
   composePrompt,
   type PromptRequest,
@@ -30,5 +30,12 @@ export {
   type StageRole,
 } from "./prompt.ts";
 export { parseAgentResult } from "./result.ts";
+export { runReviewStage } from "./review.ts";
+export {
+  defaultReviewDeps,
+  deliveredCommentKey,
+  reviewBlockedCommentKey,
+  type ReviewDeps,
+} from "./review-scope.ts";
 export { runShapeStage, shapeBlockedCommentKey, shapeCommentKey } from "./shape.ts";
 export { deliverRunName } from "./writer-guard.ts";

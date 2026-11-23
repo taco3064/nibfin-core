@@ -103,7 +103,8 @@ function addComment(github: FakeGitHub, issue: FakeIssue, userId: number, body: 
   return comment;
 }
 
-function routeIssue(github: FakeGitHub, issue: FakeIssue, blockers: FakeIssue[]) {
+/** Routes an Issue: itself, its Blocked by list, comments and labels. */
+export function routeIssue(github: FakeGitHub, issue: FakeIssue, blockers: FakeIssue[]) {
   const base = `/repos/${issue.owner}/${issue.repo}/issues/${issue.number}`;
   const labelsJson = () => issue.labels.map((name) => ({ name }));
   github.routes.set(`GET ${base}`, () => ({ data: issueData(issue, blockers.length) }));
