@@ -1,3 +1,4 @@
 {
-  "printWidth": 90
+  "printWidth": 90,
+  "overrides": [{ "files": "skills/**/*.md", "options": { "proseWrap": "always" } }]
 }
