@@ -1,7 +1,6 @@
 # `src/agent`
 
-Runs a role through an agent CLI and loads the repository's `.nibfin.json` settings.
-Owned by #668 (CLI runner) and #669 (`.nibfin.json`).
+Runs a role through an agent CLI. Owned by #668.
 
 ## CLI runner
 
@@ -15,6 +14,8 @@ headless in `workspace` and returns `{ exitCode, finalMessage }`.
   `HOME`, `LANG`, `LC_*`, `TERM`, `TMPDIR`, the proxy variables (`HTTP_PROXY`,
   `HTTPS_PROXY`, `NO_PROXY` and their lowercase forms) and the config-home variable.
   Stage credentials such as `GITHUB_TOKEN` and `GH_TOKEN` never reach them.
+  `childEnvironment(parent, extra)` builds this environment and is exported, so the
+  tool installs in `src/config` (#669) use the same allowlist.
 - **Agent config.** When the workspace has `.rulesync/`, `rulesync --json generate`
   writes the provider's rules, MCP and skill files first. The written paths go to the
   repository's `info/exclude`, so they are never committed.
