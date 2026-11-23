@@ -22,7 +22,11 @@ export {
   readBlocking,
   readDependencies,
 } from "./dependencies.ts";
-export { readCommentVersions } from "./comment-edits.ts";
+export {
+  type CommentWithVersions,
+  readCommentVersions,
+  readCommentWithVersions,
+} from "./comment-edits.ts";
 export { GitHubError, type GitHubErrorCode, responseMessage } from "./errors.ts";
 export { type IssueText, readIssueText } from "./issue-text.ts";
 export { readJobLog, readRunJobs, type WorkflowJobSummary } from "./job-logs.ts";

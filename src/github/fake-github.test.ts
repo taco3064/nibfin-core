@@ -28,7 +28,7 @@ export type Route = Handler | FakeResponse;
 export interface FakeGitHub {
   client: Octokit & ActingClient;
   calls: FakeRequest[];
-  /** Calls other than GET. */
+  /** Calls other than GET and GraphQL queries (Nibfin sends no mutations). */
   writes: () => FakeRequest[];
   routes: Map<string, Route>;
 }
@@ -74,7 +74,8 @@ export function fakeGitHub(routes: Record<string, Route> = {}): FakeGitHub {
   return {
     client: Object.assign(octokit, { actor: fakeActor }),
     calls,
-    writes: () => calls.filter((call) => call.method !== "GET"),
+    writes: () =>
+      calls.filter((call) => call.method !== "GET" && call.path !== "/graphql"),
     routes: table,
   };
 }
