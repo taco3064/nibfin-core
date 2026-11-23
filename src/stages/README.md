@@ -2,9 +2,9 @@
 
 Implements the delivery stages that move an Issue from Shape to a merged pull request.
 Owned by #671, #672 and #673. #671 adds the Shape stage and the harness the other
-stages reuse; #672 adds the Deliver stage. #674 gives each Deliver Job the run name
-`Nibfin · <owner>/<repo>#<n> · deliver`, and #673 writes the marked `review` comment
-with a `Reviewed head: <sha>` line.
+stages reuse; #672 adds the Deliver stage; #673 adds the review stage, which reviews,
+merges, follows CD and closes the Issue. #674 gives each Deliver Job the run name
+`Nibfin · <owner>/<repo>#<n> · deliver`.
 
 ## Job context
 
@@ -14,26 +14,29 @@ with a `Reviewed head: <sha>` line.
 env)` reads and checks it; a missing or invalid field is `STAGE_INPUT_INVALID` naming
 the field, never its value.
 
-| Input                 | Meaning                                                           |
-| --------------------- | ----------------------------------------------------------------- |
-| `--repo`              | The repository, `<owner>/<repo>`                                  |
-| `--issue`             | The Issue number                                                  |
-| `--provider`          | `codex` or `claude`, from the Pool or runner configuration        |
-| `--model`             | Optional agent model                                              |
-| `--reason`            | Deliver only: `ci-failure`, `review` or `cd-failure`              |
-| `NIBFIN_GITHUB_TOKEN` | Issues and Pull requests write, the reads in `src/github`, and    |
-|                       | for Deliver: Contents write (plus the workflows permission when a |
-|                       | change touches `.github/workflows/`) and Actions read on the      |
-|                       | execution repository                                              |
-| `NIBFIN_ACTOR_ID`     | The numeric id of the account the token writes as                 |
-| `NIBFIN_ACTOR_LOGIN`  | That account's login                                              |
-| `NIBFIN_AGENT_HOME`   | The agent CLI's config home on the login volume (absolute)        |
-| `NIBFIN_WORKSPACE`    | A checkout of the base branch by name, without persisted creds    |
-| `NIBFIN_TOOL_CACHE`   | The cache for `.nibfin.json` tools, outside the workspace         |
-| `NIBFIN_RUN_REPO`     | Deliver: the execution repository (`GITHUB_REPOSITORY`)           |
-| `NIBFIN_RUN_ID`       | Deliver: this Job's workflow run id (`GITHUB_RUN_ID`)             |
-| `NIBFIN_NEXT_FILE`    | Optional: where the stage writes its next action (absolute,       |
-|                       | outside the workspace)                                            |
+| Input                 | Meaning                                                        |
+| --------------------- | -------------------------------------------------------------- |
+| `--repo`              | The repository, `<owner>/<repo>`                               |
+| `--issue`             | The Issue number                                               |
+| `--provider`          | `codex` or `claude`, from the Pool or runner configuration     |
+| `--model`             | Optional agent model                                           |
+| `--reason`            | Deliver only: `ci-failure`, `review` or `cd-failure`           |
+| `NIBFIN_GITHUB_TOKEN` | Issues and Pull requests write, the reads in `src/github`;     |
+|                       | Deliver: Contents write (plus the workflows permission when    |
+|                       | a change touches `.github/workflows/`) and Actions read on     |
+|                       | the execution repository; review: Pull requests and Contents   |
+|                       | write (plus the workflows permission when the PR changes       |
+|                       | `.github/workflows/`), Actions read, and Issues and Pull       |
+|                       | requests read on the repositories of downstream Issues         |
+| `NIBFIN_ACTOR_ID`     | The numeric id of the account the token writes as              |
+| `NIBFIN_ACTOR_LOGIN`  | That account's login                                           |
+| `NIBFIN_AGENT_HOME`   | The agent CLI's config home on the login volume (absolute)     |
+| `NIBFIN_WORKSPACE`    | A checkout of the base branch by name, without persisted creds |
+| `NIBFIN_TOOL_CACHE`   | The cache for `.nibfin.json` tools, outside the workspace      |
+| `NIBFIN_RUN_REPO`     | Deliver: the execution repository (`GITHUB_REPOSITORY`)        |
+| `NIBFIN_RUN_ID`       | Deliver: this Job's workflow run id (`GITHUB_RUN_ID`)          |
+| `NIBFIN_NEXT_FILE`    | Optional: where the stage writes its next action (absolute,    |
+|                       | outside the workspace)                                         |
 
 The provider never comes from a workflow or dispatch input. The token is never an
 admin or dispatch credential; it is used only for the GitHub client and Core's own
@@ -200,6 +203,105 @@ Results:
 - Writer: `{ outcome: "done" }` or `{ outcome: "blocked", reason }`.
 - Acceptor: `{ outcome: "pass" }`, `{ outcome: "defects", defects }` or
   `{ outcome: "blocked", reason }`.
+
+## Review stage
+
+`runReviewStage(context, client, deps?)` acts on the derived stage:
+
+| Derived stage                       | Action                                    |
+| ----------------------------------- | ----------------------------------------- |
+| `review`                            | Review the pinned head; send problems     |
+|                                     | back or merge (below)                     |
+| `awaiting-cd`                       | Log the reason; next action none          |
+| `cd-failed`                         | Next `{ "deliver", "cd-failure" }`        |
+| `done`                              | Closing comment, `delivered`, close, wake |
+| Closed, `delivered` and the actor's | Wake only (a redo after a crash)          |
+| `delivered` comment                 |                                           |
+| Anything else                       | Log the stage; next action none           |
+
+### Review
+
+1. **Pin.** The head `H` of the open PR is pinned. If the actor's marked `review`
+   comment on the PR already records `H` (`Reviewed head: H`), the run asks for the
+   `review` fix again without reviewing.
+2. **Checkout.** Core fetches `H` (by SHA) and the base into its own bare repository
+   outside the workspace, with the token in that one child's environment as for
+   Deliver's pushes, brings both into the workspace and checks `H` out detached.
+3. **Reviewer** (read-only, `shape` skill, role `PR review`, a fresh run) gets the
+   current Issue, the approved Shape, where to read the product authority (the base
+   branch's version, since the PR may change it), the PR diff against the merge base
+   with `origin/<base>`, and the required checks and results for `H`. Nothing else;
+   never the token. Its `reviewedHead` must be `H`, else `STAGE_RESULT_INVALID`.
+4. **Re-read.** When the Issue is no longer at `review` on the same PR at `H`, the run
+   stops without writing.
+5. **Verdict.** `problems` writes the marked `review` comment on the PR
+   (`Reviewed head: H`, then the problems as written) and asks for the `review` fix.
+   `blocked` writes the marked `review-blocked` comment on the Issue and stops with
+   `STAGE_BLOCKED`. `clean` goes to the merge. A clean result never writes a `review`
+   comment.
+
+### Merge
+
+GitHub enforces the repository's own rules; Core imposes nothing the repository does
+not configure.
+
+1. Re-reads the snapshot: the Issue must still derive `review` on the same PR at `H`
+   (so `pause`, closing and new pushes stop the merge).
+2. Reads the PR: it must be open at `H`. `mergeable: null` or `mergeable_state:
+unknown` stops with no next action (GitHub is still computing).
+   `behind` or `dirty` writes the `review` comment "Rebase onto `<base>` and resolve
+   conflicts: …" for `H` and asks for the `review` fix. `blocked` writes
+   `review-blocked` naming the readable unmet ruleset requirements (approvals against
+   the current count, code owner review, last push approval, resolved threads), or
+   saying that classic protection is not readable.
+3. Chooses the first of rebase, squash and merge commit that the repository settings
+   and every applying ruleset `pull_request` rule allow (no merge commit under
+   `required_linear_history`). No method, or an unknown setting, is `review-blocked`.
+4. Merges with `sha: H`. `head-changed` (409, or a 405 saying the head was modified)
+   stops with no next action. A 405 saying the base moved, the PR is not mergeable,
+   out of date or conflicting goes back to Deliver as a rebase. A rejection naming the
+   workflows permission is `review-blocked` naming it; any other 405 is
+   `review-blocked` with GitHub's message, any other 4xx `GITHUB_WRITE_REJECTED`. An
+   unknown outcome re-reads the PR once and otherwise stays Pending
+   (`GITHUB_WRITE_UNCONFIRMED`); it is never retried blindly.
+5. After the merge the next action is none: CD events continue the Issue.
+
+### Closing
+
+At `done` the stage writes the marked `delivered` comment on the Issue, built only
+from GitHub data:
+
+- every pull request of the Issue's branches, with its merge commit;
+- for each merged PR, the base's current required checks and their results on its
+  head;
+- the CD runs of each merge, with conclusions and URLs;
+- counts: CD-fix PRs (`-cd-<k>` branches), CI-fix rounds (distinct commits of the
+  PRs, as GitHub lists them now, with a failed required check; heads removed by a
+  force push are not counted) and review rounds (the versions of each PR's marked
+  `review` comment from `userContentEdits`, 0 without one).
+
+Then it re-reads the snapshot and closes only when the Issue still derives `done`
+with the same CD run ids and conclusions; otherwise (a late run, `pause`, …) it stops
+with no next action and the next run rewrites the comment. `closeDelivered` adds
+`delivered` and closes the Issue as completed.
+
+### Wake
+
+The stage reads the Issues this Issue blocks (any repository). Each one whose
+snapshot derives `shape` or a delivery stage goes into `wake`; every other one is
+logged with its reason (`blocked by <remaining blockers>`, `no-assignee`, `paused`,
+`closed`, or unreadable with the read error) and is never woken.
+
+### Next action
+
+`{ "stage": "deliver" | "review" | null, "reason": …, "wake"?: [{ "repo":
+"<owner>/<repo>", "issue": <n> }] }`: `{ "deliver", "review" }` after problems or a
+rebase request, `{ "deliver", "cd-failure" }` at `cd-failed`, `wake` after the close
+(also on the redo), and `null` otherwise, including every failure.
+
+Result: `{ outcome: "clean" | "problems" | "blocked", reviewedHead, problems?,
+reason? }`; `problems` is a non-empty list of non-empty strings, `reason` a non-empty
+string.
 
 Tests use a fake GitHub API, fake agent runs and a fake configuration; only `git`
 runs for real, in repositories under the ignored `.test-tmp/`, with a local bare
