@@ -1,5 +1,10 @@
 import { type ActingClient, createClient } from "../github/index.ts";
-import { type JobContext, readJobContext, runShapeStage } from "../stages/index.ts";
+import {
+  type JobContext,
+  readJobContext,
+  runDeliverStage,
+  runShapeStage,
+} from "../stages/index.ts";
 import { readVersion } from "./version.ts";
 
 export interface OutputStream {
@@ -14,6 +19,8 @@ export interface CliIo {
 export const usage = `Usage: nibfin <option>
        nibfin run --stage shape --repo <owner>/<repo> --issue <n> --provider <p>
                   [--model <model>]
+       nibfin run --stage deliver --repo <owner>/<repo> --issue <n> --provider <p>
+                  [--model <model>] [--reason ci-failure|review|cd-failure]
 
 Options:
   --help     Show this help
@@ -35,7 +42,10 @@ export interface RunDeps {
 export const defaultRunDeps: RunDeps = {
   env: process.env,
   createClient,
-  stages: { shape: runShapeStage },
+  stages: {
+    shape: runShapeStage,
+    deliver: (context, client) => runDeliverStage(context, client),
+  },
 };
 
 function stageRunner(args: readonly string[], deps: RunDeps): StageRunner | undefined {
