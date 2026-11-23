@@ -26,8 +26,10 @@ the field, never its value.
 |                       | a change touches `.github/workflows/`) and Actions read on     |
 |                       | the execution repository; review: Pull requests and Contents   |
 |                       | write (plus the workflows permission when the PR changes       |
-|                       | `.github/workflows/`), Actions read, and Issues and Pull       |
-|                       | requests read on the repositories of downstream Issues         |
+|                       | `.github/workflows/`), Actions read, and on the repositories   |
+|                       | of downstream Issues every read of the snapshot: Metadata,     |
+|                       | Contents, Issues, Pull requests, Checks, Commit statuses and   |
+|                       | Actions read (a downstream it cannot read is never woken)      |
 | `NIBFIN_ACTOR_ID`     | The numeric id of the account the token writes as              |
 | `NIBFIN_ACTOR_LOGIN`  | That account's login                                           |
 | `NIBFIN_AGENT_HOME`   | The agent CLI's config home on the login volume (absolute)     |
@@ -291,7 +293,9 @@ with no next action and the next run rewrites the comment. `closeDelivered` adds
 The stage reads the Issues this Issue blocks (any repository). Each one whose
 snapshot derives `shape` or a delivery stage goes into `wake`; every other one is
 logged with its reason (`blocked by <remaining blockers>`, `no-assignee`, `paused`,
-`closed`, or unreadable with the read error) and is never woken.
+`closed`, or unreadable with the read error) and is never woken. Reading a
+downstream snapshot needs the same reads as the Issue's own (see Job context); a
+downstream repository the token does not cover is logged as unreadable.
 
 ### Next action
 
