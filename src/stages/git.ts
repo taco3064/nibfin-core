@@ -1,3 +1,4 @@
+import { devNull } from "node:os";
 import { resolve } from "node:path";
 import { childEnvironment } from "../agent/index.ts";
 import { runCaptured } from "../agent/process.ts";
@@ -35,8 +36,6 @@ export function githubRemoteUrl(repo: Repo): string {
   return `https://github.com/${repo.owner}/${repo.repo}.git`;
 }
 
-const nullHooks = process.platform === "win32" ? "NUL" : "/dev/null";
-
 /**
  * Settings for the calls that reach the remote: no hooks, credential helpers, askpass
  * programs or signing commands from the workspace's config run while the token is
@@ -44,7 +43,7 @@ const nullHooks = process.platform === "win32" ? "NUL" : "/dev/null";
  */
 const remoteArgs = [
   "-c",
-  `core.hooksPath=${nullHooks}`,
+  `core.hooksPath=${devNull}`,
   "-c",
   "credential.helper=",
   "-c",

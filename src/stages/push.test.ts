@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { chmodSync, existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, it } from "node:test";
 import { fakeActor, fakeToken, rejection } from "../github/fake-github.test.ts";
 import { StageError } from "./errors.ts";
@@ -74,6 +76,28 @@ describe("BranchPusher", () => {
     for (const call of t.recorder.calls) {
       assert.ok(!call.args.join(" ").includes(fakeToken));
     }
+  });
+
+  it("runs no workspace hook or credential helper while the token is set", async () => {
+    const t = await setup();
+    commit(t.fixture, "a.txt");
+    const hooks = join(t.fixture.root, "hooks");
+    const marker = join(t.fixture.root, "hook-ran");
+    mkdirSync(hooks);
+    for (const name of ["pre-push", "reference-transaction"]) {
+      const script = join(hooks, name);
+      writeFileSync(script, `#!/bin/sh\nenv > "${marker.replaceAll("\\", "/")}"\n`);
+      chmodSync(script, 0o755);
+    }
+    git(t.fixture.workspace, "config", "core.hooksPath", hooks);
+    git(t.fixture.workspace, "config", "credential.helper", `!sh -c "env > x"`);
+    // The hooks run for Git commands without the token, such as a later commit.
+    git(t.fixture.workspace, "update-ref", "refs/nibfin/probe", "HEAD");
+    assert.equal(existsSync(marker), true);
+    rmSync(marker);
+    await t.pusher.flush();
+    assert.ok(t.fixture.remoteHead(branch) !== undefined);
+    assert.equal(existsSync(marker), false);
   });
 
   it("does not push an unchanged head", async () => {

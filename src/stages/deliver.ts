@@ -135,7 +135,7 @@ class DeliverRun {
   async sources(): Promise<DeliverSources> {
     const url = this.eligible.snapshot.issue.url;
     const sources = await readDeliverSources(this.job.client, this.issue, url);
-    if (sources.shape === undefined) {
+    if (sources === undefined) {
       return this.block("Deliver stage", "The Issue has no approved Shape comment.");
     }
     return sources;

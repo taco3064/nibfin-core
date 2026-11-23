@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { composePrompt } from "./prompt.ts";
+import { composePrompt, fenced } from "./prompt.ts";
 import { shapeAuthorRole, shapeValidatorRole } from "./shape-roles.ts";
 
 test("composePrompt puts the skill, role, sections and result format in order", () => {
@@ -39,4 +39,9 @@ test("the Shape roles use the shape skill and stay read-only", () => {
     ["shape-author", "shape-validator"],
   );
   assert.match(shapeValidatorRole.resultFormat, /"changes-required", "findings"/);
+});
+
+test("fenced uses a fence longer than any backtick run in the text", () => {
+  assert.equal(fenced("plain"), "```text\nplain\n```");
+  assert.equal(fenced("a ```` b `", "diff"), "`````diff\na ```` b `\n`````");
 });

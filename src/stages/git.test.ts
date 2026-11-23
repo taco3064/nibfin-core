@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { devNull } from "node:os";
 import { join, resolve } from "node:path";
 import { describe, it } from "node:test";
 import { fakeActor, fakeToken, rejection } from "../github/fake-github.test.ts";
@@ -51,7 +52,7 @@ describe("Git", () => {
     assert.equal(remote.env.GIT_ASKPASS, "");
     assert.deepEqual(remote.args.slice(0, 6), [
       "-c",
-      `core.hooksPath=${process.platform === "win32" ? "NUL" : "/dev/null"}`,
+      `core.hooksPath=${devNull}`,
       "-c",
       "credential.helper=",
       "-c",
