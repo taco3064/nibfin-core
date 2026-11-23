@@ -1,5 +1,6 @@
 import { appendFile, mkdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import { childEnvironment } from "./environment.ts";
 import { AgentError } from "./errors.ts";
 import { isDirectory, readOptionalFile } from "./fs.ts";
 import { gitPath } from "./git-path.ts";
@@ -82,7 +83,7 @@ export async function generateAgentConfig(
     command: rulesync,
     args,
     cwd: workspace,
-    env: process.env,
+    env: childEnvironment(process.env, {}),
   });
   const output = `${stdout}${stderr}`;
   if (status.exitCode !== 0) {

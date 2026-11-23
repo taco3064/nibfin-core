@@ -9,6 +9,8 @@ import {
   jsonLines,
   makeTempDir,
   makeWorkspace,
+  parentSecrets,
+  withParentEnvironment,
 } from "./fake-cli.test.ts";
 import type { Provider } from "./provider.ts";
 import { runAgent } from "./run.ts";
@@ -261,5 +263,48 @@ describe("runAgent agent config", () => {
       ".rulesync",
       "AGENTS.md",
     ]);
+  });
+});
+
+describe("runAgent child environment", () => {
+  const inherited = { LANG: "C.UTF-8", LC_ALL: "C.UTF-8", HTTPS_PROXY: "http://proxy:8" };
+  let restore: () => void;
+  before(() => {
+    restore = withParentEnvironment({
+      ...parentSecrets,
+      ...inherited,
+      NIBFIN_UNLISTED: "unlisted",
+    });
+  });
+  after(() => restore());
+
+  function assertAllowlisted(env: Record<string, string>, homeVariable: string) {
+    assert.equal(env.GITHUB_TOKEN, undefined);
+    assert.equal(env.GH_TOKEN, undefined);
+    assert.equal(env.NIBFIN_UNLISTED, undefined);
+    for (const [name, value] of Object.entries(inherited)) {
+      assert.equal(env[name], value);
+    }
+    assert.ok(env[homeVariable]);
+  }
+
+  it("keeps GitHub tokens from the Claude run and auth status", async () => {
+    const t = await setup("claude", { exit: 3 });
+    await assert.rejects(t.run(), { code: "AGENT_RUN_FAILED" });
+    const environments = await t.fake.environments();
+    assert.equal(environments.length, 2);
+    for (const env of environments) {
+      assertAllowlisted(env, "CLAUDE_CONFIG_DIR");
+    }
+  });
+
+  it("keeps GitHub tokens from the Codex run and login status", async () => {
+    const t = await setup("codex", { exit: 1, statusExit: 1 });
+    await assert.rejects(t.run(), { code: "AGENT_LOGIN_REQUIRED" });
+    const environments = await t.fake.environments();
+    assert.equal(environments.length, 2);
+    for (const env of environments) {
+      assertAllowlisted(env, "CODEX_HOME");
+    }
   });
 });

@@ -56,6 +56,7 @@ if (!isStatus) {
 const home = process.env[scenario.homeVariable ?? ""] ?? null;
 const call = { args, cwd: process.cwd(), home, stdin };
 appendFileSync(join(here, "calls.jsonl"), JSON.stringify(call) + "\\n");
+appendFileSync(join(here, "envs.jsonl"), JSON.stringify(process.env) + "\\n");
 if (isStatus) process.exit(scenario.statusExit ?? 0);
 for (const [path, text] of Object.entries(scenario.files ?? {})) {
   mkdirSync(dirname(path), { recursive: true });
@@ -71,6 +72,16 @@ process.exitCode = scenario.exit ?? 0;
 export interface FakeCli {
   command: Command;
   calls(): Promise<FakeCall[]>;
+  /** The environment each call saw, in call order. */
+  environments(): Promise<Record<string, string>[]>;
+}
+
+async function readJsonLines<T>(file: string): Promise<T[]> {
+  const text = await readFile(file, "utf8").catch(() => "");
+  return text
+    .split("\n")
+    .filter((line) => line !== "")
+    .map((line) => JSON.parse(line) as T);
 }
 
 export async function createFakeCli(
@@ -82,15 +93,31 @@ export async function createFakeCli(
   await writeFile(join(dir, "scenario.json"), JSON.stringify(scenario));
   return {
     command: { command: process.execPath, args: [join(dir, "fake.mjs")] },
-    calls: async () => {
-      const text = await readFile(join(dir, "calls.jsonl"), "utf8").catch(() => "");
-      return text
-        .split("\n")
-        .filter((line) => line !== "")
-        .map((line) => JSON.parse(line) as FakeCall);
-    },
+    calls: () => readJsonLines(join(dir, "calls.jsonl")),
+    environments: () => readJsonLines(join(dir, "envs.jsonl")),
   };
 }
+
+/** Sets parent variables for the tests in a file; `after` restores them. */
+export function withParentEnvironment(values: Record<string, string>): () => void {
+  const previous = Object.keys(values).map((name) => [name, process.env[name]] as const);
+  Object.assign(process.env, values);
+  return () => {
+    for (const [name, value] of previous) {
+      if (value === undefined) {
+        delete process.env[name];
+      } else {
+        process.env[name] = value;
+      }
+    }
+  };
+}
+
+/** Fake credentials placed in the parent to prove they never reach a child. */
+export const parentSecrets = {
+  GITHUB_TOKEN: "fake-github-token",
+  GH_TOKEN: "fake-gh-token",
+};
 
 export interface CapturedSink extends ByteSink {
   text(): string;

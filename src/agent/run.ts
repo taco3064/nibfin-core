@@ -1,4 +1,5 @@
 import { rm } from "node:fs/promises";
+import { childEnvironment } from "./environment.ts";
 import { AgentError } from "./errors.ts";
 import { gitPath } from "./git-path.ts";
 import { parseJsonRecord } from "./json.ts";
@@ -107,7 +108,7 @@ export async function runAgent(options: RunAgentOptions): Promise<AgentResult> {
     command: executables[provider],
     args: [],
     cwd: workspace,
-    env: { ...process.env, [spec.configHomeVariable]: home },
+    env: childEnvironment(process.env, { [spec.configHomeVariable]: home }),
   };
   const lastMessageFile = await gitPath(workspace, "nibfin-last-message");
   await rm(lastMessageFile, { force: true });
