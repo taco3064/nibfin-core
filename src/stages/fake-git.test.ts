@@ -1,7 +1,7 @@
 // Shared test support: real Git repositories under the ignored `.test-tmp/`, with a
 // local bare repository as the remote. It holds no tests of its own.
 import { execFileSync } from "node:child_process";
-import { writeFileSync } from "node:fs";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { makeTempDir } from "../agent/fake-cli.test.ts";
 import { fakeToken } from "../github/fake-github.test.ts";
@@ -105,11 +105,19 @@ export function recordingGit(
   return recorder;
 }
 
-/** A `Git` on `workspace` that pushes to the local `remote`. */
-export function fixtureGit(fixture: GitFixture, run: GitRunner = runGitProcess): Git {
+/**
+ * A `Git` on the fixture's workspace that pushes to the local `remote` from a new
+ * Core repository directory under the fixture root.
+ */
+export function fixtureGit(
+  fixture: GitFixture,
+  run: GitRunner = runGitProcess,
+  overrides: { workspace?: string; remoteUrl?: string } = {},
+): Git {
   return new Git({
-    workspace: fixture.workspace,
-    remoteUrl: fixture.remote,
+    workspace: overrides.workspace ?? fixture.workspace,
+    coreRepo: mkdtempSync(join(fixture.root, "core-")),
+    remoteUrl: overrides.remoteUrl ?? fixture.remote,
     token: fakeToken,
     run,
   });

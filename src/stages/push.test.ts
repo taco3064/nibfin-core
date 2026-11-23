@@ -41,13 +41,14 @@ async function setup(
   const logs: string[] = [];
   const pusher = new BranchPusher({
     git: subject,
+    base: "main",
     branch,
     remoteHead: prepared.remoteHead,
     beforePush: options.beforePush ?? (() => Promise.resolve(true)),
     log: (line) => logs.push(line),
   });
   const pushes = () => recorder.calls.filter(isPush);
-  return { fixture, recorder, pusher, logs, pushes };
+  return { fixture, recorder, subject, pusher, logs, pushes };
 }
 
 function commit(fixture: GitFixture, name: string): string {
@@ -98,6 +99,37 @@ describe("BranchPusher", () => {
     await t.pusher.flush();
     assert.ok(t.fixture.remoteHead(branch) !== undefined);
     assert.equal(existsSync(marker), false);
+  });
+
+  it("pushes from Core's repository, out of reach of workspace config", async () => {
+    const t = await setup();
+    const evil = join(t.fixture.root, "evil.git");
+    git(t.fixture.root, "init", "--quiet", "--bare", evil);
+    const { workspace } = t.fixture;
+    git(workspace, "config", `url.${evil}.insteadOf`, t.fixture.remote);
+    git(workspace, "config", `url.${evil}.pushInsteadOf`, t.fixture.remote);
+    git(workspace, "config", "http.proxy", "http://127.0.0.1:9");
+    git(workspace, "config", "http.sslVerify", "false");
+    const head = commit(t.fixture, "a.txt");
+    // The trap is live: a push from the workspace goes to the other repository.
+    git(workspace, "push", "--quiet", t.fixture.remote, `HEAD:refs/heads/probe`);
+    assert.equal(git(evil, "rev-parse", "refs/heads/probe"), head);
+    await t.pusher.flush();
+    assert.equal(t.fixture.remoteHead(branch), head);
+    assert.throws(() => git(evil, "rev-parse", "--verify", `refs/heads/${branch}`));
+    for (const call of t.recorder.calls.filter((c) => c.env.GIT_CONFIG_COUNT)) {
+      assert.equal(call.cwd, t.subject.coreRepo);
+    }
+  });
+
+  it("never pushes a head without commits ahead of the base", async () => {
+    const t = await setup();
+    await t.pusher.flush();
+    assert.deepEqual(t.pushes(), []);
+    assert.equal(t.fixture.remoteHead(branch), undefined);
+    assert.deepEqual(t.logs, [
+      `${branch} has no commits ahead of main; nothing is pushed`,
+    ]);
   });
 
   it("does not push an unchanged head", async () => {

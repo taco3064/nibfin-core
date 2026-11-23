@@ -1,4 +1,7 @@
 import { watch } from "node:fs";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   type ActingClient,
   deriveStage,
@@ -63,6 +66,8 @@ export interface DeliverDeps extends StageDeps {
   runGit: GitRunner;
   remoteUrl: (repo: Repo) => string;
   watch: typeof watch;
+  /** Where Core creates its own push repository, outside the workspace. */
+  coreRepoParent: string;
 }
 
 export const defaultDeliverDeps: DeliverDeps = {
@@ -70,6 +75,7 @@ export const defaultDeliverDeps: DeliverDeps = {
   runGit: runGitProcess,
   remoteUrl: githubRemoteUrl,
   watch,
+  coreRepoParent: tmpdir(),
 };
 
 type Eligible = Extract<Eligibility, { eligible: true }>;
@@ -106,6 +112,7 @@ class DeliverRun {
     this.issue = issueOf(options.job.context);
     this.pusher = new BranchPusher({
       git: options.git,
+      base: options.base,
       branch: this.branch,
       remoteHead: options.remoteHead,
       beforePush: () => this.stillEligible(),
@@ -318,10 +325,12 @@ async function startRun(
   client: ActingClient,
   deps: DeliverDeps,
   eligible: Eligible,
+  coreRepo: string,
 ): Promise<DeliverRun> {
   const job = await prepareStageJob(context, client, deps);
   const git = new Git({
     workspace: context.workspace,
+    coreRepo,
     remoteUrl: deps.remoteUrl(context.repo),
     token: context.token,
     run: deps.runGit,
@@ -375,8 +384,9 @@ export async function runDeliverStage(
     await writeNextAction(context, noNextAction);
     throw error;
   }
-  const run = await startRun(context, client, deps, eligibility);
+  const coreRepo = await mkdtemp(join(deps.coreRepoParent, "nibfin-push-"));
   try {
+    const run = await startRun(context, client, deps, eligibility, coreRepo);
     await run.rounds();
     await writeNextAction(context, await run.publish());
   } catch (error) {
@@ -384,6 +394,8 @@ export async function runDeliverStage(
       throw error;
     }
     await writeNextAction(context, noNextAction);
+  } finally {
+    await rm(coreRepo, { recursive: true, force: true });
   }
   return 0;
 }

@@ -1,8 +1,10 @@
 import { StageError } from "./errors.ts";
-import { type Git, gitFailed, type GitOutput, readBranchHead } from "./git.ts";
+import { type Git, gitFailed, type GitOutput } from "./git.ts";
 
 export interface PusherOptions {
   git: Git;
+  /** The base branch; a head without commits ahead of `origin/<base>` is not pushed. */
+  base: string;
   branch: string;
   /** The remote head Core fetched; `undefined` while the branch was never pushed. */
   remoteHead: string | undefined;
@@ -38,11 +40,14 @@ function rejected(branch: string, expected: string | undefined, output: GitOutpu
 }
 
 /**
- * Pushes the local branch head with a lease on the remote head Core last pushed (or
- * fetched before its first push); an empty lease while the branch was never pushed.
+ * Pushes the workspace branch head from Core's own repository (`Git.coreRepo`): Core
+ * fetches the branch from the workspace into it, then pushes with a lease on the
+ * remote head Core last pushed (or fetched before its first push); an empty lease
+ * while the branch was never pushed.
  * Pushes run one at a time, and requests during a push collapse into one follow-up
  * push of the then current head. A failed push is never retried as an overwrite: it
- * stops all further pushes and `flush` reports it.
+ * stops all further pushes and `flush` reports it. A head with no commits ahead of
+ * the base is never pushed.
  */
 export class BranchPusher {
   readonly #options: PusherOptions;
@@ -100,16 +105,23 @@ export class BranchPusher {
   }
 
   async #pushOnce(): Promise<void> {
-    const { git, branch, log } = this.#options;
-    const head = await readBranchHead(git, branch);
-    if (head === undefined || head === this.#remote) {
+    const { git, base, branch, log } = this.#options;
+    const ref = `refs/heads/${branch}`;
+    await git.coreRequired(["fetch", "--no-tags", git.workspace, `+${ref}:${ref}`]);
+    const head = (await git.coreRequired(["rev-parse", "--verify", ref])).trim();
+    if (head === this.#remote) {
+      return;
+    }
+    const range = `refs/remotes/origin/${base}..${head}`;
+    const ahead = await git.coreRequired(["rev-list", "--count", range]);
+    if (Number(ahead.trim()) === 0) {
+      log(`${branch} has no commits ahead of ${base}; nothing is pushed`);
       return;
     }
     if (!(await this.#options.beforePush())) {
       this.#halted = true;
       return;
     }
-    const ref = `refs/heads/${branch}`;
     const output = await git.remote([
       "push",
       "--no-verify",
