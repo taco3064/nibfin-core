@@ -1,0 +1,132 @@
+name: Image
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - Containerfile
+      - .dockerignore
+      - .npmrc
+      - package.json
+      - package-lock.json
+      - tsconfig*.json
+      - src/**
+      - skills/**
+      - .github/workflows/image.yml
+      - .github/scripts/smoke-image.sh
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: build (${{ matrix.arch }})
+    strategy:
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Set image name
+        run: echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/nibfin" >> "$GITHUB_ENV"
+      - uses: docker/setup-buildx-action@v4
+      - name: Build
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: Containerfile
+          platforms: linux/${{ matrix.arch }}
+          load: true
+          tags: nibfin:smoke
+      - name: Smoke test
+        run: sh .github/scripts/smoke-image.sh nibfin:smoke
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Push by digest
+        id: push
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: Containerfile
+          platforms: linux/${{ matrix.arch }}
+          tags: ${{ env.IMAGE }}
+          outputs: type=image,push-by-digest=true,name-canonical=true,push=true
+      - name: Export digest
+        env:
+          DIGEST: ${{ steps.push.outputs.digest }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/digests"
+          touch "$RUNNER_TEMP/digests/${DIGEST#sha256:}"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: digest-${{ matrix.arch }}
+          path: ${{ runner.temp }}/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  merge:
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+      artifact-metadata: write
+    outputs:
+      digest: ${{ steps.inspect.outputs.digest }}
+    steps:
+      - name: Set image name
+        run: echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/nibfin" >> "$GITHUB_ENV"
+      - uses: actions/download-artifact@v8
+        with:
+          path: ${{ runner.temp }}/digests
+          pattern: digest-*
+          merge-multiple: true
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/setup-buildx-action@v4
+      - name: Create manifest list
+        working-directory: ${{ runner.temp }}/digests
+        run: |
+          docker buildx imagetools create --tag "$IMAGE:$GITHUB_SHA" \
+            $(printf "$IMAGE@sha256:%s " *)
+      - name: Inspect digest
+        id: inspect
+        run: |
+          digest=$(docker buildx imagetools inspect "$IMAGE:$GITHUB_SHA" \
+            --format '{{json .Manifest}}' | jq -er .digest)
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+      - uses: actions/attest@v4
+        with:
+          subject-name: ${{ env.IMAGE }}
+          subject-digest: ${{ steps.inspect.outputs.digest }}
+          push-to-registry: true
+          create-storage-record: false
+      - name: Report digest
+        env:
+          DIGEST: ${{ steps.inspect.outputs.digest }}
+        run: |
+          {
+            echo "### Nibfin image"
+            echo
+            echo "- Tag: \`$IMAGE:$GITHUB_SHA\`"
+            echo "- Digest: \`$DIGEST\`"
+            echo "- Pull: \`podman pull $IMAGE@$DIGEST\`"
+          } >> "$GITHUB_STEP_SUMMARY"
