@@ -17,7 +17,8 @@ workflows. The previous implementation is kept for reference at the tag
 | ------------- | ----------------------------------------------------- |
 | `src/cli/`    | The `nibfin` command-line entry                       |
 | `src/github/` | GitHub state: Issues, pull requests and checks (#667) |
-| `src/agent/`  | Agent CLI runner and `.nibfin.json` (#668, #669)      |
+| `src/agent/`  | Agent CLI runner (#668)                               |
+| `src/config/` | `.nibfin.json`, role skill text and tools (#669)      |
 | `src/stages/` | Delivery stages (#671–#673)                           |
 | `skills/`     | Role Skills, rewritten by #670                        |
 
