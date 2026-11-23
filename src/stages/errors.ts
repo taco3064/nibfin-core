@@ -2,7 +2,10 @@ export type StageErrorCode =
   | "STAGE_INPUT_INVALID"
   | "STAGE_RESULT_INVALID"
   | "STAGE_BLOCKED"
-  | "STAGE_WORKSPACE_MODIFIED";
+  | "STAGE_WORKSPACE_MODIFIED"
+  | "STAGE_WRITER_ACTIVE"
+  | "STAGE_GIT_FAILED"
+  | "STAGE_PUSH_REJECTED";
 
 /** A stage that stopped for a named reason. `cause` keeps the original error, if any. */
 export class StageError extends Error {
