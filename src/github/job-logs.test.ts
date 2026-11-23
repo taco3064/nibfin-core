@@ -22,9 +22,9 @@ describe("readRunJobs", () => {
     const items = [job(1, "success"), job(2, "failure"), job(3, null, "in_progress")];
     const github = fakeGitHub({ [jobs]: paged(items, "jobs") });
     assert.deepEqual(await readRunJobs(github.client, repo, 7), [
-      { id: 1, name: "job 1", state: "success", url: items[0]!.html_url },
-      { id: 2, name: "job 2", state: "failed", url: items[1]!.html_url },
-      { id: 3, name: "job 3", state: "pending", url: items[2]!.html_url },
+      { id: 1, name: "job 1", state: "success", url: items[0].html_url },
+      { id: 2, name: "job 2", state: "failed", url: items[1].html_url },
+      { id: 3, name: "job 3", state: "pending", url: items[2].html_url },
     ]);
     assert.equal(github.calls[0]?.query.get("filter"), "latest");
   });

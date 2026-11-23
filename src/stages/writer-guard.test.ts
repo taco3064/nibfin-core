@@ -42,7 +42,7 @@ describe("requireNoOtherWriter", () => {
       ),
     });
     await requireNoOtherWriter(github.client, context);
-    const query = github.calls[0]!.query;
+    const query = github.calls[0].query;
     assert.equal(query.get("status"), "in_progress");
     assert.equal(query.get("per_page"), "100");
   });

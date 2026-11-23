@@ -61,16 +61,16 @@ describe("watchRefDirectory", () => {
       watch: fake,
       log: () => undefined,
     });
-    watchers[0]!.listener();
+    watchers[0].listener();
     assert.equal(watchers.length, 1);
     rmSync(directory, { recursive: true });
-    watchers[0]!.listener();
+    watchers[0].listener();
     assert.equal(events, 2);
     assert.equal(watchers.length, 2);
     assert.ok(existsSync(directory));
-    assert.equal(watchers[0]!.closed, true);
+    assert.equal(watchers[0].closed, true);
     watcher.close();
-    assert.equal(watchers[1]!.closed, true);
+    assert.equal(watchers[1].closed, true);
   });
 
   it("watches again after an error and reports it as an event", async () => {
@@ -82,12 +82,12 @@ describe("watchRefDirectory", () => {
       watch: fake,
       log: (line) => logs.push(line),
     });
-    watchers[0]!.emit("error", new Error("EMFILE"));
+    watchers[0].emit("error", new Error("EMFILE"));
     assert.equal(watchers.length, 2);
     assert.equal(events, 1);
     assert.deepEqual(logs, ["The ref watcher failed (Error: EMFILE); watching again"]);
     watcher.close();
-    watchers[1]!.emit("error", new Error("late"));
+    watchers[1].emit("error", new Error("late"));
     assert.equal(watchers.length, 2);
   });
 
@@ -101,7 +101,7 @@ describe("watchRefDirectory", () => {
       watch: failing,
       log: (line) => logs.push(line),
     });
-    assert.match(logs[0]!, /^Cannot watch .*\(Error: ENOSPC\); progress is saved by/);
+    assert.match(logs[0], /^Cannot watch .*\(Error: ENOSPC\); progress is saved by/);
     watcher.close();
   });
 });
