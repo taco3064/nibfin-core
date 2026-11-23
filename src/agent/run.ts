@@ -1,4 +1,5 @@
 import { rm } from "node:fs/promises";
+import { delimiter } from "node:path";
 import { childEnvironment } from "./environment.ts";
 import { AgentError } from "./errors.ts";
 import { gitPath } from "./git-path.ts";
@@ -18,6 +19,7 @@ import {
   providerSpecs,
   type ProviderSpec,
 } from "./provider.ts";
+import { resolveCommand } from "./resolve-command.ts";
 import { generateAgentConfig } from "./rulesync.ts";
 
 export type AgentExecutables = Record<Provider | "rulesync", Command>;
@@ -31,6 +33,12 @@ export interface RunAgentOptions {
   /** The CLI's config home on the login volume. */
   home: string;
   model?: string;
+  /**
+   * Prepended to the inherited `PATH` for the agent CLI's run only, so the agent's
+   * tool processes find them. The CLI is first resolved to an absolute command on
+   * the unmodified `PATH`; its login-status command and rulesync keep that `PATH`.
+   */
+  pathEntries?: readonly string[];
   executables?: Partial<AgentExecutables>;
   /** Where the CLI's own output is forwarded; the process streams by default. */
   output?: { stdout: ByteSink; stderr: ByteSink };
@@ -90,6 +98,23 @@ async function failure(
 }
 
 /**
+ * The agent CLI's own process: with `pathEntries`, an absolute command (resolved on
+ * the unmodified `PATH`) and those entries ahead of the inherited `PATH`.
+ */
+async function agentRequest(
+  base: ProcessRequest,
+  pathEntries: readonly string[],
+): Promise<ProcessRequest> {
+  if (pathEntries.length === 0) {
+    return base;
+  }
+  const inherited = base.env.PATH;
+  const command = await resolveCommand(base.command, base.cwd, inherited);
+  const path = [...pathEntries, inherited].filter((entry) => entry !== undefined);
+  return { ...base, command, env: { ...base.env, PATH: path.join(delimiter) } };
+}
+
+/**
  * Runs the provider CLI headless in the workspace with the repository's agent
  * config and the CLI's own login, and returns its final message.
  */
@@ -110,12 +135,13 @@ export async function runAgent(options: RunAgentOptions): Promise<AgentResult> {
     cwd: workspace,
     env: childEnvironment(process.env, { [spec.configHomeVariable]: home }),
   };
+  const agent = await agentRequest(base, options.pathEntries ?? []);
   const lastMessageFile = await gitPath(workspace, "nibfin-last-message");
   await rm(lastMessageFile, { force: true });
   try {
     const observation: Observation = { loginSignal: false, result: undefined };
     const status = await runStreaming({
-      ...base,
+      ...agent,
       args: spec.headlessArgs(options.model ?? spec.defaultModel, lastMessageFile),
       stdin: options.prompt,
       stdout: output.stdout,
