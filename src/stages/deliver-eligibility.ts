@@ -9,6 +9,7 @@ import {
   readIssueSnapshot,
   type RequiredCheckResult,
   type Stage,
+  type WorkflowRunSummary,
 } from "../github/index.ts";
 import type { FixReason, JobContext } from "./context.ts";
 
@@ -19,7 +20,12 @@ export const reviewCommentKey = "review";
 export type FixPointer =
   | { reason: "ci-failure"; pullRequest: PullRequestState; failed: RequiredCheckResult[] }
   | { reason: "review"; pullRequest: PullRequestState; comment: MarkedComment }
-  | { reason: "cd-failure"; pullRequest: PullRequestState | undefined };
+  | {
+      reason: "cd-failure";
+      /** The newest merged PR whose CD failed, and its failed runs. */
+      pullRequest: PullRequestState | undefined;
+      failed: WorkflowRunSummary[];
+    };
 
 export type Eligibility =
   | {
@@ -41,11 +47,15 @@ export function reviewedHead(body: string): string | undefined {
   return /^Reviewed head: ([0-9a-f]{7,64})\s*$/m.exec(body)?.[1];
 }
 
-/** The newest merged pull request of the Issue whose CD failed. */
-function failedCdPull(snapshot: IssueSnapshot): PullRequestState | undefined {
-  return snapshot.pullRequests.find(
-    (pull) => pull.merged && (pull.cd?.runs ?? []).some((run) => run.state === "failed"),
-  );
+/** The newest merged pull request of the Issue whose CD failed, with the failed runs. */
+function failedCd(snapshot: IssueSnapshot) {
+  for (const pull of snapshot.pullRequests) {
+    const failed = (pull.cd?.runs ?? []).filter((run) => run.state === "failed");
+    if (failed.length > 0) {
+      return { pullRequest: pull, failed };
+    }
+  }
+  return { pullRequest: undefined, failed: [] };
 }
 
 type Decision = Omit<Extract<Eligibility, { eligible: true }>, "eligible" | "snapshot">;
@@ -82,7 +92,7 @@ async function decide(
     };
   }
   if (reason === "cd-failure") {
-    const fix = { reason, pullRequest: failedCdPull(snapshot) };
+    const fix = { reason, ...failedCd(snapshot) };
     if (stage.stage === "cd-failed") {
       return { branch: stage.nextFixBranch, openPull: undefined, fix };
     }

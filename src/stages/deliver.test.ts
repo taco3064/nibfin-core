@@ -394,6 +394,37 @@ describe("runDeliverStage stops", () => {
     );
   });
 
+  it("stops without pushing once the Issue moved to another branch", async () => {
+    const moving: AgentStep = () => {
+      const { other } = world.fixture;
+      git(other, "push", "--quiet", "origin", `main:${branch}-cd-1`);
+      commitFile(world.fixture.workspace, "a.txt", "a\n", "feat: a");
+      return done;
+    };
+    const world = await deliveryWorld({ steps: [moving] });
+    assert.equal(await world.run(), 0);
+    assert.deepEqual(pushes(world), []);
+    assert.equal(world.fixture.remoteHead(branch), undefined);
+    assert.ok(
+      world.agent.logs.includes(
+        "The Issue is no longer eligible (on nibfin/issue-1-cd-1); " +
+          "stopping without writing",
+      ),
+    );
+  });
+
+  it("gives an Issue without a description as such", async () => {
+    const world = await deliveryWorld({
+      issue: { body: null },
+      steps: [new Error("stop")],
+    });
+    await rejection(world.run());
+    assert.match(
+      world.agent.runs[0].prompt,
+      /Title: Add the widget\n\n\(no description\)/,
+    );
+  });
+
   it("stops before the PR when the Issue was paused after Accept", async () => {
     const pausing: AgentStep = () => {
       world.issues.main.labels.push("pause");

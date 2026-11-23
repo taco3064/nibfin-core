@@ -12,19 +12,22 @@ export interface DeliverSources {
   issueUrl: string;
   title: string;
   body: string;
-  /** The approved Shape; `undefined` when the marked comment is missing. */
-  shape: string | undefined;
+  /** The approved Shape: the marked `shape` comment without its marker. */
+  shape: string;
 }
 
+/** The current sources; `undefined` when the Issue has no marked Shape comment. */
 export async function readDeliverSources(
   client: ActingClient,
   issue: IssueRef,
   issueUrl: string,
-): Promise<DeliverSources> {
+): Promise<DeliverSources | undefined> {
   const text = await readIssueText(client, issue);
   const comment = await findMarkedComment(client, issue, shapeCommentKey);
-  const shape = comment === undefined ? undefined : shapeOfComment(comment.body);
-  return { issueUrl, ...text, shape };
+  if (comment === undefined) {
+    return undefined;
+  }
+  return { issueUrl, ...text, shape: shapeOfComment(comment.body) };
 }
 
 function sourceSections(sources: DeliverSources): PromptSection[] {
@@ -34,7 +37,7 @@ function sourceSections(sources: DeliverSources): PromptSection[] {
       title: "Current Issue",
       body: `URL: ${sources.issueUrl}\nTitle: ${sources.title}\n\n${body}`,
     },
-    { title: "Approved Shape", body: sources.shape ?? "" },
+    { title: "Approved Shape", body: sources.shape },
   ];
 }
 

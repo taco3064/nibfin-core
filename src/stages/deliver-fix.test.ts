@@ -72,10 +72,11 @@ describe("runDeliverStage for ci-failure", () => {
         accept,
       ],
     });
-    world.required.push("verify", "lint");
+    world.required.push("verify", "lint", "docs");
     world.checkRuns.set(head, [
       failedActionsCheck(55, "verify"),
       checkRun(56, "lint", { appId: 1, conclusion: "failure", slug: "circleci" }),
+      { ...checkRun(57, "docs", { appId: 2, conclusion: "failure" }), html_url: null },
     ]);
     world.issues.github.routes.set("GET /repos/acme/app/actions/jobs/55/logs", {
       data: `${logLines.join("\n")}\ntoken ${fakeToken}\n`,
@@ -106,6 +107,7 @@ describe("runDeliverStage for ci-failure", () => {
       assert.match(run.prompt, /token \*\*\*/);
       assert.ok(!run.prompt.includes(fakeToken));
       assert.match(run.prompt, /### lint\n\nURL: .*\n\nNot a GitHub Actions job/);
+      assert.match(run.prompt, /### docs\n\nURL: \(none\)\n\nNot a GitHub Actions job/);
     }
     assert.match(writerRun.prompt, /Fix what the fix reason below points at/);
     assert.match(writerRun.prompt, /pushes only after a fresh Accept passes/);
@@ -194,7 +196,7 @@ describe("runDeliverStage for cd-failure", () => {
       name: `deploy ${id}`,
       status: "completed",
       conclusion,
-      html_url: `https://github.com/acme/app/actions/runs/2/job/${id}`,
+      html_url: id === 33 ? null : `https://github.com/acme/app/actions/runs/2/job/${id}`,
     });
     const { routes } = world.issues.github;
     routes.set(
@@ -235,7 +237,7 @@ describe("runDeliverStage for cd-failure", () => {
     );
     assert.match(
       writerRun.prompt,
-      /#### Job deploy 33\n\nURL: .*\n\nThe job log is not available\./,
+      /#### Job deploy 33\n\nURL: \(none\)\n\nThe job log is not available\./,
     );
     assert.doesNotMatch(writerRun.prompt, /deploy 32/);
   });
@@ -247,6 +249,15 @@ describe("runDeliverStage for cd-failure", () => {
     });
     failedCd(world);
     routeJobs(world);
+    // A newer merged PR without a merge commit has no CD to report.
+    world.pulls.push({
+      number: 6,
+      state: "closed",
+      merged: true,
+      head: branch,
+      sha: "head-6",
+      mergeSha: null,
+    });
     const { other } = world.fixture;
     git(other, "checkout", "--quiet", "-b", fixBranch);
     commitFile(other, "fix.txt", "fix\n", "fix: earlier");
@@ -256,6 +267,7 @@ describe("runDeliverStage for cd-failure", () => {
       git(world.fixture.workspace, "symbolic-ref", "--short", "HEAD"),
       fixBranch,
     );
+    assert.match(world.agent.runs[0].prompt, /Merged pull request: .*\/pull\/5/);
   });
 
   it("says when no merged PR with a failed CD run is found", async () => {

@@ -88,11 +88,8 @@ export async function describeFix(
   } else if (fix.pullRequest === undefined) {
     parts.push("No merged pull request with a failed CD run was found.");
   } else {
-    const failed = (fix.pullRequest.cd?.runs ?? []).filter(
-      (run) => run.state === "failed",
-    );
     parts.push(`Merged pull request: ${fix.pullRequest.url}`, "Failed CD runs:");
-    for (const run of failed) {
+    for (const run of fix.failed) {
       parts.push(await describeRun(options, run));
     }
   }
