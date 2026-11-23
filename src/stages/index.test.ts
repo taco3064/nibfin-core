@@ -27,6 +27,7 @@ test("the stages module exports its public API", () => {
     "runStageAgent",
     "shapeBlockedCommentKey",
     "shapeCommentKey",
+    "shapeWrongCommentKey",
     "writeNextAction",
   ]);
   assert.deepEqual(
@@ -38,6 +39,7 @@ test("the stages module exports its public API", () => {
       stages.reviewCommentKey,
       stages.reviewBlockedCommentKey,
       stages.deliveredCommentKey,
+      stages.shapeWrongCommentKey,
     ],
     [
       "shape",
@@ -47,6 +49,7 @@ test("the stages module exports its public API", () => {
       "review",
       "review-blocked",
       "delivered",
+      "shape-wrong",
     ],
   );
   assert.equal(

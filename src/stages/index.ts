@@ -38,4 +38,5 @@ export {
   type ReviewDeps,
 } from "./review-scope.ts";
 export { runShapeStage, shapeBlockedCommentKey, shapeCommentKey } from "./shape.ts";
+export { shapeWrongCommentKey } from "./shape-wrong.ts";
 export { deliverRunName } from "./writer-guard.ts";

@@ -23,6 +23,8 @@ export interface FakeComment {
   id: number;
   userId: number;
   body: string;
+  /** Body versions: 1 until an update changes the body (GitHub's edit history). */
+  versions?: number;
 }
 
 export interface FakeIssue {
@@ -91,16 +93,39 @@ let nextCommentId = 1000;
 
 /** Adds a comment to `issue` and the route that updates it in place. */
 function addComment(github: FakeGitHub, issue: FakeIssue, userId: number, body: string) {
-  const comment = { id: nextCommentId++, userId, body };
+  const comment = { id: nextCommentId++, userId, body, versions: 1 };
   issue.comments.push(comment);
-  github.routes.set(
-    `PATCH /repos/${issue.owner}/${issue.repo}/issues/comments/${comment.id}`,
-    (request: FakeRequest) => {
-      comment.body = (request.body as { body: string }).body;
-      return { data: commentJson(issue, comment) };
-    },
-  );
+  const path = `/repos/${issue.owner}/${issue.repo}/issues/comments/${comment.id}`;
+  github.routes.set(`PATCH ${path}`, (request: FakeRequest) => {
+    const next = (request.body as { body: string }).body;
+    comment.versions += next === comment.body ? 0 : 1;
+    comment.body = next;
+    return { data: commentJson(issue, comment) };
+  });
+  github.routes.set(`GET ${path}`, () => ({
+    data: { id: comment.id, node_id: `IC_${comment.id}` },
+  }));
   return comment;
+}
+
+/**
+ * Answers a GraphQL query on an Issue comment node (`IC_<id>`) of `issues`: its body
+ * and `userContentEdits.totalCount` (0 for a comment never edited, else its versions).
+ */
+export function answerCommentQuery(issues: FakeIssue[], request: FakeRequest) {
+  const { variables } = request.body as { variables: { id: string } };
+  const id = Number(variables.id.slice("IC_".length));
+  const comment = issues
+    .flatMap((issue) => issue.comments)
+    .find((candidate) => candidate.id === id);
+  if (comment === undefined) {
+    return { data: { data: { node: null } } };
+  }
+  const versions = comment.versions ?? 1;
+  const totalCount = versions === 1 ? 0 : versions;
+  return {
+    data: { data: { node: { body: comment.body, userContentEdits: { totalCount } } } },
+  };
 }
 
 /** Routes an Issue: itself, its Blocked by list, comments and labels. */
@@ -125,6 +150,15 @@ export function routeIssue(github: FakeGitHub, issue: FakeIssue, blockers: FakeI
     issue.labels.push(...labels.filter((label) => !issue.labels.includes(label)));
     return { data: labelsJson() };
   });
+  for (const name of ["scope", "shaped", "delivered", "pause"]) {
+    github.routes.set(`DELETE ${base}/labels/${name}`, () => {
+      if (!issue.labels.includes(name)) {
+        return { status: 404, data: { message: "Label does not exist" } };
+      }
+      issue.labels.splice(issue.labels.indexOf(name), 1);
+      return { data: labelsJson() };
+    });
+  }
 }
 
 /** A fake GitHub holding `main` (acme/app#1) and the Issues it is blocked by. */
@@ -136,6 +170,9 @@ export function fakeIssues(main: FakeIssue, blockers: FakeIssue[] = []): FakeIss
   for (const blocker of blockers) {
     routeIssue(github, blocker, []);
   }
+  github.routes.set("POST /graphql", (request) =>
+    answerCommentQuery([main, ...blockers], request),
+  );
   return {
     github,
     main,
@@ -157,6 +194,23 @@ export function seedComment(
   userId = fakeActor.id,
 ): FakeComment {
   return addComment(issues.github, issue, userId, body);
+}
+
+/** The version `<id>.<versions>` of a comment, as the stages compute it. */
+export function commentVersion(comment: FakeComment): string {
+  return `${comment.id}.${comment.versions ?? 1}`;
+}
+
+/** The current version of the main Issue's marked Shape comment. */
+export function shapeVersion(issues: FakeIssues): string {
+  return commentVersion(issues.marked("shape")[0]);
+}
+
+/** An owner edit of the main Issue's Shape: the body changes, a new version. */
+export function editShape(issues: FakeIssues, text: string): void {
+  const comment = issues.marked("shape")[0];
+  comment.body = `<!-- nibfin:shape -->\n${text}`;
+  comment.versions = (comment.versions ?? 1) + 1;
 }
 
 /** A final message ending with a `nibfin-result` block of `value`. */

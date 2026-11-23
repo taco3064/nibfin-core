@@ -3,6 +3,7 @@ import {
   deliveryBranch,
   deriveStage,
   findMarkedComment,
+  type IssueRef,
   type IssueSnapshot,
   type MarkedComment,
   type PullRequestState,
@@ -12,6 +13,7 @@ import {
   type WorkflowRunSummary,
 } from "../github/index.ts";
 import type { FixReason, JobContext } from "./context.ts";
+import { readCurrentShape } from "./shape-wrong.ts";
 
 /** The comment key of the Shape review on a pull request (#673). */
 export const reviewCommentKey = "review";
@@ -36,7 +38,13 @@ export type Eligibility =
       openPull: PullRequestState | undefined;
       fix: FixPointer | undefined;
     }
-  | { eligible: false; description: string };
+  | {
+      eligible: false;
+      description: string;
+      snapshot: IssueSnapshot;
+      /** The derived stage, which did not fit the Job's reason. */
+      stage: Stage;
+    };
 
 /** The derived stage as logged, with the reason of an ineligible one. */
 export function describeStage(stage: Stage): string {
@@ -46,6 +54,38 @@ export function describeStage(stage: Stage): string {
 /** The head SHA a review comment records on its `Reviewed head: <sha>` line. */
 export function reviewedHead(body: string): string | undefined {
   return /^Reviewed head: ([0-9a-f]{7,64})\s*$/m.exec(body)?.[1];
+}
+
+/** The Shape version a review comment records on its `Reviewed Shape: <v>` line. */
+export function reviewedShape(body: string): string | undefined {
+  return /^Reviewed Shape: (\d+\.\d+)\s*$/m.exec(body)?.[1];
+}
+
+/** The actor's review comment for the current head of a pull request. */
+export interface HeadReview {
+  comment: MarkedComment;
+  /** It also records the current Shape version, so it still counts. */
+  current: boolean;
+}
+
+/**
+ * The actor's marked `review` comment on `pull` when it records the pull request's
+ * current head, and whether it records the current Shape version too (read here).
+ * A comment without a `Reviewed Shape` line is stale.
+ */
+export async function currentReview(
+  client: ActingClient,
+  issue: IssueRef,
+  pull: PullRequestState,
+): Promise<HeadReview | undefined> {
+  const target = { owner: issue.owner, repo: issue.repo, number: pull.number };
+  const comment = await findMarkedComment(client, target, reviewCommentKey);
+  if (comment === undefined || reviewedHead(comment.body) !== pull.headSha) {
+    return undefined;
+  }
+  const shape = await readCurrentShape(client, issue);
+  const recorded = reviewedShape(comment.body);
+  return { comment, current: recorded !== undefined && recorded === shape?.version };
 }
 
 /** The newest merged pull request of the Issue whose CD failed, with the failed runs. */
@@ -81,15 +121,15 @@ async function decide(
   }
   if (reason === "review" && stage.stage === "review") {
     const pull = stage.pullRequest;
-    const target = { ...context.repo, number: pull.number };
-    const comment = await findMarkedComment(client, target, reviewCommentKey);
-    if (comment === undefined || reviewedHead(comment.body) !== pull.headSha) {
+    const issue = { ...context.repo, number: context.issue };
+    const review = await currentReview(client, issue, pull);
+    if (review === undefined || !review.current) {
       return undefined;
     }
     return {
       branch: stage.branch,
       openPull: pull,
-      fix: { reason, pullRequest: pull, comment },
+      fix: { reason, pullRequest: pull, comment: review.comment },
     };
   }
   if (reason === "cd-failure") {
@@ -107,8 +147,9 @@ async function decide(
 /**
  * Whether the Issue is at the Deliver stage for the Job's reason, and on which branch:
  * no reason → `deliver`; `ci-failure` → `ci-failed`; `review` → `review` with a
- * marked review comment whose recorded head is the current PR head; `cd-failure` →
- * `cd-failed` (on `nextFixBranch`), or `deliver` on a fix branch (a redo).
+ * marked review comment that records the current PR head and the current Shape
+ * version; `cd-failure` → `cd-failed` (on `nextFixBranch`), or `deliver` on a fix
+ * branch (a redo).
  */
 export async function readEligibility(
   client: ActingClient,
@@ -119,7 +160,8 @@ export async function readEligibility(
   const decision = await decide(client, context, snapshot, stage);
   if (decision === undefined) {
     const reason = context.reason ?? "no reason";
-    return { eligible: false, description: `${describeStage(stage)} (${reason})` };
+    const description = `${describeStage(stage)} (${reason})`;
+    return { eligible: false, description, snapshot, stage };
   }
   return { eligible: true, snapshot, ...decision };
 }

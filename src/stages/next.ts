@@ -10,11 +10,11 @@ export interface WakeTarget {
 /**
  * What should run next for the Issue (#673, #674). `stage: null` when nothing should:
  * the stage ended ineligible or blocked, or the next step waits for CI or CD events.
- * `stage: "deliver"` with a `reason` asks for that Deliver fix run. `wake` names other
- * Issues that became eligible.
+ * `stage: "deliver"` with a `reason` asks for that Deliver fix run. `stage: "shape"`
+ * asks for the Shape stage (#686). `wake` names other Issues that became eligible.
  */
 export interface NextAction {
-  stage: "deliver" | "review" | null;
+  stage: "shape" | "deliver" | "review" | null;
   reason: FixReason | null;
   wake?: WakeTarget[];
 }

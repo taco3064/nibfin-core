@@ -43,6 +43,23 @@ describe("Deliver roles", () => {
     invalid(() => parseWriterResult(agentResult({ outcome: "pass" })), /outcome/);
   });
 
+  it("parses a Writer's report that the Shape is wrong", () => {
+    assert.match(
+      writerRole.resultFormat,
+      /"outcome": "shape-wrong", "reason": "<the exact/,
+    );
+    assert.deepEqual(
+      parseWriterResult(agentResult({ outcome: "shape-wrong", reason: "Clause 2" })),
+      { outcome: "shape-wrong", reason: "Clause 2" },
+    );
+    for (const reason of [undefined, "", "  ", 3]) {
+      invalid(
+        () => parseWriterResult(agentResult({ outcome: "shape-wrong", reason })),
+        /reason must be a non-empty string/,
+      );
+    }
+  });
+
   it("parses the Acceptor's result", () => {
     assert.deepEqual(parseAcceptorResult(agentResult({ outcome: "pass" })), {
       outcome: "pass",

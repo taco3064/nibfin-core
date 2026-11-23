@@ -54,16 +54,24 @@ export function pullTarget(scope: ReviewScope, number: number): IssueRef {
 export const requestReviewFix: NextAction = { stage: "deliver", reason: "review" };
 
 /**
+ * A pending report that the Shape is wrong: no review, fix or merge runs under that
+ * Shape; a Deliver run (any reason) removes `shaped` and hands the Issue to Shape.
+ */
+export const handBackToShape: NextAction = { stage: "deliver", reason: null };
+
+/**
  * Writes the marked `review` comment on the pull request, recording `head` on its
- * `Reviewed head:` line, and asks for a Deliver `review` fix.
+ * `Reviewed head:` line and the version of the Shape the review read on its
+ * `Reviewed Shape:` line, and asks for a Deliver `review` fix.
  */
 export async function sendBackToDeliver(
   scope: ReviewScope,
   pullNumber: number,
   head: string,
+  shapeVersion: string,
   text: string,
 ): Promise<NextAction> {
-  const body = `Reviewed head: ${head}\n\n${text}`;
+  const body = `Reviewed head: ${head}\nReviewed Shape: ${shapeVersion}\n\n${text}`;
   const target = pullTarget(scope, pullNumber);
   const comment = await upsertMarkedComment(scope.client, target, reviewCommentKey, body);
   scope.deps.log(`Review comment: ${comment.url}; requesting a review fix`);

@@ -18,6 +18,7 @@ import {
 } from "./fake-delivery.test.ts";
 import { commitFile, git } from "./fake-git.test.ts";
 import {
+  answerCommentQuery,
   type FakeComment,
   fakeIssue,
   type FakeIssue,
@@ -193,6 +194,9 @@ function routeRepository(world: ReviewWorld) {
       const pageInfo = { hasNextPage: false, endCursor: null };
       const timelineItems = { pageInfo, nodes };
       return { data: { data: { repository: { pullRequest: { timelineItems } } } } };
+    }
+    if (/\bbody\b/.test(query)) {
+      return answerCommentQuery([world.issues.main], request);
     }
     const id = Number(variables.id.slice("IC_".length));
     const totalCount = world.edits.get(id) ?? 0;

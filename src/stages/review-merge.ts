@@ -12,9 +12,16 @@ import {
   readPullRequest,
   responseMessage,
 } from "../github/index.ts";
+import { issueOf } from "./agent.ts";
 import { describeStage } from "./deliver-eligibility.ts";
 import { type NextAction, noNextAction } from "./next.ts";
-import { blockReview, type ReviewScope, sendBackToDeliver } from "./review-scope.ts";
+import {
+  blockReview,
+  handBackToShape,
+  type ReviewScope,
+  sendBackToDeliver,
+} from "./review-scope.ts";
+import { readPendingReport } from "./shape-wrong.ts";
 
 const mergeTitle = "Merge";
 
@@ -132,13 +139,17 @@ async function merge(
  * Merges a pull request the reviewer found clean at `head`, under the repository's
  * own rules: re-checks the stage (`pause` included) and the head, reads GitHub's
  * mergeability, sends out-of-date or conflicting work back to Deliver, stops on
- * unmet rules, and merges only at `head` with an allowed method. Merging is not
- * completion: CD events follow, so the next action is none.
+ * unmet rules, and merges only at `head` with an allowed method. A pending report
+ * that the Shape is wrong stops it and asks Deliver to hand the Issue back to Shape.
+ * Merging is not completion: CD events follow, so the next action is none.
+ * `shapeVersion` is the version of the Shape the review read; rebase requests
+ * record it.
  */
 export async function mergeReviewed(
   scope: ReviewScope,
   pull: PullRequestState,
   head: string,
+  shapeVersion: string,
 ): Promise<NextAction> {
   const { client, context, deps } = scope;
   const stage = deriveStage(await readIssueSnapshot(client, context.repo, context.issue));
@@ -150,6 +161,18 @@ export async function mergeReviewed(
     deps.log(`Not merging: the Issue is now ${describeStage(stage)}`);
     return noNextAction;
   }
+  if (await readPendingReport(client, issueOf(context), deps.log)) {
+    deps.log("Not merging: the Shape is reported wrong; asking Deliver to return it");
+    return handBackToShape;
+  }
+  const rebase = (message: string) =>
+    sendBackToDeliver(
+      scope,
+      pull.number,
+      head,
+      shapeVersion,
+      rebaseText(pull.baseRef, message),
+    );
   const detail = await readPullRequest(client, context.repo, pull.number);
   if (detail.headSha !== head || detail.state !== "open") {
     deps.log(`Not merging: ${pull.url} is no longer open at ${head}`);
@@ -161,8 +184,7 @@ export async function mergeReviewed(
     return noNextAction;
   }
   if (state === "behind" || state === "dirty") {
-    const message = `GitHub reports \`mergeable_state: ${state}\`.`;
-    return sendBackToDeliver(scope, pull.number, head, rebaseText(pull.baseRef, message));
+    return rebase(`GitHub reports \`mergeable_state: ${state}\`.`);
   }
   if (state === "blocked") {
     return blockReview(scope, mergeTitle, await describeBlocked(scope, pull));
@@ -173,7 +195,7 @@ export async function mergeReviewed(
     return noNextAction;
   }
   if (result.outcome === "not-mergeable") {
-    return notMergeable(scope, pull, head, result.message);
+    return notMergeable(scope, pull, head, result.message, rebase);
   }
   return noNextAction;
 }
@@ -183,6 +205,7 @@ async function notMergeable(
   pull: PullRequestState,
   head: string,
   message: string,
+  rebase: (message: string) => Promise<NextAction>,
 ): Promise<NextAction> {
   if (isWorkflowsRejection(message)) {
     return blockReview(scope, mergeTitle, workflowsReason(message));
@@ -192,7 +215,7 @@ async function notMergeable(
     return noNextAction;
   }
   if (needsRebase(message)) {
-    return sendBackToDeliver(scope, pull.number, head, rebaseText(pull.baseRef, message));
+    return rebase(message);
   }
   return blockReview(
     scope,

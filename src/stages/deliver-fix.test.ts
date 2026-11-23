@@ -13,7 +13,7 @@ import {
   type WorldOptions,
 } from "./fake-delivery.test.ts";
 import { commitFile, git } from "./fake-git.test.ts";
-import { agentResult, type AgentStep } from "./fake-job.test.ts";
+import { agentResult, type AgentStep, shapeVersion } from "./fake-job.test.ts";
 
 const done = agentResult({ outcome: "done" });
 const pass = agentResult({ outcome: "pass" });
@@ -138,8 +138,9 @@ describe("runDeliverStage for ci-failure", () => {
   });
 });
 
-const reviewBody = (sha: string) =>
-  `<!-- nibfin:review -->\nReviewed head: ${sha}\n\nRename the widget.`;
+const reviewBody = (sha: string, version = "1.1") =>
+  `<!-- nibfin:review -->\nReviewed head: ${sha}\nReviewed Shape: ${version}\n\n` +
+  "Rename the widget.";
 
 describe("runDeliverStage for review", () => {
   it("fixes the review comment on the reviewed head", async () => {
@@ -153,7 +154,8 @@ describe("runDeliverStage for review", () => {
         pass,
       ],
     });
-    world.pullComments.set(7, [{ id: 9, userId: fakeActor.id, body: reviewBody(head) }]);
+    const body = reviewBody(head, shapeVersion(world.issues));
+    world.pullComments.set(7, [{ id: 9, userId: fakeActor.id, body }]);
     assert.equal(await world.run(), 0);
     const [writerRun] = world.agent.runs;
     assert.match(

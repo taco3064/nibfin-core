@@ -16,9 +16,12 @@ async function merge(w: ReviewWorld, head = w.head) {
   const { client } = w.issues.github;
   const stage = deriveStage(await readIssueSnapshot(client, w.context.repo, 1));
   const pull = (stage as { pullRequest: PullRequestState }).pullRequest;
-  return mergeReviewed({ context: w.context, client, deps: w.reviewDeps }, pull, head);
+  const scope = { context: w.context, client, deps: w.reviewDeps };
+  return mergeReviewed(scope, pull, head, shapeVersion);
 }
 
+/** The Shape version the clean review read. */
+const shapeVersion = "1000.1";
 const noNext = { stage: null, reason: null };
 const reviewFix = { stage: "deliver", reason: "review" };
 
@@ -45,7 +48,7 @@ describe("mergeReviewed", () => {
     w.issues.main.labels.push("pause");
     const pull = (stage as { pullRequest: PullRequestState }).pullRequest;
     const scope = { context: w.context, client, deps: w.reviewDeps };
-    assert.deepEqual(await mergeReviewed(scope, pull, w.head), noNext);
+    assert.deepEqual(await mergeReviewed(scope, pull, w.head, shapeVersion), noNext);
     assert.deepEqual(w.mergeRequests, []);
     assert.match(w.agent.logs.at(-1)!, /ineligible \(paused\)/);
   });
@@ -75,7 +78,7 @@ describe("mergeReviewed", () => {
         return { data: { ...(answer.data as object), state: "closed" } };
       };
     };
-    assert.deepEqual(await mergeReviewed(scope, pull, w.head), noNext);
+    assert.deepEqual(await mergeReviewed(scope, pull, w.head, shapeVersion), noNext);
     assert.deepEqual(w.mergeRequests, []);
   });
 
@@ -99,7 +102,8 @@ describe("mergeReviewed", () => {
       w.mergeableState = state;
       assert.deepEqual(await merge(w), reviewFix);
       assert.deepEqual(reviewComments(w), [
-        `<!-- nibfin:review -->\nReviewed head: ${w.head}\n\nRebase onto \`main\` and ` +
+        `<!-- nibfin:review -->\nReviewed head: ${w.head}\n` +
+          `Reviewed Shape: ${shapeVersion}\n\nRebase onto \`main\` and ` +
           `resolve conflicts: GitHub reports \`mergeable_state: ${state}\`.`,
       ]);
       assert.deepEqual(w.mergeRequests, []);
