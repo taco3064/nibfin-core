@@ -1,3 +1,5 @@
+<img src="assets/nibfin-logo.png" alt="Nibfin logo" width="600">
+
 # Nibfin Core
 
 Nibfin Core runs the Scope, Shape, Deliver and Accept roles against a GitHub repository,
