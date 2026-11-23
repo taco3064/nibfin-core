@@ -1,1 +1,0 @@
-An unreviewed cached artifact is never a trusted Runner or Node archive.

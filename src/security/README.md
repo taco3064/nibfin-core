@@ -1,3 +1,0 @@
-The Codex profiles are copied without modification from openai/codex-security commit `3fa6215fc1021bbee546a61f8b407bcd521953f0`, docker/codex-security-seccomp.json and docker/codex-security.apparmor. Licensed under Apache-2.0; see LICENSE. The host must load this exact AppArmor profile before adoption. These profiles require dropped capabilities and no-new-privileges, with container UID/GID 1000.
-
-`nibfin-claude.apparmor` is derived from that `codex-security.apparmor` (Apache-2.0; see LICENSE) with these modifications only: the profile and its self peers are renamed to `nibfin-claude-container`, and `/proc/*/environ` and `/proc/*/task/*/environ` reads are denied. The Claude container uses it with the same seccomp profile and requirements.

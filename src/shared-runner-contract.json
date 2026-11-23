@@ -1,5 +1,0 @@
-{
-  "schemaVersion": 1,
-  "destinationVariable": "NIBFIN_SHARED_RUNNER_DESTINATION",
-  "workflowPath": ".github/workflows/shared-runner.yml"
-}
