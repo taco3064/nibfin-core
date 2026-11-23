@@ -77,7 +77,14 @@ branch exists it is the current branch, and its PR follows the same rules.
 Results: `success`, `neutral`, `skipped` succeed; `failure`, `cancelled`, `timed_out`,
 `startup_failure`, `stale` and status `error`/`failure` fail; anything else, including
 `action_required` and a missing conclusion, is pending. The CI stages return the
-required checks and their results for the merge admission (#673).
+required checks and their results for the merge admission (#673). A result from a
+check run also carries `checkRunId` and the app's `appSlug` (`null` when GitHub names
+none); for a GitHub Actions check run (`github-actions`) the id is the job id (#672).
+
+`readRunJobs(client, repo, runId)` lists the jobs of a workflow run's latest attempt
+(`filter=latest`), and `readJobLog(client, repo, jobId)` reads one job's log; GitHub
+answers with a redirect to the log, which Octokit's fetch follows, and a 404 is
+`undefined` (#672).
 
 The snapshot carries no Issue text. `readIssueText(client, issue)` reads an Issue's
 current `{ title, body }` (an empty description is `""`), from any repository the
@@ -106,9 +113,13 @@ otherwise it fails with `GITHUB_WRITE_UNCONFIRMED`.
 
 ## Permissions
 
-Contents, Metadata, Actions, Checks and Commit statuses read; Issues and Pull requests
-write. No Administration. Reading Issues in other repositories needs a credential that
-covers them (#674); without it the read fails with `GITHUB_READ_FAILED`.
+Metadata, Actions, Checks and Commit statuses read; Issues and Pull requests write.
+No Administration. The Deliver stage (#672) also pushes with the same token, so it
+needs Contents write, plus the workflows permission when a change touches
+`.github/workflows/`, and Actions read on the execution repository (`NIBFIN_RUN_REPO`)
+for the Writer check. The GitHub client itself only reads Contents. Reading Issues in
+other repositories needs a credential that covers them (#674); without it the read
+fails with `GITHUB_READ_FAILED`.
 
 ## Interfaces with other Issues
 

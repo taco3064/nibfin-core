@@ -122,7 +122,7 @@ describe("readRequiredCheckResults", () => {
   it("matches check runs by context and app, newest first", async () => {
     const github = resultsFake([
       checkRun(1, "verify", { conclusion: "failure" }),
-      checkRun(3, "verify", { conclusion: "success" }),
+      checkRun(3, "verify", { conclusion: "success", slug: "github-actions" }),
       checkRun(2, "verify", { conclusion: "failure" }),
       checkRun(9, "verify", { appId: 1, conclusion: "failure" }),
       checkRun(10, "other", { conclusion: "failure" }),
@@ -133,6 +133,8 @@ describe("readRequiredCheckResults", () => {
       state: "success",
       source: "check-run",
       url: "https://github.com/acme/app/runs/3",
+      checkRunId: 3,
+      appSlug: "github-actions",
     });
     const query = github.calls.find((call) => call.path.endsWith("/actions/runs"))?.query;
     assert.equal(query?.get("head_sha"), "abc");
@@ -150,6 +152,16 @@ describe("readRequiredCheckResults", () => {
     );
     assert.equal(result?.state, "pending");
     assert.equal(result?.source, "check-run");
+    assert.equal(result?.checkRunId, 4);
+    assert.equal(result?.appSlug, null);
+    const unnamed = resultsFake([checkRun(5, "verify")]);
+    const [other] = await readRequiredCheckResults(
+      unnamed.client,
+      repo,
+      [anySource],
+      "abc",
+    );
+    assert.equal(other?.appSlug, null);
   });
 
   it("leaves a specific-app check pending when only other apps report", async () => {
