@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFileSync, writeFileSync } from "node:fs";
+import { readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, it } from "node:test";
 import { AgentError } from "../agent/index.ts";
@@ -52,11 +52,18 @@ function assertNoTokenLeak(world: DeliveryWorld) {
   for (const call of world.git.calls) {
     const args = call.args.join(" ");
     assert.ok(!args.includes(fakeToken) && !args.includes(basic), args);
-    const remote = ["push", "fetch", "ls-remote"].some((name) =>
-      call.args.includes(name),
-    );
+    // Only calls to the remote carry the header, and never from the workspace.
+    const remote = call.args.includes(world.fixture.remote);
     assert.equal(call.env.GIT_CONFIG_COUNT !== undefined, remote, args);
+    if (remote) {
+      assert.notEqual(call.cwd, world.fixture.workspace);
+    }
   }
+  // Core's push repository is removed when the run ends.
+  assert.deepEqual(
+    readdirSync(world.fixture.root).filter((name) => name.startsWith("nibfin-push-")),
+    [],
+  );
   for (const run of world.agent.runs) {
     const text = JSON.stringify(run);
     assert.ok(!text.includes(fakeToken) && !text.includes(basic));
@@ -373,8 +380,21 @@ describe("runDeliverStage stops", () => {
       const error = await rejection(world.run());
       assert.equal((error as StageError).code, code);
       assert.match((error as StageError).message, pattern);
+      // Nothing is ahead of the base, so nothing was pushed.
+      assert.deepEqual(pushes(world), []);
+      assert.equal(world.fixture.remoteHead(branch), undefined);
     });
   }
+
+  it("pushes nothing for a blocked Writer without commits", async () => {
+    const blocked = agentResult({ outcome: "blocked", reason: "No access" });
+    const world = await deliveryWorld({ steps: [blocked] });
+    const error = await rejection(world.run());
+    assert.equal((error as StageError).code, "STAGE_BLOCKED");
+    assert.deepEqual(pushes(world), []);
+    assert.equal(world.fixture.remoteHead(branch), undefined);
+    assertNoTokenLeak(world);
+  });
 
   it("stops without pushing once the Issue is paused", async () => {
     const pausing: AgentStep = () => {

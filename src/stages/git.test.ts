@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
-import { devNull } from "node:os";
+import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { describe, it } from "node:test";
 import { fakeActor, fakeToken, rejection } from "../github/fake-github.test.ts";
@@ -18,10 +17,10 @@ import {
   diffAgainstBase,
   Git,
   gitFailed,
+  gitNullPath,
   githubRemoteUrl,
   messagesAhead,
   prepareBranch,
-  readBranchHead,
   refDirectory,
   refFormat,
 } from "./git.ts";
@@ -41,10 +40,22 @@ describe("Git", () => {
     const recorder = recordingGit();
     const subject = fixtureGit(fixture, recorder.run);
     await subject.run(["status"]);
+    await subject.initCoreRepo();
     await subject.remote(["ls-remote", fixture.remote]);
-    const [local, remote] = recorder.calls;
+    const [local, init, remote] = recorder.calls;
     assert.equal(local.env.GIT_CONFIG_COUNT, undefined);
     assert.equal(local.env.GIT_TERMINAL_PROMPT, "0");
+    assert.equal(local.cwd, fixture.workspace);
+    assert.equal(init.env.GIT_CONFIG_COUNT, undefined);
+    assert.equal(init.cwd, subject.coreRepo);
+    assert.equal(remote.cwd, subject.coreRepo);
+    for (const call of [init, remote]) {
+      assert.equal(call.env.GIT_CONFIG_GLOBAL, gitNullPath);
+      assert.equal(call.env.GIT_CONFIG_NOSYSTEM, "1");
+      assert.equal(call.env.GIT_ASKPASS, "");
+    }
+    assert.equal(existsSync(join(subject.coreRepo, "hooks")), false);
+    assert.equal(existsSync(join(subject.coreRepo, "HEAD")), true);
     assert.equal(remote.env.GIT_CONFIG_COUNT, "1");
     assert.equal(remote.env.GIT_CONFIG_KEY_0, "http.https://github.com/.extraheader");
     assert.equal(remote.env.GIT_CONFIG_VALUE_0, `AUTHORIZATION: basic ${basic}`);
@@ -52,7 +63,7 @@ describe("Git", () => {
     assert.equal(remote.env.GIT_ASKPASS, "");
     assert.deepEqual(remote.args.slice(0, 6), [
       "-c",
-      `core.hooksPath=${devNull}`,
+      `core.hooksPath=${gitNullPath}`,
       "-c",
       "credential.helper=",
       "-c",
@@ -70,6 +81,7 @@ describe("Git", () => {
     const recorder = recordingGit(() => ({ exitCode: 0, stdout: "", stderr: "" }));
     const subject = new Git({
       workspace: resolve("/w"),
+      coreRepo: resolve("/core"),
       remoteUrl: "https://github.com/acme/app.git",
       token: fakeToken,
       run: recorder.run,
@@ -83,6 +95,7 @@ describe("Git", () => {
     const recorder = recordingGit(() => ({ exitCode: 128, stdout: leak, stderr: leak }));
     const subject = new Git({
       workspace: resolve("/w"),
+      coreRepo: resolve("/core"),
       remoteUrl: "x",
       token: fakeToken,
       run: recorder.run,
@@ -152,8 +165,7 @@ describe("prepareBranch", () => {
     const subject = fixtureGit(fixture);
     const prepared = await prepareBranch(subject, options);
     assert.equal(prepared.remoteHead, pushed);
-    assert.equal(await readBranchHead(subject, "nibfin/issue-1"), pushed);
-    assert.equal(await readBranchHead(subject, "nibfin/none"), undefined);
+    assert.equal(git(fixture.workspace, "rev-parse", "HEAD"), pushed);
     assert.equal(await commitsAhead(subject, "main"), 1);
     assert.deepEqual(await messagesAhead(subject, "main"), ["work"]);
     assert.match(await diffAgainstBase(subject, "main"), /\+\+\+ b\/w\.txt/);
@@ -166,12 +178,7 @@ describe("prepareBranch", () => {
     const shallow = join(fixture.root, "shallow");
     const url = `file://${fixture.remote.replaceAll("\\", "/")}`;
     git(fixture.root, "clone", "--quiet", "--depth", "1", url, shallow);
-    const subject = new Git({
-      workspace: shallow,
-      remoteUrl: fixture.remote,
-      token: fakeToken,
-      run: recordingGit().run,
-    });
+    const subject = fixtureGit(fixture, undefined, { workspace: shallow });
     await prepareBranch(subject, options);
     assert.equal(git(shallow, "rev-parse", "--is-shallow-repository"), "false");
     assert.equal(git(shallow, "rev-list", "--count", "HEAD"), "2");
@@ -179,11 +186,8 @@ describe("prepareBranch", () => {
 
   it("fails when the remote cannot be read", async () => {
     const fixture = await makeGitFixture("git-");
-    const subject = new Git({
-      workspace: fixture.workspace,
+    const subject = fixtureGit(fixture, undefined, {
       remoteUrl: join(fixture.root, "missing.git"),
-      token: fakeToken,
-      run: recordingGit().run,
     });
     const error = await rejection(prepareBranch(subject, options));
     assert.equal((error as StageError).code, "STAGE_GIT_FAILED");

@@ -212,6 +212,7 @@ export async function deliveryWorld(options: WorldOptions = {}): Promise<Deliver
     ...agent.deps,
     runGit: git.run,
     remoteUrl: () => fixture.remote,
+    coreRepoParent: fixture.root,
     watch,
   };
   const world: DeliveryWorld = {

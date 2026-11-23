@@ -1,4 +1,3 @@
-import { devNull } from "node:os";
 import { resolve } from "node:path";
 import { childEnvironment } from "../agent/index.ts";
 import { runCaptured } from "../agent/process.ts";
@@ -37,33 +36,53 @@ export function githubRemoteUrl(repo: Repo): string {
 }
 
 /**
- * Settings for the calls that reach the remote: no hooks, credential helpers, askpass
- * programs or signing commands from the workspace's config run while the token is
- * in the environment, and only the remote URL's protocol is allowed.
+ * Settings for the calls in Core's own repository: no hooks, credential helpers,
+ * askpass programs or signing commands run while the token is in the environment.
  */
-const remoteArgs = [
+/**
+ * The null device as Git spells it on every platform (Git for Windows maps it too);
+ * used where Git must find no config file and no hooks.
+ */
+export const gitNullPath = "/dev/null";
+
+/** No global or system config and no askpass for commands in Core's repository. */
+const isolated = {
+  GIT_CONFIG_GLOBAL: gitNullPath,
+  GIT_CONFIG_NOSYSTEM: "1",
+  GIT_ASKPASS: "",
+};
+
+const coreArgs = [
   "-c",
-  `core.hooksPath=${devNull}`,
+  `core.hooksPath=${gitNullPath}`,
   "-c",
   "credential.helper=",
   "-c",
   "push.gpgSign=false",
 ];
 
-/** The Git commands Core runs in the workspace. The token reaches remote calls only. */
+/**
+ * The Git commands Core runs. Local commands run in the workspace without the token.
+ * Remote commands run in `coreRepo`, a bare repository Core owns outside the
+ * workspace, so no configuration the agent can write (the workspace's config, the
+ * global or system config) applies while the token is in the environment.
+ */
 export class Git {
   readonly workspace: string;
+  readonly coreRepo: string;
   readonly remoteUrl: string;
   readonly #token: string;
   readonly #run: GitRunner;
 
   constructor(options: {
     workspace: string;
+    coreRepo: string;
     remoteUrl: string;
     token: string;
     run: GitRunner;
   }) {
     this.workspace = options.workspace;
+    this.coreRepo = options.coreRepo;
     this.remoteUrl = options.remoteUrl;
     this.#token = options.token;
     this.#run = options.run;
@@ -85,9 +104,13 @@ export class Git {
     return /^https:\/\//.test(this.remoteUrl) ? "https" : "file";
   }
 
-  async #call(args: readonly string[], extra: Record<string, string>) {
+  async #call(
+    args: readonly string[],
+    extra: Record<string, string>,
+    cwd = this.workspace,
+  ) {
     const env = childEnvironment(process.env, { GIT_TERMINAL_PROMPT: "0", ...extra });
-    const output = await this.#run({ args, cwd: this.workspace, env });
+    const output = await this.#run({ args, cwd, env });
     return {
       exitCode: output.exitCode,
       stdout: this.redact(output.stdout),
@@ -105,18 +128,35 @@ export class Git {
     return this.#call(args, {});
   }
 
+  /** Creates Core's bare repository: no template, so no hooks or other files. */
+  async initCoreRepo(): Promise<void> {
+    await this.coreRequired(["init", "--quiet", "--bare", "--template=", "."]);
+  }
+
+  /** A command in Core's repository without the token; only Core's config applies. */
+  async core(args: readonly string[]): Promise<GitOutput> {
+    return this.#call([...coreArgs, ...args], isolated, this.coreRepo);
+  }
+
+  /** `core` that fails with `STAGE_GIT_FAILED` unless it exits 0. */
+  async coreRequired(args: readonly string[]): Promise<string> {
+    return required(args, await this.core(args));
+  }
+
   /**
-   * A command that reaches the remote. The header goes through `GIT_CONFIG_COUNT`
-   * in this one child's environment, never through arguments or `.git/config`.
+   * A command in Core's repository that reaches the remote. The header goes through
+   * `GIT_CONFIG_COUNT` in this one child's environment, never through arguments or a
+   * config file, and only the remote URL's protocol is allowed.
    */
   async remote(args: readonly string[]): Promise<GitOutput> {
-    return this.#call([...remoteArgs, ...args], {
-      GIT_ASKPASS: "",
+    const auth = {
+      ...isolated,
       GIT_ALLOW_PROTOCOL: this.#allowedProtocol(),
       GIT_CONFIG_COUNT: "1",
       GIT_CONFIG_KEY_0: "http.https://github.com/.extraheader",
       GIT_CONFIG_VALUE_0: this.#header(),
-    });
+    };
+    return this.#call([...coreArgs, ...args], auth, this.coreRepo);
   }
 
   /** `remote` that fails with `STAGE_GIT_FAILED` unless it exits 0. */
@@ -150,17 +190,6 @@ export async function checkedOutBranch(git: Git): Promise<string> {
   return branch;
 }
 
-/** The commit of local branch `branch`, if it exists. */
-export async function readBranchHead(git: Git, branch: string) {
-  const output = await git.probe([
-    "rev-parse",
-    "--verify",
-    "--quiet",
-    `refs/heads/${branch}`,
-  ]);
-  return output.exitCode === 0 ? output.stdout.trim() : undefined;
-}
-
 /** The commit of `branch` on the remote, if it exists there. */
 async function remoteHead(git: Git, branch: string): Promise<string | undefined> {
   const ref = `refs/heads/${branch}`;
@@ -177,34 +206,33 @@ export interface PreparedBranch {
 }
 
 /**
- * Fetches the base and the Issue branch (unshallowing a shallow checkout, so a merge
- * base exists), checks out the existing branch or creates it from `origin/<base>`,
- * and sets the local commit identity to the actor.
+ * Creates Core's repository and fetches the base and the Issue branch into it with
+ * full history, then brings them into the workspace from there (unshallowing a
+ * shallow checkout, so a merge base exists). Checks out the existing branch or creates
+ * it from `origin/<base>`, and sets the local commit identity to the actor.
  */
 export async function prepareBranch(
   git: Git,
   options: { base: string; branch: string; actor: Actor },
 ): Promise<PreparedBranch> {
   const { base, branch, actor } = options;
+  await git.initCoreRepo();
   const existing = await remoteHead(git, branch);
+  const names = existing === undefined ? [base] : [base, branch];
+  const tracking = (name: string) => `refs/remotes/origin/${name}`;
+  const fromGitHub = names.map((name) => `+refs/heads/${name}:${tracking(name)}`);
+  await git.remoteRequired(["fetch", "--no-tags", git.remoteUrl, ...fromGitHub]);
   const shallow = (await git.run(["rev-parse", "--is-shallow-repository"])).trim();
-  const refspecs = [`+refs/heads/${base}:refs/remotes/origin/${base}`];
-  if (existing !== undefined) {
-    refspecs.push(`+refs/heads/${branch}:refs/remotes/origin/${branch}`);
-  }
   const unshallow = shallow === "true" ? ["--unshallow"] : [];
-  await git.remoteRequired([
-    "fetch",
-    "--no-tags",
-    ...unshallow,
-    git.remoteUrl,
-    ...refspecs,
-  ]);
+  const fromCore = names.map((name) => `+${tracking(name)}:${tracking(name)}`);
+  await git.run(["fetch", "--no-tags", ...unshallow, git.coreRepo, ...fromCore]);
   let fetched: string | undefined;
   if (existing !== undefined) {
-    const tracking = `refs/remotes/origin/${branch}`;
-    fetched = (await git.run(["rev-parse", "--verify", tracking])).trim();
-    await git.run(["checkout", "--quiet", "--no-track", "-B", branch, tracking]);
+    fetched = (
+      await git.coreRequired(["rev-parse", "--verify", tracking(branch)])
+    ).trim();
+    const start = tracking(branch);
+    await git.run(["checkout", "--quiet", "--no-track", "-B", branch, start]);
   } else {
     const start = `refs/remotes/origin/${base}`;
     await git.run(["checkout", "--quiet", "--no-track", "-b", branch, start]);
