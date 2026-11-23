@@ -5,6 +5,7 @@ import * as agent from "./index.ts";
 test("the agent module exports its public API", () => {
   assert.deepEqual(Object.keys(agent).toSorted(), [
     "AgentError",
+    "childEnvironment",
     "defaultExecutables",
     "enableProjectMcpServers",
     "excludeFromGit",
