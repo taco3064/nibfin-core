@@ -1,0 +1,25 @@
+{
+  "name": "nibfin-core",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Nibfin Core: GitHub-native delivery for Scope, Shape, Deliver and Accept",
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "bin": {
+    "nibfin": "./dist/cli/main.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "check": "tsc -p tsconfig.json && eslint . && prettier --check .",
+    "test": "node --test --experimental-test-coverage --test-coverage-include=\"src/**\" --test-coverage-exclude=\"src/**/*.test.ts\" --test-coverage-lines=100 --test-coverage-branches=100 --test-coverage-functions=100 \"src/**/*.test.ts\""
+  },
+  "devDependencies": {
+    "@types/node": "^24.19.2",
+    "eslint": "^10.15.0",
+    "prettier": "^3.10.1",
+    "typescript": "~6.0.3",
+    "typescript-eslint": "^8.73.0"
+  }
+}
