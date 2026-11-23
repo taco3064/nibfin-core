@@ -16,6 +16,14 @@ headless in `workspace` and returns `{ exitCode, finalMessage }`.
   Stage credentials such as `GITHUB_TOKEN` and `GH_TOKEN` never reach them.
   `childEnvironment(parent, extra)` builds this environment and is exported, so the
   tool installs in `src/config` (#669) use the same allowlist.
+- **Tool `PATH`.** The optional `pathEntries` (the `.nibfin.json` tools from
+  `prepareTools`, #671) go ahead of the inherited `PATH` for the CLI's own run only;
+  its login-status command and rulesync keep the unmodified `PATH`. Before that
+  change the CLI is resolved to an absolute command on the unmodified `PATH`
+  (symlinks followed). A Node.js script, such as an npm-installed CLI's bin script
+  (`.js`, `.mjs`, `.cjs` or a `#!` line running `node`), runs as `process.execPath`
+  plus the script, so Core's CLIs never start on a repository's Node. Without
+  entries nothing is resolved or changed.
 - **Agent config.** When the workspace has `.rulesync/`, `rulesync --json generate`
   writes the provider's rules, MCP and skill files first. The written paths go to the
   repository's `info/exclude`, so they are never committed.
