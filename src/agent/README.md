@@ -11,6 +11,10 @@ headless in `workspace` and returns `{ exitCode, finalMessage }`.
 - **Login.** `home` is the CLI's config home on the login volume, passed as
   `CLAUDE_CONFIG_DIR` or `CODEX_HOME`. Only the CLI reads its login there; Nibfin never
   opens credential files.
+- **Environment.** The CLI, its login-status command and rulesync get only `PATH`,
+  `HOME`, `LANG`, `LC_*`, `TERM`, `TMPDIR`, the proxy variables (`HTTP_PROXY`,
+  `HTTPS_PROXY`, `NO_PROXY` and their lowercase forms) and the config-home variable.
+  Stage credentials such as `GITHUB_TOKEN` and `GH_TOKEN` never reach them.
 - **Agent config.** When the workspace has `.rulesync/`, `rulesync --json generate`
   writes the provider's rules, MCP and skill files first. The written paths go to the
   repository's `info/exclude`, so they are never committed.
