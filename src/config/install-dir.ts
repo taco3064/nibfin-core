@@ -22,11 +22,16 @@ export async function installOnce(
 ): Promise<string> {
   const toolDir = join(cacheRoot, tool);
   const final = join(toolDir, version);
-  if (isDirectory(final)) {
-    return final;
+  let temp: string;
+  try {
+    if (isDirectory(final)) {
+      return final;
+    }
+    await mkdir(toolDir, { recursive: true });
+    temp = await mkdtemp(join(toolDir, `.${version}-`));
+  } catch (error) {
+    throw installFailure(tool, version, error);
   }
-  await mkdir(toolDir, { recursive: true });
-  const temp = await mkdtemp(join(toolDir, `.${version}-`));
   const removeTemp = () => rm(temp, { recursive: true, force: true });
   try {
     await install(temp);

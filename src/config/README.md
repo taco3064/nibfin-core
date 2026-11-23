@@ -76,7 +76,9 @@ Python, Go. Each entry is `<cacheDir>/<tool>/<version>/bin`.
   credentials and variables such as `UV_PYTHON_INSTALL_MIRROR` never reach them, and
   with a working directory inside the cache.
 - **Cache.** `cacheDir` must be outside the workspace, also after symlinks are
-  resolved. Each install fills a unique `<cacheDir>/<tool>/.<version>-*` directory and
+  resolved. Versions are checked against the schema again before they become paths
+  or URLs, and any filesystem failure while preparing the cache is
+  `TOOL_INSTALL_FAILED` with the original cause. Each install fills a unique `<cacheDir>/<tool>/.<version>-*` directory and
   renames it to `<cacheDir>/<tool>/<version>`. Only that final directory counts as
   installed, so an existing one is reused without downloading and an interrupted
   temporary directory is ignored. A rename collision means another Job finished first;

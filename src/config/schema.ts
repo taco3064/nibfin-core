@@ -66,7 +66,8 @@ function checkKeys(
   }
 }
 
-function isVersion(tool: ToolName, value: unknown): value is string {
+/** An exact `x.y.z` release; Go also takes `x.y`. */
+export function isVersion(tool: ToolName, value: unknown): value is string {
   if (typeof value !== "string") {
     return false;
   }
