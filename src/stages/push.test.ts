@@ -63,10 +63,10 @@ describe("BranchPusher", () => {
     await t.pusher.flush();
     assert.equal(t.fixture.remoteHead(branch), second);
     const [one, two] = t.pushes();
-    assert.ok(one!.args.includes(`--force-with-lease=refs/heads/${branch}:`));
-    assert.ok(two!.args.includes(`--force-with-lease=refs/heads/${branch}:${first}`));
-    assert.ok(two!.args.includes("--no-verify"));
-    assert.ok(two!.args.includes(`${second}:refs/heads/${branch}`));
+    assert.ok(one.args.includes(`--force-with-lease=refs/heads/${branch}:`));
+    assert.ok(two.args.includes(`--force-with-lease=refs/heads/${branch}:${first}`));
+    assert.ok(two.args.includes("--no-verify"));
+    assert.ok(two.args.includes(`${second}:refs/heads/${branch}`));
     assert.deepEqual(t.logs, [
       `Pushed ${branch} at ${first}`,
       `Pushed ${branch} at ${second}`,
@@ -131,7 +131,8 @@ describe("BranchPusher", () => {
     ],
     [
       "a missing workflow scope",
-      "refusing to allow an OAuth App to create or update workflow without `workflow` scope",
+      "refusing to allow an OAuth App to create or update workflow " +
+        "without `workflow` scope",
       /lacks the workflows permission/,
       "STAGE_PUSH_REJECTED",
     ],

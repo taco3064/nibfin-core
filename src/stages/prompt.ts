@@ -19,6 +19,13 @@ export interface PromptSection {
   body: string;
 }
 
+/** `text` in a code fence longer than any backtick run it contains. */
+export function fenced(text: string, info = "text"): string {
+  const runs = [...text.matchAll(/`+/g)].map((run) => run[0].length);
+  const fence = "`".repeat(Math.max(2, ...runs) + 1);
+  return `${fence}${info}\n${text}\n${fence}`;
+}
+
 export interface PromptRequest {
   /** The resolved skill text (`resolveRoleSkill`). */
   skill: string;

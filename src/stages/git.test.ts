@@ -42,14 +42,14 @@ describe("Git", () => {
     await subject.run(["status"]);
     await subject.remote(["ls-remote", fixture.remote]);
     const [local, remote] = recorder.calls;
-    assert.equal(local!.env.GIT_CONFIG_COUNT, undefined);
-    assert.equal(local!.env.GIT_TERMINAL_PROMPT, "0");
-    assert.equal(remote!.env.GIT_CONFIG_COUNT, "1");
-    assert.equal(remote!.env.GIT_CONFIG_KEY_0, "http.https://github.com/.extraheader");
-    assert.equal(remote!.env.GIT_CONFIG_VALUE_0, `AUTHORIZATION: basic ${basic}`);
-    assert.equal(remote!.env.GIT_ALLOW_PROTOCOL, "file");
-    assert.equal(remote!.env.GIT_ASKPASS, "");
-    assert.deepEqual(remote!.args.slice(0, 6), [
+    assert.equal(local.env.GIT_CONFIG_COUNT, undefined);
+    assert.equal(local.env.GIT_TERMINAL_PROMPT, "0");
+    assert.equal(remote.env.GIT_CONFIG_COUNT, "1");
+    assert.equal(remote.env.GIT_CONFIG_KEY_0, "http.https://github.com/.extraheader");
+    assert.equal(remote.env.GIT_CONFIG_VALUE_0, `AUTHORIZATION: basic ${basic}`);
+    assert.equal(remote.env.GIT_ALLOW_PROTOCOL, "file");
+    assert.equal(remote.env.GIT_ASKPASS, "");
+    assert.deepEqual(remote.args.slice(0, 6), [
       "-c",
       `core.hooksPath=${process.platform === "win32" ? "NUL" : "/dev/null"}`,
       "-c",
@@ -74,7 +74,7 @@ describe("Git", () => {
       run: recorder.run,
     });
     await subject.remoteRequired(["ls-remote"]);
-    assert.equal(recorder.calls[0]!.env.GIT_ALLOW_PROTOCOL, "https");
+    assert.equal(recorder.calls[0].env.GIT_ALLOW_PROTOCOL, "https");
   });
 
   it("redacts the token and its header from Git output", async () => {
