@@ -4,6 +4,27 @@ import { StageError } from "./errors.ts";
 export const resultFence = "```nibfin-result";
 const closingFence = "```";
 
+/** The result instructions of a role: the block, its JSON objects, then a note. */
+export function resultFormat(objects: readonly string[], note: string): string {
+  return [
+    "End your final message with one block like this; only the last such block counts:",
+    "",
+    resultFence,
+    "<one of the JSON objects below>",
+    "```",
+    "",
+    `Its opening line must be exactly ${resultFence} and its closing line exactly`,
+    "```. The JSON object is one of:",
+    "",
+    ...objects,
+    "",
+    note,
+  ].join("\n");
+}
+
+export const blockedObject =
+  '{"outcome": "blocked", "reason": "<the underlying cause and evidence>"}';
+
 /** The text of the last fenced `nibfin-result` block, if any block is complete. */
 function lastResultBlock(finalMessage: string): string | undefined {
   let block: string[] | undefined;
