@@ -94,4 +94,4 @@ archive with the system `tar`.
   `prepareTools`. The `PATH` entries are for the agent's tool processes only: Core's
   own CLIs (agent CLIs, rulesync) keep running on the image's Node, started through
   Core's Node by absolute path, not through `env node` on the changed `PATH`.
-- #666 puts `uv` in the image, beside `tar`.
+- #666 ships `uv` in the image; `tar` comes with its base image.
