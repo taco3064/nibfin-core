@@ -1,5 +1,6 @@
 export { enableProjectMcpServers, projectMcpSetting } from "./claude-settings.ts";
 export { AgentError, type AgentErrorCode, type AgentErrorDetails } from "./errors.ts";
+export { childEnvironment } from "./environment.ts";
 export type { ByteSink, Command } from "./process.ts";
 export {
   loginCommand,
