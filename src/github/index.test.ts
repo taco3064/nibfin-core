@@ -27,6 +27,7 @@ test("the github module exports its public API", () => {
     "readDependencies",
     "readIssueBranches",
     "readIssueSnapshot",
+    "readIssueText",
     "readPullRequests",
     "readRequiredCheckResults",
     "readRequiredChecks",

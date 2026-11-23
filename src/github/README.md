@@ -79,6 +79,10 @@ Results: `success`, `neutral`, `skipped` succeed; `failure`, `cancelled`, `timed
 `action_required` and a missing conclusion, is pending. The CI stages return the
 required checks and their results for the merge admission (#673).
 
+The snapshot carries no Issue text. `readIssueText(client, issue)` reads an Issue's
+current `{ title, body }` (an empty description is `""`), from any repository the
+credential covers (#671).
+
 `readBlocking(client, issue)` lists the Issues an Issue blocks, across repositories,
 checked against its summary the same way (#673).
 
