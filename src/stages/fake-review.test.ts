@@ -40,6 +40,10 @@ export interface ReviewWorld extends DeliveryWorld {
   pullCommits: Map<number, string[]>;
   /** Versions (`userContentEdits.totalCount`) by comment id. */
   edits: Map<number, number>;
+  /** Heads right before each force push, by pull request number. */
+  forcePushes: Map<number, string[]>;
+  /** Commits ahead of `main` by head; a head missing here is gone (404). */
+  ahead: Map<string, string[]>;
   /** Answers the merge; merges the pull request when unset. */
   mergeAnswer: ((request: FakeRequest) => FakeResponse) | undefined;
   /** Issues `acme/app#1` blocks; set before the run. */
@@ -135,6 +139,13 @@ function routePullDetails(world: ReviewWorld) {
         return { data: { sha: pull.mergeSha, merged: true, message: "Merged" } };
       };
     }
+    const compare = /^GET \/repos\/acme\/app\/compare\/main\.\.\.(.+)$/.exec(key);
+    if (compare !== null) {
+      const commits = world.ahead.get(compare[1]);
+      return commits === undefined
+        ? { status: 404, data: { message: "Not Found" } }
+        : { data: { commits: commits.map((sha) => ({ sha })) } };
+    }
     if (/^GET \/repos\/acme\/app\/issues\/comments\/\d+$/.test(key)) {
       const id = Number(/(\d+)$/.exec(key)?.[1]);
       return { data: { id, node_id: `IC_${id}` } };
@@ -172,7 +183,17 @@ function routeRepository(world: ReviewWorld) {
     return paged([...(answer.data as unknown[]), ...world.rules])(request);
   });
   routes.set("POST /graphql", (request) => {
-    const { variables } = request.body as { variables: { id: string } };
+    const { query, variables } = request.body as {
+      query: string;
+      variables: { id: string; number: number };
+    };
+    if (query.includes("HeadRefForcePushedEvent")) {
+      const heads = world.forcePushes.get(variables.number) ?? [];
+      const nodes = heads.map((oid) => ({ beforeCommit: { oid } }));
+      const pageInfo = { hasNextPage: false, endCursor: null };
+      const timelineItems = { pageInfo, nodes };
+      return { data: { data: { repository: { pullRequest: { timelineItems } } } } };
+    }
     const id = Number(variables.id.slice("IC_".length));
     const totalCount = world.edits.get(id) ?? 0;
     return { data: { data: { node: { userContentEdits: { totalCount } } } } };
@@ -256,6 +277,8 @@ export async function reviewWorld(options: WorldOptions = {}): Promise<ReviewWor
     reviews: [],
     pullCommits: new Map(),
     edits: new Map(),
+    forcePushes: new Map(),
+    ahead: new Map(),
     mergeAnswer: undefined,
     blocking: [],
     mergeRequests: [],

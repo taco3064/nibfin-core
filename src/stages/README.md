@@ -275,10 +275,11 @@ from GitHub data:
 - for each merged PR, the base's current required checks and their results on its
   head;
 - the CD runs of each merge, with conclusions and URLs;
-- counts: CD-fix PRs (`-cd-<k>` branches), CI-fix rounds (distinct commits of the
-  PRs, as GitHub lists them now, with a failed required check; heads removed by a
-  force push are not counted) and review rounds (the versions of each PR's marked
-  `review` comment from `userContentEdits`, 0 without one).
+- counts: CD-fix PRs (`-cd-<k>` branches), CI-fix rounds (distinct commits with a
+  failed required check among each PR's current commits and the commits of every
+  head it had right before a force push, such as a rebase; a replaced head GitHub
+  no longer has is logged and not counted) and review rounds (the versions of each
+  PR's marked `review` comment from `userContentEdits`, 0 without one).
 
 Then it re-reads the snapshot and closes only when the Issue still derives `done`
 with the same CD run ids and conclusions; otherwise (a late run, `pause`, …) it stops

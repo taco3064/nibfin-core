@@ -44,6 +44,11 @@ describe("runReviewStage closing", () => {
     w.checkRuns.set("c1", [checkRun(1, "build", { conclusion: "failure" })]);
     w.checkRuns.set(w.head, [checkRun(2, "build")]);
     w.checkRuns.set("fix-head", [checkRun(3, "build")]);
+    // Before a rebase PR 7 had heads old-1 (on old-0) and one GitHub no longer has.
+    w.forcePushes.set(7, ["old-1", "gone"]);
+    w.ahead.set("old-1", ["old-0", "old-1", "c1"]);
+    w.checkRuns.set("old-0", [checkRun(4, "build", { conclusion: "failure" })]);
+    w.checkRuns.set("old-1", [checkRun(5, "build", { conclusion: "timed_out" })]);
     const review = addPullComment(w, 7, "<!-- nibfin:review -->\nReviewed head: c1");
     w.edits.set(review.id, 3);
     addPullComment(w, 8, "<!-- nibfin:review -->\nReviewed head: fix-head");
@@ -85,13 +90,14 @@ describe("runReviewStage closing", () => {
         "### Counts",
         "",
         "- CD-fix pull requests: 1",
-        "- CI-fix rounds: 1",
+        "- CI-fix rounds: 3",
         "- Review rounds: 4",
       ].join("\n"),
     ]);
     assert.equal(w.issues.main.state, "closed");
     assert.ok(w.issues.main.labels.includes("delivered"));
     const logs = w.agent.logs.join("\n");
+    assert.match(logs, /#7: the force-pushed head gone is gone; not counted/);
     assert.match(logs, /Closed acme\/app#1 as delivered/);
     assert.match(logs, /Waking acme\/app#2 \(deliver\)/);
     assert.match(logs, /Not waking acme\/app#3: no-assignee/);
