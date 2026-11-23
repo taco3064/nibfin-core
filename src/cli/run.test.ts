@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { fakeActor, fakeToken } from "../github/fake-github.test.ts";
 import { type ActingClient, GitHubError } from "../github/index.ts";
+import { fakeIssue, fakeIssues, jobContext } from "../stages/fake-job.test.ts";
 import { type JobContext, StageError } from "../stages/index.ts";
 import { defaultRunDeps, run, type RunDeps, usage } from "./run.ts";
 import { readVersion } from "./version.ts";
@@ -66,6 +67,10 @@ describe("run --stage", () => {
           seen.context = context;
           return outcome(context);
         },
+        deliver: (context) => {
+          seen.context = context;
+          return outcome(context);
+        },
       },
     };
     return { deps, seen };
@@ -80,16 +85,35 @@ describe("run --stage", () => {
     assert.equal(t.seen.context?.issue, 1);
   });
 
-  it("uses the Shape stage by default", () => {
-    assert.deepEqual(Object.keys(defaultRunDeps.stages), ["shape"]);
+  it("runs the Deliver stage with its reason", async () => {
+    const t = stageDeps(() => Promise.resolve(0));
+    const deliver = ["run", "--stage", "deliver", ...args, "--reason", "cd-failure"];
+    const result = await capture(deliver, t.deps);
+    assert.deepEqual(result, { code: 0, stdout: "", stderr: "" });
+    assert.equal(t.seen.context?.reason, "cd-failure");
   });
 
-  for (const stage of [
-    [],
-    ["--stage"],
-    ["--stage", "deliver"],
-    ["--stage", "toString"],
-  ]) {
+  it("uses the Shape and Deliver stages by default", async () => {
+    assert.deepEqual(Object.keys(defaultRunDeps.stages), ["shape", "deliver"]);
+    const issues = fakeIssues(fakeIssue({ state: "closed" }));
+    const lines: string[] = [];
+    const write = process.stdout.write.bind(process.stdout);
+    process.stdout.write = (text: string) => {
+      lines.push(text);
+      return true;
+    };
+    try {
+      const context = jobContext("/workspace");
+      assert.equal(await defaultRunDeps.stages.deliver(context, issues.github.client), 0);
+    } finally {
+      process.stdout.write = write;
+    }
+    assert.deepEqual(lines, [
+      "acme/app#1 is not at the deliver stage: ineligible (closed) (no reason)\n",
+    ]);
+  });
+
+  for (const stage of [[], ["--stage"], ["--stage", "accept"], ["--stage", "toString"]]) {
     it(`prints usage for ${JSON.stringify(stage)}`, async () => {
       const t = stageDeps(() => Promise.resolve(0));
       const result = await capture(["run", ...stage, ...args], t.deps);
