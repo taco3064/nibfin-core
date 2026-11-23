@@ -4,8 +4,16 @@ import {
   summarizePullRequest,
 } from "./branches.ts";
 import type { ActingClient } from "./client.ts";
-import { GitHubError, isUnknownOutcome, read, statusOf } from "./errors.ts";
+import {
+  GitHubError,
+  isUnknownOutcome,
+  read,
+  responseMessage,
+  statusOf,
+} from "./errors.ts";
 import { nibfinLabels } from "./labels.ts";
+import type { MergeMethod } from "./merge-methods.ts";
+import { readPullRequest } from "./pull-request.ts";
 import { formatIssue, type IssueRef, labelNames, type Repo } from "./repo.ts";
 
 interface WriteRecovery<T> {
@@ -311,6 +319,67 @@ export async function closeDelivered(
     {
       confirm: async () =>
         (await readIssueState(client, issue)) === "closed" ? true : undefined,
+    },
+  );
+}
+
+export interface MergeRequest {
+  number: number;
+  /** The head the pull request must still have; GitHub answers 409 otherwise. */
+  sha: string;
+  method: MergeMethod;
+}
+
+/** What a merge did; `not-mergeable` keeps GitHub's message. */
+export type MergeResult =
+  | { outcome: "merged"; mergeCommitSha: string | null }
+  | { outcome: "head-changed" }
+  | { outcome: "not-mergeable"; message: string };
+
+/**
+ * Merges pull request `number` only at head `sha` with `method`. 409 is
+ * `head-changed`, 405 `not-mergeable` with GitHub's message; any other 4xx (403, 422,
+ * …) is `GITHUB_WRITE_REJECTED`. An unknown outcome re-reads the pull request: merged
+ * at `sha` is the merge, otherwise `GITHUB_WRITE_UNCONFIRMED`.
+ */
+export async function mergePullRequest(
+  client: ActingClient,
+  repo: Repo,
+  request: MergeRequest,
+): Promise<MergeResult> {
+  const where = `${repo.owner}/${repo.repo}#${request.number}`;
+  return write<MergeResult>(
+    `merge pull request ${where} at ${request.sha}`,
+    async () => {
+      const { data } = await client.request(
+        "PUT /repos/{owner}/{repo}/pulls/{pull_number}/merge",
+        {
+          ...repo,
+          pull_number: request.number,
+          sha: request.sha,
+          merge_method: request.method,
+        },
+      );
+      return { outcome: "merged", mergeCommitSha: data.sha };
+    },
+    {
+      confirm: async () => {
+        const pull = await readPullRequest(client, repo, request.number);
+        return pull.merged && pull.headSha === request.sha
+          ? { outcome: "merged", mergeCommitSha: pull.mergeCommitSha }
+          : undefined;
+      },
+      recover: (error) => {
+        const status = statusOf(error);
+        if (status === 409) {
+          return Promise.resolve({ outcome: "head-changed" });
+        }
+        if (status === 405) {
+          const message = responseMessage(error) ?? "The merge cannot be performed";
+          return Promise.resolve({ outcome: "not-mergeable", message });
+        }
+        return Promise.resolve(undefined);
+      },
     },
   );
 }
