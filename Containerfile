@@ -11,15 +11,20 @@ RUN npm run build && npm prune --omit=dev
 
 FROM node:24-bookworm-slim
 
-# GitHub CLI from its official apt repository (cli.github.com/packages).
+# GitHub CLI from its official apt repository (cli.github.com/packages). The slim base
+# has no CA bundle, so ca-certificates comes first; apt-cache policy then fails the build
+# if apt could not read that repository, instead of falling back to Debian's own gh.
 ADD --chmod=644 https://cli.github.com/packages/githubcli-archive-keyring.gpg \
   /etc/apt/keyrings/githubcli-archive-keyring.gpg
-RUN echo "deb [arch=$(dpkg --print-architecture)" \
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends ca-certificates \
+  && echo "deb [arch=$(dpkg --print-architecture)" \
     "signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg]" \
     "https://cli.github.com/packages stable main" \
     > /etc/apt/sources.list.d/github-cli.list \
   && apt-get update \
-  && apt-get install -y --no-install-recommends ca-certificates git gh \
+  && apt-cache policy gh | grep -q "https://cli.github.com/packages" \
+  && apt-get install -y --no-install-recommends git gh \
   && rm -rf /var/lib/apt/lists/*
 
 # uv from Astral's official image, outside HOME so a login volume cannot shadow it.
