@@ -29,6 +29,7 @@ test("the github module exports its public API", () => {
     "readCdRuns",
     "readCi",
     "readCommentVersions",
+    "readCommentWithVersions",
     "readCommitsAhead",
     "readDependencies",
     "readForcePushedHeads",

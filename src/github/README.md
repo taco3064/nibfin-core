@@ -146,6 +146,9 @@ otherwise it fails with `GITHUB_WRITE_UNCONFIRMED`.
 - `readCommentVersions(client, repo, commentId)`: the comment's versions from GraphQL
   `userContentEdits`, which is empty for a comment never edited (1 version) and once
   edited lists every edit plus the original (`totalCount` versions).
+- `readCommentWithVersions(client, repo, commentId)`: the comment's `body` and its
+  versions (as above) from one GraphQL query on the comment node, so the body read
+  is the one the versions count (the Shape version of #686).
 
 Classic branch protection details (required approvals, allowed methods) need
 Administration, so they are not read; GitHub still enforces them on the merge.
