@@ -2,11 +2,17 @@ import { childEnvironment } from "../agent/index.ts";
 import { runCaptured } from "../agent/process.ts";
 import { StageError } from "./errors.ts";
 
-/** The committed head and the worktree changes, untracked files included. */
+/**
+ * The committed head and every worktree entry Git reports: changes, untracked files
+ * and ignored files (`.gitignore` and `info/exclude`), each file listed on its own.
+ */
 export interface WorkspaceState {
   head: string;
-  status: string;
+  /** Lines of `git status --porcelain --ignored --untracked-files=all`. */
+  entries: string[];
 }
+
+const ignoredPrefix = "!! ";
 
 async function git(workspace: string, args: readonly string[]): Promise<string> {
   const { status, stdout, stderr } = await runCaptured({
@@ -24,26 +30,47 @@ async function git(workspace: string, args: readonly string[]): Promise<string> 
 
 export async function readWorkspaceState(workspace: string): Promise<WorkspaceState> {
   const head = (await git(workspace, ["rev-parse", "--verify", "HEAD"])).trim();
-  const status = await git(workspace, ["status", "--porcelain", "--untracked-files=all"]);
-  return { head, status };
+  const status = await git(workspace, [
+    "status",
+    "--porcelain",
+    "--ignored",
+    "--untracked-files=all",
+  ]);
+  const entries = status.split("\n").filter((line) => line !== "");
+  return { head, entries };
+}
+
+function modified(message: string): StageError {
+  return new StageError("STAGE_WORKSPACE_MODIFIED", message);
+}
+
+/** Fails on any change or untracked file; ignored files may exist. */
+export function requireClean(state: WorkspaceState, role: string): void {
+  const changes = state.entries.filter((entry) => !entry.startsWith(ignoredPrefix));
+  if (changes.length > 0) {
+    throw modified(`The workspace has changes before ${role}:\n${changes.join("\n")}`);
+  }
 }
 
 /**
- * Fails with `STAGE_WORKSPACE_MODIFIED` unless the workspace is clean and, when
- * `before` is given, still at the same `HEAD`.
+ * Fails unless `after` is at the same `HEAD` and lists exactly the entries of `before`,
+ * ignored files included. The message lists added (`+`) and removed (`-`) entries.
  */
-export function requireUnchanged(
-  state: WorkspaceState,
+export function requireSame(
+  before: WorkspaceState,
+  after: WorkspaceState,
   role: string,
-  before?: WorkspaceState,
 ): void {
-  const when = before === undefined ? "before" : "after";
-  if (before !== undefined && state.head !== before.head) {
-    const message = `${role} moved HEAD from ${before.head} to ${state.head}`;
-    throw new StageError("STAGE_WORKSPACE_MODIFIED", message);
+  if (after.head !== before.head) {
+    throw modified(`${role} moved HEAD from ${before.head} to ${after.head}`);
   }
-  if (state.status !== "") {
-    const message = `The workspace has changes ${when} ${role}:\n${state.status}`;
-    throw new StageError("STAGE_WORKSPACE_MODIFIED", message);
+  const added = after.entries.filter((entry) => !before.entries.includes(entry));
+  const removed = before.entries.filter((entry) => !after.entries.includes(entry));
+  const lines = [
+    ...added.map((entry) => `+ ${entry}`),
+    ...removed.map((entry) => `- ${entry}`),
+  ];
+  if (lines.length > 0) {
+    throw modified(`${role} changed the workspace:\n${lines.join("\n")}`);
   }
 }

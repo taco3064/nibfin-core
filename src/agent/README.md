@@ -24,6 +24,9 @@ headless in `workspace` and returns `{ exitCode, finalMessage }`.
   (`.js`, `.mjs`, `.cjs` or a `#!` line running `node`), runs as `process.execPath`
   plus the script, so Core's CLIs never start on a repository's Node. Without
   entries nothing is resolved or changed.
+- **Before start.** The optional `beforeStart` hook runs after rulesync and the
+  config home are prepared and right before the CLI starts, so a stage can record
+  the workspace the CLI will see (#671). A rejection stops the run.
 - **Agent config.** When the workspace has `.rulesync/`, `rulesync --json generate`
   writes the provider's rules, MCP and skill files first. The written paths go to the
   repository's `info/exclude`, so they are never committed.

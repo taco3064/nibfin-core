@@ -12,8 +12,14 @@ import {
   upsertMarkedComment,
 } from "../github/index.ts";
 import type { JobContext } from "./context.ts";
+import { StageError } from "./errors.ts";
 import { composePrompt, type PromptSection, type StageRole } from "./prompt.ts";
-import { readWorkspaceState, requireUnchanged } from "./workspace.ts";
+import {
+  readWorkspaceState,
+  requireClean,
+  requireSame,
+  type WorkspaceState,
+} from "./workspace.ts";
 
 /** The Issue comment that asks for a new agent login. */
 export const loginCommentKey = "agent-login";
@@ -96,7 +102,9 @@ async function settleLoginComment(job: StageJob): Promise<void> {
 
 /**
  * Runs `role` once with the role's skill text and `sections`, and returns the agent's
- * final message. A read-only role must leave the workspace clean at the same `HEAD`.
+ * final message. A read-only role must start in a workspace without changes and leave
+ * it exactly as recorded right before the CLI started (same `HEAD`, same entries,
+ * ignored files included).
  * A missing login is reported on the Issue before the error is rethrown.
  */
 export async function runStageAgent(
@@ -109,10 +117,12 @@ export async function runStageAgent(
     workspace: context.workspace,
   });
   const prompt = composePrompt({ skill, role, sections });
-  const before = role.readOnly ? await readWorkspaceState(context.workspace) : undefined;
-  if (before !== undefined) {
-    requireUnchanged(before, role.title);
-  }
+  // Recorded after rulesync generated its files, right before the CLI starts.
+  let before: WorkspaceState | undefined;
+  const recordWorkspace = async () => {
+    before = await readWorkspaceState(context.workspace);
+    requireClean(before, role.title);
+  };
   let finalMessage: string;
   try {
     ({ finalMessage } = await deps.runAgent({
@@ -122,6 +132,7 @@ export async function runStageAgent(
       home: context.agentHome,
       ...(context.model === undefined ? {} : { model: context.model }),
       pathEntries: job.pathEntries,
+      ...(role.readOnly ? { beforeStart: recordWorkspace } : {}),
     }));
   } catch (error) {
     if (error instanceof AgentError && error.code === "AGENT_LOGIN_REQUIRED") {
@@ -131,8 +142,12 @@ export async function runStageAgent(
     throw error;
   }
   await settleLoginComment(job);
-  if (before !== undefined) {
-    requireUnchanged(await readWorkspaceState(context.workspace), role.title, before);
+  if (role.readOnly) {
+    if (before === undefined) {
+      const message = `The workspace was not recorded before ${role.title} started`;
+      throw new StageError("STAGE_WORKSPACE_MODIFIED", message);
+    }
+    requireSame(before, await readWorkspaceState(context.workspace), role.title);
   }
   return finalMessage;
 }

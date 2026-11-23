@@ -188,6 +188,8 @@ export function fakeDeps(steps: AgentStep[], config?: NibfinConfig): FakeDeps {
   };
   const deps: StageDeps = {
     runAgent: async (options) => {
+      // Like runAgent: the hook runs right before the CLI would start.
+      await options.beforeStart?.();
       fake.runs.push(options);
       const step = steps.shift();
       if (step === undefined) {
