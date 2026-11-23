@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtemp, readdir, readFile, rm, symlink } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { mkdtemp, readdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { after, before, describe, it } from "node:test";
 import { ConfigError } from "./errors.ts";
@@ -380,5 +381,20 @@ describe("prepareTools", () => {
     const { workspace, cacheDir } = await job();
     await symlink(workspace, cacheDir, "dir");
     await failure(prepareTools({}, { workspace, cacheDir }));
+  });
+
+  it("reports an unusable cache with the original cause", async () => {
+    const { workspace, cacheDir } = await job();
+    await writeFile(cacheDir, "not a directory");
+    const error = await failure(prepareTools({}, { workspace, cacheDir }));
+    assert.match(error.message, /^Could not prepare the tool cache /);
+    assert.ok(error.cause instanceof Error);
+  });
+
+  it("rechecks versions before they reach cache paths or URLs", async () => {
+    const { cacheDir, options } = await job({ fetch: unusedFetch });
+    const error = await failure(prepareTools({ node: "../22.15.0" }, options));
+    assert.equal(error.message, 'Could not install node: "../22.15.0" is not a version');
+    assert.equal(existsSync(cacheDir), false);
   });
 });

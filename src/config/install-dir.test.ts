@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readdir, rm } from "node:fs/promises";
+import { mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { after, before, describe, it } from "node:test";
 import { ConfigError } from "./errors.ts";
@@ -25,5 +25,18 @@ describe("installOnce", () => {
         (error.cause as NodeJS.ErrnoException).code === "ENOENT",
     );
     assert.deepEqual(await readdir(join(root, "node")), []);
+  });
+
+  it("reports an unusable tool directory as an install failure", async () => {
+    const cache = await mkdtemp(join(root, "cache-"));
+    await writeFile(join(cache, "go"), "not a directory");
+    await assert.rejects(
+      installOnce(cache, "go", "1.24.2", () => assert.fail("install must not run")),
+      (error: unknown) =>
+        error instanceof ConfigError &&
+        error.code === "TOOL_INSTALL_FAILED" &&
+        error.message.startsWith("Could not install go 1.24.2: ") &&
+        error.cause instanceof Error,
+    );
   });
 });
