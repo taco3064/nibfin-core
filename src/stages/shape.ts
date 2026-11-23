@@ -1,13 +1,8 @@
 import {
   type ActingClient,
-  commentMarker,
   deriveStage,
-  findMarkedComment,
-  GitHubError,
   type IssueRef,
-  nibfinLabels,
   readIssueSnapshot,
-  setLabels,
   type Stage,
   upsertMarkedComment,
 } from "../github/index.ts";
@@ -21,7 +16,9 @@ import {
 } from "./agent.ts";
 import type { JobContext } from "./context.ts";
 import { StageError } from "./errors.ts";
+import { type NextAction, noNextAction, writeNextAction } from "./next.ts";
 import type { PromptSection, StageRole } from "./prompt.ts";
+import { notAtShape, publishShape, shapeBlockedCommentKey } from "./shape-publish.ts";
 import {
   parseAuthorResult,
   parseValidatorResult,
@@ -31,18 +28,17 @@ import {
 import {
   issueTextChanged,
   readShapeSources,
-  shapeCommentKey,
-  shapeOfComment,
   type ShapeSources,
   sourceSections,
 } from "./shape-sources.ts";
+import {
+  readCurrentShape,
+  readShapeWrong,
+  type ShapeWrongReport,
+} from "./shape-wrong.ts";
 
+export { shapeBlockedCommentKey } from "./shape-publish.ts";
 export { shapeCommentKey } from "./shape-sources.ts";
-
-/** The comment key of the report a blocked Shape leaves on the Issue. */
-export const shapeBlockedCommentKey = "shape-blocked";
-
-const blockedResolvedBody = "Resolved: the Shape was approved and published.";
 
 function describeStage(stage: Stage): string {
   return stage.stage === "ineligible" ? `ineligible (${stage.reason})` : stage.stage;
@@ -50,17 +46,16 @@ function describeStage(stage: Stage): string {
 
 type SnapshotReader = Pick<StageJob, "context" | "client" | "deps">;
 
-/** The current snapshot when the Issue is at the Shape stage; logs it otherwise. */
-async function eligibleSnapshot(job: SnapshotReader) {
+/** The current snapshot and its derived stage; logs a stage other than Shape. */
+async function readStage(job: SnapshotReader) {
   const { context, client, deps } = job;
   const snapshot = await readIssueSnapshot(client, context.repo, context.issue);
   const stage = deriveStage(snapshot);
-  if (stage.stage === "shape") {
-    return snapshot;
+  if (stage.stage !== "shape") {
+    const where = `${context.repo.owner}/${context.repo.repo}#${context.issue}`;
+    deps.log(`${where} is not at the shape stage: ${describeStage(stage)}`);
   }
-  const where = `${context.repo.owner}/${context.repo.repo}#${context.issue}`;
-  deps.log(`${where} is not at the shape stage: ${describeStage(stage)}`);
-  return undefined;
+  return { snapshot, stage };
 }
 
 function listFindings(findings: readonly string[]): string {
@@ -87,90 +82,22 @@ interface Revision {
 }
 
 const proposeTask = "Propose the Shape for the current Issue.";
+const rewriteTask =
+  "Rewrite the Shape: the previous one was found wrong. Use the reason below and " +
+  "the previous Shape as reference, and return the complete rewritten Shape.";
 const reviseTask =
   "Revise the previous proposed Shape so that it resolves every Validator finding, " +
   "and return the complete revised Shape.";
 
-async function author(
-  job: StageJob,
-  issue: IssueRef,
-  sources: ShapeSources,
-  revision: Revision | undefined,
-): Promise<string> {
-  const task = revision === undefined ? proposeTask : reviseTask;
-  const sections: PromptSection[] = [
-    { title: "Task", body: task },
-    ...sourceSections(sources),
-  ];
-  if (revision !== undefined) {
-    sections.push(
-      { title: "Previous proposed Shape", body: revision.previous },
-      { title: "Validator findings", body: listFindings(revision.findings) },
-    );
-  }
-  const message = await runStageAgent(job, shapeAuthorRole, sections);
-  const result = parseAuthorResult(message);
-  if (result.outcome === "blocked") {
-    return block(job, issue, shapeAuthorRole, result.reason);
-  }
-  return result.shape;
-}
+const reasonTitle = "Why the previous Shape is wrong";
+const resolvedNote =
+  "This report is already marked resolved by the current Shape; check that the " +
+  "Shape still resolves it.";
 
-/** The Validator sees only the sources and the proposed Shape, never the Author's run. */
-async function validate(job: StageJob, sources: ShapeSources, shape: string) {
-  const sections: PromptSection[] = [
-    {
-      title: "Task",
-      body: "Validate the proposed Shape for the current Issue independently.",
-    },
-    ...sourceSections(sources),
-    { title: "Proposed Shape", body: shape },
-  ];
-  const message = await runStageAgent(job, shapeValidatorRole, sections);
-  return parseValidatorResult(message);
-}
-
-function unconfirmed(operation: string, reason: string): GitHubError {
-  return new GitHubError("GITHUB_WRITE_UNCONFIRMED", operation, new Error(reason));
-}
-
-/** Publishes the approved Shape and `shaped`, and confirms both by reading them back. */
-async function publish(job: StageJob, issue: IssueRef, shape: string): Promise<void> {
-  const { client, deps } = job;
-  const comment = await upsertMarkedComment(client, issue, shapeCommentKey, shape);
-  if (comment.body !== `${commentMarker(shapeCommentKey)}\n${shape}`) {
-    throw unconfirmed("publish the Shape", "The read-back comment differs");
-  }
-  const labels = await setLabels(client, issue, { add: [nibfinLabels.shaped] });
-  if (!labels.includes(nibfinLabels.shaped)) {
-    throw unconfirmed("add shaped", "The read-back labels lack shaped");
-  }
-  if (await findMarkedComment(client, issue, shapeBlockedCommentKey)) {
-    await upsertMarkedComment(client, issue, shapeBlockedCommentKey, blockedResolvedBody);
-  }
-  deps.log(`Published the Shape: ${comment.url}`);
-}
-
-/**
- * The Shape stage: an Author proposes (or revises), a separate Validator decides, and
- * only an approved Shape for the still-current Issue is published. Returns the exit
- * code; stops with `STAGE_BLOCKED`, `STAGE_RESULT_INVALID` or another coded error.
- */
-export async function runShapeStage(
-  context: JobContext,
-  client: ActingClient,
-  deps: StageDeps = defaultStageDeps,
-): Promise<number> {
-  const snapshot = await eligibleSnapshot({ context, client, deps });
-  if (snapshot === undefined) {
-    return 0;
-  }
-  const job = await prepareStageJob(context, client, deps);
-  const issue = issueOf(context);
-  const sources = await readShapeSources(client, snapshot);
-  const existing = await findMarkedComment(client, issue, shapeCommentKey);
-  const shape = existing === undefined ? "" : shapeOfComment(existing.body);
-  return shapeRound(job, issue, { round: 1, shape, sources });
+/** The reason of an active `shape-wrong` report as a prompt section. */
+function reasonSection(report: ShapeWrongReport): PromptSection {
+  const body = report.unresolved ? report.reason : `${report.reason}\n\n${resolvedNote}`;
+  return { title: reasonTitle, body };
 }
 
 interface RoundState {
@@ -180,40 +107,144 @@ interface RoundState {
   /** Set when the Validator required changes to `shape`. */
   revision?: Revision;
   sources: ShapeSources;
+  /** An active report that the previous Shape is wrong; every role reads it. */
+  report?: ShapeWrongReport;
+  /** The Shape reported wrong while the report is pending: the Author rewrites it. */
+  wrongShape?: string;
+}
+
+async function author(job: StageJob, issue: IssueRef, state: RoundState) {
+  const { revision, report, wrongShape } = state;
+  const rewrite = revision === undefined && wrongShape !== undefined;
+  const task = revision !== undefined ? reviseTask : rewrite ? rewriteTask : proposeTask;
+  const sections: PromptSection[] = [
+    { title: "Task", body: task },
+    ...sourceSections(state.sources),
+  ];
+  if (rewrite) {
+    sections.push({ title: "Previous Shape", body: wrongShape });
+  }
+  if (revision !== undefined) {
+    sections.push(
+      { title: "Previous proposed Shape", body: revision.previous },
+      { title: "Validator findings", body: listFindings(revision.findings) },
+    );
+  }
+  if (report !== undefined) {
+    sections.push(reasonSection(report));
+  }
+  const message = await runStageAgent(job, shapeAuthorRole, sections);
+  const result = parseAuthorResult(message);
+  if (result.outcome === "blocked") {
+    return block(job, issue, shapeAuthorRole, result.reason);
+  }
+  return result.shape;
+}
+
+const validateTask = "Validate the proposed Shape for the current Issue independently.";
+const resolvesTask =
+  " Also check that it resolves why the previous Shape was found wrong (below).";
+
+/** The Validator sees only the sources, the proposed Shape and an active report. */
+async function validate(job: StageJob, state: RoundState, shape: string) {
+  const { report } = state;
+  const sections: PromptSection[] = [
+    {
+      title: "Task",
+      body: report === undefined ? validateTask : validateTask + resolvesTask,
+    },
+    ...sourceSections(state.sources),
+    { title: "Proposed Shape", body: shape },
+  ];
+  if (report !== undefined) {
+    sections.push(reasonSection(report));
+  }
+  const message = await runStageAgent(job, shapeValidatorRole, sections);
+  return parseValidatorResult(message);
+}
+
+/**
+ * The Shape stage: an Author proposes (or revises, or rewrites a Shape reported
+ * wrong), a separate Validator decides, and only an approved Shape for the
+ * still-current Issue is published. Writes the next action (none unless a rewrite
+ * restarts delivery, see `publishShape` and `notAtShape`) and returns the exit code;
+ * stops with `STAGE_BLOCKED`, `STAGE_RESULT_INVALID` or another coded error.
+ */
+export async function runShapeStage(
+  context: JobContext,
+  client: ActingClient,
+  deps: StageDeps = defaultStageDeps,
+): Promise<number> {
+  let next: NextAction;
+  try {
+    next = await shapeStage(context, client, deps);
+  } catch (error) {
+    await writeNextAction(context, noNextAction);
+    throw error;
+  }
+  await writeNextAction(context, next);
+  return 0;
+}
+
+async function shapeStage(
+  context: JobContext,
+  client: ActingClient,
+  deps: StageDeps,
+): Promise<NextAction> {
+  const issue = issueOf(context);
+  const { snapshot, stage } = await readStage({ context, client, deps });
+  if (stage.stage !== "shape") {
+    return notAtShape({ client, issue, log: deps.log }, stage);
+  }
+  const job = await prepareStageJob(context, client, deps);
+  const sources = await readShapeSources(client, snapshot);
+  const current = await readCurrentShape(client, issue);
+  const report = await readShapeWrong(client, issue, current?.version, deps.log);
+  const active = report?.active === true ? report : undefined;
+  if (report?.pending === true) {
+    deps.log(`${report.comment.url} reports the Shape wrong; rewriting it`);
+    const wrongShape = current?.text ?? "";
+    return shapeRound(job, issue, { round: 1, shape: "", sources, report, wrongShape });
+  }
+  const shape = current?.text ?? "";
+  return shapeRound(job, issue, { round: 1, shape, sources, report: active });
 }
 
 /**
  * One round: the Author proposes or revises when needed, then a fresh Validator
  * decides. Rejections and Issue edits start another round, without a limit.
  */
-async function shapeRound(job: StageJob, issue: IssueRef, state: RoundState) {
+async function shapeRound(
+  job: StageJob,
+  issue: IssueRef,
+  state: RoundState,
+): Promise<NextAction> {
   const { round, revision, sources } = state;
   const { deps } = job;
   let { shape } = state;
   if (shape === "" || revision !== undefined) {
     deps.log(`Round ${round}: ${shapeAuthorRole.title}`);
-    shape = await author(job, issue, sources, revision);
+    shape = await author(job, issue, state);
   }
   deps.log(`Round ${round}: ${shapeValidatorRole.title}`);
-  const verdict = await validate(job, sources, shape);
+  const verdict = await validate(job, state, shape);
   if (verdict.outcome === "blocked") {
     return block(job, issue, shapeValidatorRole, verdict.reason);
   }
-  const next = { round: round + 1, shape, sources };
+  const next = { ...state, round: round + 1, shape, revision: undefined };
   if (verdict.outcome === "changes-required") {
     deps.log(`Round ${round}: changes required\n${listFindings(verdict.findings)}`);
     const changes = { previous: shape, findings: verdict.findings };
     return shapeRound(job, issue, { ...next, revision: changes });
   }
-  const snapshot = await eligibleSnapshot(job);
-  if (snapshot === undefined) {
-    return 0;
+  const { snapshot, stage } = await readStage(job);
+  if (stage.stage !== "shape") {
+    return noNextAction;
   }
   const current = await readShapeSources(job.client, snapshot);
   if (issueTextChanged(sources, current)) {
     deps.log(`Round ${round}: the Issue changed; validating again`);
     return shapeRound(job, issue, { ...next, sources: current });
   }
-  await publish(job, issue, shape);
-  return 0;
+  return publishShape({ client: job.client, issue, log: deps.log }, shape);
 }

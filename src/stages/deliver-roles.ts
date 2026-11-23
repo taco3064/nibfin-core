@@ -15,7 +15,15 @@ export const writerRole: StageRole = {
   title: "Writer",
   skill: "deliver",
   readOnly: false,
-  resultFormat: resultFormat(['{"outcome": "done"}', blockedObject], postedNote),
+  resultFormat: resultFormat(
+    [
+      '{"outcome": "done"}',
+      '{"outcome": "shape-wrong", "reason": "<the exact conflicting Shape, Issue and ' +
+        'product-authority clauses>"}',
+      blockedObject,
+    ],
+    postedNote,
+  ),
 };
 
 export const acceptorRole: StageRole = {
@@ -33,7 +41,10 @@ export const acceptorRole: StageRole = {
   ),
 };
 
-export type WriterResult = { outcome: "done" } | { outcome: "blocked"; reason: string };
+export type WriterResult =
+  | { outcome: "done" }
+  | { outcome: "shape-wrong"; reason: string }
+  | { outcome: "blocked"; reason: string };
 
 export type AcceptorResult =
   | { outcome: "pass" }
@@ -41,11 +52,12 @@ export type AcceptorResult =
   | { outcome: "blocked"; reason: string };
 
 export function parseWriterResult(finalMessage: string): WriterResult {
-  const result = parseAgentResult(finalMessage, ["done", "blocked"] as const);
+  const outcomes = ["done", "shape-wrong", "blocked"] as const;
+  const result = parseAgentResult(finalMessage, outcomes);
   if (result.outcome === "done") {
     return { outcome: "done" };
   }
-  return { outcome: "blocked", reason: textField(result, "reason", finalMessage) };
+  return { outcome: result.outcome, reason: textField(result, "reason", finalMessage) };
 }
 
 export function parseAcceptorResult(finalMessage: string): AcceptorResult {

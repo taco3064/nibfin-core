@@ -7,7 +7,7 @@ import { StageError } from "./errors.ts";
 import { branch } from "./fake-delivery.test.ts";
 import { commitFile, fixtureGit, git } from "./fake-git.test.ts";
 import { addPullComment, type ReviewWorld, reviewWorld } from "./fake-review.test.ts";
-import { agentResult, type AgentStep } from "./fake-job.test.ts";
+import { agentResult, type AgentStep, shapeVersion } from "./fake-job.test.ts";
 import { checkoutReviewedHead } from "./git.ts";
 
 const basic = Buffer.from(`x-access-token:${fakeToken}`).toString("base64");
@@ -68,7 +68,8 @@ describe("runReviewStage review", () => {
     assert.equal(await w.review(), 0);
     assert.deepEqual(w.next(), { stage: "deliver", reason: "review" });
     assert.deepEqual(prCommentBodies(w), [
-      `<!-- nibfin:review -->\nReviewed head: ${w.head}\n\n` +
+      `<!-- nibfin:review -->\nReviewed head: ${w.head}\n` +
+        `Reviewed Shape: ${shapeVersion(w.issues)}\n\n` +
         "Problems found in the review:\n\n- Fix A\n- Fix B",
     ]);
     assert.equal(w.agent.runs.length, 1);
@@ -79,7 +80,8 @@ describe("runReviewStage review", () => {
 
   it("reuses a review comment that already records the head", async () => {
     const w = await world(() => []);
-    addPullComment(w, 7, `<!-- nibfin:review -->\nReviewed head: ${w.head}\n\nX`);
+    const lines = `Reviewed head: ${w.head}\nReviewed Shape: ${shapeVersion(w.issues)}`;
+    addPullComment(w, 7, `<!-- nibfin:review -->\n${lines}\n\nX`);
     assert.equal(await w.review(), 0);
     assert.deepEqual(w.next(), { stage: "deliver", reason: "review" });
     assert.deepEqual(w.agent.runs, []);

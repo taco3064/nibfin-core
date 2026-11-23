@@ -35,6 +35,11 @@ import {
   parseWriterResult,
   writerRole,
 } from "./deliver-roles.ts";
+import {
+  finishShapeReport,
+  ineligibleNextAction,
+  reportWrongShape,
+} from "./deliver-shape-wrong.ts";
 import { StageError } from "./errors.ts";
 import { describeFix } from "./fix-context.ts";
 import {
@@ -81,7 +86,21 @@ export const defaultDeliverDeps: DeliverDeps = {
 type Eligible = Extract<Eligibility, { eligible: true }>;
 
 /** Ends the run without writing: the Issue is not (or no longer) eligible. */
-class Ineligible extends Error {}
+class Ineligible extends Error {
+  /** The re-read that found the Issue ineligible. */
+  readonly eligibility: Eligibility;
+
+  constructor(eligibility: Eligibility) {
+    super("The Issue is no longer eligible");
+    this.eligibility = eligibility;
+  }
+}
+
+/** The Writer's report that the Shape it was given is wrong. */
+interface ShapeReport {
+  version: string;
+  reason: string;
+}
 
 /** One Deliver run on one branch: the Writer and Accept rounds, pushes and the PR. */
 class DeliverRun {
@@ -93,6 +112,8 @@ class DeliverRun {
   readonly eligible: Eligible;
   readonly fix: string | undefined;
   readonly pusher: BranchPusher;
+  /** The last re-read that found the Issue no longer eligible. */
+  lastCheck: Eligibility | undefined;
 
   constructor(options: {
     job: StageJob;
@@ -136,7 +157,15 @@ class DeliverRun {
     }
     const where = now.eligible ? `on ${now.branch}` : now.description;
     this.deps.log(`The Issue is no longer eligible (${where}); stopping without writing`);
+    this.lastCheck = now;
     return false;
+  }
+
+  /** Re-checks eligibility; ends the run (`Ineligible`) when it no longer holds. */
+  async requireEligible(): Promise<void> {
+    if (!(await this.stillEligible())) {
+      throw new Ineligible(this.lastCheck!);
+    }
   }
 
   async sources(): Promise<DeliverSources> {
@@ -173,11 +202,18 @@ class DeliverRun {
     return watchRefDirectory(directory, onEvent, this.deps);
   }
 
-  /** One Writer run; on a branch without an open PR its commits are pushed. */
-  async write(round: number, defects: readonly string[] | undefined): Promise<void> {
+  /**
+   * One Writer run; on a branch without an open PR its commits are pushed. Returns
+   * the Writer's report when it finds the Shape it was given wrong.
+   */
+  async write(
+    round: number,
+    defects: readonly string[] | undefined,
+  ): Promise<ShapeReport | undefined> {
     this.deps.log(`Round ${round}: ${writerRole.title}`);
+    const sources = await this.sources();
     const sections = writerSections({
-      sources: await this.sources(),
+      sources,
       issue: this.context.issue,
       base: this.base,
       branch: this.branch,
@@ -206,13 +242,27 @@ class DeliverRun {
     if (result.outcome === "blocked") {
       return this.block(writerRole.title, result.reason);
     }
+    if (result.outcome === "shape-wrong") {
+      return { version: sources.shapeVersion, reason: result.reason };
+    }
     await this.requireCommittedWork();
+    return undefined;
   }
 
   requireActive(): void {
     if (this.pusher.halted) {
-      throw new Ineligible();
+      throw new Ineligible(this.lastCheck!);
     }
+  }
+
+  /**
+   * The Writer found the Shape wrong: when the Issue is still eligible, the report
+   * goes on the Issue, `shaped` is removed, and the Shape stage is next.
+   */
+  async reportShape(report: ShapeReport): Promise<NextAction> {
+    await this.requireEligible();
+    const scope = { client: this.job.client, context: this.context, log: this.deps.log };
+    return reportWrongShape(scope, report.version, report.reason);
   }
 
   /** The Writer must leave the branch checked out, clean and ahead of the base. */
@@ -268,16 +318,22 @@ class DeliverRun {
     return verdict;
   }
 
-  /** Writer and Accept rounds until a fresh Acceptor passes; no round limit. */
-  async rounds(): Promise<void> {
+  /**
+   * Writer and Accept rounds until a fresh Acceptor passes; no round limit. Returns
+   * the next action when the Writer found the Shape wrong instead.
+   */
+  async rounds(): Promise<NextAction | undefined> {
     let defects: readonly string[] | undefined;
     for (let round = 1; ; round += 1) {
-      await this.write(round, defects);
+      const report = await this.write(round, defects);
+      if (report !== undefined) {
+        return this.reportShape(report);
+      }
       defects = await this.closingDefects();
       if (defects === undefined) {
         const verdict = await this.accept(round);
         if (verdict.outcome === "pass") {
-          return;
+          return undefined;
         }
         defects = verdict.defects;
       }
@@ -292,9 +348,7 @@ class DeliverRun {
    * right before a push), then opens or reuses the pull request.
    */
   async publish(): Promise<NextAction> {
-    if (!(await this.stillEligible())) {
-      throw new Ineligible();
-    }
+    await this.requireEligible();
     await this.pusher.flush();
     this.requireActive();
     const { client } = this.job;
@@ -372,10 +426,22 @@ export async function runDeliverStage(
   deps: DeliverDeps = defaultDeliverDeps,
 ): Promise<number> {
   const where = `${context.repo.owner}/${context.repo.repo}#${context.issue}`;
+  const scope = { client, context, log: deps.log };
   const eligibility = await readEligibility(client, context);
+  let redo: NextAction | undefined;
+  try {
+    redo = await finishShapeReport(scope, eligibility);
+  } catch (error) {
+    await writeNextAction(context, noNextAction);
+    throw error;
+  }
+  if (redo !== undefined) {
+    await writeNextAction(context, redo);
+    return 0;
+  }
   if (!eligibility.eligible) {
     deps.log(`${where} is not at the deliver stage: ${eligibility.description}`);
-    await writeNextAction(context, noNextAction);
+    await writeNextAction(context, await ineligibleNextAction(scope, eligibility, true));
     return 0;
   }
   try {
@@ -387,13 +453,14 @@ export async function runDeliverStage(
   const coreRepo = await mkdtemp(join(deps.coreRepoParent, "nibfin-push-"));
   try {
     const run = await startRun(context, client, deps, eligibility, coreRepo);
-    await run.rounds();
-    await writeNextAction(context, await run.publish());
+    const reported = await run.rounds();
+    await writeNextAction(context, reported ?? (await run.publish()));
   } catch (error) {
     if (!(error instanceof Ineligible)) {
       throw error;
     }
-    await writeNextAction(context, noNextAction);
+    const next = await ineligibleNextAction(scope, error.eligibility, false);
+    await writeNextAction(context, next);
   } finally {
     await rm(coreRepo, { recursive: true, force: true });
   }

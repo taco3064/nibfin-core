@@ -12,7 +12,7 @@ import {
 import { issueOf, prepareStageJob, runStageAgent } from "./agent.ts";
 import { closeIssue } from "./closing.ts";
 import type { JobContext } from "./context.ts";
-import { describeStage, reviewCommentKey, reviewedHead } from "./deliver-eligibility.ts";
+import { currentReview, describeStage } from "./deliver-eligibility.ts";
 import { readDeliverSources } from "./deliver-prompts.ts";
 import { checkoutReviewedHead, Git } from "./git.ts";
 import { type NextAction, noNextAction, writeNextAction } from "./next.ts";
@@ -26,14 +26,15 @@ import {
   blockReview,
   defaultReviewDeps,
   deliveredCommentKey,
+  handBackToShape,
   issueName,
-  pullTarget,
   requestReviewFix,
   type ReviewDeps,
   type ReviewScope,
   sendBackToDeliver,
 } from "./review-scope.ts";
 import { reviewSections } from "./review-sources.ts";
+import { readPendingReport } from "./shape-wrong.ts";
 import { wakeDownstream } from "./wake.ts";
 
 /** The CI outcomes carry the required checks and their results. */
@@ -46,13 +47,14 @@ function listProblems(problems: readonly string[]): string {
 
 /**
  * Runs a fresh read-only reviewer on the pinned head, fetched through Core's own
- * repository and checked out detached; the reviewer never gets the token.
+ * repository and checked out detached; the reviewer never gets the token. Returns
+ * the verdict with the version of the Shape text the reviewer was given.
  */
 async function review(
   scope: ReviewScope,
   snapshot: IssueSnapshot,
   stage: ReviewOutcome,
-): Promise<ReviewerResult> {
+): Promise<{ verdict: ReviewerResult; shapeVersion: string }> {
   const { client, context, deps } = scope;
   const pull = stage.pullRequest;
   const head = pull.headSha;
@@ -84,15 +86,19 @@ async function review(
       results: stage.results,
     });
     deps.log(`Reviewing ${pull.url} at ${head}`);
-    return parseReviewerResult(await runStageAgent(job, reviewerRole, sections), head);
+    const message = await runStageAgent(job, reviewerRole, sections);
+    const verdict = parseReviewerResult(message, head);
+    return { verdict, shapeVersion: requirements.shapeVersion };
   } finally {
     await rm(coreRepo, { recursive: true, force: true });
   }
 }
 
 /**
- * At `review`: pins the PR head, reuses a review already recorded for it, otherwise
- * reviews it, re-reads GitHub and acts on the verdict only for the same head.
+ * At `review`: a pending report that the Shape is wrong stops it (no review, no
+ * merge). Otherwise it pins the PR head, reuses a review already recorded for that
+ * head and the current Shape version, else reviews it, re-reads GitHub and acts on
+ * the verdict only for the same head.
  */
 async function reviewPullRequest(
   scope: ReviewScope,
@@ -102,13 +108,21 @@ async function reviewPullRequest(
   const { client, context, deps } = scope;
   const pull = stage.pullRequest;
   const head = pull.headSha;
-  const target = pullTarget(scope, pull.number);
-  const existing = await findMarkedComment(client, target, reviewCommentKey);
-  if (existing !== undefined && reviewedHead(existing.body) === head) {
-    deps.log(`${existing.url} already reviews ${head}; requesting the review fix`);
+  const issue = issueOf(context);
+  if (await readPendingReport(client, issue, deps.log)) {
+    deps.log(`${issueName(scope)}: the Shape is reported wrong; not reviewing`);
+    return handBackToShape;
+  }
+  const existing = await currentReview(client, issue, pull);
+  if (existing?.current === true) {
+    const { url } = existing.comment;
+    deps.log(`${url} already reviews ${head}; requesting the review fix`);
     return requestReviewFix;
   }
-  const verdict = await review(scope, snapshot, stage);
+  if (existing !== undefined) {
+    deps.log(`${existing.comment.url} was written for another Shape version`);
+  }
+  const { verdict, shapeVersion } = await review(scope, snapshot, stage);
   const now = deriveStage(await readIssueSnapshot(client, context.repo, context.issue));
   const same =
     now.stage === "review" &&
@@ -122,12 +136,13 @@ async function reviewPullRequest(
     return noNextAction;
   }
   if (verdict.outcome === "problems") {
-    return sendBackToDeliver(scope, pull.number, head, listProblems(verdict.problems));
+    const text = listProblems(verdict.problems);
+    return sendBackToDeliver(scope, pull.number, head, shapeVersion, text);
   }
   if (verdict.outcome === "blocked") {
     return blockReview(scope, reviewerRole.title, verdict.reason);
   }
-  return mergeReviewed(scope, pull, head);
+  return mergeReviewed(scope, pull, head, shapeVersion);
 }
 
 /** A closed Issue that this stage already closed as delivered: only wake remains. */

@@ -40,6 +40,13 @@ describe("writeNextAction", () => {
     });
   });
 
+  it("writes a request for the Shape stage", async () => {
+    const dir = await makeTempDir("next-");
+    const nextFile = join(dir, "next.json");
+    await writeNextAction({ nextFile }, { stage: "shape", reason: null });
+    assert.equal(await readFile(nextFile, "utf8"), '{"stage":"shape","reason":null}\n');
+  });
+
   it("does nothing without a next-action file", async () => {
     const dir = await makeTempDir("next-");
     await writeNextAction({}, noNextAction);

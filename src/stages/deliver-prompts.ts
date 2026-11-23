@@ -1,11 +1,6 @@
-import {
-  type ActingClient,
-  findMarkedComment,
-  type IssueRef,
-  readIssueText,
-} from "../github/index.ts";
+import { type ActingClient, type IssueRef, readIssueText } from "../github/index.ts";
 import { fenced, type PromptSection } from "./prompt.ts";
-import { shapeCommentKey, shapeOfComment } from "./shape-sources.ts";
+import { readCurrentShape } from "./shape-wrong.ts";
 
 /** The requirements both roles read, re-read for every run so the current text wins. */
 export interface DeliverSources {
@@ -14,6 +9,8 @@ export interface DeliverSources {
   body: string;
   /** The approved Shape: the marked `shape` comment without its marker. */
   shape: string;
+  /** The version of that Shape text, from the same read. */
+  shapeVersion: string;
 }
 
 /** The current sources; `undefined` when the Issue has no marked Shape comment. */
@@ -23,11 +20,11 @@ export async function readDeliverSources(
   issueUrl: string,
 ): Promise<DeliverSources | undefined> {
   const text = await readIssueText(client, issue);
-  const comment = await findMarkedComment(client, issue, shapeCommentKey);
-  if (comment === undefined) {
+  const shape = await readCurrentShape(client, issue);
+  if (shape === undefined) {
     return undefined;
   }
-  return { issueUrl, ...text, shape: shapeOfComment(comment.body) };
+  return { issueUrl, ...text, shape: shape.text, shapeVersion: shape.version };
 }
 
 function sourceSections(sources: DeliverSources): PromptSection[] {
