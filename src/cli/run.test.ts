@@ -71,6 +71,10 @@ describe("run --stage", () => {
           seen.context = context;
           return outcome(context);
         },
+        review: (context) => {
+          seen.context = context;
+          return outcome(context);
+        },
       },
     };
     return { deps, seen };
@@ -93,8 +97,19 @@ describe("run --stage", () => {
     assert.equal(t.seen.context?.reason, "cd-failure");
   });
 
-  it("uses the Shape and Deliver stages by default", async () => {
-    assert.deepEqual(Object.keys(defaultRunDeps.stages), ["shape", "deliver"]);
+  it("runs the review stage", async () => {
+    const t = stageDeps(() => Promise.resolve(0));
+    const review = ["run", "--stage", "review", ...args];
+    const result = await capture(review, t.deps);
+    assert.deepEqual(result, { code: 0, stdout: "", stderr: "" });
+    assert.equal(t.seen.context?.issue, 1);
+    const withReason = await capture([...review, "--reason", "review"], t.deps);
+    assert.equal(withReason.code, 1);
+    assert.match(withReason.stderr, /--reason is only valid with --stage deliver/);
+  });
+
+  it("uses the Shape, Deliver and review stages by default", async () => {
+    assert.deepEqual(Object.keys(defaultRunDeps.stages), ["shape", "deliver", "review"]);
     const issues = fakeIssues(fakeIssue({ state: "closed" }));
     const lines: string[] = [];
     const write = process.stdout.write.bind(process.stdout);
@@ -104,12 +119,15 @@ describe("run --stage", () => {
     };
     try {
       const context = jobContext("/workspace");
-      assert.equal(await defaultRunDeps.stages.deliver(context, issues.github.client), 0);
+      const { client } = issues.github;
+      assert.equal(await defaultRunDeps.stages.deliver(context, client), 0);
+      assert.equal(await defaultRunDeps.stages.review(context, client), 0);
     } finally {
       process.stdout.write = write;
     }
     assert.deepEqual(lines, [
       "acme/app#1 is not at the deliver stage: ineligible (closed) (no reason)\n",
+      "acme/app#1 is not at the review stage: ineligible (closed)\n",
     ]);
   });
 

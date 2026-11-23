@@ -3,6 +3,7 @@ import {
   type JobContext,
   readJobContext,
   runDeliverStage,
+  runReviewStage,
   runShapeStage,
 } from "../stages/index.ts";
 import { readVersion } from "./version.ts";
@@ -21,6 +22,8 @@ export const usage = `Usage: nibfin <option>
                   [--model <model>]
        nibfin run --stage deliver --repo <owner>/<repo> --issue <n> --provider <p>
                   [--model <model>] [--reason ci-failure|review|cd-failure]
+       nibfin run --stage review --repo <owner>/<repo> --issue <n> --provider <p>
+                  [--model <model>]
 
 Options:
   --help     Show this help
@@ -45,6 +48,7 @@ export const defaultRunDeps: RunDeps = {
   stages: {
     shape: runShapeStage,
     deliver: (context, client) => runDeliverStage(context, client),
+    review: (context, client) => runReviewStage(context, client),
   },
 };
 
