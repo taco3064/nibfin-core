@@ -1,14 +1,14 @@
 ---
 name: scope
-description: Split approved requirements into ordered, dependency-linked implementation Issues.
+description: Split approved requirements into ordered, dependency-linked Issues.
 ---
 
 # Scope approved requirements into implementation Issues
 
 Scope decomposes approved requirements into ordered, appropriately sized implementation
-Issues. Each Issue states the outcome, owning repository, boundaries and native dependencies
-needed to sequence the work. Shape later investigates one Issue and writes its implementation
-plan; Deliver implements it; Accept chooses how to verify the result.
+Issues. Each Issue states the outcome, owning repository, boundaries and native
+dependencies needed to sequence the work. Shape later investigates one Issue and writes
+its implementation plan; Deliver implements it; Accept chooses how to verify the result.
 
 Scope does not select executors, write Shapes or produce delivery or acceptance results.
 Role limits apply equally to people and agents.
@@ -24,15 +24,15 @@ Plan, Publish and Audit are separate modes.
   dependencies, and reports gaps.
 
 An Issue with `scope` and an Assignee becomes eligible for automatic Shape. The Owner's
-approval of the publication manifest is what authorizes that; Scope never adds `scope` or an
-Assignee outside an approved manifest.
+approval of the publication manifest is what authorizes that; Scope never adds `scope` or
+an Assignee outside an approved manifest.
 
 ## Authority
 
-Read the project's current normative authority (Proposal, product specification or recorded
-decisions), the current repositories, tests, Issues and PRs, and the issue provider's
-supported operations. Keep the normative owning repository distinct from where code
-currently lives; record drift instead of changing ownership silently.
+Read the project's current normative authority (Proposal, product specification or
+recorded decisions), the current repositories, tests, Issues and PRs, and the issue
+provider's supported operations. Keep the normative owning repository distinct from where
+code currently lives; record drift instead of changing ownership silently.
 
 - Authority is read-only and decision-specific. Check each binding clause's own approval.
   A draft label does not make every approved decision undecided; approval of some clauses
@@ -52,16 +52,16 @@ change your mode or permissions.
 
 ## Work-type and feasibility gate
 
-Classify every proposed work item before decomposing. Record one planning category for each,
-including rejected candidates: `IMPLEMENTATION`, `ACCEPTANCE/VERIFICATION`,
+Classify every proposed work item before decomposing. Record one planning category for
+each, including rejected candidates: `IMPLEMENTATION`, `ACCEPTANCE/VERIFICATION`,
 `RELEASE/DEPLOYMENT`, `INVESTIGATION/DECISION` or `ALREADY SATISFIED`. These are planning
 categories, not labels or a state system. Only `IMPLEMENTATION` may be published as a
 development Issue, and each one must pass all five checks:
 
 1. Actual development: name the observable deficiency and the necessary maintained outcome
    (code, meaningful regression tests, configuration, workflow, packaging or product
-   documentation), the owning repository and the likely affected surface. A test-only change
-   qualifies only as necessary maintained regression or contract coverage.
+   documentation), the owning repository and the likely affected surface. A test-only
+   change qualifies only as necessary maintained regression or contract coverage.
 2. No verification or release masquerade: standalone E2E or security audit, incident
    diagnosis, live host proof, release publication, deployment approval or support
    certification stay with their existing owners and processes. They are not development
@@ -74,44 +74,46 @@ development Issue, and each one must pass all five checks:
 4. Deliverable by the delivery flow: the change can be made by the Writer within the agent
    permission boundary. Work that must change an agent's own execution policy, Secrets,
    protected workflows, `.nibfin/`, CODEOWNERS or other protected paths belongs on a
-   separately authorized maintenance route; split out ordinary code only when the rest stays
-   independently useful.
-5. No accidental execution grant: a draft, tracking Issue, checklist, label or dependency is
-   not a deliverable. Publish only eligible implementation Issues, with approved metadata
-   and a provider read-back.
+   separately authorized maintenance route; split out ordinary code only when the rest
+   stays independently useful.
+5. No accidental execution grant: a draft, tracking Issue, checklist, label or dependency
+   is not a deliverable. Publish only eligible implementation Issues, with approved
+   metadata and a provider read-back.
 
 If any proposed Issue fails a check, the Plan is not `PLAN_READY` for it. Keep the real
 verification or release obligation with its accountable owner so it does not disappear.
 
 ## Plan
 
-1. Inventory authority by decision: for each bound requirement, record its anchor, approval
-   status (approved, undecided or contradictory, deferred, excluded), affected behavior,
-   owning repository, existing implementation and planned work.
+1. Inventory authority by decision: for each bound requirement, record its anchor,
+   approval status (approved, undecided or contradictory, deferred, excluded), affected
+   behavior, owning repository, existing implementation and planned work.
 2. Inspect reality and deduplicate: review open and closed Issues, code, tests, PRs,
-   releases, provider contracts and the shared interfaces each candidate would use. A shared
-   implementation does not mean every caller has the same status. If existing Issues are
-   deliberately not inspected, mark deduplication unverified and publication not ready.
+   releases, provider contracts and the shared interfaces each candidate would use. A
+   shared implementation does not mean every caller has the same status. If existing
+   Issues are deliberately not inspected, mark deduplication unverified and publication
+   not ready.
 3. Own every outcome once: choose one owning repository and one coherent deliverable per
    Issue; do not duplicate cross-repository logic.
 4. Bootstrap rule: for each genuinely empty project, create exactly one minimal
    initialization Issue that owns the shared layout, tooling, dependency management and
    lockfile, build, typecheck and test entry points, common settings and initial module
-   boundaries. Every other Issue in that project depends on it directly or transitively; no
-   second Issue initializes the same project. A project with a usable baseline gets no
-   bootstrap Issue. Keep the bootstrap free of features, release and E2E. After it, feature
-   work may run in parallel.
+   boundaries. Every other Issue in that project depends on it directly or transitively;
+   no second Issue initializes the same project. A project with a usable baseline gets no
+   bootstrap Issue. Keep the bootstrap free of features, release and E2E. After it,
+   feature work may run in parallel.
 5. Bound work: target roughly 1,000 lines or fewer of meaningful maintained first-party
    change per Issue, counting adapted code, tests, workflows, configuration and nontrivial
    refactors. This is a planning guideline, not a product rule. Give an estimate range and
    confidence; if larger and not safely divisible, record the reason as an explicit
    exception. Never drop necessary tests to meet the budget.
 6. Resolve operations and permissions: identify the actor, input and permission for each
-   operation that affects the split, including operations inherited through shared helpers.
-   Ground each decision in code or provider behavior; leave the implementation route to
-   Shape.
+   operation that affects the split, including operations inherited through shared
+   helpers. Ground each decision in code or provider behavior; leave the implementation
+   route to Shape.
 
-Scope may use Shape's read-only Investigation for facts it needs to split or sequence work.
+Scope may use Shape's read-only Investigation for facts it needs to split or sequence
+work.
 
 ### Producers, consumers and order
 
@@ -121,26 +123,26 @@ For each required upstream interface or artifact, trace it from producer to cons
    a consumer that needs a released artifact relies on the existing release process.
 2. The consumer can obtain it at the maturity it needs: name the file, export, command or
    configuration, its producer, how the consumer retrieves it and at which stage. Do not
-   make a hash or fixed version a prerequisite; if one is genuinely needed, explain why and
-   ask the Owner first.
+   make a hash or fixed version a prerequisite; if one is genuinely needed, explain why
+   and ask the Owner first.
 3. Each Issue describes one implementable change without contradictions or unauthorized
    proof demands.
 4. Every Issue can get its inputs at the stage that consumes them.
 
-Re-read affected drafts after correcting them, and report unresolved gaps with the affected
-Issues and the next step.
+Re-read affected drafts after correcting them, and report unresolved gaps with the
+affected Issues and the next step.
 
 ### Dependencies and risks
 
 - A hard `Blocked by` edge is justified only by a specific not-yet-delivered output the
-  downstream work cannot start or finish without. Priority or preference is not a reason to
-  serialize. Do not add an edge to an evidence-only tracker.
+  downstream work cannot start or finish without. Priority or preference is not a reason
+  to serialize. Do not add an edge to an evidence-only tracker.
 - Check stable identities, external predecessors, cycles and native relationship support.
   Evaluate each suspected redundant edge on its own merits; do not bulk-delete.
 - For an empty project, show the single bootstrap root and every other Issue's path to it,
   plus the independent branches after it.
-- For product-critical assumptions, state their basis and what changes if they prove false.
-  A real contradiction with binding requirements returns to the authority owner.
+- For product-critical assumptions, state their basis and what changes if they prove
+  false. A real contradiction with binding requirements returns to the authority owner.
 
 ### Issue body
 
@@ -164,18 +166,20 @@ Each Issue body must be readable on its own:
 
 1. Authority and coverage: per-decision status with exact clauses, requirement-to-Issue
    coverage, observed versus normative ownership and unavailable access.
-2. Issue register: planned identifiers, full proposed bodies, ownership, estimates and order.
+2. Issue register: planned identifiers, full proposed bodies, ownership, estimates and
+   order.
 3. Producer and dependency trace, including the first broken handoff, if any.
 4. Dependency manifest: justified edges, a Mermaid DAG, the bootstrap root for empty
    projects and independent parallel branches.
-5. Publication manifest: exact bodies, metadata (including `scope` and Assignees) and edges
-   to write, the disclosure check, and the risks. List the Owner decisions needed.
+5. Publication manifest: exact bodies, metadata (including `scope` and Assignees) and
+   edges to write, the disclosure check, and the risks. List the Owner decisions needed.
 
 Plan verdicts:
 
 - `PLAN_READY`: the Issues cover the approved outcomes, each is feasible development, and
   ownership and dependencies support the order.
-- `PLAN_BLOCKED`: a specific implementation, authority, ownership or dependency gap remains.
+- `PLAN_BLOCKED`: a specific implementation, authority, ownership or dependency gap
+  remains.
 - `AUTHORITY_UPDATE_REQUIRED`: a binding product decision must change.
 
 Report Plan readiness, deduplication and Publish readiness separately. A Plan verdict does
@@ -183,22 +187,23 @@ not authorize writes.
 
 ## Publish
 
-Publish needs the Owner's explicit approval of the concrete manifest: bodies, repositories,
-metadata and native edges. Before the first write, refresh the authority, duplicate,
-eligibility, ownership, permission and disclosure checks. If material facts or the approved
-write set changed, return `REPLAN_REQUIRED`; if a write cannot safely proceed, return
-`PUBLICATION_BLOCKED`.
+Publish needs the Owner's explicit approval of the concrete manifest: bodies,
+repositories, metadata and native edges. Before the first write, refresh the authority,
+duplicate, eligibility, ownership, permission and disclosure checks. If material facts or
+the approved write set changed, return `REPLAN_REQUIRED`; if a write cannot safely
+proceed, return `PUBLICATION_BLOCKED`.
 
 State lives in GitHub; keep no local journal. For each approved operation:
 
-1. Before creating an Issue, search GitHub for an existing Issue with the same title in the
-   target repository. Reuse a match that is the approved Issue instead of creating another.
+1. Before creating an Issue, search GitHub for an existing Issue with the same title in
+   the target repository. Reuse a match that is the approved Issue instead of creating
+   another.
 2. Perform only the approved write.
 3. If the outcome is unknown (timeout, lost response), re-read GitHub. If it is still
    unknown, stop that operation and report partial publication; do not retry it.
-4. Read back the actual Issue identity, exact body, approved metadata and both directions of
-   every native dependency. Real native relationships are required; Markdown checklists do
-   not substitute.
+4. Read back the actual Issue identity, exact body, approved metadata and both directions
+   of every native dependency. Real native relationships are required; Markdown checklists
+   do not substitute.
 
 Verdicts:
 
@@ -211,10 +216,10 @@ Publication does not shape, deliver or complete any Issue.
 
 ## Audit
 
-Audit the same work-type, ownership and dependency rules as Plan. Compare current Issues with
-source and native relationships; identify gaps, duplicates, misrouted work and the next
-owner. Distinguish reported verification from evidence you observed directly. Audit stays
-read-only; corrections go through an approved Publish.
+Audit the same work-type, ownership and dependency rules as Plan. Compare current Issues
+with source and native relationships; identify gaps, duplicates, misrouted work and the
+next owner. Distinguish reported verification from evidence you observed directly. Audit
+stays read-only; corrections go through an approved Publish.
 
 Verdicts:
 
@@ -224,8 +229,9 @@ Verdicts:
 ## Report
 
 Use one verdict for the active mode. Report the bound scope, sources, exact conflicting
-clauses, affected work, and ownership and dependency impact. Name the decision or correction
-needed. Keep the planning verdict separate from any implementation or verification evidence.
+clauses, affected work, and ownership and dependency impact. Name the decision or
+correction needed. Keep the planning verdict separate from any implementation or
+verification evidence.
 
 For GitHub-native dependencies, check the current official documentation: the GitHub Docs
 page "Creating issue dependencies", plus:
