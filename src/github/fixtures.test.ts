@@ -71,15 +71,18 @@ export interface CheckRunOptions {
   conclusion?: string | null;
   appId?: number | null;
   suiteId?: number | null;
+  /** The app's slug; `undefined` leaves it out of the app object. */
+  slug?: string;
 }
 
 export function checkRun(id: number, name: string, options: CheckRunOptions = {}) {
+  const slug = options.slug === undefined ? {} : { slug: options.slug };
   return {
     id,
     name,
     status: options.status ?? "completed",
     conclusion: options.conclusion === undefined ? "success" : options.conclusion,
-    app: options.appId === null ? null : { id: options.appId ?? 15368 },
+    app: options.appId === null ? null : { id: options.appId ?? 15368, ...slug },
     check_suite: options.suiteId === null ? null : { id: options.suiteId ?? 7000 + id },
     html_url: `https://github.com/acme/app/runs/${id}`,
   };

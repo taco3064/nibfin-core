@@ -16,6 +16,10 @@ export interface RequiredCheckResult extends RequiredCheck {
   source: "check-run" | "status" | "none";
   /** The check run's or status's `html_url` / `target_url`, when it has one. */
   url: string | null;
+  /** Only for `check-run`: its id, which for GitHub Actions is the job id. */
+  checkRunId?: number;
+  /** Only for `check-run`: the slug of the app that created it, if GitHub names one. */
+  appSlug?: string | null;
 }
 
 /** The CI of a pull request head: the base branch's required checks and their results. */
@@ -78,6 +82,7 @@ interface CheckRunResult {
   id: number;
   name: string;
   appId: number | null;
+  appSlug: string | null;
   state: RunState;
   url: string | null;
 }
@@ -113,7 +118,14 @@ export async function readRequiredCheckResults(
         undefined,
       );
     if (run) {
-      return { ...check, state: run.state, source: "check-run", url: run.url };
+      return {
+        ...check,
+        state: run.state,
+        source: "check-run",
+        url: run.url,
+        checkRunId: run.id,
+        appSlug: run.appSlug,
+      };
     }
     const status = check.integrationId === null ? statuses.get(check.context) : undefined;
     if (status) {
@@ -147,6 +159,7 @@ async function readCheckRuns(
       id: run.id,
       name: run.name,
       appId: run.app?.id ?? null,
+      appSlug: run.app?.slug ?? null,
       state: runState(run.status, run.conclusion),
       url: run.html_url,
     }));
