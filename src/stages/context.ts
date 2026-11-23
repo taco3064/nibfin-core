@@ -1,7 +1,11 @@
-import { isAbsolute } from "node:path";
+import { isAbsolute, relative, resolve } from "node:path";
 import { type Provider, providers } from "../agent/index.ts";
 import type { Actor, Repo } from "../github/index.ts";
 import { StageError } from "./errors.ts";
+
+/** The fix reasons of a Deliver run. */
+export const fixReasons = ["ci-failure", "review", "cd-failure"] as const;
+export type FixReason = (typeof fixReasons)[number];
 
 /** What one Job runs on; supplied by the caller (#674). */
 export interface JobContext {
@@ -10,7 +14,7 @@ export interface JobContext {
   /** From the Pool or runner configuration, never from a workflow or dispatch input. */
   provider: Provider;
   model?: string;
-  /** Used only for the GitHub client; never printed or passed to an agent. */
+  /** Only for the GitHub client and Core's Git remote calls; never given to an agent. */
   token: string;
   actor: Actor;
   /** The agent CLI's config home on the login volume. */
@@ -19,21 +23,35 @@ export interface JobContext {
   workspace: string;
   /** Holds the `.nibfin.json` tools; outside the workspace. */
   toolCache: string;
+  /** Why a Deliver run is a fix run; only with `--stage deliver`. */
+  reason?: FixReason;
+  /** The repository whose workflow runs this Job (#674), from `NIBFIN_RUN_REPO`. */
+  runRepo?: Repo;
+  /** This Job's workflow run id, from `NIBFIN_RUN_ID`. */
+  runId?: number;
+  /** Where the stage writes its next action, from `NIBFIN_NEXT_FILE`. */
+  nextFile?: string;
 }
 
 /** The options `nibfin run` takes, each as `--<name> <value>`. */
-export const jobOptions = ["stage", "repo", "issue", "provider", "model"] as const;
+export const jobOptions = [
+  "stage",
+  "repo",
+  "issue",
+  "provider",
+  "model",
+  "reason",
+] as const;
 type JobOption = (typeof jobOptions)[number];
+type JobOptions = Partial<Record<JobOption, string>>;
 
 function invalid(field: string, reason: string): StageError {
   return new StageError("STAGE_INPUT_INVALID", `${field} ${reason}`);
 }
 
 /** Parses `--<name> <value>` pairs; anything else is invalid input. */
-export function parseJobOptions(
-  args: readonly string[],
-): Partial<Record<JobOption, string>> {
-  const options: Partial<Record<JobOption, string>> = {};
+export function parseJobOptions(args: readonly string[]): JobOptions {
+  const options: JobOptions = {};
   for (let index = 0; index < args.length; index += 2) {
     const flag = args[index];
     const name = jobOptions.find((option) => flag === `--${option}`);
@@ -79,10 +97,10 @@ function absolutePath(value: string | undefined, field: string): string {
   return path;
 }
 
-function readRepo(value: string | undefined): Repo {
-  const match = repoPattern.exec(required(value, "--repo"));
+function readRepo(value: string | undefined, field: string): Repo {
+  const match = repoPattern.exec(required(value, field));
   if (match === null) {
-    throw invalid("--repo", "must be <owner>/<repo>");
+    throw invalid(field, "must be <owner>/<repo>");
   }
   return { owner: match[1], repo: match[2] };
 }
@@ -96,6 +114,52 @@ function readProvider(value: string | undefined): Provider {
   return provider;
 }
 
+function readReason(options: JobOptions): FixReason {
+  if (options.stage !== "deliver") {
+    throw invalid("--reason", "is only valid with --stage deliver");
+  }
+  const reason = fixReasons.find((candidate) => candidate === options.reason);
+  if (reason === undefined) {
+    throw invalid("--reason", `must be one of ${fixReasons.join(", ")}`);
+  }
+  return reason;
+}
+
+/** An absolute path outside the workspace, so no agent can read or write it. */
+function readNextFile(value: string, workspace: string): string {
+  const path = absolutePath(value, "NIBFIN_NEXT_FILE");
+  const inside = relative(resolve(workspace), resolve(path));
+  if (!inside.startsWith("..") && !isAbsolute(inside)) {
+    throw invalid("NIBFIN_NEXT_FILE", "must be outside NIBFIN_WORKSPACE");
+  }
+  return path;
+}
+
+/** The optional fields; each is checked only when it is set. */
+function optionalFields(
+  options: JobOptions,
+  env: NodeJS.ProcessEnv,
+  workspace: string,
+): Partial<JobContext> {
+  const fields: Partial<JobContext> = {};
+  if (options.model !== undefined) {
+    fields.model = required(options.model, "--model");
+  }
+  if (options.reason !== undefined) {
+    fields.reason = readReason(options);
+  }
+  if (env.NIBFIN_RUN_REPO !== undefined) {
+    fields.runRepo = readRepo(env.NIBFIN_RUN_REPO, "NIBFIN_RUN_REPO");
+  }
+  if (env.NIBFIN_RUN_ID !== undefined) {
+    fields.runId = positiveInteger(env.NIBFIN_RUN_ID, "NIBFIN_RUN_ID");
+  }
+  if (env.NIBFIN_NEXT_FILE !== undefined) {
+    fields.nextFile = readNextFile(env.NIBFIN_NEXT_FILE, workspace);
+  }
+  return fields;
+}
+
 /**
  * The Job context from `nibfin run` options and the environment. A missing or invalid
  * field is `STAGE_INPUT_INVALID` naming the field, never its value.
@@ -106,7 +170,7 @@ export function readJobContext(
 ): JobContext {
   const options = parseJobOptions(args);
   const context: JobContext = {
-    repo: readRepo(options.repo),
+    repo: readRepo(options.repo, "--repo"),
     issue: positiveInteger(options.issue, "--issue"),
     provider: readProvider(options.provider),
     token: required(env.NIBFIN_GITHUB_TOKEN, "NIBFIN_GITHUB_TOKEN"),
@@ -118,8 +182,5 @@ export function readJobContext(
     workspace: absolutePath(env.NIBFIN_WORKSPACE, "NIBFIN_WORKSPACE"),
     toolCache: absolutePath(env.NIBFIN_TOOL_CACHE, "NIBFIN_TOOL_CACHE"),
   };
-  if (options.model !== undefined) {
-    context.model = required(options.model, "--model");
-  }
-  return context;
+  return { ...context, ...optionalFields(options, env, context.workspace) };
 }
