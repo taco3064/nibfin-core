@@ -1,26 +1,11 @@
 import type { StageRole } from "./prompt.ts";
-import { invalidResult, parseAgentResult, resultFence, textField } from "./result.ts";
-
-/** The result instructions: the block, its JSON objects, then a note. */
-function resultFormat(objects: readonly string[], note: string): string {
-  return [
-    "End your final message with one block like this; only the last such block counts:",
-    "",
-    resultFence,
-    "<one of the JSON objects below>",
-    "```",
-    "",
-    `Its opening line must be exactly ${resultFence} and its closing line exactly`,
-    "```. The JSON object is one of:",
-    "",
-    ...objects,
-    "",
-    note,
-  ].join("\n");
-}
-
-const blockedObject =
-  '{"outcome": "blocked", "reason": "<the underlying cause and evidence>"}';
+import {
+  blockedObject,
+  invalidResult,
+  parseAgentResult,
+  resultFormat,
+  textField,
+} from "./result.ts";
 
 export const shapeAuthorRole: StageRole = {
   name: "shape-author",
