@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtemp, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { before, describe, it } from "node:test";
 import { makeTempDir } from "../agent/fake-cli.test.ts";
@@ -33,6 +33,26 @@ let workspace: string;
 before(async () => {
   workspace = await makeCommittedWorkspace("stage-agent-");
 });
+
+/** A workspace that ignores `cache/` (committed) and `/AGENTS.md` (`info/exclude`). */
+async function ignoringWorkspace(prefix: string): Promise<string> {
+  const dir = await makeCommittedWorkspace(prefix);
+  await writeFile(join(dir, ".gitignore"), "cache/\n");
+  const git = (...args: string[]) => execFileSync("git", args, { cwd: dir });
+  git("add", ".gitignore");
+  git(
+    "-c",
+    "user.name=T",
+    "-c",
+    "user.email=t@example.invalid",
+    "commit",
+    "-qm",
+    "ignore",
+  );
+  await mkdir(join(dir, ".git", "info"), { recursive: true });
+  await writeFile(join(dir, ".git", "info", "exclude"), "/AGENTS.md\n");
+  return dir;
+}
 
 async function job(steps: Parameters<typeof fakeDeps>[0], dir = workspace) {
   const issues = fakeIssues(fakeIssue());
@@ -78,11 +98,71 @@ describe("runStageAgent", () => {
     const error = await rejection(runStageAgent(t.job, reader, sections));
     assert.ok(error instanceof StageError);
     assert.equal(error.code, "STAGE_WORKSPACE_MODIFIED");
-    assert.equal(
-      error.message,
-      "The workspace has changes before Reader:\n?? left.txt\n",
-    );
+    assert.equal(error.message, "The workspace has changes before Reader:\n?? left.txt");
     assert.deepEqual(t.fake.runs, []);
+  });
+
+  it("records the workspace after generated agent config", async () => {
+    const dir = await ignoringWorkspace("stage-generated-");
+    const t = await job([], dir);
+    t.fake.deps.runAgent = async (options) => {
+      // Like rulesync: generated files are written and excluded before the hook.
+      await writeFile(join(dir, "AGENTS.md"), "rules");
+      await options.beforeStart?.();
+      return { exitCode: 0, finalMessage: "Read." };
+    };
+    assert.equal(await runStageAgent(t.job, reader, sections), "Read.");
+  });
+
+  for (const [where, file] of [
+    ["a .gitignore path", "cache/notes.md"],
+    ["an info/exclude path", "AGENTS.md"],
+  ]) {
+    it(`detects a file a read-only role wrote into ${where}`, async () => {
+      const dir = await ignoringWorkspace("stage-ignored-");
+      const t = await job(
+        [
+          async () => {
+            await mkdir(join(dir, "cache"), { recursive: true });
+            await writeFile(join(dir, file), "leftover");
+            return "Read.";
+          },
+        ],
+        dir,
+      );
+      const error = await rejection(runStageAgent(t.job, reader, sections));
+      assert.ok(error instanceof StageError);
+      assert.equal(error.code, "STAGE_WORKSPACE_MODIFIED");
+      assert.equal(error.message, `Reader changed the workspace:\n+ !! ${file}`);
+    });
+  }
+
+  it("detects an ignored file a read-only role removed", async () => {
+    const dir = await ignoringWorkspace("stage-removed-");
+    await mkdir(join(dir, "cache"));
+    await writeFile(join(dir, "cache", "kept.md"), "x");
+    const t = await job(
+      [() => rm(join(dir, "cache"), { recursive: true }).then(() => "")],
+      dir,
+    );
+    const error = await rejection(runStageAgent(t.job, reader, sections));
+    assert.ok(error instanceof StageError);
+    assert.equal(error.message, "Reader changed the workspace:\n- !! cache/kept.md");
+  });
+
+  it("fails closed when the workspace was not recorded", async () => {
+    const t = await job([]);
+    t.fake.deps.runAgent = () => Promise.resolve({ exitCode: 0, finalMessage: "x" });
+    const error = await rejection(runStageAgent(t.job, reader, sections));
+    assert.ok(error instanceof StageError);
+    assert.equal(error.code, "STAGE_WORKSPACE_MODIFIED");
+    assert.equal(error.message, "The workspace was not recorded before Reader started");
+  });
+
+  it("does not record the workspace for a writing role", async () => {
+    const t = await job(["Wrote."]);
+    await runStageAgent(t.job, writer, sections);
+    assert.equal("beforeStart" in t.fake.runs[0], false);
   });
 
   it("refuses a read-only role that moved HEAD", async () => {

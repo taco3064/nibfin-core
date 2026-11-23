@@ -241,6 +241,7 @@ describe("runAgent agent config", () => {
       stdout: JSON.stringify({ success: true, data: { plan } }),
       files: { "AGENTS.md": "rules" },
     });
+    const seenBeforeStart: string[][] = [];
     await runAgent({
       provider: "codex",
       workspace: t.workspace,
@@ -248,7 +249,16 @@ describe("runAgent agent config", () => {
       prompt: "x",
       executables: { codex: t.fake.command, rulesync: rulesync.command },
       output: { stdout: captureSink(), stderr: captureSink() },
+      beforeStart: async () => {
+        const calls = await t.fake.calls();
+        seenBeforeStart.push([...(await readdir(t.workspace)), `${calls.length} calls`]);
+      },
     });
+    // The hook runs after rulesync generated AGENTS.md and before the CLI starts.
+    assert.deepEqual(
+      seenBeforeStart.map((seen) => seen.toSorted()),
+      [[".git", ".rulesync", "0 calls", "AGENTS.md"]],
+    );
     const [call] = await rulesync.calls();
     assert.deepEqual(call?.args.slice(0, 4), [
       "--json",

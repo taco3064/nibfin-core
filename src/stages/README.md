@@ -39,9 +39,14 @@ code and message and exits 1.
   (`resolveRoleSkill`), composes the prompt (`composePrompt`: the skill, "Your role is
   …", the titled input sections and the role's result format) and runs `runAgent`
   with the tools as `pathEntries`. Each call is a separate agent run.
-- **Read-only roles** must find the workspace clean (`git status --porcelain
---untracked-files=all` empty) and leave it clean at the same `HEAD`; otherwise
-  `STAGE_WORKSPACE_MODIFIED`.
+- **Read-only roles.** Right before the CLI starts (after rulesync has generated its
+  files, through `runAgent`'s `beforeStart`), the stage records `HEAD` and
+  `git status --porcelain --ignored --untracked-files=all`. That listing may hold only
+  ignored files (`!!`). After the run, `HEAD` and the listing must be exactly the
+  same, so a file written to or removed from a `.gitignore` or `info/exclude` path
+  is caught too. Otherwise the run fails with `STAGE_WORKSPACE_MODIFIED`, listing
+  added (`+`) and removed (`-`) entries. A changed ignored file that keeps its path
+  is not detected.
 - **Login.** On `AGENT_LOGIN_REQUIRED` the stage writes the marked `agent-login`
   comment on the Issue with the re-login command, then rethrows. The next successful
   agent run updates that comment to say it is resolved.

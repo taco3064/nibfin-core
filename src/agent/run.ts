@@ -39,6 +39,12 @@ export interface RunAgentOptions {
    * the unmodified `PATH`; its login-status command and rulesync keep that `PATH`.
    */
   pathEntries?: readonly string[];
+  /**
+   * Called after rulesync has generated the agent config and right before the CLI
+   * starts, so a caller can record the workspace the CLI will see. A rejection stops
+   * the run before the CLI starts.
+   */
+  beforeStart?: () => Promise<void>;
   executables?: Partial<AgentExecutables>;
   /** Where the CLI's own output is forwarded; the process streams by default. */
   output?: { stdout: ByteSink; stderr: ByteSink };
@@ -138,6 +144,7 @@ export async function runAgent(options: RunAgentOptions): Promise<AgentResult> {
   const agent = await agentRequest(base, options.pathEntries ?? []);
   const lastMessageFile = await gitPath(workspace, "nibfin-last-message");
   await rm(lastMessageFile, { force: true });
+  await options.beforeStart?.();
   try {
     const observation: Observation = { loginSignal: false, result: undefined };
     const status = await runStreaming({

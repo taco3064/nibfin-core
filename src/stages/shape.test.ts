@@ -296,7 +296,7 @@ describe("runShapeStage workspace and login", () => {
     const error = await rejection(t.run());
     assert.ok(error instanceof StageError);
     assert.equal(error.code, "STAGE_WORKSPACE_MODIFIED");
-    assert.match(error.message, /after Shape Author:\n\?\? notes\.md/);
+    assert.equal(error.message, "Shape Author changed the workspace:\n+ ?? notes.md");
     assert.deepEqual(t.issues.marked("shape"), []);
     execFileSync("git", ["clean", "-fdq"], { cwd: workspace });
   });
