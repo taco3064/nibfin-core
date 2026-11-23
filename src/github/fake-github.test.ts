@@ -58,13 +58,13 @@ export function fakeGitHub(routes: Record<string, Route> = {}): FakeGitHub {
           ? await route(request)
           : route;
     const status = response.status ?? 200;
-    return new Response(
+    const answer = new Response(
       status === 204 ? null : JSON.stringify(response.data ?? {}),
-      {
-        status,
-        headers: { "content-type": "application/json", ...response.headers },
-      },
+      { status, headers: { "content-type": "application/json", ...response.headers } },
     );
+    // A constructed Response has an empty `url`; Octokit's paginate parses it.
+    Object.defineProperty(answer, "url", { value: url.href });
+    return answer;
   };
   const octokit = new Octokit({
     auth: fakeToken,
