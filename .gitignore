@@ -1,12 +1,5 @@
 node_modules/
+dist/
 coverage/
-*.tgz
-.env
-.env.*
+.env*
 !.env.example
-website/.astro/
-website/dist/
-.npm/
-.nibfin-rollout-resume-*/
-/.deliver-test-tmp/
-/.nibfin-cache/

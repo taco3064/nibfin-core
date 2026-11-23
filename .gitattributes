@@ -1,3 +1,1 @@
-/src/security/job-vm-init.sh text eol=lf
-/src/security/shared-worker-dispatcher.sh text eol=lf
-/scripts/core-maintenance-bridge.py text eol=lf
+* text=auto eol=lf
