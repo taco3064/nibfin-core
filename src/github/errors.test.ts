@@ -8,7 +8,13 @@ import {
   readOptional,
   statusOf,
 } from "./errors.ts";
-import { failure, fakeGitHub, fakeToken, networkError, rejection } from "./fake-github.test.ts";
+import {
+  failure,
+  fakeGitHub,
+  fakeToken,
+  networkError,
+  rejection,
+} from "./fake-github.test.ts";
 
 const answered = (status: number) => ({ status, response: { status } });
 
@@ -49,7 +55,10 @@ describe("GitHubError", () => {
       assert.doesNotMatch(error.message, /authorization|ghs_|token/i);
       assert.doesNotMatch(String(error), new RegExp(fakeToken));
       const cause = error.cause as { request: { headers: Record<string, string> } };
-      assert.doesNotMatch(cause.request.headers.authorization ?? "", new RegExp(fakeToken));
+      assert.doesNotMatch(
+        cause.request.headers.authorization ?? "",
+        new RegExp(fakeToken),
+      );
     }
     const sent = github.calls[0]?.headers.authorization;
     assert.equal(sent, `token ${fakeToken}`);
@@ -122,7 +131,10 @@ describe("read", () => {
 
 describe("readOptional", () => {
   it("maps an answered 404 to absent", async () => {
-    assert.equal(await readOptional("op", () => Promise.reject(answered(404))), undefined);
+    assert.equal(
+      await readOptional("op", () => Promise.reject(answered(404))),
+      undefined,
+    );
     assert.equal(await readOptional("op", async () => "x"), "x");
   });
 

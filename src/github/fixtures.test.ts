@@ -18,7 +18,11 @@ export function pull(number: number, options: PullOptions = {}) {
     head: { ref: options.head ?? "nibfin/issue-1", sha: options.sha ?? `head-${number}` },
     base: { ref: options.base ?? "main" },
     merge_commit_sha:
-      options.mergeSha === undefined ? (merged ? `merge-${number}` : null) : options.mergeSha,
+      options.mergeSha === undefined
+        ? merged
+          ? `merge-${number}`
+          : null
+        : options.mergeSha,
     html_url: `https://github.com/acme/app/pull/${number}`,
   };
 }
