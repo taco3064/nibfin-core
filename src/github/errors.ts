@@ -45,9 +45,17 @@ export function statusOf(error: unknown): number | undefined {
   return undefined;
 }
 
-/** True when GitHub answered: Octokit attaches the response to the error. */
+/**
+ * True when GitHub answered: Octokit sets `response` on the error. A network failure is
+ * a `RequestError` whose `response` field is present but undefined.
+ */
 export function hasResponse(error: unknown): boolean {
-  return typeof error === "object" && error !== null && "response" in error;
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "response" in error &&
+    error.response !== undefined
+  );
 }
 
 /** A write whose outcome is unknown: no response, or a server error. */
