@@ -22,11 +22,28 @@ export {
   readBlocking,
   readDependencies,
 } from "./dependencies.ts";
-export { GitHubError, type GitHubErrorCode } from "./errors.ts";
+export { readCommentVersions } from "./comment-edits.ts";
+export { GitHubError, type GitHubErrorCode, responseMessage } from "./errors.ts";
 export { type IssueText, readIssueText } from "./issue-text.ts";
 export { readJobLog, readRunJobs, type WorkflowJobSummary } from "./job-logs.ts";
 export { nibfinLabels } from "./labels.ts";
 export { isNibfinWorkflow, nibfinWorkflowPrefix } from "./nibfin-workflows.ts";
+export {
+  allowedMergeMethods,
+  type MergeMethod,
+  mergeMethodOrder,
+  type MergeRules,
+  type MergeSettings,
+  type PullRequestRule,
+  readMergeRules,
+  readMergeSettings,
+} from "./merge-methods.ts";
+export {
+  type PullRequestDetail,
+  readApprovalCount,
+  readPullRequest,
+  readPullRequestCommits,
+} from "./pull-request.ts";
 export type { IssueRef, Repo } from "./repo.ts";
 export {
   type CiState,
@@ -60,6 +77,9 @@ export {
   findMarkedComment,
   type LabelChanges,
   type MarkedComment,
+  type MergeRequest,
+  type MergeResult,
+  mergePullRequest,
   type PullRequestRequest,
   setLabels,
   upsertMarkedComment,

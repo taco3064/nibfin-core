@@ -107,9 +107,43 @@ checked against its summary the same way (#673).
 - `closeDelivered(client, issue)`: adds `delivered`, then closes with
   `state_reason: completed`. An open Issue with `delivered` still derives `done`, so a
   repeated call finishes the close.
+- `mergePullRequest(client, repo, { number, sha, method })` (#673):
+  `PUT …/pulls/{n}/merge` with `sha` and `merge_method`, so GitHub merges only at that
+  head and enforces the repository's own rules. Results: `merged` (with the merge
+  commit), `head-changed` (409) or `not-mergeable` (405, with GitHub's message). Any
+  other 4xx (403, 422, …) is `GITHUB_WRITE_REJECTED`; `responseMessage(error.cause)`
+  gives GitHub's message. An unknown outcome re-reads the pull request: merged at
+  `sha` confirms the merge, anything else is `GITHUB_WRITE_UNCONFIRMED`, never a
+  retry.
 
 After an unknown outcome each write re-reads GitHub: a confirmed effect is reused,
 otherwise it fails with `GITHUB_WRITE_UNCONFIRMED`.
+
+## Merge admission (#673)
+
+- `readPullRequest(client, repo, n)`: the pull request with `mergeable` (`null` while
+  GitHub computes it) and `mergeable_state` (`clean`, `blocked`, `behind`, `dirty`,
+  `unstable`, `unknown`, …).
+- `readMergeSettings(client, repo)`: `allow_rebase_merge`, `allow_squash_merge` and
+  `allow_merge_commit` of `GET /repos/{owner}/{repo}`; a field GitHub leaves out is
+  `undefined`.
+- `readMergeRules(client, repo, branch)`: the rules that apply to the base branch
+  (`GET …/rules/branches/{branch}`): every `pull_request` rule (required approvals,
+  code owner review, last push approval, thread resolution, `allowed_merge_methods`)
+  and whether `required_linear_history` applies.
+- `allowedMergeMethods(settings, rules)`: the methods, in the order rebase, squash,
+  merge commit, that the settings and every `pull_request` rule allow; no merge
+  commit under linear history. `undefined` when a setting is unknown.
+- `readApprovalCount(client, repo, n)`: reviewers whose latest deciding review
+  approves (plain comments do not decide).
+- `readPullRequestCommits(client, repo, n)`: the SHAs of the pull request's current
+  commits (heads removed by a force push are not listed).
+- `readCommentVersions(client, repo, commentId)`: the comment's versions from GraphQL
+  `userContentEdits`, which is empty for a comment never edited (1 version) and once
+  edited lists every edit plus the original (`totalCount` versions).
+
+Classic branch protection details (required approvals, allowed methods) need
+Administration, so they are not read; GitHub still enforces them on the merge.
 
 ## Permissions
 
@@ -117,7 +151,9 @@ Metadata, Actions, Checks and Commit statuses read; Issues and Pull requests wri
 No Administration. The Deliver stage (#672) also pushes with the same token, so it
 needs Contents write, plus the workflows permission when a change touches
 `.github/workflows/`, and Actions read on the execution repository (`NIBFIN_RUN_REPO`)
-for the Writer check. The GitHub client itself only reads Contents. Reading Issues in
+for the Writer check. The review stage (#673) merges, which needs Contents write and
+Pull requests write, plus the workflows permission when the pull request changes
+`.github/workflows/`. The GitHub client itself only reads Contents. Reading Issues in
 other repositories needs a credential that covers them (#674); without it the read
 fails with `GITHUB_READ_FAILED`.
 

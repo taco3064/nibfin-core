@@ -94,3 +94,13 @@ function asReadError(operation: string, error: unknown): GitHubError {
   }
   return new GitHubError("GITHUB_READ_FAILED", operation, error);
 }
+
+/** The `message` GitHub answered with, if the error carries a response that has one. */
+export function responseMessage(error: unknown): string | undefined {
+  if (!hasResponse(error)) {
+    return undefined;
+  }
+  const { response } = error as { response: { data?: unknown } };
+  const data = response.data as { message?: unknown } | undefined;
+  return typeof data?.message === "string" ? data.message : undefined;
+}
