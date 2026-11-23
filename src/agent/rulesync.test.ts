@@ -3,7 +3,13 @@ import { execFileSync } from "node:child_process";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { after, before, describe, it } from "node:test";
-import { createFakeCli, makeTempDir, makeWorkspace } from "./fake-cli.test.ts";
+import {
+  createFakeCli,
+  makeTempDir,
+  makeWorkspace,
+  parentSecrets,
+  withParentEnvironment,
+} from "./fake-cli.test.ts";
 import { excludeFromGit, excludePattern, generateAgentConfig } from "./rulesync.ts";
 
 let root: string;
@@ -113,6 +119,25 @@ describe("generateAgentConfig", () => {
       );
     });
   }
+
+  it("keeps GitHub tokens out of the rulesync environment", async () => {
+    const restore = withParentEnvironment({ ...parentSecrets, LANG: "C.UTF-8" });
+    try {
+      const workspace = await rulesyncWorkspace();
+      const fake = await createFakeCli(root, { stdout: planDocument([]) });
+      await generateAgentConfig({
+        workspace,
+        target: "claudecode",
+        rulesync: fake.command,
+      });
+      const [env] = await fake.environments();
+      assert.equal(env?.GITHUB_TOKEN, undefined);
+      assert.equal(env?.GH_TOKEN, undefined);
+      assert.equal(env?.LANG, "C.UTF-8");
+    } finally {
+      restore();
+    }
+  });
 });
 
 describe("excludeFromGit", () => {
