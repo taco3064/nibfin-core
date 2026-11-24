@@ -92,7 +92,8 @@ removing it resumes from GitHub state.
 - `runStageAgent(job, role, sections)` resolves the role's skill text
   (`resolveRoleSkill`), composes the prompt (`composePrompt`: the skill, "Your role is
   …", the titled input sections and the role's result format) and runs `runAgent`
-  with the tools as `pathEntries`. Each call is a separate agent run.
+  with the tools as `pathEntries`. Each call is a separate agent run, with the CLI's
+  auto memory off, so roles share nothing except what the prompt and GitHub carry.
 - **Read-only roles.** Right before the CLI starts (after rulesync has generated its
   files, through `runAgent`'s `beforeStart`), the stage records `HEAD` and
   `git status --porcelain --ignored --untracked-files=all`. That listing may hold only

@@ -14,6 +14,8 @@ headless in `workspace` and returns `{ exitCode, finalMessage }`.
   `HOME`, `LANG`, `LC_*`, `TERM`, `TMPDIR`, the proxy variables (`HTTP_PROXY`,
   `HTTPS_PROXY`, `NO_PROXY` and their lowercase forms) and the config-home variable.
   Stage credentials such as `GITHUB_TOKEN` and `GH_TOKEN` never reach them.
+  Claude Code's run and login-status command also get
+  `CLAUDE_CODE_DISABLE_AUTO_MEMORY=1`, set by Core rather than inherited.
   `childEnvironment(parent, extra)` builds this environment and is exported, so the
   tool installs in `src/config` (#669) use the same allowlist.
 - **Tool `PATH`.** The optional `pathEntries` (the `.nibfin.json` tools from
@@ -33,6 +35,12 @@ headless in `workspace` and returns `{ exitCode, finalMessage }`.
 - **Trust.** Codex saves project trust itself through `--trust`. For Claude Code,
   `enableAllProjectMcpServers: true` is merged into `<home>/settings.json`, keeping
   every other key; the file is replaced atomically and left alone when already set.
+- **Auto memory off.** Every role of every Job shares one config home, so each run
+  turns the CLI's automatic memory off: Claude Code through
+  `CLAUDE_CODE_DISABLE_AUTO_MEMORY=1`, Codex through `-c features.memories=false`.
+  Both apply to that run only and win over the config home; `settings.json` and
+  `config.toml` are not changed for it, and existing memory files are left in place
+  but not loaded (#694).
 - **Prompt and output.** The prompt goes on stdin. The CLI's stdout and stderr are
   forwarded to the Job log unchanged.
 - **Final message.** Claude Code: the `result` message of `--output-format stream-json`.
@@ -48,10 +56,10 @@ headless in `workspace` and returns `{ exitCode, finalMessage }`.
 
 Headless commands:
 
-- `claude -p --output-format stream-json --verbose --permission-mode bypassPermissions
---model <model>` (default model `opus`)
-- `codex exec --json --trust --dangerously-bypass-approvals-and-sandbox -o <file>
-[-m <model>] -`
+- `CLAUDE_CODE_DISABLE_AUTO_MEMORY=1 claude -p --output-format stream-json --verbose
+--permission-mode bypassPermissions --model <model>` (default model `opus`)
+- `codex exec --json --trust --dangerously-bypass-approvals-and-sandbox
+-c features.memories=false -o <file> [-m <model>] -`
 
 Bypass mode needs a non-root user in the container (#666). Executables are injectable
 through `executables`; tests use fake CLIs written as small Node scripts under the
