@@ -172,8 +172,18 @@ describe("runReviewStage closing", () => {
   it("does not hide an unexpected error while reading a downstream Issue", async () => {
     const w = await reviewWorld();
     mergePull(w, w.pull);
-    // A Blocked by entry whose repository URL cannot be parsed.
-    addDownstream(w, { number: 2 }, { blockers: [fakeIssue({ owner: "" })] });
+    addDownstream(w, { number: 2 });
+    // A malformed answer for the downstream Issue: not a GitHub read failure.
+    w.issues.github.routes.set("GRAPHQL IssueRecord", (request) => {
+      const { variables } = request.body as { variables: { number: number } };
+      return variables.number === 2
+        ? {
+            data: {
+              data: { repository: { issueOrPullRequest: { __typename: "Issue" } } },
+            },
+          }
+        : (undefined as never);
+    });
     const error = await rejection(w.review());
     assert.ok(error instanceof TypeError);
     assert.equal(w.issues.main.state, "closed");

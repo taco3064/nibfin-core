@@ -51,7 +51,8 @@ export interface FakeGitHub {
 /**
  * A fake API: routes are keyed `"<METHOD> <decoded path>"`; others answer 404. Nibfin's
  * Issue-record GraphQL queries are answered from the REST routes (see
- * `fake-issue-record.test.ts`) unless a route `"GRAPHQL <operation>"` answers them.
+ * `fake-issue-record.test.ts`) unless a route `"GRAPHQL <operation>"` answers them
+ * (a handler may return `undefined` to leave a request to the REST routes).
  */
 export function fakeGitHub(routes: Record<string, Route> = {}): FakeGitHub {
   const table = new Map(Object.entries(routes));
@@ -83,8 +84,10 @@ export function fakeGitHub(routes: Record<string, Route> = {}): FakeGitHub {
       return answer(request);
     }
     const own = table.get(`GRAPHQL ${operation}`);
-    if (own !== undefined) {
-      return typeof own === "function" ? own(request) : own;
+    const answered = typeof own === "function" ? await own(request) : own;
+    // A `GRAPHQL <operation>` handler that answers nothing leaves it to the REST routes.
+    if (answered !== undefined) {
+      return answered;
     }
     return answerRecordQuery(request.body, restGet, () => [...table.keys()]);
   };

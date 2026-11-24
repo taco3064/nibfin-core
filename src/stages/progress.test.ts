@@ -12,7 +12,8 @@ describe("trackProgress", () => {
       "POST /repos/acme/app/issues/1/comments": { status: 201, data: {} },
     });
     const progress = trackProgress(github.client);
-    assert.equal(progress.client.actor, fakeActor);
+    assert.equal(progress.client.actor, github.client.actor);
+    assert.deepEqual(progress.client.actor, fakeActor);
     const repo = { owner: "acme", repo: "app" };
     await progress.client.request("GET /repos/{owner}/{repo}", repo);
     await progress.client.paginate("GET /repos/{owner}/{repo}/issues", repo);

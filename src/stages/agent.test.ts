@@ -203,11 +203,11 @@ describe("runStageAgent", () => {
     seedComment(t.issues, t.issues.main, "<!-- nibfin:agent-login -->\nLogin expired.");
     await runStageAgent(t.job, reader, sections);
     await runStageAgent(t.job, reader, sections);
-    const reads = t.issues.github.calls.filter(
-      (call) => call.method === "GET" && call.path.endsWith("/comments"),
-    );
-    assert.equal(reads.length, 3);
+    // The Issue record before the write (shared by find and upsert), then its read-back.
+    const reads = t.issues.github.calls.filter((call) => call.path === "/graphql");
+    assert.equal(reads.length, 2);
     assert.equal(t.issues.github.writes().length, 1);
+    assert.equal(t.issues.github.calls.length, 3);
   });
 });
 

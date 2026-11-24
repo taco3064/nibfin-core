@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { failure, paged, rejection } from "../github/fake-github.test.ts";
 import { pull as pullJson } from "../github/fixtures.test.ts";
-import { type ActingClient, GitHubError } from "../github/index.ts";
+import { type ActingClient, freshReads, GitHubError } from "../github/index.ts";
 import type { NextAction } from "../stages/index.ts";
 import {
   branch,
@@ -132,6 +132,7 @@ describe("routeIssue", () => {
     assert.deepEqual(state.route, route("review", null));
     assert.equal(state.open, false);
     issues.main.assignees = [];
+    freshReads(issues.github.client);
     assert.equal(await routeIssue(issues.github.client, repo, 1, log), null);
   });
 

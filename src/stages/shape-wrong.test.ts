@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { rejection } from "../github/fake-github.test.ts";
-import { GitHubError, type MarkedComment, type Stage } from "../github/index.ts";
+import {
+  freshReads,
+  GitHubError,
+  type MarkedComment,
+  type Stage,
+} from "../github/index.ts";
 import { fakeIssue, fakeIssues, seedComment } from "./fake-job.test.ts";
 import {
   parseShapeWrong,
@@ -84,6 +89,9 @@ describe("readCurrentShape", () => {
     const { client } = issues.github;
     assert.equal(await readCurrentShape(client, issue), undefined);
     const shape = seedComment(issues, issues.main, "<!-- nibfin:shape -->\nPlan");
+    // The comment was added outside this client: only a fresh read sees it.
+    assert.equal(await readCurrentShape(client, issue), undefined);
+    freshReads(client);
     const first = await readCurrentShape(client, issue);
     assert.deepEqual(first, {
       body: "<!-- nibfin:shape -->\nPlan",
@@ -93,12 +101,16 @@ describe("readCurrentShape", () => {
     const path = `/repos/acme/app/issues/comments/${shape.id}`;
     const patch = issues.github.routes.get(`PATCH ${path}`) as (r: unknown) => unknown;
     patch({ body: { body: shape.body } });
+    freshReads(client);
     assert.equal((await readCurrentShape(client, issue))?.version, `${shape.id}.1`);
     patch({ body: { body: "<!-- nibfin:shape -->\nPlan 2" } });
+    freshReads(client);
     const second = await readCurrentShape(client, issue);
     assert.deepEqual([second?.text, second?.version], ["Plan 2", `${shape.id}.2`]);
+    // One Issue-record query per fresh read, no other request.
     const graphql = issues.github.calls.filter((call) => call.path === "/graphql");
-    assert.equal(graphql.length, 3);
+    assert.equal(graphql.length, 4);
+    assert.equal(issues.github.calls.length, 4);
   });
 
   it("finds a pending report against the current Shape only", async () => {
@@ -108,12 +120,16 @@ describe("readCurrentShape", () => {
     const log = (line: string) => logs.push(line);
     const shape = seedComment(issues, issues.main, "<!-- nibfin:shape -->\nPlan");
     assert.equal(await readPendingReport(client, issue, log), undefined);
+    // Each change below happens outside this client, so a fresh read follows it.
     seedComment(issues, issues.main, `${marker}\n${shapeWrongBody("1.1", "Why")}`);
+    freshReads(client);
     assert.equal(await readPendingReport(client, issue, log), undefined);
     issues.main.comments.at(-1)!.body =
       `${marker}\n${shapeWrongBody(`${shape.id}.1`, "W")}`;
+    freshReads(client);
     assert.equal((await readPendingReport(client, issue, log))?.reason, "W");
     issues.main.comments.splice(0, 1);
+    freshReads(client);
     assert.equal(await readPendingReport(client, issue, log), undefined);
     assert.match(logs.at(-1)!, /has no current Shape to compare with; ignoring it$/);
   });
@@ -158,6 +174,7 @@ describe("report writes", () => {
     assert.deepEqual(issues.main.labels, ["scope"]);
     await removeShaped(client, issue);
     issues.main.labels.push("shaped");
+    freshReads(client);
     issues.github.routes.set("DELETE /repos/acme/app/issues/1/labels/shaped", {
       data: [],
     });
