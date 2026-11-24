@@ -54,7 +54,9 @@ Issues or change native dependencies.
 
 Run the repository's hooks and required checks as part of committing and finishing the
 work. Never bypass them (for example with `--no-verify`). A failing required check is a
-defect to fix, not a result to report as passing.
+defect to fix, not a result to report as passing. For tests, run the ones related to your
+change; leave the full test suite to PR CI, whose failure comes back to you as a
+`ci-failure` fix.
 
 Before relying on a check, trace it from its entry point to the code it actually
 exercises. When a test depends on filesystem ownership, permissions, a mount or another
@@ -145,8 +147,8 @@ opened.
 
 Return one of three semantic outcomes; the stage supplies the exact output format.
 
-- done: the implementation is complete, the hooks and required checks pass on the pushed
-  head, and the work is ready for Accept.
+- done: the implementation is complete, the hooks, the tests related to the change and the
+  other required checks pass on the pushed head, and the work is ready for Accept.
 - shape-wrong: the approved Shape conflicts with the current Issue or product authority.
   Quote the exact conflicting Shape, Issue and product-authority clauses; the stage posts
   them on the Issue and returns it to the Shape stage. Keep the partial work already
