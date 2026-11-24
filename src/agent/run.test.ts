@@ -171,6 +171,8 @@ describe("runAgent with Codex", () => {
           "--json",
           "--trust",
           "--dangerously-bypass-approvals-and-sandbox",
+          "-c",
+          "features.memories=false",
           "-o",
           file,
           "-",
@@ -305,6 +307,7 @@ describe("runAgent child environment", () => {
     assert.equal(environments.length, 2);
     for (const env of environments) {
       assertAllowlisted(env, "CLAUDE_CONFIG_DIR");
+      assert.equal(env.CLAUDE_CODE_DISABLE_AUTO_MEMORY, "1");
     }
   });
 
@@ -315,6 +318,7 @@ describe("runAgent child environment", () => {
     assert.equal(environments.length, 2);
     for (const env of environments) {
       assertAllowlisted(env, "CODEX_HOME");
+      assert.equal(env.CLAUDE_CODE_DISABLE_AUTO_MEMORY, undefined);
     }
   });
 });

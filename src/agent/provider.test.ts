@@ -20,6 +20,7 @@ describe("providerSpecs", () => {
     const spec = providerSpecs.claude;
     assert.equal(spec.executable, "claude");
     assert.equal(spec.configHomeVariable, "CLAUDE_CONFIG_DIR");
+    assert.deepEqual(spec.runEnvironment, { CLAUDE_CODE_DISABLE_AUTO_MEMORY: "1" });
     assert.equal(spec.rulesyncTarget, "claudecode");
     assert.equal(spec.defaultModel, "opus");
     assert.deepEqual(spec.loginStatusArgs, ["auth", "status"]);
@@ -39,6 +40,7 @@ describe("providerSpecs", () => {
     const spec = providerSpecs.codex;
     assert.equal(spec.executable, "codex");
     assert.equal(spec.configHomeVariable, "CODEX_HOME");
+    assert.deepEqual(spec.runEnvironment, {});
     assert.equal(spec.rulesyncTarget, "codexcli");
     assert.equal(spec.defaultModel, undefined);
     assert.deepEqual(spec.loginStatusArgs, ["login", "status"]);
@@ -47,6 +49,8 @@ describe("providerSpecs", () => {
       "--json",
       "--trust",
       "--dangerously-bypass-approvals-and-sandbox",
+      "-c",
+      "features.memories=false",
     ];
     assert.deepEqual(spec.headlessArgs(undefined, "/last"), [
       ...fixed,

@@ -17,6 +17,11 @@ export interface ProviderSpec {
   readonly executable: string;
   /** Points the CLI at its config home, where its own login lives. */
   readonly configHomeVariable: string;
+  /**
+   * Variables every run of this CLI gets on top of the allowlisted Job environment,
+   * such as the switch that turns the CLI's auto memory off.
+   */
+  readonly runEnvironment: Readonly<Record<string, string>>;
   readonly rulesyncTarget: string;
   readonly defaultModel: string | undefined;
   readonly loginStatusArgs: readonly string[];
@@ -39,6 +44,8 @@ const claude: ProviderSpec = {
   displayName: "Claude Code",
   executable: "claude",
   configHomeVariable: "CLAUDE_CONFIG_DIR",
+  // Roles share one config home, so nothing a run learns may carry into a later run.
+  runEnvironment: { CLAUDE_CODE_DISABLE_AUTO_MEMORY: "1" },
   rulesyncTarget: "claudecode",
   defaultModel: "opus",
   loginStatusArgs: ["auth", "status"],
@@ -61,6 +68,7 @@ const codex: ProviderSpec = {
   displayName: "Codex",
   executable: "codex",
   configHomeVariable: "CODEX_HOME",
+  runEnvironment: {},
   rulesyncTarget: "codexcli",
   defaultModel: undefined,
   loginStatusArgs: ["login", "status"],
@@ -69,6 +77,9 @@ const codex: ProviderSpec = {
     "--json",
     "--trust",
     "--dangerously-bypass-approvals-and-sandbox",
+    // Auto memory off for this run only; the shared `config.toml` stays untouched.
+    "-c",
+    "features.memories=false",
     "-o",
     lastMessageFile,
     ...modelArgs("-m", model),
