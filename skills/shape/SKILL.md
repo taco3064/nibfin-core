@@ -285,8 +285,8 @@ authority, the latest `main` and the proposed Shape, and checks for itself:
   the Issue change, or an edge is missing to an output the Issue cannot start or finish
   without;
 - each mechanism chosen beyond the Issue's outcome carries its simplicity reasoning;
-- a change with runtime writes or state has its interruption walk, and nothing in it waits
-  on a timer or, without authority, on a person;
+- a change that adds writes the program performs while running has its interruption walk,
+  and nothing in it waits on a timer or, without authority, on a person;
 - a change touching credentials, environment, child processes or authenticated operations
   names those flows and keeps the credentials and writable-state rules where the plan
   introduces or changes a flow. A violation in code the plan does not change belongs in
