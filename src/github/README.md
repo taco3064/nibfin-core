@@ -8,19 +8,60 @@ answer or a `GitHubError`, and every write is safe to repeat after an interrupti
 
 ## Client
 
-`createClient(token, actor)` returns an `@octokit/rest` instance carrying `actor`
-(`{ id, login }`), the account Nibfin writes as. `connectClient(token)` reads that
-actor once with `GET /user` (`readActor`) and returns the client (#674): Nibfin's
-token is a user's gh login token, for which `GET /user` works (it does not for
-installation tokens or `GITHUB_TOKEN`). The token is used only here; Octokit redacts
-it from request errors. No retry plugin or timeout is added.
-The other modules take `Pick<Octokit, "request" | "paginate">`.
+`createClient(token, actor, options?, log?)` returns an `@octokit/rest` instance with
+the official `@octokit/plugin-throttling` and `@octokit/plugin-retry`, carrying
+`actor` (`{ id, login }`), the account Nibfin writes as. `connectClient(token,
+options?, log?)` reads that actor once with `GET /user` (`readActor`) through the same
+instance and returns the client (#674): Nibfin's token is a user's gh login token, for
+which `GET /user` works (it does not for installation tokens or `GITHUB_TOKEN`). The
+token is used only here; Octokit sends it as the `authorization` header and redacts it
+from request errors. No timeout is added. The other modules take
+`Pick<Octokit, "request" | "paginate">`.
+
+Rate limits (#689), handled by the throttling plugin only:
+
+- A primary rate limit (REST 403/429 with `x-ratelimit-remaining: 0`, or a GraphQL
+  `RATE_LIMITED` error in a 200 answer) waits until `x-ratelimit-reset` + 1 s and
+  retries, at most 2 times.
+- A secondary rate limit (GitHub's message names it) waits `retry-after`, or the
+  plugin's GitHub-documented 60 s fallback, and retries, at most 4 times.
+- Each wait writes `GitHub <primary|secondary> rate limit on <METHOD> <path>: waiting
+<s> s (retry <k> of <n>)` to `log` (the Job log); giving up writes `… not retrying
+after <n> retries`. The line carries the URL path only, never the query string, the
+  body or a header.
+- A rate-limited write is retried too: GitHub rejected it, so it did not happen. The
+  plugin also spaces writes and GraphQL queries at least 1 s apart, as GitHub
+  recommends.
+
+The retry plugin retries reads (GET, HEAD, GraphQL queries) on a 5xx or no response,
+3 times with a growing delay. Writes are never re-sent (`retries: 0`): their unknown
+outcome is re-read instead (see Writes). 429 is left to the throttling plugin.
+Caller `throttle` and `retry` options are merged; the handlers stay Nibfin's.
+
+### Per-Job read cache
+
+Every client keeps the answers of its reads (each GET page and each GraphQL query,
+keyed by method, full URL and body) for the rest of the Job, so a Job reads each piece
+of GitHub data once. Identical reads share one answer, also while it is in flight;
+every caller gets its own copy; failed answers are not kept. It is cleared:
+
+- by any other request (a write), before it is sent and once it settled, so the
+  confirm and read-back reads of a write go to GitHub;
+- by `freshReads(client)`: at the start and end of every agent run (`runStageAgent`),
+  after every push and before each pre-push eligibility re-check (Deliver), before the
+  merge re-check (`mergeReviewed`), and before the post-stage route
+  (`continueAfterStage`).
+
+A client built over another (`trackProgress`) shares its cache through
+`shareReadCache`. Nothing outlives the Job.
 
 ## Errors
 
 `GitHubError { code, operation, cause }`. The message names only the operation and the
-HTTP status; `cause` keeps the original error, so rate limits (403/429 with their
-response headers) stay identifiable.
+HTTP status; `cause` keeps the original error. A rate limit that outlasted its retries
+is named: `(HTTP 403, rate limited (secondary))`, or `(GraphQL, rate limited
+(primary))` for a GraphQL one. `rateLimitOf(cause)` gives `primary`, `secondary` or
+`undefined`; the `pending` comment marks a rate limit temporary whatever its code.
 
 - `GITHUB_READ_FAILED`: any failed read, including a failed page of a list. A list is
   never returned partially. Only the 404s that mean "absent" are not failures: a branch
@@ -32,19 +73,39 @@ response headers) stay identifiable.
 
 ## Snapshot and stage
 
-`readIssueSnapshot(client, repo, n, deps?)` reads, all pages each:
+`readIssueRecord(client, issue)` (#689) reads with one GraphQL query (`IssueRecord`;
+follow-up queries only past 100 comments or past the first fix branches):
 
-- The Issue: state, `state_reason`, labels and Assignees (in GitHub's order).
-- Its native Blocked by Issues, from any repository, with `state` and labels. The count
-  must match the Issue's `issue_dependencies_summary`; a shorter list (for example
-  Issues the credential cannot see) fails instead of looking unblocked.
+- The Issue: state, state reason (REST's lowercase values), URL, title, body, labels
+  and Assignees (in GitHub's order).
+- Its native Blocked by Issues, from any repository, with state and labels. The count
+  must match `issueDependenciesSummary.totalBlockedBy`; a shorter list or a missing
+  node (for example Issues the credential cannot see) fails instead of looking
+  unblocked.
+- All its comments with author id, body, URL and `userContentEdits` count.
+- The pull requests (head in this repository) and refs of its delivery and fix
+  branches, below.
+
+A pull request number, a missing Issue or a list longer than GitHub's page (labels,
+Assignees, more than 100 pull requests of one branch) fails with
+`GITHUB_READ_FAILED`. GraphQL has its own rate-limit budget, separate from REST.
+`queryGraphql(client, operation, query, variables)` turns GraphQL `errors` or a
+missing `data` into `GITHUB_READ_FAILED`.
+
+`readIssueSnapshot(client, repo, n, deps?)` builds on the record:
+
+- The Issue: state, `stateReason`, labels and Assignees.
+- Its Blocked by Issues, as above.
 - Its branches: `nibfin/issue-<n>` and the CD-failure fix branches
-  `nibfin/issue-<n>-cd-<k>`, probed by pull requests (`state=all`) and exact ref until a
-  `k` has neither. The highest existing `k` is the current branch; the next `k` is
+  `nibfin/issue-<n>-cd-<k>`, probed by pull requests (any state) and refs (`refs/heads/
+nibfin/` matching `issue-<n>-cd-`), three fix branches per query, until a `k` has
+  neither. The highest existing `k` is the current branch; the next `k` is
   `nextFixBranch`. `issueOfBranch(branch)` maps either branch name back to `n`.
 - Each pull request, newest first, with its CI when open and its CD when merged.
 
-`deps` can replace the readers the snapshot is built from.
+`deps` can replace the CI and CD readers (`readCi`, `readCdRuns`). CI and CD stay
+REST: no single GraphQL query keeps their required-check semantics; within a Job they
+are read once through the read cache.
 
 CI is the base branch's required checks: rulesets (`GET …/rules/branches/{branch}`) plus
 classic protection as `GET …/branches/{branch}` shows it, matched by context and app
@@ -89,24 +150,29 @@ none); for a GitHub Actions check run (`github-actions`) the id is the job id (#
 answers with a redirect to the log, which Octokit's fetch follows, and a 404 is
 `undefined` (#672).
 
-The snapshot carries no Issue text. `readIssueText(client, issue)` reads an Issue's
-current `{ title, body }` (an empty description is `""`), from any repository the
-credential covers (#671).
+The snapshot carries no Issue text. `readIssueText(client, issue)` gives an Issue's
+current `{ title, body }` (an empty description is `""`) from its record, from any
+repository the credential covers (#671).
 
 `readBlocking(client, issue)` lists the Issues an Issue blocks, across repositories,
-checked against its summary the same way (#673).
+from one GraphQL query (`IssueBlocking`), checked against
+`issueDependenciesSummary.totalBlocking` the same way (#673).
 
 ## Writes
 
 - `ensurePullRequest(client, repo, { branch, base, title, body })`: the branch's open
   pull request, created when there is none. A 422 "already exists" re-reads and reuses.
-- `findMarkedComment(client, target, key)` and
-  `upsertMarkedComment(client, target, key, body)`: comments starting with
-  `<!-- nibfin:<key> -->` written by the actor (by `user.id`). The oldest is updated in
+- `findMarkedComment(client, target, key, on?)` and
+  `upsertMarkedComment(client, target, key, body, on?)`: comments starting with
+  `<!-- nibfin:<key> -->` written by the actor (by user id). The oldest is updated in
   place, others are never deleted, and an unchanged body is not written. Returns the
-  comment as re-read.
+  comment as re-read. An Issue's comments come from its record; with
+  `on: "pull-request"` (the `review` comment) from the REST comment list.
+  `readMarkedComment(client, issue, key)` gives the record's comment with its
+  versions.
 - `setLabels(client, issue, { add, remove })`: writes only missing additions and present
-  removals. A removal 404 re-reads; an absent label is success.
+  removals, reading the labels from the Issue record. A removal 404 re-reads; an
+  absent label is success.
 - `closeDelivered(client, issue)`: adds `delivered`, then closes with
   `state_reason: completed`. An open Issue with `delivered` still derives `done`, so a
   repeated call finishes the close.

@@ -6,6 +6,7 @@ import { before, describe, it } from "node:test";
 import { makeTempDir } from "../agent/fake-cli.test.ts";
 import { AgentError } from "../agent/index.ts";
 import { rejection } from "../github/fake-github.test.ts";
+import { readIssueRecord } from "../github/index.ts";
 import { defaultStageDeps, prepareStageJob, runStageAgent } from "./agent.ts";
 import { StageError } from "./errors.ts";
 import {
@@ -196,6 +197,27 @@ describe("runStageAgent", () => {
     const t = await job([failure]);
     assert.equal(await rejection(runStageAgent(t.job, reader, sections)), failure);
     assert.deepEqual(t.issues.github.writes(), []);
+  });
+
+  it("reads GitHub fresh before and after the agent runs", async () => {
+    const t = await job([
+      () => {
+        // The agent's time passes; GitHub changes meanwhile.
+        t.issues.main.labels.push("pause");
+        return "done";
+      },
+      new AgentError("AGENT_RUN_FAILED", "boom", { exitCode: 2 }),
+    ]);
+    const { client } = t.issues.github;
+    const labels = async () =>
+      (await readIssueRecord(client, { owner: "acme", repo: "app", number: 1 })).labels;
+    assert.deepEqual(await labels(), ["scope"]);
+    t.issues.main.labels.push("shaped");
+    await runStageAgent(t.job, reader, sections);
+    assert.deepEqual(await labels(), ["scope", "shaped", "pause"]);
+    t.issues.main.labels.splice(0);
+    await rejection(runStageAgent(t.job, reader, sections));
+    assert.deepEqual(await labels(), []);
   });
 
   it("settles the login comment once per Job", async () => {

@@ -123,6 +123,32 @@ describe("routeIssue", () => {
     });
   }
 
+  it("routes a shape Issue from one Issue-record query", async () => {
+    const issues = fakeIssues(fakeIssue({ labels: ["scope"] }));
+    const state = await readRoute(issues.github.client, repo, 1, log);
+    assert.deepEqual(state.route, route("shape", null));
+    assert.deepEqual(
+      issues.github.calls.map((call) => `${call.method} ${call.path}`),
+      ["POST /graphql"],
+    );
+  });
+
+  it("reads the Issue record once while routing a review", async () => {
+    const world = await reviewWorld();
+    const { github } = world.issues;
+    reviewComment(world, true);
+    freshReads(github.client);
+    const before = github.calls.length;
+    const state = await readRoute(github.client, repo, 1, log);
+    assert.deepEqual(state.route, route("deliver", "review"));
+    const calls = github.calls.slice(before);
+    const records = calls.filter((call) =>
+      (call.body as { query?: string } | undefined)?.query?.includes("IssueRecord"),
+    );
+    assert.equal(records.length, 1);
+    assert.ok(!calls.some((call) => call.path.startsWith("/repos/acme/app/issues/1")));
+  });
+
   it("routes a closed Issue it delivered to the review stage's wake", async () => {
     const issues = fakeIssues(
       fakeIssue({ state: "closed", labels: ["scope", "shaped", "delivered"] }),

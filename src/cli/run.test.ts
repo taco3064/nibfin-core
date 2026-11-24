@@ -107,13 +107,13 @@ describe("run --stage", () => {
     const lines: string[] = [];
     const write = process.stdout.write.bind(process.stdout);
     // Only text lines are the stages' output; the test runner's own reports pass.
-    process.stdout.write = ((text: string | Uint8Array, ...rest: never[]) => {
+    process.stdout.write = (text: string | Uint8Array, ...rest: never[]) => {
       if (typeof text !== "string") {
         return write(text, ...rest);
       }
       lines.push(text);
       return true;
-    });
+    };
     try {
       const context = jobContext("/nibfin-test-workspace");
       const { client } = issues.github;
