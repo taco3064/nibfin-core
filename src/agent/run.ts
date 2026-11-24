@@ -139,7 +139,10 @@ export async function runAgent(options: RunAgentOptions): Promise<AgentResult> {
     command: executables[provider],
     args: [],
     cwd: workspace,
-    env: childEnvironment(process.env, { [spec.configHomeVariable]: home }),
+    env: childEnvironment(process.env, {
+      ...spec.runEnvironment,
+      [spec.configHomeVariable]: home,
+    }),
   };
   const agent = await agentRequest(base, options.pathEntries ?? []);
   const lastMessageFile = await gitPath(workspace, "nibfin-last-message");
