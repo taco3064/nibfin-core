@@ -3,6 +3,7 @@
 // tests of its own.
 import { watch } from "node:fs";
 import { join } from "node:path";
+import type { NibfinConfig } from "../config/index.ts";
 import { type FakeRequest, paged } from "../github/fake-github.test.ts";
 import { checkRun, workflowRun } from "../github/fixtures.test.ts";
 import type { JobContext } from "./context.ts";
@@ -181,6 +182,8 @@ export interface WorldOptions {
   noShape?: boolean;
   override?: (call: GitCall) => GitOutput | undefined;
   reason?: JobContext["reason"];
+  /** The `.nibfin.json` the stage reads; the fake default otherwise. */
+  config?: NibfinConfig;
 }
 
 export async function deliveryWorld(options: WorldOptions = {}): Promise<DeliveryWorld> {
@@ -190,7 +193,7 @@ export async function deliveryWorld(options: WorldOptions = {}): Promise<Deliver
   if (!options.noShape) {
     seedComment(issues, main, `<!-- nibfin:shape -->\n${shapeText}`);
   }
-  const agent = fakeDeps(options.steps ?? []);
+  const agent = fakeDeps(options.steps ?? [], options.config);
   const listeners: Array<() => void> = [];
   const log = agent.deps.log;
   agent.deps.log = (line) => {

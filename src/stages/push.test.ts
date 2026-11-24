@@ -1,7 +1,16 @@
 import assert from "node:assert/strict";
-import { chmodSync, existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  rmSync,
+  symlinkSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
+import { dirname, join } from "node:path";
 import { describe, it } from "node:test";
+import type { NibfinConfig } from "../config/index.ts";
 import { fakeActor, fakeToken, rejection } from "../github/fake-github.test.ts";
 import { StageError } from "./errors.ts";
 import {
@@ -13,6 +22,7 @@ import {
   recordingGit,
 } from "./fake-git.test.ts";
 import { type GitCall, type GitOutput, prepareBranch } from "./git.ts";
+import { protectedPaths } from "./protected-paths.ts";
 import { BranchPusher } from "./push.ts";
 
 const branch = "nibfin/issue-1";
@@ -23,9 +33,17 @@ async function setup(
     pushed?: boolean;
     override?: (call: GitCall) => GitOutput | undefined;
     beforePush?: () => Promise<boolean>;
+    /** Commits to `main` before the branch is prepared. */
+    base?: (other: string) => void;
+    config?: NibfinConfig;
   } = {},
 ) {
   const fixture = await makeGitFixture("push-");
+  if (options.base !== undefined) {
+    options.base(fixture.other);
+    git(fixture.other, "push", "--quiet", "origin", "main");
+    git(fixture.workspace, "pull", "--quiet", "origin", "main");
+  }
   if (options.pushed) {
     git(fixture.other, "checkout", "--quiet", "-b", branch);
     commitFile(fixture.other, "o.txt", "o\n", "earlier work");
@@ -33,6 +51,8 @@ async function setup(
   }
   const recorder = recordingGit(options.override);
   const subject = fixtureGit(fixture, recorder.run);
+  const config = options.config ?? { tools: {}, skills: {} };
+  const protectedSet = await protectedPaths(config, fixture.workspace);
   const prepared = await prepareBranch(subject, {
     base: "main",
     branch,
@@ -43,6 +63,7 @@ async function setup(
     git: subject,
     base: "main",
     branch,
+    protectedSet,
     remoteHead: prepared.remoteHead,
     beforePush: options.beforePush ?? (() => Promise.resolve(true)),
     log: (line) => logs.push(line),
@@ -275,5 +296,143 @@ describe("BranchPusher", () => {
     await Promise.all([running, ...more]);
     assert.equal(t.pushes().length, 2);
     assert.equal(t.fixture.remoteHead(branch), second);
+  });
+});
+
+/** Writes `path` (and its directories) in `cwd` and stages it. */
+function put(cwd: string, path: string, text = `${path}\n`) {
+  mkdirSync(dirname(join(cwd, path)), { recursive: true });
+  writeFileSync(join(cwd, path), text);
+  git(cwd, "add", path);
+}
+
+function symlink(cwd: string, path: string, target: string) {
+  symlinkSync(target, join(cwd, path));
+  git(cwd, "add", path);
+}
+
+/** Stages the change, commits it and returns the commit. */
+function change(fixture: GitFixture, apply: (cwd: string) => void): string {
+  apply(fixture.workspace);
+  git(fixture.workspace, "commit", "--quiet", "-m", "change");
+  return git(fixture.workspace, "rev-parse", "HEAD");
+}
+
+const skill: NibfinConfig = {
+  tools: {},
+  skills: { deliver: { path: "docs/deliver.md", mode: "extend" } },
+};
+
+const protectedBase = (other: string) => {
+  put(other, ".github/workflows/ci.yml");
+  put(other, "docs/deliver.md");
+  git(other, "commit", "--quiet", "-m", "protected files");
+};
+
+describe("BranchPusher on protected paths", () => {
+  for (const [name, apply, listed] of [
+    ["adds", (cwd: string) => put(cwd, ".nibfin/policy.json"), ".nibfin/policy.json"],
+    [
+      "modifies",
+      (cwd: string) => put(cwd, ".github/workflows/ci.yml", "x\n"),
+      ".github/workflows/ci.yml",
+    ],
+    [
+      "deletes",
+      (cwd: string) => git(cwd, "rm", "--quiet", "docs/deliver.md"),
+      "docs/deliver.md",
+    ],
+    [
+      "renames away",
+      (cwd: string) => git(cwd, "mv", "docs/deliver.md", "src.md"),
+      "docs/deliver.md",
+    ],
+  ] as const) {
+    it(`refuses a head that ${name} a protected file`, async () => {
+      const t = await setup({ base: protectedBase, config: skill });
+      const clean = commit(t.fixture, "a.txt");
+      await t.pusher.flush();
+      change(t.fixture, apply);
+      const error = await rejection(t.pusher.flush());
+      assert.ok(error instanceof StageError);
+      assert.equal(error.code, "STAGE_PROTECTED_PATH");
+      assert.match(error.message, new RegExp(`Changed on the branch: .*\\n- ${listed}$`));
+      assert.match(error.message, /separately authorized maintenance route/);
+      assert.equal(t.pushes().length, 1);
+      assert.equal(t.fixture.remoteHead(branch), clean);
+      // No later push happens in that run.
+      commit(t.fixture, "b.txt");
+      await t.pusher.request();
+      assert.equal(t.pushes().length, 1);
+    });
+  }
+
+  it("refuses a head that retargets a parent symlink of a skill", async () => {
+    const t = await setup({
+      base: (other) => {
+        put(other, "guides/deliver.md");
+        symlink(other, "docs", "guides");
+        git(other, "commit", "--quiet", "-m", "linked skill");
+      },
+      config: skill,
+    });
+    change(t.fixture, (cwd) => {
+      put(cwd, "evil/deliver.md");
+      unlinkSync(join(cwd, "docs"));
+      symlink(cwd, "docs", "evil");
+    });
+    const error = await rejection(t.pusher.flush());
+    assert.equal((error as StageError).code, "STAGE_PROTECTED_PATH");
+    assert.match((error as Error).message, /\n- docs$/);
+    assert.deepEqual(t.pushes(), []);
+  });
+
+  it("refuses a head that adds a parent symlink of a missing skill", async () => {
+    const t = await setup({ config: skill });
+    change(t.fixture, (cwd) => {
+      put(cwd, "evil/deliver.md");
+      symlink(cwd, "docs", "evil");
+    });
+    const error = await rejection(t.pusher.flush());
+    assert.match((error as Error).message, /\n- docs$/);
+    assert.deepEqual(t.pushes(), []);
+  });
+
+  it("refuses a head that edits the target of a .rulesync symlink", async () => {
+    const t = await setup({
+      base: (other) => {
+        put(other, "config/rules/a.md");
+        symlink(other, ".rulesync", "config/rules");
+        git(other, "commit", "--quiet", "-m", "linked rules");
+      },
+    });
+    change(t.fixture, (cwd) => put(cwd, "config/rules/a.md", "evil\n"));
+    const error = await rejection(t.pusher.flush());
+    assert.match((error as Error).message, /\n- config\/rules\/a\.md$/);
+    assert.deepEqual(t.pushes(), []);
+  });
+
+  it("refuses a branch that is behind the base on a protected path", async () => {
+    const t = await setup({
+      config: skill,
+      base: (other) => {
+        git(other, "checkout", "--quiet", "-b", branch);
+        commitFile(other, "o.txt", "o\n", "earlier work");
+        git(other, "push", "--quiet", "origin", branch);
+        git(other, "checkout", "--quiet", "main");
+        put(other, "docs/deliver.md", "new\n");
+        git(other, "commit", "--quiet", "-m", "newer skill");
+      },
+    });
+    const fetched = t.pusher.remoteHead;
+    commit(t.fixture, "a.txt");
+    const error = await rejection(t.pusher.flush());
+    assert.match(
+      (error as Error).message,
+      /Only behind the base: .*rebased onto origin\/main.*\n- docs\/deliver\.md$/,
+    );
+    assert.doesNotMatch((error as Error).message, /Changed on the branch/);
+    assert.deepEqual(t.pushes(), []);
+    assert.equal(t.fixture.remoteHead(branch), fetched);
   });
 });

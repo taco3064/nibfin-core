@@ -46,6 +46,7 @@ import {
   checkedOutBranch,
   commitsAhead,
   diffAgainstBase,
+  fetchWorkspaceBranch,
   Git,
   githubRemoteUrl,
   type GitRunner,
@@ -57,6 +58,14 @@ import {
 } from "./git.ts";
 import { type NextAction, noNextAction, writeNextAction } from "./next.ts";
 import { type Progress, trackProgress } from "./progress.ts";
+import {
+  isUnprotected,
+  matchProtected,
+  protectedChanges,
+  protectedPathError,
+  protectedPaths,
+  type ProtectedSet,
+} from "./protected-paths.ts";
 import { BranchPusher } from "./push.ts";
 import { type RefWatcher, watchRefDirectory } from "./ref-watcher.ts";
 import { requireNoOtherWriter } from "./writer-guard.ts";
@@ -112,6 +121,8 @@ class DeliverRun {
   readonly base: string;
   readonly eligible: Eligible;
   readonly fix: string | undefined;
+  /** The protected paths, from the base checkout before the branch was checked out. */
+  readonly protectedSet: ProtectedSet;
   readonly pusher: BranchPusher;
   readonly progress: Progress;
   /** The remote head when the run started; a push changes it. */
@@ -127,6 +138,7 @@ class DeliverRun {
     eligible: Eligible;
     fix: string | undefined;
     remoteHead: string | undefined;
+    protectedSet: ProtectedSet;
     progress: Progress;
   }) {
     this.progress = options.progress;
@@ -137,11 +149,13 @@ class DeliverRun {
     this.base = options.base;
     this.eligible = options.eligible;
     this.fix = options.fix;
+    this.protectedSet = options.protectedSet;
     this.issue = issueOf(options.job.context);
     this.pusher = new BranchPusher({
       git: options.git,
       base: options.base,
       branch: this.branch,
+      protectedSet: options.protectedSet,
       remoteHead: options.remoteHead,
       beforePush: () => this.stillEligible(),
       log: options.deps.log,
@@ -312,6 +326,33 @@ class DeliverRun {
     ];
   }
 
+  /**
+   * No Acceptor runs on a head that differs from `origin/<base>` on a protected
+   * path, or on a workspace with an ignored file at a protected path (which no diff
+   * shows but the Acceptor would still read). The head is fetched into Core's
+   * repository and compared there, as before a push.
+   */
+  async requireUnprotected(): Promise<void> {
+    const head = await fetchWorkspaceBranch(this.git, this.branch);
+    const changes = await protectedChanges(this.git, this.base, head, this.protectedSet);
+    const status = await this.git.run([
+      "status",
+      "--porcelain",
+      "--ignored",
+      "--untracked-files=all",
+      "-z",
+    ]);
+    const ignored = status
+      .split("\0")
+      .filter((entry) => entry.startsWith("!! "))
+      .map((entry) => entry.slice(3).replace(/\/+$/, ""));
+    const extra = matchProtected(ignored, this.protectedSet);
+    changes.changedOnBranch = [...new Set([...changes.changedOnBranch, ...extra])].sort();
+    if (!isUnprotected(changes)) {
+      throw protectedPathError(this.branch, this.base, changes);
+    }
+  }
+
   /** A fresh, read-only Acceptor on the current local diff. */
   async accept(round: number) {
     this.deps.log(`Round ${round}: ${acceptorRole.title}`);
@@ -343,6 +384,7 @@ class DeliverRun {
       }
       defects = await this.closingDefects();
       if (defects === undefined) {
+        await this.requireUnprotected();
         const verdict = await this.accept(round);
         if (verdict.outcome === "pass") {
           return undefined;
@@ -407,6 +449,8 @@ async function startRun(
     const message = "NIBFIN_WORKSPACE must have the base branch checked out";
     throw new StageError("STAGE_INPUT_INVALID", message);
   }
+  // Read from the base checkout, the one whose `.nibfin.json` the agents use.
+  const protectedSet = await protectedPaths(job.config, context.workspace);
   const prepared = await prepareBranch(git, {
     base,
     branch: eligible.branch,
@@ -423,6 +467,7 @@ async function startRun(
     eligible,
     fix,
     remoteHead: prepared.remoteHead,
+    protectedSet,
     progress,
   });
 }
@@ -432,7 +477,8 @@ async function startRun(
  * the Issue's branch, Core pushes its commits, a fresh read-only Acceptor checks the
  * local diff, and only after a pass Core pushes what is pending and opens or reuses
  * the pull request. Returns the exit code; stops with `STAGE_WRITER_ACTIVE`,
- * `STAGE_BLOCKED`, `STAGE_PUSH_REJECTED` or another coded error.
+ * `STAGE_BLOCKED`, `STAGE_PUSH_REJECTED`, `STAGE_PROTECTED_PATH` or another coded
+ * error.
  */
 export async function runDeliverStage(
   context: JobContext,
