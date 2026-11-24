@@ -1,4 +1,5 @@
 export { continueAfterStage, type FinishedStage } from "./after-stage.ts";
+export { deleteIssueBranches } from "./delete-branches.ts";
 export {
   type DispatchScope,
   dispatchRoute,

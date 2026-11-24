@@ -87,6 +87,7 @@ export {
 export {
   closeDelivered,
   commentMarker,
+  deleteBranch,
   ensurePullRequest,
   findMarkedComment,
   type LabelChanges,

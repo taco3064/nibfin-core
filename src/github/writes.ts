@@ -1,4 +1,5 @@
 import {
+  branchExists,
   type PullRequestSummary,
   readPullRequests,
   summarizePullRequest,
@@ -320,6 +321,31 @@ export async function closeDelivered(
       confirm: async () =>
         (await readIssueState(client, issue)) === "closed" ? true : undefined,
     },
+  );
+}
+
+/**
+ * Deletes branch `name` of `repo` (`DELETE …/git/refs/heads/<name>`, #700). GitHub
+ * documents no answer for a missing ref, so after an unknown outcome or any 4xx the ref
+ * is read again: absent (404) means done; otherwise the failure stands.
+ */
+export async function deleteBranch(
+  client: ActingClient,
+  repo: Repo,
+  name: string,
+): Promise<void> {
+  const absent = async () =>
+    (await branchExists(client, repo, name)) ? undefined : true;
+  await write(
+    `delete branch ${repo.owner}/${repo.repo}:${name}`,
+    async () => {
+      await client.request("DELETE /repos/{owner}/{repo}/git/refs/{ref}", {
+        ...repo,
+        ref: `heads/${name}`,
+      });
+      return true;
+    },
+    { confirm: absent, recover: () => absent().catch(() => undefined) },
   );
 }
 

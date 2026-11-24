@@ -99,6 +99,21 @@ export function summarizePullRequest(pull: PullRequestData): PullRequestSummary 
   };
 }
 
+/** Whether the ref of branch `name` exists in `repo` (404 = absent). */
+export async function branchExists(
+  client: GitHubClient,
+  repo: Repo,
+  name: string,
+): Promise<boolean> {
+  const ref = await readOptional(`read ref of ${repo.owner}/${repo.repo}:${name}`, () =>
+    client.request("GET /repos/{owner}/{repo}/git/ref/{ref}", {
+      ...repo,
+      ref: `heads/${name}`,
+    }),
+  );
+  return ref !== undefined;
+}
+
 /** Probes one branch: its pull requests and whether its ref exists (404 = absent). */
 export async function probeBranch(
   client: GitHubClient,
@@ -106,13 +121,8 @@ export async function probeBranch(
   name: string,
 ): Promise<BranchProbe> {
   const pullRequests = await readPullRequests(client, repo, name);
-  const ref = await readOptional(`read ref of ${repo.owner}/${repo.repo}:${name}`, () =>
-    client.request("GET /repos/{owner}/{repo}/git/ref/{ref}", {
-      ...repo,
-      ref: `heads/${name}`,
-    }),
-  );
-  return { name, exists: ref !== undefined, pullRequests };
+  const exists = await branchExists(client, repo, name);
+  return { name, exists, pullRequests };
 }
 
 /**

@@ -12,11 +12,13 @@ import {
   paged,
   rejection,
   repo,
+  type Route,
 } from "./fake-github.test.ts";
 import { comment, issue, pull } from "./fixtures.test.ts";
 import {
   closeDelivered,
   commentMarker,
+  deleteBranch,
   ensurePullRequest,
   findMarkedComment,
   setLabels,
@@ -458,5 +460,74 @@ describe("closeDelivered", () => {
       closeDelivered(forbidden.github.client, target),
       "GITHUB_WRITE_REJECTED",
     );
+  });
+});
+
+describe("deleteBranch", () => {
+  const refPath = `/repos/acme/app/git/ref/heads/${branch}`;
+
+  /**
+   * A branch ref answering the DELETE with `outcome`; `gone` removes the ref on any
+   * answer (deleted concurrently), and `read` replaces the re-read of the ref.
+   */
+  function refFake(outcome: Outcome, options: { gone?: boolean; read?: Route } = {}) {
+    const model = { exists: true };
+    const github = fakeGitHub({
+      [`DELETE /repos/acme/app/git/refs/heads/${branch}`]: () => {
+        if (options.gone) {
+          model.exists = false;
+        }
+        return answer(outcome, () => {
+          model.exists = false;
+          return { status: 204 };
+        });
+      },
+      [`GET ${refPath}`]:
+        options.read ??
+        (() => (model.exists ? { data: { ref: `refs/heads/${branch}` } } : failure(404))),
+    });
+    return { github, model };
+  }
+
+  it("deletes the branch ref", async () => {
+    const { github, model } = refFake("ok");
+    await deleteBranch(github.client, repo, branch);
+    assert.equal(model.exists, false);
+    assert.deepEqual(
+      github.calls.map((call) => `${call.method} ${call.path}`),
+      [`DELETE /repos/acme/app/git/refs/heads/${branch}`],
+    );
+  });
+
+  it("treats a 4xx as done when the ref is gone", async () => {
+    const { github } = refFake(422, { gone: true });
+    await deleteBranch(github.client, repo, branch);
+    assert.equal(github.calls.at(-1)?.path, refPath);
+  });
+
+  it("rejects a 4xx while the ref is present or unreadable", async () => {
+    const present = refFake(422);
+    await expectCode(
+      deleteBranch(present.github.client, repo, branch),
+      "GITHUB_WRITE_REJECTED",
+    );
+    const unreadable = refFake(409, { gone: true, read: failure(500) });
+    const error = await expectCode(
+      deleteBranch(unreadable.github.client, repo, branch),
+      "GITHUB_WRITE_REJECTED",
+    );
+    assert.equal((error.cause as { status: number }).status, 409);
+  });
+
+  it("confirms an unknown outcome by re-reading the ref", async () => {
+    const applied = refFake("applied-then-502");
+    await deleteBranch(applied.github.client, repo, branch);
+    assert.equal(applied.model.exists, false);
+    const lost = refFake("lost");
+    await expectCode(
+      deleteBranch(lost.github.client, repo, branch),
+      "GITHUB_WRITE_UNCONFIRMED",
+    );
+    assert.equal(lost.model.exists, true);
   });
 });
