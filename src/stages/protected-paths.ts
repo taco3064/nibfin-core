@@ -1,4 +1,5 @@
-import { lstat, readlink, realpath } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { lstat, readdir, readFile, readlink, realpath } from "node:fs/promises";
 import { isAbsolute, join, posix, relative, resolve, sep } from "node:path";
 import { isWithin } from "../config/paths.ts";
 import { type NibfinConfig, roleNames } from "../config/schema.ts";
@@ -201,6 +202,126 @@ export async function protectedChanges(
     changedOnBranch: differing.filter((path) => own.has(path)),
     behindBase: differing.filter((path) => !own.has(path)),
   };
+}
+
+interface TreeEntry {
+  mode: string;
+  oid: string;
+}
+
+/** The non-tree entries of `head` that the set protects, from Core's repository. */
+async function protectedTree(
+  git: Git,
+  head: string,
+  protectedSet: ProtectedSet,
+): Promise<Map<string, TreeEntry>> {
+  const output = await git.coreRequired(["ls-tree", "-r", "-z", "--full-tree", head]);
+  const entries = new Map<string, TreeEntry>();
+  for (const record of output.split("\0")) {
+    const tab = record.indexOf("\t");
+    if (tab < 0) {
+      continue;
+    }
+    const [mode, , oid] = record.slice(0, tab).split(" ") as [string, string, string];
+    const path = record.slice(tab + 1);
+    if (matchProtected([path], protectedSet).length > 0) {
+      entries.set(path, { mode, oid });
+    }
+  }
+  return entries;
+}
+
+/** Each parent of `path`, shortest first, then `path` itself. */
+function prefixes(path: string): string[] {
+  const parts = path.split("/");
+  return parts.map((_, index) => parts.slice(0, index + 1).join("/"));
+}
+
+/**
+ * The protected paths whose state in the workspace's working tree differs from
+ * `head`, read from the file system and Core's repository only. Nothing in the
+ * workspace's index or Git config (skip-worktree, assume-unchanged, fsmonitor,
+ * ignore rules, stat data) takes part, so none of it can hide a difference from
+ * what rulesync and the Acceptor read. The executable bit is not compared.
+ */
+export async function workingTreeChanges(
+  git: Git,
+  workspace: string,
+  head: string,
+  protectedSet: ProtectedSet,
+): Promise<string[]> {
+  const root = await realpath(workspace);
+  const format = (await git.coreRequired(["rev-parse", "--show-object-format"])).trim();
+  const hash = (bytes: Buffer) =>
+    createHash(format).update(`blob ${bytes.length}\0`).update(bytes).digest("hex");
+  const tree = await protectedTree(git, head, protectedSet);
+  const info = (path: string) => lstat(join(root, path)).catch(() => undefined);
+  const differing = new Set<string>();
+
+  // Every protected entry of the head is in the working tree, unchanged, and reached
+  // through real directories only (a tree entry has no link above it).
+  for (const [path, entry] of tree) {
+    let reachable = true;
+    for (const parent of prefixes(path).slice(0, -1)) {
+      if (!(await info(parent))?.isDirectory()) {
+        reachable = false;
+        break;
+      }
+    }
+    const stat = reachable ? await info(path) : undefined;
+    const absolute = join(root, path);
+    let same = false;
+    if (stat === undefined) {
+      same = false;
+    } else if (entry.mode === "120000") {
+      same =
+        stat.isSymbolicLink() &&
+        hash(await readlink(absolute, { encoding: "buffer" })) === entry.oid;
+    } else if (entry.mode === "160000") {
+      same = stat.isDirectory();
+    } else {
+      same = stat.isFile() && hash(await readFile(absolute)) === entry.oid;
+    }
+    if (!same) {
+      differing.add(path);
+    }
+  }
+
+  // Nothing the head lacks sits on or below a protected path, or replaces a parent
+  // directory of one; ignored and untracked files included.
+  const below = async (directory: string): Promise<void> => {
+    if (tree.get(directory)?.mode === "160000") {
+      return;
+    }
+    const names = await readdir(join(root, directory));
+    for (const name of names) {
+      const path = `${directory}/${name}`;
+      const stat = await info(path);
+      if (stat?.isDirectory()) {
+        await below(path);
+      } else if (!tree.has(path)) {
+        differing.add(path);
+      }
+    }
+  };
+  for (const entry of protectedSet) {
+    for (const path of prefixes(entry.path)) {
+      const stat = await info(path);
+      if (stat === undefined) {
+        break;
+      }
+      if (!stat.isDirectory()) {
+        if (!tree.has(path)) {
+          differing.add(path);
+        }
+        break;
+      }
+      if (path === entry.path) {
+        await below(path);
+      }
+    }
+  }
+  return [...differing].sort();
 }
 
 const list = (paths: readonly string[]) => paths.map((path) => `- ${path}`).join("\n");

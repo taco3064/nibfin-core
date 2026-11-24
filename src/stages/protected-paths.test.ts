@@ -1,5 +1,13 @@
 import assert from "node:assert/strict";
-import { mkdirSync, symlinkSync, writeFileSync } from "node:fs";
+import {
+  appendFileSync,
+  mkdirSync,
+  renameSync,
+  rmSync,
+  symlinkSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { dirname, join } from "node:path";
 import { describe, it } from "node:test";
 import { makeTempDir } from "../agent/fake-cli.test.ts";
@@ -14,6 +22,7 @@ import {
   protectedPathError,
   protectedPaths,
   type ProtectedSet,
+  workingTreeChanges,
 } from "./protected-paths.ts";
 
 const fixed = [
@@ -275,5 +284,85 @@ describe("protectedPathError", () => {
       behindBase: ["x"],
     });
     assert.doesNotMatch(behind.message, /Changed on the branch/);
+  });
+});
+
+describe("workingTreeChanges", () => {
+  const config = skills({ deliver: "docs/deliver.md" });
+
+  /** A workspace whose `main` commits protected files, links and a gitlink. */
+  async function committed() {
+    const fixture = await makeGitFixture("protected-");
+    const cwd = fixture.workspace;
+    write(cwd, ".nibfin.json", "{}\n");
+    write(cwd, ".rulesync/rules.md", "rules\n");
+    write(cwd, ".github/workflows/ci.yml", "ci\n");
+    write(cwd, "guides/deliver.md", "skill\n");
+    link(cwd, "docs", "guides");
+    link(cwd, ".nibfin/link", "../.nibfin.json");
+    mkdirSync(join(cwd, ".nibfin", "sub"), { recursive: true });
+    git(cwd, "add", ".");
+    const seed = git(cwd, "rev-parse", "HEAD");
+    git(cwd, "update-index", "--add", "--cacheinfo", `160000,${seed},.nibfin/sub`);
+    git(cwd, "commit", "--quiet", "-m", "protected");
+    const subject = fixtureGit(fixture);
+    await subject.initCoreRepo();
+    const set = await protectedPaths(config, cwd);
+    const changes = async () =>
+      workingTreeChanges(subject, cwd, await fetchWorkspaceBranch(subject, "main"), set);
+    return { cwd, changes };
+  }
+
+  it("finds nothing on a working tree that matches the head", async () => {
+    const { changes } = await committed();
+    assert.deepEqual(await changes(), []);
+  });
+
+  for (const flag of ["--skip-worktree", "--assume-unchanged"]) {
+    it(`finds an edit that ${flag} hides from git status`, async () => {
+      const { cwd, changes } = await committed();
+      git(cwd, "update-index", flag, ".rulesync/rules.md");
+      write(cwd, ".rulesync/rules.md", "evil\n");
+      assert.equal(git(cwd, "status", "--porcelain", "--ignored"), "");
+      assert.deepEqual(await changes(), [".rulesync/rules.md"]);
+    });
+  }
+
+  it("finds ignored and untracked files below a protected directory", async () => {
+    const { cwd, changes } = await committed();
+    appendFileSync(join(cwd, ".git", "info", "exclude"), "\n/.github/workflows/x/\n");
+    write(cwd, ".github/workflows/x/deep.yml");
+    write(cwd, ".rulesync/new.md");
+    assert.deepEqual(await changes(), [
+      ".github/workflows/x/deep.yml",
+      ".rulesync/new.md",
+    ]);
+  });
+
+  it("finds a retargeted link, a missing file and a file in a link's place", async () => {
+    const { cwd, changes } = await committed();
+    write(cwd, "evil/deliver.md", "skill\n");
+    unlinkSync(join(cwd, "docs"));
+    link(cwd, "docs", "evil");
+    unlinkSync(join(cwd, ".nibfin.json"));
+    unlinkSync(join(cwd, ".nibfin", "link"));
+    write(cwd, ".nibfin/link", "{}\n");
+    assert.deepEqual(await changes(), [".nibfin.json", ".nibfin/link", "docs"]);
+  });
+
+  it("finds a protected directory replaced by a link to the same content", async () => {
+    const { cwd, changes } = await committed();
+    renameSync(join(cwd, ".rulesync"), join(cwd, "copy"));
+    link(cwd, ".rulesync", "copy");
+    assert.deepEqual(await changes(), [".rulesync", ".rulesync/rules.md"]);
+  });
+
+  it("finds a directory in a file's place and a file in a gitlink's place", async () => {
+    const { cwd, changes } = await committed();
+    unlinkSync(join(cwd, ".nibfin.json"));
+    write(cwd, ".nibfin.json/x");
+    rmSync(join(cwd, ".nibfin", "sub"), { recursive: true });
+    write(cwd, ".nibfin/sub");
+    assert.deepEqual(await changes(), [".nibfin.json", ".nibfin.json/x", ".nibfin/sub"]);
   });
 });
