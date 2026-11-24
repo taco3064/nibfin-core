@@ -223,9 +223,10 @@ Never create Issues, rewrite the Issue or edit dependencies yourself.
   edge is missing to an undelivered output the Issue cannot start or finish without,
   return blocked with an amendment request: the exact text to change or the edge to add,
   the evidence, and whether it is a small amendment (a factual correction, wording aligned
-  with an approved decision, or such an edge). Scope applies it. When the independent part
-  can be shaped (see Prerequisites), or an amendment would only be useful, record the
-  suggestion in the Shape's evidence and proceed.
+  with an approved decision, or such an edge). Scope applies it. When the Issue can start
+  and finish without that output, shape the independent part (see Prerequisites) and
+  record the suggested edge in the Shape's evidence; an amendment that would only be
+  useful also goes in the evidence, and the Shape proceeds.
 - If the Issue is not development work, relies on a missing reusable source, or must be
   split, moved, merged or reinterpreted, report the gap, the affected clause, the code
   evidence and the impacted work, and send it to Scope.
@@ -284,9 +285,9 @@ authority, the latest `main` and the proposed Shape, and checks for itself:
 - when the Issue itself needs a change, apply the Re-planning rule yourself: return
   blocked with a concrete amendment request (the exact text or edge, the evidence, and
   whether it is a small amendment) only when the Shape cannot be completed truthfully
-  without the change, or an edge is missing to an output the Issue cannot start or finish
-  without; a merely useful amendment belongs in the Shape's evidence, so accept it there
-  or ask for it with changes-required;
+  without the change, or an edge is missing to an undelivered output the Issue cannot
+  start or finish without; a merely useful amendment belongs in the Shape's evidence, so
+  accept it there or ask for it with changes-required;
 - each mechanism chosen beyond the Issue's outcome carries its simplicity reasoning;
 - a change that adds writes the program performs while running has its interruption walk,
   and nothing in it waits on a timer or, without authority, on a person;
