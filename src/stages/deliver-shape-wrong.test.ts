@@ -71,7 +71,7 @@ describe("runDeliverStage when the Writer finds the Shape wrong", () => {
     const world = await deliveryWorld({ steps: [step] });
     const version = shapeVersion(world.issues);
     assert.equal(await world.run(), 0);
-    assert.deepEqual(next(world), { stage: "shape", reason: null });
+    assert.deepEqual(next(world), { stage: "shape", reason: null, progressed: true });
     assert.deepEqual(
       world.issues.marked("shape-wrong").map((comment) => comment.body),
       [
@@ -99,7 +99,7 @@ describe("runDeliverStage when the Writer finds the Shape wrong", () => {
     const { world, head } = await openPullWorld({ reason: "review", steps: [step] });
     reviewComment(world, head, `Reviewed Shape: ${shapeVersion(world.issues)}`);
     assert.equal(await world.run(), 0);
-    assert.deepEqual(next(world), { stage: "shape", reason: null });
+    assert.deepEqual(next(world), { stage: "shape", reason: null, progressed: true });
     assert.deepEqual(pushes(world), []);
     assert.equal(world.fixture.remoteHead(branch), head);
     assert.equal(world.issues.marked("shape-wrong").length, 1);
@@ -113,7 +113,7 @@ describe("runDeliverStage when the Writer finds the Shape wrong", () => {
     };
     const world = await deliveryWorld({ steps: [step] });
     assert.equal(await world.run(), 0);
-    assert.deepEqual(next(world), { stage: null, reason: null });
+    assert.deepEqual(next(world), { stage: null, reason: null, progressed: false });
     assert.deepEqual(world.issues.marked("shape-wrong"), []);
     assert.deepEqual(world.issues.main.labels, ["scope", "shaped", "pause"]);
   });
@@ -126,7 +126,7 @@ describe("runDeliverStage when the Writer finds the Shape wrong", () => {
     const { world, head } = await openPullWorld({ reason: "review", steps: [step] });
     reviewComment(world, head, `Reviewed Shape: ${shapeVersion(world.issues)}`);
     assert.equal(await world.run(), 0);
-    assert.deepEqual(next(world), { stage: "review", reason: null });
+    assert.deepEqual(next(world), { stage: "review", reason: null, progressed: false });
     assert.deepEqual(world.issues.marked("shape-wrong"), []);
     assert.ok(world.issues.main.labels.includes("shaped"));
   });
@@ -155,7 +155,7 @@ describe("runDeliverStage redo of a Shape report", () => {
       }
       seedReport(world, shapeVersion(world.issues));
       assert.equal(await world.run(), 0);
-      assert.deepEqual(next(world), { stage: "shape", reason: null });
+      assert.deepEqual(next(world), { stage: "shape", reason: null, progressed: true });
       assert.deepEqual(world.issues.main.labels, ["scope"]);
       assert.deepEqual(world.agent.runs, []);
       assert.deepEqual(world.git.calls, []);
@@ -168,7 +168,7 @@ describe("runDeliverStage redo of a Shape report", () => {
     });
     seedReport(world, shapeVersion(world.issues));
     assert.equal(await world.run(), 0);
-    assert.deepEqual(next(world), { stage: null, reason: null });
+    assert.deepEqual(next(world), { stage: null, reason: null, progressed: false });
     assert.deepEqual(world.issues.github.writes(), []);
   });
 
@@ -180,7 +180,7 @@ describe("runDeliverStage redo of a Shape report", () => {
     });
     const error = await rejection(world.run());
     assert.equal((error as GitHubError).code, "GITHUB_WRITE_UNCONFIRMED");
-    assert.deepEqual(next(world), { stage: null, reason: null });
+    assert.deepEqual(next(world), { stage: null, reason: null, progressed: true });
   });
 
   it("runs normally on a report for an older Shape version", async () => {
@@ -192,7 +192,7 @@ describe("runDeliverStage redo of a Shape report", () => {
     const version = shapeVersion(world.issues);
     seedReport(world, "1.1");
     assert.equal(await world.run(), 0);
-    assert.deepEqual(next(world), { stage: "review", reason: null });
+    assert.deepEqual(next(world), { stage: "review", reason: null, progressed: true });
     for (const run of world.agent.runs) {
       assert.doesNotMatch(run.prompt, /drops the CLI flag/);
       assert.doesNotMatch(run.prompt, new RegExp(version.replace(".", "\\.")));
@@ -203,7 +203,7 @@ describe("runDeliverStage redo of a Shape report", () => {
     const world = await deliveryWorld({ issue: { labels: ["scope"] } });
     seedReport(world, shapeVersion(world.issues));
     assert.equal(await world.run(), 0);
-    assert.deepEqual(next(world), { stage: "shape", reason: null });
+    assert.deepEqual(next(world), { stage: "shape", reason: null, progressed: false });
     assert.deepEqual(world.issues.github.writes(), []);
   });
 
@@ -215,7 +215,7 @@ describe("runDeliverStage redo of a Shape report", () => {
       `Rewritten as Shape version: ${version}\n\n${shapeWrongBody("1.1", reason)}`;
     seedReport(world, version, resolved);
     assert.equal(await world.run(), 0);
-    assert.deepEqual(next(world), { stage: null, reason: null });
+    assert.deepEqual(next(world), { stage: null, reason: null, progressed: false });
   });
 });
 
@@ -229,7 +229,11 @@ describe("runDeliverStage with a review of another Shape version", () => {
         const { world, head } = await openPullWorld({ reason: jobReason });
         reviewComment(world, head, line);
         assert.equal(await world.run(), 0);
-        assert.deepEqual(next(world), { stage: "review", reason: null });
+        assert.deepEqual(next(world), {
+          stage: "review",
+          reason: null,
+          progressed: false,
+        });
         assert.deepEqual(world.agent.runs, []);
         assert.match(world.agent.logs.at(-1)!, /another Shape version; review again$/);
       });
@@ -248,7 +252,7 @@ describe("runDeliverStage with a review of another Shape version", () => {
     });
     reviewComment(world, head, `Reviewed Shape: ${shapeVersion(world.issues)}`);
     assert.equal(await world.run(), 0);
-    assert.deepEqual(next(world), { stage: "review", reason: null });
+    assert.deepEqual(next(world), { stage: "review", reason: null, progressed: false });
     assert.deepEqual(pushes(world), []);
   });
 
@@ -256,6 +260,6 @@ describe("runDeliverStage with a review of another Shape version", () => {
     const { world } = await openPullWorld({});
     reviewComment(world, "abcdef1", "");
     assert.equal(await world.run(), 0);
-    assert.deepEqual(next(world), { stage: null, reason: null });
+    assert.deepEqual(next(world), { stage: null, reason: null, progressed: false });
   });
 });

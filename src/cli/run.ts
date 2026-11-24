@@ -1,21 +1,17 @@
-import { type ActingClient, createClient } from "../github/index.ts";
+import { type ActingClient, connectClient } from "../github/index.ts";
 import {
   type JobContext,
   readJobContext,
   runDeliverStage,
   runReviewStage,
   runShapeStage,
+  runUrl,
 } from "../stages/index.ts";
+import { askPerson, type CliIo, printFailure } from "./failure.ts";
+import { type Connect, routeAfterStage, runRoute } from "./route.ts";
 import { readVersion } from "./version.ts";
 
-export interface OutputStream {
-  write(text: string): unknown;
-}
-
-export interface CliIo {
-  stdout: OutputStream;
-  stderr: OutputStream;
-}
+export type { CliIo, OutputStream } from "./failure.ts";
 
 export const usage = `Usage: nibfin <option>
        nibfin run --stage shape --repo <owner>/<repo> --issue <n> --provider <p>
@@ -24,27 +20,29 @@ export const usage = `Usage: nibfin <option>
                   [--model <model>] [--reason ci-failure|review|cd-failure]
        nibfin run --stage review --repo <owner>/<repo> --issue <n> --provider <p>
                   [--model <model>]
+       nibfin route --repo <owner>/<repo> (--issue <n> | --sha <sha> | --branch <b>)
 
 Options:
   --help     Show this help
   --version  Print the nibfin version
 
-The run command reads the rest of its Job context from the environment; see
-src/stages/README.md.
+The run and route commands read the rest of their context from the environment;
+see src/stages/README.md and src/route/README.md.
 `;
 
+type StageName = "shape" | "deliver" | "review";
 type StageRunner = (context: JobContext, client: ActingClient) => Promise<number>;
 
-/** What `nibfin run` uses; tests replace them. */
+/** What `nibfin run` and `nibfin route` use; tests replace them. */
 export interface RunDeps {
   env: NodeJS.ProcessEnv;
-  createClient: (token: string, actor: JobContext["actor"]) => ActingClient;
-  stages: Readonly<Record<string, StageRunner>>;
+  connect: Connect;
+  stages: Readonly<Record<StageName, StageRunner>>;
 }
 
 export const defaultRunDeps: RunDeps = {
   env: process.env,
-  createClient,
+  connect: (token) => connectClient(token),
   stages: {
     shape: runShapeStage,
     deliver: (context, client) => runDeliverStage(context, client),
@@ -52,38 +50,47 @@ export const defaultRunDeps: RunDeps = {
   },
 };
 
-function stageRunner(args: readonly string[], deps: RunDeps): StageRunner | undefined {
+function stageName(args: readonly string[], deps: RunDeps): StageName | undefined {
   const index = args.indexOf("--stage");
   const stage = index === -1 ? undefined : args[index + 1];
   return stage !== undefined && Object.hasOwn(deps.stages, stage)
-    ? deps.stages[stage]
+    ? (stage as StageName)
     : undefined;
 }
 
-/** A failure as its code, if any, and its message. Nothing else is printed. */
-function describeFailure(error: unknown): string {
-  if (!(error instanceof Error)) {
-    return String(error);
-  }
-  const { code } = error as { code?: unknown };
-  return typeof code === "string" ? `${code}: ${error.message}` : error.message;
-}
-
+/**
+ * Runs one stage, then continues the Issue from GitHub state (`routeAfterStage`).
+ * Any failure once the client exists sets `pending` on the Issue.
+ */
 async function runStage(
   args: readonly string[],
   io: CliIo,
   deps: RunDeps,
 ): Promise<number> {
-  const runner = stageRunner(args, deps);
-  if (runner === undefined) {
+  const stage = stageName(args, deps);
+  if (stage === undefined) {
     io.stderr.write(usage);
     return 1;
   }
+  let context: JobContext;
+  let client: ActingClient;
   try {
-    const context = readJobContext(args, deps.env);
-    return await runner(context, deps.createClient(context.token, context.actor));
+    context = readJobContext(args, deps.env);
+    client = await deps.connect(context.token);
   } catch (error) {
-    io.stderr.write(`nibfin: ${describeFailure(error)}\n`);
+    printFailure(io, error);
+    return 1;
+  }
+  try {
+    const code = await deps.stages[stage](context, client);
+    if (code === 0) {
+      await routeAfterStage(io, client, context, stage);
+    }
+    return code;
+  } catch (error) {
+    printFailure(io, error);
+    const issue = { ...context.repo, number: context.issue };
+    await askPerson(io, client, issue, error, runUrl(context.runRepo, context.runId));
     return 1;
   }
 }
@@ -95,6 +102,9 @@ export async function run(
 ): Promise<number> {
   if (args[0] === "run") {
     return runStage(args.slice(1), io, deps);
+  }
+  if (args[0] === "route") {
+    return runRoute(args.slice(1), io, deps.env, deps.connect);
   }
   const option = args.length === 1 ? args[0] : undefined;
   if (option === "--version") {

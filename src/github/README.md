@@ -9,9 +9,11 @@ answer or a `GitHubError`, and every write is safe to repeat after an interrupti
 ## Client
 
 `createClient(token, actor)` returns an `@octokit/rest` instance carrying `actor`
-(`{ id, login }`), the account Nibfin writes as. The caller supplies the actor (#674):
-`GET /user` does not work for installation tokens or `GITHUB_TOKEN`. The token is used
-only here; Octokit redacts it from request errors. No retry plugin or timeout is added.
+(`{ id, login }`), the account Nibfin writes as. `connectClient(token)` reads that
+actor once with `GET /user` (`readActor`) and returns the client (#674): Nibfin's
+token is a user's gh login token, for which `GET /user` works (it does not for
+installation tokens or `GITHUB_TOKEN`). The token is used only here; Octokit redacts
+it from request errors. No retry plugin or timeout is added.
 The other modules take `Pick<Octokit, "request" | "paginate">`.
 
 ## Errors
@@ -39,7 +41,7 @@ response headers) stay identifiable.
 - Its branches: `nibfin/issue-<n>` and the CD-failure fix branches
   `nibfin/issue-<n>-cd-<k>`, probed by pull requests (`state=all`) and exact ref until a
   `k` has neither. The highest existing `k` is the current branch; the next `k` is
-  `nextFixBranch`.
+  `nextFixBranch`. `issueOfBranch(branch)` maps either branch name back to `n`.
 - Each pull request, newest first, with its CI when open and its CD when merged.
 
 `deps` can replace the readers the snapshot is built from.
@@ -56,8 +58,9 @@ without Nibfin's own workflows. Nibfin's own push run for that commit is the sig
 the set is complete.
 
 `deriveStage(snapshot)` checks, in order: `ineligible` (`closed`, `no-scope`, `paused`,
-`blocked` by an Issue that is not Closed + `delivered`, `no-assignee`), then `shape`
-without `shaped`, then `deliveryOutcome(snapshot)` on the current branch:
+`pending` (#674: Nibfin needs a person; removing the label resumes), `blocked` by an
+Issue that is not Closed + `delivered`, `no-assignee`), then `shape` without
+`shaped`, then `deliveryOutcome(snapshot)` on the current branch:
 
 | Current branch                         | Stage                                     |
 | -------------------------------------- | ----------------------------------------- |
@@ -119,6 +122,19 @@ checked against its summary the same way (#673).
 After an unknown outcome each write re-reads GitHub: a confirmed effect is reused,
 otherwise it fails with `GITHUB_WRITE_UNCONFIRMED`.
 
+## Workflow runs (#674)
+
+- `nibfinRunTitle(repo, n, stage)`: `Nibfin · <owner>/<repo>#<n> · <stage>`, the run
+  name of an Issue's route and stage runs.
+- `readNotStartedRuns(client, repo)`: the runs with status `requested`, `waiting`,
+  `pending` or `queued`, one list request (all pages) per status, with their
+  `display_title`.
+- `dispatchWorkflow(client, repo, workflow, inputs)`: dispatches `workflow` on the
+  repository's default branch (`readDefaultBranch`) with `return_run_details` and
+  returns the run URL when GitHub reports it. No response or a 5xx is
+  `GITHUB_WRITE_UNCONFIRMED` (a dispatch cannot be confirmed by a re-read), any
+  other failure `GITHUB_WRITE_REJECTED`.
+
 ## Merge admission (#673)
 
 - `readPullRequest(client, repo, n)`: the pull request with `mergeable` (`null` while
@@ -161,15 +177,18 @@ needs Contents write, plus the workflows permission when a change touches
 `.github/workflows/`, and Actions read on the execution repository (`NIBFIN_RUN_REPO`)
 for the Writer check. The review stage (#673) merges, which needs Contents write and
 Pull requests write, plus the workflows permission when the pull request changes
-`.github/workflows/`. The GitHub client itself only reads Contents. Reading Issues in
+`.github/workflows/`. The GitHub client itself only reads Contents. Dispatching a
+workflow needs Actions write (classic: `repo`); Nibfin's own token is a gh login
+token with `repo` and `workflow` (#674). Reading Issues in
 other repositories needs a credential that covers them (#674); without it the read
 fails with `GITHUB_READ_FAILED`.
 
 ## Interfaces with other Issues
 
-- #674 installs Nibfin's push workflow. It must run on every push to the base branch (no
-  `branches`/`paths` filter that excludes it) and its name must start with `Nibfin ·`;
-  otherwise merged work stays `awaiting-cd` (`nibfin-push-run-missing`).
+- #674 installs Nibfin's push workflow (`nibfin-issue.yml`, `Nibfin · Issue events`).
+  It must run on every push to the base branch (no `branches`/`paths` filter that
+  excludes it) and its name must start with `Nibfin ·`; otherwise merged work stays
+  `awaiting-cd` (`nibfin-push-run-missing`).
 - #673 reads the snapshot again right before closing, so a run that appears late is
   still waited for. A merge commit message containing `[skip ci]` suppresses all push
   runs, Nibfin's included.

@@ -12,6 +12,17 @@ export function cdFixBranch(issueNumber: number, k: number): string {
   return `${deliveryBranch(issueNumber)}-cd-${k}`;
 }
 
+const issueBranchPattern = /^nibfin\/issue-([1-9]\d*)(?:-cd-[1-9]\d*)?$/;
+
+/**
+ * The Issue number of a delivery branch `nibfin/issue-<n>` or a CD fix branch
+ * `nibfin/issue-<n>-cd-<k>`; `undefined` for any other branch.
+ */
+export function issueOfBranch(branch: string): number | undefined {
+  const match = issueBranchPattern.exec(branch);
+  return match === null ? undefined : Number(match[1]);
+}
+
 export interface PullRequestSummary {
   number: number;
   state: "open" | "closed";

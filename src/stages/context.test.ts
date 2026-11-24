@@ -8,8 +8,6 @@ import { StageError } from "./errors.ts";
 const workspace = resolve("/jobs/workspace");
 const env = {
   NIBFIN_GITHUB_TOKEN: fakeToken,
-  NIBFIN_ACTOR_ID: "42",
-  NIBFIN_ACTOR_LOGIN: "nibfin-bot",
   NIBFIN_AGENT_HOME: resolve("/login/claude"),
   NIBFIN_WORKSPACE: workspace,
   NIBFIN_TOOL_CACHE: resolve("/cache"),
@@ -34,11 +32,17 @@ describe("readJobContext", () => {
       issue: 7,
       provider: "codex",
       token: fakeToken,
-      actor: { id: 42, login: "nibfin-bot" },
       agentHome: env.NIBFIN_AGENT_HOME,
       workspace,
       toolCache: env.NIBFIN_TOOL_CACHE,
     });
+  });
+
+  it("ignores NIBFIN_ACTOR_* and reads the memory requirement", () => {
+    const withActor = { ...env, NIBFIN_ACTOR_ID: "x", NIBFIN_MEMORY_REQUIRED: "3g" };
+    const context = readJobContext(withProvider, withActor);
+    assert.equal(context.memoryRequired, 3 * 1024 ** 3);
+    assert.equal("actor" in context, false);
   });
 
   it("takes an optional model", () => {
@@ -155,11 +159,10 @@ describe("readJobContext", () => {
     ],
     ["a blank token", { NIBFIN_GITHUB_TOKEN: " " }, "NIBFIN_GITHUB_TOKEN is missing"],
     [
-      "an actor id that is not a number",
-      { NIBFIN_ACTOR_ID: "bot" },
-      "NIBFIN_ACTOR_ID must be a positive integer",
+      "a memory requirement without a unit we know",
+      { NIBFIN_MEMORY_REQUIRED: "3x" },
+      "NIBFIN_MEMORY_REQUIRED must be a number with b, k, m or g",
     ],
-    ["a missing login", { NIBFIN_ACTOR_LOGIN: "" }, "NIBFIN_ACTOR_LOGIN is missing"],
     [
       "a relative agent home",
       { NIBFIN_AGENT_HOME: "home" },

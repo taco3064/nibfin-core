@@ -1,25 +1,21 @@
 import assert from "node:assert/strict";
+import { writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, it } from "node:test";
-import { fakeActor, fakeToken } from "../github/fake-github.test.ts";
+import { makeTempDir } from "../agent/fake-cli.test.ts";
+import { failure, fakeToken } from "../github/fake-github.test.ts";
 import { type ActingClient, GitHubError } from "../github/index.ts";
-import { fakeIssue, fakeIssues, jobContext } from "../stages/fake-job.test.ts";
+import { fakeRunner } from "../route/fake-runner.test.ts";
+import {
+  fakeIssue,
+  type FakeIssues,
+  fakeIssues,
+  jobContext,
+} from "../stages/fake-job.test.ts";
 import { type JobContext, StageError } from "../stages/index.ts";
-import { defaultRunDeps, run, type RunDeps, usage } from "./run.ts";
+import { capture } from "./fake-io.test.ts";
+import { defaultRunDeps, type RunDeps, usage } from "./run.ts";
 import { readVersion } from "./version.ts";
-
-async function capture(args: readonly string[], deps?: RunDeps) {
-  const out: string[] = [];
-  const err: string[] = [];
-  const code = await run(
-    args,
-    {
-      stdout: { write: (text: string) => out.push(text) },
-      stderr: { write: (text: string) => err.push(text) },
-    },
-    deps,
-  );
-  return { code, stdout: out.join(""), stderr: err.join("") };
-}
 
 describe("run", () => {
   it("prints the version for --version", async () => {
@@ -42,48 +38,47 @@ describe("run", () => {
 });
 
 describe("run --stage", () => {
-  const env = {
+  const env: NodeJS.ProcessEnv = {
     NIBFIN_GITHUB_TOKEN: fakeToken,
-    NIBFIN_ACTOR_ID: String(fakeActor.id),
-    NIBFIN_ACTOR_LOGIN: fakeActor.login,
     NIBFIN_AGENT_HOME: "/login/claude",
     NIBFIN_WORKSPACE: "/workspace",
     NIBFIN_TOOL_CACHE: "/cache",
+    NIBFIN_RUN_REPO: "acme/runner",
+    NIBFIN_RUN_ID: "900",
   };
   const args = ["--repo", "acme/app", "--issue", "1", "--provider", "claude"];
 
-  function stageDeps(outcome: (context: JobContext) => Promise<number>) {
+  function stageDeps(
+    outcome: (context: JobContext) => Promise<number>,
+    issues: FakeIssues = fakeIssues(fakeIssue({ labels: ["scope", "pause"] })),
+  ) {
     const seen: { token?: string; context?: JobContext } = {};
-    const client = { actor: fakeActor } as unknown as ActingClient;
+    const client = issues.github.client;
+    const runner = fakeRunner(issues.github);
+    const stage = (context: JobContext, given: ActingClient) => {
+      assert.equal(given, client);
+      seen.context = context;
+      return outcome(context);
+    };
     const deps: RunDeps = {
       env,
-      createClient: (token) => {
+      connect: (token) => {
         seen.token = token;
-        return client;
+        return Promise.resolve(client);
       },
-      stages: {
-        shape: (context, given) => {
-          assert.equal(given, client);
-          seen.context = context;
-          return outcome(context);
-        },
-        deliver: (context) => {
-          seen.context = context;
-          return outcome(context);
-        },
-        review: (context) => {
-          seen.context = context;
-          return outcome(context);
-        },
-      },
+      stages: { shape: stage, deliver: stage, review: stage },
     };
-    return { deps, seen };
+    return { deps, seen, issues, runner };
   }
 
   it("runs the Shape stage with the Job context", async () => {
     const t = stageDeps(() => Promise.resolve(0));
     const result = await capture(["run", "--stage", "shape", ...args], t.deps);
-    assert.deepEqual(result, { code: 0, stdout: "", stderr: "" });
+    assert.deepEqual(result, {
+      code: 0,
+      stdout: "NIBFIN_NEXT_FILE is not set; nothing is dispatched\n",
+      stderr: "",
+    });
     assert.equal(t.seen.token, fakeToken);
     assert.deepEqual(t.seen.context?.repo, { owner: "acme", repo: "app" });
     assert.equal(t.seen.context?.issue, 1);
@@ -92,16 +87,14 @@ describe("run --stage", () => {
   it("runs the Deliver stage with its reason", async () => {
     const t = stageDeps(() => Promise.resolve(0));
     const deliver = ["run", "--stage", "deliver", ...args, "--reason", "cd-failure"];
-    const result = await capture(deliver, t.deps);
-    assert.deepEqual(result, { code: 0, stdout: "", stderr: "" });
+    assert.equal((await capture(deliver, t.deps)).code, 0);
     assert.equal(t.seen.context?.reason, "cd-failure");
   });
 
   it("runs the review stage", async () => {
     const t = stageDeps(() => Promise.resolve(0));
     const review = ["run", "--stage", "review", ...args];
-    const result = await capture(review, t.deps);
-    assert.deepEqual(result, { code: 0, stdout: "", stderr: "" });
+    assert.equal((await capture(review, t.deps)).code, 0);
     assert.equal(t.seen.context?.issue, 1);
     const withReason = await capture([...review, "--reason", "review"], t.deps);
     assert.equal(withReason.code, 1);
@@ -131,6 +124,17 @@ describe("run --stage", () => {
     ]);
   });
 
+  it("connects by default with the token's own account", async () => {
+    const original = globalThis.fetch;
+    globalThis.fetch = () => Promise.resolve(Response.json({ id: 7, login: "owner" }));
+    try {
+      const client = await defaultRunDeps.connect("token");
+      assert.deepEqual(client.actor, { id: 7, login: "owner" });
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
+
   for (const stage of [[], ["--stage"], ["--stage", "accept"], ["--stage", "toString"]]) {
     it(`prints usage for ${JSON.stringify(stage)}`, async () => {
       const t = stageDeps(() => Promise.resolve(0));
@@ -142,13 +146,24 @@ describe("run --stage", () => {
 
   it("names an invalid context field without its value", async () => {
     const t = stageDeps(() => Promise.resolve(0));
-    t.deps.env = { ...env, NIBFIN_ACTOR_ID: "x" };
+    t.deps.env = { ...env, NIBFIN_RUN_ID: "x" };
     const result = await capture(["run", "--stage", "shape", ...args], t.deps);
     assert.equal(result.code, 1);
     assert.equal(
       result.stderr,
-      "nibfin: STAGE_INPUT_INVALID: NIBFIN_ACTOR_ID must be a positive integer\n",
+      "nibfin: STAGE_INPUT_INVALID: NIBFIN_RUN_ID must be a positive integer\n",
     );
+    assert.deepEqual(t.issues.github.writes(), []);
+  });
+
+  it("fails without pending when the token's account cannot be read", async () => {
+    const t = stageDeps(() => Promise.resolve(0));
+    t.deps.connect = () =>
+      Promise.reject(new GitHubError("GITHUB_READ_FAILED", "read user", new Error()));
+    const result = await capture(["run", "--stage", "shape", ...args], t.deps);
+    assert.equal(result.code, 1);
+    assert.match(result.stderr, /^nibfin: GITHUB_READ_FAILED: read user/);
+    assert.deepEqual(t.issues.github.writes(), []);
   });
 
   for (const [name, error, expected] of [
@@ -165,18 +180,110 @@ describe("run --stage", () => {
     ["an uncoded error", new Error("boom"), "nibfin: boom\n"],
     ["a thrown value", "odd", "nibfin: odd\n"],
   ] as const) {
-    it(`prints ${name} without the token and fails`, async () => {
+    it(`prints ${name} without the token, adds pending and fails`, async () => {
       // A stage may fail with any value; the CLI must still print it.
       // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors
       const t = stageDeps(() => Promise.reject(error));
       const result = await capture(["run", "--stage", "shape", ...args], t.deps);
-      assert.deepEqual(result, { code: 1, stdout: "", stderr: expected });
+      assert.deepEqual(result, {
+        code: 1,
+        stdout: "Added pending to acme/app#1\n",
+        stderr: expected,
+      });
       assert.ok(!result.stderr.includes(fakeToken));
+      assert.ok(t.issues.main.labels.includes("pending"));
+      const [comment] = t.issues.marked("pending");
+      assert.ok(!comment.body.includes(fakeToken));
+      assert.match(comment.body, /acme\/runner\/actions\/runs\/900/);
     });
   }
 
-  it("returns the stage's exit code", async () => {
+  it("adds no pending while another Writer runs", async () => {
+    const error = new StageError("STAGE_WRITER_ACTIVE", "another Writer runs");
+    const t = stageDeps(() => Promise.reject(error));
+    const result = await capture(["run", "--stage", "deliver", ...args], t.deps);
+    assert.equal(result.code, 1);
+    assert.equal(result.stdout, "");
+    assert.deepEqual(t.issues.github.writes(), []);
+  });
+
+  it("reports a pending write that fails too", async () => {
+    const t = stageDeps(() => Promise.reject(new Error("boom")));
+    t.issues.github.routes.set("GET /repos/acme/app/issues/1/comments", failure(500));
+    const result = await capture(["run", "--stage", "shape", ...args], t.deps);
+    assert.equal(result.code, 1);
+    assert.match(result.stderr, /^nibfin: boom\nnibfin: could not add pending: /);
+  });
+
+  it("returns a non-zero stage exit code without dispatching", async () => {
     const t = stageDeps(() => Promise.resolve(3));
     assert.equal((await capture(["run", "--stage", "shape", ...args], t.deps)).code, 3);
+    assert.deepEqual(t.runner.dispatched, []);
+  });
+
+  async function withNextFile(next: unknown) {
+    const dir = await makeTempDir("cli-next-");
+    const nextFile = join(dir, "next.json");
+    writeFileSync(nextFile, JSON.stringify(next));
+    return nextFile;
+  }
+
+  function atShape() {
+    return stageDeps(
+      () => Promise.resolve(0),
+      fakeIssues(fakeIssue({ labels: ["scope"] })),
+    );
+  }
+
+  it("continues the Issue after a stage from the next-action file", async () => {
+    const t = atShape();
+    const nextFile = await withNextFile({
+      stage: null,
+      reason: null,
+      wake: [{ repo: "acme/lib", issue: 2 }],
+      progressed: true,
+    });
+    t.deps.env = { ...env, NIBFIN_NEXT_FILE: nextFile };
+    const result = await capture(["run", "--stage", "shape", ...args], t.deps);
+    assert.equal(result.code, 0);
+    assert.deepEqual(
+      t.runner.dispatched.map((inputs) => inputs.stage),
+      ["route", "shape"],
+    );
+    assert.match(result.stdout, /Dispatched Nibfin · acme\/lib#2 · route/);
+    assert.match(result.stdout, /Dispatched Nibfin · acme\/app#1 · shape/);
+  });
+
+  it("adds pending when the stage made no progress", async () => {
+    const t = atShape();
+    const nextFile = await withNextFile({ stage: null, reason: null, progressed: false });
+    t.deps.env = { ...env, NIBFIN_NEXT_FILE: nextFile };
+    const result = await capture(["run", "--stage", "shape", ...args], t.deps);
+    assert.equal(result.code, 1);
+    assert.match(result.stderr, /^nibfin: STAGE_NO_PROGRESS: /);
+    assert.ok(t.issues.main.labels.includes("pending"));
+    assert.deepEqual(t.runner.dispatched, []);
+  });
+
+  it("adds pending when a dispatch fails", async () => {
+    const t = atShape();
+    const path =
+      "/repos/acme/runner/actions/workflows/nibfin-shared-runner.yml/dispatches";
+    t.issues.github.routes.set(`POST ${path}`, failure(422));
+    const nextFile = await withNextFile({ stage: null, reason: null, progressed: true });
+    t.deps.env = { ...env, NIBFIN_NEXT_FILE: nextFile };
+    const result = await capture(["run", "--stage", "shape", ...args], t.deps);
+    assert.equal(result.code, 1);
+    assert.match(result.stderr, /^nibfin: GITHUB_WRITE_REJECTED: dispatch /);
+    assert.ok(t.issues.main.labels.includes("pending"));
+  });
+
+  it("needs the execution repository to continue the Issue", async () => {
+    const t = stageDeps(() => Promise.resolve(0));
+    const nextFile = await withNextFile({ stage: null, reason: null, progressed: true });
+    t.deps.env = { ...env, NIBFIN_RUN_REPO: undefined, NIBFIN_NEXT_FILE: nextFile };
+    const result = await capture(["run", "--stage", "shape", ...args], t.deps);
+    assert.equal(result.code, 1);
+    assert.match(result.stderr, /STAGE_INPUT_INVALID: NIBFIN_RUN_REPO is missing/);
   });
 });

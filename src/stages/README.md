@@ -3,8 +3,10 @@
 Implements the delivery stages that move an Issue from Shape to a merged pull request.
 Owned by #671, #672 and #673. #671 adds the Shape stage and the harness the other
 stages reuse; #672 adds the Deliver stage; #673 adds the review stage, which reviews,
-merges, follows CD and closes the Issue. #674 gives each Deliver Job the run name
-`Nibfin · <owner>/<repo>#<n> · deliver`. #686 returns an Issue to the Shape stage when
+merges, follows CD and closes the Issue. #674 runs the stages from workflows (see
+`src/route`), gives each Deliver Job the run name
+`Nibfin · <owner>/<repo>#<n> · deliver`, and adds `pending`, `progressed` and the
+memory check. #686 returns an Issue to the Shape stage when
 the Deliver Writer finds the approved Shape wrong (see Shape reported wrong).
 
 ## Job context
@@ -15,44 +17,74 @@ the Deliver Writer finds the approved Shape wrong (see Shape reported wrong).
 env)` reads and checks it; a missing or invalid field is `STAGE_INPUT_INVALID` naming
 the field, never its value.
 
-| Input                 | Meaning                                                        |
-| --------------------- | -------------------------------------------------------------- |
-| `--repo`              | The repository, `<owner>/<repo>`                               |
-| `--issue`             | The Issue number                                               |
-| `--provider`          | `codex` or `claude`, from the Pool or runner configuration     |
-| `--model`             | Optional agent model                                           |
-| `--reason`            | Deliver only: `ci-failure`, `review` or `cd-failure`           |
-| `NIBFIN_GITHUB_TOKEN` | Issues and Pull requests write, the reads in `src/github`;     |
-|                       | Deliver: Contents write (plus the workflows permission when    |
-|                       | a change touches `.github/workflows/`) and Actions read on     |
-|                       | the execution repository; review: Pull requests and Contents   |
-|                       | write (plus the workflows permission when the PR changes       |
-|                       | `.github/workflows/`), Actions read, and on the repositories   |
-|                       | of downstream Issues every read of the snapshot: Metadata,     |
-|                       | Contents, Issues, Pull requests, Checks, Commit statuses and   |
-|                       | Actions read (a downstream it cannot read is never woken)      |
-| `NIBFIN_ACTOR_ID`     | The numeric id of the account the token writes as              |
-| `NIBFIN_ACTOR_LOGIN`  | That account's login                                           |
-| `NIBFIN_AGENT_HOME`   | The agent CLI's config home on the login volume (absolute)     |
-| `NIBFIN_WORKSPACE`    | A checkout of the base branch by name, without persisted creds |
-| `NIBFIN_TOOL_CACHE`   | The cache for `.nibfin.json` tools, outside the workspace      |
-| `NIBFIN_RUN_REPO`     | Deliver: the execution repository (`GITHUB_REPOSITORY`)        |
-| `NIBFIN_RUN_ID`       | Deliver: this Job's workflow run id (`GITHUB_RUN_ID`)          |
-| `NIBFIN_NEXT_FILE`    | Optional: where the stage writes its next action (absolute,    |
-|                       | outside the workspace)                                         |
+| Input                    | Meaning                                                     |
+| ------------------------ | ----------------------------------------------------------- |
+| `--repo`                 | The repository, `<owner>/<repo>`                            |
+| `--issue`                | The Issue number                                            |
+| `--provider`             | `codex` or `claude`, from the Pool or runner configuration  |
+| `--model`                | Optional agent model                                        |
+| `--reason`               | Deliver only: `ci-failure`, `review` or `cd-failure`        |
+| `NIBFIN_GITHUB_TOKEN`    | Issues and Pull requests write, the reads in `src/github`;  |
+|                          | Deliver: Contents write (plus the workflows permission when |
+|                          | a change touches `.github/workflows/`) and Actions read on  |
+|                          | the execution repository; review: Pull requests and         |
+|                          | Contents write (plus the workflows permission when the PR   |
+|                          | changes `.github/workflows/`), Actions read, and on the     |
+|                          | repositories of downstream Issues every read of the         |
+|                          | snapshot: Metadata, Contents, Issues, Pull requests,        |
+|                          | Checks, Commit statuses and Actions read (a downstream it   |
+|                          | cannot read is never woken); dispatching on the execution   |
+|                          | repository (#674)                                           |
+| `NIBFIN_AGENT_HOME`      | The agent CLI's config home on the login volume (absolute)  |
+| `NIBFIN_WORKSPACE`       | A checkout of the base branch by name, without persisted    |
+|                          | credentials                                                 |
+| `NIBFIN_TOOL_CACHE`      | The cache for `.nibfin.json` tools, outside the workspace   |
+| `NIBFIN_RUN_REPO`        | The execution repository (`GITHUB_REPOSITORY`): Deliver's   |
+|                          | Writer check, the run URL of `pending`, and where Core      |
+|                          | dispatches what runs next                                   |
+| `NIBFIN_RUN_ID`          | This Job's workflow run id (`GITHUB_RUN_ID`)                |
+| `NIBFIN_NEXT_FILE`       | Optional: where the stage writes its next action (absolute, |
+|                          | outside the workspace); read by the same `nibfin run` after |
+|                          | the stage                                                   |
+| `NIBFIN_MEMORY_REQUIRED` | Optional: memory the host must have available before the    |
+|                          | first agent run (`3g`, Podman units), the container's       |
+|                          | `--memory`; unset means no check                            |
 
-The provider never comes from a workflow or dispatch input. The token is never an
-admin or dispatch credential; it is used only for the GitHub client and Core's own
-Git remote calls, and is never printed or passed to an agent, whose environment is
-the allowlist in `src/agent`. Unknown
+The actor (the account the token writes as, for marked comments and the commit
+identity) is read once with `GET /user`. The provider never comes from a workflow or
+dispatch input. The token is the gh login token of the Nibfin account (Owner
+decision A, scopes `repo` and `workflow`): its writes start workflow runs like the
+user's, so events only wake an Issue and Core decides the stage. It is used only for
+the GitHub client and Core's own Git remote calls, reaches the container only as
+`--env NIBFIN_GITHUB_TOKEN`, and is never printed or passed to an agent, whose
+environment, arguments and prompt are the allowlist in `src/agent`. The agent runs as
+the same uid in the same container and could read Core's process environment;
+decision A accepts this as equal to a local agent running `gh auth token`. Unknown
 stages and malformed options print the usage and exit 1. Any other failure prints its
-code and message and exits 1.
+code and message, sets `pending` (see Pending) and exits 1.
+
+## Pending
+
+`requestPerson(client, issue, error, runUrl)` asks a person to act: it upserts the
+marked `pending` Issue comment (the code and message, the run URL, the note "this
+looks temporary (network, GitHub or a single agent run); removing the label retries
+it" for `GITHUB_READ_FAILED`, `GITHUB_WRITE_UNCONFIRMED`, `STAGE_GIT_FAILED`,
+`TOOL_INSTALL_FAILED`, `AGENT_RUN_FAILED` and `STAGE_RESULT_INVALID`, and "Remove the
+`pending` label to continue") and adds `pending`, confirmed by the read-back labels.
+`nibfin run` and `nibfin route` call it on every failure once the Issue is known,
+whatever the code, except `STAGE_WRITER_ACTIVE` (a wait: another Writer runs and its
+own post-stage route continues the Issue). The no-progress stop (`STAGE_NO_PROGRESS`,
+see `src/route`) takes the same path. The stage-specific comments stay as they are.
+While `pending` is present the Issue derives `ineligible (pending)` and nothing runs;
+removing it resumes from GitHub state.
 
 ## Harness
 
-- `prepareStageJob(context, client, deps)` reads `.nibfin.json` before any role runs
-  (a `ConfigError` rejects the Job with its code and cause) and installs its tools
-  once per Job with `prepareTools`.
+- `prepareStageJob(context, client, deps)` runs right before a stage's first agent
+  run. It compares `MemAvailable` of `/proc/meminfo` with `NIBFIN_MEMORY_REQUIRED`
+  (below it: `STAGE_HOST_MEMORY_LOW`), reads `.nibfin.json` (a `ConfigError` rejects
+  the Job with its code and cause) and installs its tools once per Job with
+  `prepareTools`.
 - `runStageAgent(job, role, sections)` resolves the role's skill text
   (`resolveRoleSkill`), composes the prompt (`composePrompt`: the skill, "Your role is
   …", the titled input sections and the role's result format) and runs `runAgent`
@@ -68,6 +100,12 @@ code and message and exits 1.
 - **Login.** On `AGENT_LOGIN_REQUIRED` the stage writes the marked `agent-login`
   comment on the Issue with the re-login command, then rethrows. The next successful
   agent run updates that comment to say it is resolved.
+- **Progress.** Every exit of every stage that writes a next action also writes
+  `progressed` (#674): `true` when the run wrote to GitHub (any request of its client
+  other than a GET or a GraphQL query: comment, label, PR, merge, close), pushed, or
+  re-read a PR head or stage other than the one it started with; `false` otherwise
+  (ineligible start, nothing to do, wake-only redo, mergeability unknown, an unchanged
+  comment that was not rewritten). Core uses it after the stage (see `src/route`).
 - **Results.** `parseAgentResult(finalMessage, outcomes)` reads the last fenced block
   whose opening line is exactly ` ```nibfin-result ` and closing line exactly
   ` ``` `. It must hold a JSON object with an `outcome` from `outcomes`; anything else
@@ -216,8 +254,9 @@ refs/heads/<dir>`) triggers a push whenever `refs/heads/<branch>` changed. The
 
 ### Next action
 
-With `NIBFIN_NEXT_FILE` set, the stage writes `{ "stage": …, "reason": … }` there for
-#673 and #674: `{ "stage": "review", "reason": null }` when the snapshot after the PR
+With `NIBFIN_NEXT_FILE` set, the stage writes `{ "stage": …, "reason": …,
+"progressed": … }` there for #673 and #674 (a push counts as progress):
+`{ "stage": "review", "reason": null }` when the snapshot after the PR
 derives `review`; `{ "stage": "shape", "reason": null }` after a Writer
 `shape-wrong`, on the redo that removes `shaped` for a pending report (any reason),
 and on an ineligible start at `shape` with an unresolved `shape-wrong` report (a
@@ -253,7 +292,9 @@ Results:
 
 1. **Pin.** With a pending `shape-wrong` report the run neither reviews nor merges:
    next `{ "deliver", null }`, whose start removes `shaped`. Otherwise the head `H`
-   of the open PR is pinned. If the actor's marked `review` comment on the PR
+   of the open PR is pinned, and the PR is read once (`GET /pulls/{n}`), which starts
+   GitHub's mergeability computation early so the merge after the review usually
+   finds it done (#674). If the actor's marked `review` comment on the PR
    already records `H` (`Reviewed head: H`) and the current Shape version
    (`Reviewed Shape: <v>`, read here), the run asks for the `review` fix again
    without reviewing; a comment without a current `Reviewed Shape` line is stale and
@@ -341,7 +382,9 @@ rebase request (also instead of reusing a review comment whose `Reviewed Shape` 
 not current: the head is reviewed again first), `{ "deliver", null }` at `review`
 with a pending `shape-wrong` report (instead of reviewing or merging),
 `{ "deliver", "cd-failure" }` at `cd-failed`, `wake` after the close (also on the
-redo), and `null` otherwise, including every failure.
+redo), and `null` otherwise, including every failure. `"progressed": true` also when
+the re-read before writing or merging finds another stage, PR or head than the one
+pinned.
 
 Result: `{ outcome: "clean" | "problems" | "blocked", reviewedHead, problems?,
 reason? }`; `problems` is a non-empty list of non-empty strings, `reason` a non-empty

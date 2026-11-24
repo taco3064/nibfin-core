@@ -1,7 +1,8 @@
 import { isAbsolute, relative, resolve } from "node:path";
 import { type Provider, providers } from "../agent/index.ts";
-import type { Actor, Repo } from "../github/index.ts";
+import type { Repo } from "../github/index.ts";
 import { StageError } from "./errors.ts";
+import { parseMemory } from "./host-memory.ts";
 
 /** The fix reasons of a Deliver run. */
 export const fixReasons = ["ci-failure", "review", "cd-failure"] as const;
@@ -16,7 +17,6 @@ export interface JobContext {
   model?: string;
   /** Only for the GitHub client and Core's Git remote calls; never given to an agent. */
   token: string;
-  actor: Actor;
   /** The agent CLI's config home on the login volume. */
   agentHome: string;
   /** A checkout of the base branch, made without persisted credentials. */
@@ -31,6 +31,8 @@ export interface JobContext {
   runId?: number;
   /** Where the stage writes its next action, from `NIBFIN_NEXT_FILE`. */
   nextFile?: string;
+  /** Bytes the host must have available before the first agent run. */
+  memoryRequired?: number;
 }
 
 /** The options `nibfin run` takes, each as `--<name> <value>`. */
@@ -73,14 +75,14 @@ export function parseJobOptions(args: readonly string[]): JobOptions {
 const repoPattern = /^([A-Za-z0-9-]+)\/([A-Za-z0-9._-]+)$/;
 const numberPattern = /^[1-9]\d*$/;
 
-function required(value: string | undefined, field: string): string {
+export function required(value: string | undefined, field: string): string {
   if (value === undefined || value.trim() === "") {
     throw invalid(field, "is missing");
   }
   return value;
 }
 
-function positiveInteger(value: string | undefined, field: string): number {
+export function positiveInteger(value: string | undefined, field: string): number {
   const text = required(value, field);
   const number = Number(text);
   if (!numberPattern.test(text) || !Number.isSafeInteger(number)) {
@@ -97,7 +99,7 @@ function absolutePath(value: string | undefined, field: string): string {
   return path;
 }
 
-function readRepo(value: string | undefined, field: string): Repo {
+export function readRepo(value: string | undefined, field: string): Repo {
   const match = repoPattern.exec(required(value, field));
   if (match === null) {
     throw invalid(field, "must be <owner>/<repo>");
@@ -157,6 +159,13 @@ function optionalFields(
   if (env.NIBFIN_NEXT_FILE !== undefined) {
     fields.nextFile = readNextFile(env.NIBFIN_NEXT_FILE, workspace);
   }
+  if (env.NIBFIN_MEMORY_REQUIRED !== undefined) {
+    const bytes = parseMemory(env.NIBFIN_MEMORY_REQUIRED);
+    if (bytes === undefined) {
+      throw invalid("NIBFIN_MEMORY_REQUIRED", "must be a number with b, k, m or g");
+    }
+    fields.memoryRequired = bytes;
+  }
   return fields;
 }
 
@@ -174,10 +183,6 @@ export function readJobContext(
     issue: positiveInteger(options.issue, "--issue"),
     provider: readProvider(options.provider),
     token: required(env.NIBFIN_GITHUB_TOKEN, "NIBFIN_GITHUB_TOKEN"),
-    actor: {
-      id: positiveInteger(env.NIBFIN_ACTOR_ID, "NIBFIN_ACTOR_ID"),
-      login: required(env.NIBFIN_ACTOR_LOGIN, "NIBFIN_ACTOR_LOGIN"),
-    },
     agentHome: absolutePath(env.NIBFIN_AGENT_HOME, "NIBFIN_AGENT_HOME"),
     workspace: absolutePath(env.NIBFIN_WORKSPACE, "NIBFIN_WORKSPACE"),
     toolCache: absolutePath(env.NIBFIN_TOOL_CACHE, "NIBFIN_TOOL_CACHE"),

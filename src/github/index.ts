@@ -3,6 +3,7 @@ export {
   cdFixBranch,
   deliveryBranch,
   type IssueBranches,
+  issueOfBranch,
   probeBranch,
   type PullRequestSummary,
   readIssueBranches,
@@ -12,8 +13,11 @@ export { type CdState, readCdRuns, type WorkflowRunSummary } from "./cd-runs.ts"
 export {
   type ActingClient,
   type Actor,
+  type ClientOptions,
+  connectClient,
   createClient,
   type GitHubClient,
+  readActor,
 } from "./client.ts";
 export {
   type DependencyIssue,
@@ -31,7 +35,11 @@ export { GitHubError, type GitHubErrorCode, responseMessage } from "./errors.ts"
 export { type IssueText, readIssueText } from "./issue-text.ts";
 export { readJobLog, readRunJobs, type WorkflowJobSummary } from "./job-logs.ts";
 export { nibfinLabels } from "./labels.ts";
-export { isNibfinWorkflow, nibfinWorkflowPrefix } from "./nibfin-workflows.ts";
+export {
+  isNibfinWorkflow,
+  nibfinRunTitle,
+  nibfinWorkflowPrefix,
+} from "./nibfin-workflows.ts";
 export {
   allowedMergeMethods,
   type MergeMethod,
@@ -90,3 +98,10 @@ export {
   setLabels,
   upsertMarkedComment,
 } from "./writes.ts";
+export {
+  dispatchWorkflow,
+  notStartedStatuses,
+  type QueuedRun,
+  readDefaultBranch,
+  readNotStartedRuns,
+} from "./workflow-dispatch.ts";

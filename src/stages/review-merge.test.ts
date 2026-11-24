@@ -9,6 +9,7 @@ import {
 } from "../github/index.ts";
 import { StageError } from "./errors.ts";
 import { mergePull, type ReviewWorld, reviewWorld } from "./fake-review.test.ts";
+import { trackProgress } from "./progress.ts";
 import { mergeReviewed } from "./review-merge.ts";
 
 /** Merges the world's pull request as the stage would after a clean review. */
@@ -16,7 +17,8 @@ async function merge(w: ReviewWorld, head = w.head) {
   const { client } = w.issues.github;
   const stage = deriveStage(await readIssueSnapshot(client, w.context.repo, 1));
   const pull = (stage as { pullRequest: PullRequestState }).pullRequest;
-  const scope = { context: w.context, client, deps: w.reviewDeps };
+  const progress = trackProgress(client);
+  const scope = { context: w.context, client, deps: w.reviewDeps, progress };
   return mergeReviewed(scope, pull, head, shapeVersion);
 }
 
@@ -47,7 +49,8 @@ describe("mergeReviewed", () => {
     const stage = deriveStage(await readIssueSnapshot(client, w.context.repo, 1));
     w.issues.main.labels.push("pause");
     const pull = (stage as { pullRequest: PullRequestState }).pullRequest;
-    const scope = { context: w.context, client, deps: w.reviewDeps };
+    const progress = trackProgress(client);
+    const scope = { context: w.context, client, deps: w.reviewDeps, progress };
     assert.deepEqual(await mergeReviewed(scope, pull, w.head, shapeVersion), noNext);
     assert.deepEqual(w.mergeRequests, []);
     assert.match(w.agent.logs.at(-1)!, /ineligible \(paused\)/);
@@ -64,7 +67,8 @@ describe("mergeReviewed", () => {
     const { client } = w.issues.github;
     const stage = deriveStage(await readIssueSnapshot(client, w.context.repo, 1));
     const pull = (stage as { pullRequest: PullRequestState }).pullRequest;
-    const scope = { context: w.context, client, deps: w.reviewDeps };
+    const progress = trackProgress(client);
+    const scope = { context: w.context, client, deps: w.reviewDeps, progress };
     // The snapshot still lists it open; the pull request itself is closed now.
     const routes = w.issues.github.routes;
     const get = routes.get.bind(routes);

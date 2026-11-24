@@ -47,7 +47,7 @@ describe("runReviewStage and the Shape version", () => {
     ]);
     const read = shapeVersion(w.issues);
     assert.equal(await w.review(), 0);
-    assert.deepEqual(w.next(), { stage: "deliver", reason: "review" });
+    assert.deepEqual(w.next(), { stage: "deliver", reason: "review", progressed: true });
     assert.deepEqual(prComments(w), [
       reviewBody(w, `Reviewed Shape: ${read}`, "Problems found in the review:\n\n- X"),
     ]);
@@ -58,7 +58,7 @@ describe("runReviewStage and the Shape version", () => {
     const w = await world(() => []);
     addPullComment(w, 7, reviewBody(w, `Reviewed Shape: ${shapeVersion(w.issues)}`));
     assert.equal(await w.review(), 0);
-    assert.deepEqual(w.next(), { stage: "deliver", reason: "review" });
+    assert.deepEqual(w.next(), { stage: "deliver", reason: "review", progressed: false });
     assert.deepEqual(w.agent.runs, []);
     assert.deepEqual(w.issues.github.writes(), []);
   });
@@ -90,7 +90,7 @@ describe("runReviewStage and the Shape version", () => {
       comment.body,
       reviewBody(w, `Reviewed Shape: ${shapeVersion(w.issues)}`, problems),
     );
-    assert.deepEqual(w.next(), { stage: "deliver", reason: "review" });
+    assert.deepEqual(w.next(), { stage: "deliver", reason: "review", progressed: true });
   });
 });
 
@@ -104,7 +104,7 @@ describe("runReviewStage with a pending Shape report", () => {
       }
       reportPending(w);
       assert.equal(await w.review(), 0);
-      assert.deepEqual(w.next(), { stage: "deliver", reason: null });
+      assert.deepEqual(w.next(), { stage: "deliver", reason: null, progressed: false });
       assert.deepEqual(w.agent.runs, []);
       assert.deepEqual(w.mergeRequests, []);
       assert.deepEqual(w.issues.github.writes(), []);
@@ -119,7 +119,7 @@ describe("runReviewStage with a pending Shape report", () => {
       },
     ]);
     assert.equal(await w.review(), 0);
-    assert.deepEqual(w.next(), { stage: "deliver", reason: null });
+    assert.deepEqual(w.next(), { stage: "deliver", reason: null, progressed: false });
     assert.deepEqual(w.mergeRequests, []);
     assert.deepEqual(prComments(w), []);
     assert.match(w.agent.logs.at(-1)!, /^Not merging: the Shape is reported wrong/);

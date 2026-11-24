@@ -1,8 +1,11 @@
 import {
+  type ActingClient,
   closeDelivered,
   deriveStage,
   findMarkedComment,
+  type IssueRef,
   type IssueSnapshot,
+  nibfinLabels,
   type PullRequestState,
   readCommentVersions,
   readCommitsAhead,
@@ -25,6 +28,23 @@ import {
   type ReviewScope,
 } from "./review-scope.ts";
 import { wakeDownstream } from "./wake.ts";
+
+/**
+ * Whether the review stage already closed this Issue as delivered: it carries
+ * `delivered` and the actor's marked `delivered` comment. Only the wake remains
+ * (the review stage's redo, and route rule 5 of #674). The caller checks that the
+ * Issue is closed.
+ */
+export async function closedAsDelivered(
+  client: ActingClient,
+  issue: IssueRef,
+  snapshot: IssueSnapshot,
+): Promise<boolean> {
+  if (!snapshot.issue.labels.includes(nibfinLabels.delivered)) {
+    return false;
+  }
+  return (await findMarkedComment(client, issue, deliveredCommentKey)) !== undefined;
+}
 
 /** Required checks per base branch and their results per commit, read once each. */
 class CiReader {

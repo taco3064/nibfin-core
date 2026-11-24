@@ -12,6 +12,7 @@ import { reviewCommentKey } from "./deliver-eligibility.ts";
 import { StageError } from "./errors.ts";
 import { githubRemoteUrl, type GitRunner, runGitProcess } from "./git.ts";
 import { type NextAction, noNextAction, writeNextAction } from "./next.ts";
+import type { Progress } from "./progress.ts";
 
 /** The comment key of the report a blocked review or merge leaves on the Issue. */
 export const reviewBlockedCommentKey = "review-blocked";
@@ -39,6 +40,8 @@ export interface ReviewScope {
   readonly context: JobContext;
   readonly client: ActingClient;
   readonly deps: ReviewDeps;
+  /** Whether the run changed GitHub or found a moved head (`client` is its client). */
+  readonly progress: Progress;
 }
 
 export function issueName(scope: ReviewScope): string {
@@ -88,7 +91,7 @@ export async function blockReview(
   const issue = issueOf(scope.context);
   const key = reviewBlockedCommentKey;
   const comment = await upsertMarkedComment(scope.client, issue, key, body);
-  await writeNextAction(scope.context, noNextAction);
+  await writeNextAction(scope.context, noNextAction, scope.progress.progressed);
   throw new StageError(
     "STAGE_BLOCKED",
     `${title} returned blocked (${comment.url}):\n${reason}`,

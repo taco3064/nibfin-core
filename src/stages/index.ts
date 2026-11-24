@@ -6,13 +6,17 @@ export {
   type StageDeps,
   type StageJob,
 } from "./agent.ts";
+export { closedAsDelivered } from "./closing.ts";
 export {
   type FixReason,
   fixReasons,
   type JobContext,
   jobOptions,
   parseJobOptions,
+  positiveInteger,
   readJobContext,
+  readRepo,
+  required,
 } from "./context.ts";
 export {
   defaultDeliverDeps,
@@ -20,9 +24,22 @@ export {
   deliverBlockedCommentKey,
   runDeliverStage,
 } from "./deliver.ts";
-export { reviewCommentKey } from "./deliver-eligibility.ts";
-export { StageError, type StageErrorCode } from "./errors.ts";
-export { type NextAction, type WakeTarget, writeNextAction } from "./next.ts";
+export { currentReview, describeStage, reviewCommentKey } from "./deliver-eligibility.ts";
+export { NoProgressError, StageError, type StageErrorCode } from "./errors.ts";
+export {
+  type NextAction,
+  type NextActionRecord,
+  readNextAction,
+  type WakeTarget,
+  writeNextAction,
+} from "./next.ts";
+export {
+  codeOf,
+  pendingCommentKey,
+  requestPerson,
+  runUrl,
+  temporaryCodes,
+} from "./pending.ts";
 export {
   composePrompt,
   type PromptRequest,
@@ -38,5 +55,10 @@ export {
   type ReviewDeps,
 } from "./review-scope.ts";
 export { runShapeStage, shapeBlockedCommentKey, shapeCommentKey } from "./shape.ts";
-export { shapeWrongCommentKey } from "./shape-wrong.ts";
+export {
+  isDeliveryStage,
+  readPendingReport,
+  shapeNextAction,
+  shapeWrongCommentKey,
+} from "./shape-wrong.ts";
 export { deliverRunName } from "./writer-guard.ts";

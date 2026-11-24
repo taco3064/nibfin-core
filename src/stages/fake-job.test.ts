@@ -264,6 +264,7 @@ export function fakeDeps(steps: AgentStep[], config?: NibfinConfig): FakeDeps {
       fake.skillReads.push(role);
       return Promise.resolve(`SKILL TEXT OF ${role}`);
     },
+    readMeminfo: () => Promise.resolve("MemAvailable:   8388608 kB\n"),
     prepareTools: (tools, options) => {
       fake.toolPreparations.push({ tools, cacheDir: options.cacheDir });
       return Promise.resolve([...fakePathEntries]);
@@ -301,7 +302,6 @@ export function jobContext(workspace: string, model?: string): JobContext {
     provider: "claude",
     ...(model === undefined ? {} : { model }),
     token: fakeToken,
-    actor: fakeActor,
     agentHome: "/login/claude",
     workspace,
     toolCache: "/cache",
