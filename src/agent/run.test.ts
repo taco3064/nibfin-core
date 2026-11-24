@@ -127,6 +127,64 @@ describe("runAgent with Claude Code", () => {
     });
   }
 
+  const rejected = {
+    type: "rate_limit_event",
+    rate_limit_info: {
+      status: "rejected",
+      rateLimitType: "five_hour",
+      resetsAt: 1795543200,
+    },
+  };
+  const allowed = {
+    type: "rate_limit_event",
+    rate_limit_info: { status: "allowed", resetsAt: 1795543200 },
+  };
+
+  it("stops at a rejected usage limit with its reset time", async () => {
+    const stdout = jsonLines({ type: "system", subtype: "init" }, rejected);
+    const t = await setup("claude", { stdout, exit: 1, statusExit: 1 });
+    await assert.rejects(t.run(), {
+      code: "AGENT_USAGE_LIMIT",
+      exitCode: 1,
+      usageLimitReset: "2026-11-24T18:00:00Z",
+      message:
+        "Claude Code stopped at its five_hour usage limit (exit code 1); it resets at " +
+        "2026-11-24T18:00:00Z. Remove the pending label after that time to continue.",
+    });
+    // The cause is known, so the login-status command does not run.
+    assert.equal((await t.fake.calls()).length, 1);
+  });
+
+  it("says when the CLI did not report the reset time", async () => {
+    const event = { type: "rate_limit_event", rate_limit_info: { status: "rejected" } };
+    const t = await setup("claude", { stdout: jsonLines(event), exit: 1 });
+    await assert.rejects(t.run(), {
+      code: "AGENT_USAGE_LIMIT",
+      usageLimitReset: undefined,
+      message:
+        "Claude Code stopped at its usage limit (exit code 1); the CLI did not " +
+        "report when it resets. Remove the pending label after the limit resets " +
+        "to continue.",
+    });
+  });
+
+  it("counts only the latest usage-limit report", async () => {
+    const t = await setup("claude", { stdout: jsonLines(rejected, allowed), exit: 1 });
+    await assert.rejects(t.run(), { code: "AGENT_RUN_FAILED", exitCode: 1 });
+  });
+
+  it("succeeds after a rejection when the CLI exits 0", async () => {
+    const stdout = jsonLines(rejected) + claudeSuccess;
+    const t = await setup("claude", { stdout });
+    assert.deepEqual(await t.run(), { exitCode: 0, finalMessage: "All done." });
+  });
+
+  it("asks for a new login before reporting a usage limit", async () => {
+    const login = { type: "assistant", error: "authentication_failed", message: {} };
+    const t = await setup("claude", { stdout: jsonLines(rejected, login), exit: 1 });
+    await assert.rejects(t.run(), { code: "AGENT_LOGIN_REQUIRED", exitCode: 1 });
+  });
+
   it("asks for a new login when auth status reports no login", async () => {
     const t = await setup("claude", { exit: 1, statusExit: 1 });
     await assert.rejects(t.run(), { code: "AGENT_LOGIN_REQUIRED", exitCode: 1 });
@@ -203,6 +261,21 @@ describe("runAgent with Codex", () => {
       code: "AGENT_LOGIN_REQUIRED",
       exitCode: 1,
       loginCommand: "gh nibfin login --provider codex",
+    });
+  });
+
+  it("stops at a usage limit reported by a turn failure", async () => {
+    const message =
+      "You’ve hit your usage limit. Upgrade to Pro for more. Try again at 6:00 PM.";
+    const stdout = jsonLines({ type: "turn.failed", error: { message } });
+    const t = await setup("codex", { stdout, exit: 1 });
+    await assert.rejects(t.run(), {
+      code: "AGENT_USAGE_LIMIT",
+      exitCode: 1,
+      usageLimitReset: "6:00 PM",
+      message:
+        "Codex stopped at its usage limit (exit code 1); it resets at 6:00 PM. " +
+        "Remove the pending label after that time to continue.",
     });
   });
 

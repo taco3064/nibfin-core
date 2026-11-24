@@ -38,6 +38,7 @@ const failures: Error[] = [
   new GitHubError("GITHUB_WRITE_REJECTED", "write", new Error("x")),
   new AgentError("AGENT_RUN_FAILED", "the agent failed", {}),
   new AgentError("AGENT_LOGIN_REQUIRED", "log in", {}),
+  new AgentError("AGENT_USAGE_LIMIT", "usage limit", { usageLimitReset: "18:00" }),
   new AgentError("AGENT_CONFIG_GENERATION_FAILED", "rulesync failed", {}),
   new AgentError("AGENT_CONFIG_INVALID", "bad", {}),
   new ConfigError("CONFIG_INVALID", "bad .nibfin.json"),
@@ -180,6 +181,43 @@ describe("requestPerson", () => {
     assert.ok(error instanceof GitHubError);
     assert.notEqual(error.code, "GITHUB_WRITE_REJECTED");
     assert.ok(!issues.main.labels.includes("pending"));
+  });
+});
+
+describe("pendingBody for a usage limit", () => {
+  const reset = "2026-11-24T18:00:00Z";
+  const note =
+    "The provider's usage limit was reached; it resets at `2026-11-24T18:00:00Z`. " +
+    "Remove the `pending` label after that time to continue.";
+
+  it("says when the limit resets and is not temporary", () => {
+    const error = new AgentError("AGENT_USAGE_LIMIT", "stopped", {
+      usageLimitReset: reset,
+    });
+    for (const body of [pendingBody(error, url), pendingBody(error, url, false)]) {
+      assert.ok(body.includes("- Code: `AGENT_USAGE_LIMIT`"));
+      assert.ok(body.includes(`${note}\n\nRemove the \`pending\` label to continue.`));
+      assert.doesNotMatch(body, temporaryNote);
+    }
+    assert.doesNotMatch(pendingBody(error, url, false), /limit message/);
+  });
+
+  it("says the reset time is unknown when the CLI did not report it", () => {
+    const unknown =
+      "The provider's usage limit was reached; the CLI did not report when it " +
+      "resets. Remove the `pending` label after the limit resets to continue.";
+    const agent = new AgentError("AGENT_USAGE_LIMIT", "stopped", {});
+    const other = Object.assign(new Error("stopped"), { code: "AGENT_USAGE_LIMIT" });
+    for (const error of [agent, other]) {
+      const body = pendingBody(error, url);
+      assert.ok(body.includes(unknown));
+      assert.doesNotMatch(body, temporaryNote);
+    }
+  });
+
+  it("leaves other failures without the note", () => {
+    const body = pendingBody(new AgentError("AGENT_RUN_FAILED", "x", {}), url);
+    assert.doesNotMatch(body, /usage limit/);
   });
 });
 
