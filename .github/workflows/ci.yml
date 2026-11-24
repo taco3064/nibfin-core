@@ -16,6 +16,13 @@ jobs:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
+      # actionlint with its official download script; it runs shellcheck on run:
+      # scripts and reads .github/actionlint.yaml.
+      - name: Lint workflows
+        run: |
+          bash <(curl -fsSL https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash) \
+            latest "$RUNNER_TEMP"
+          "$RUNNER_TEMP/actionlint" -color
       - uses: actions/setup-node@v7
         with:
           node-version-file: .node-version

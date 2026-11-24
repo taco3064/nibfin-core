@@ -1,0 +1,9 @@
+self-hosted-runner:
+  # Route runs; stage runs use nibfin-<user id>-<provider>, set by an expression.
+  labels:
+    - nibfin
+paths:
+  .github/workflows/**/*.{yml,yaml}:
+    ignore:
+      # concurrency.queue (GitHub, 2026) is newer than actionlint's schema.
+      - 'unexpected key "queue" for "concurrency" section'

@@ -1,0 +1,162 @@
+name: Nibfin · Job
+
+# Reusable: one route or stage Job on a self-hosted Linux runner, in the Nibfin image
+# under rootless Podman. Core dispatches whatever runs next itself; these steps only
+# check out, pull the image, run the container and clean up. Called by
+# nibfin-shared-runner.yml, which owns the concurrency group.
+
+on:
+  workflow_call:
+    inputs:
+      repo:
+        description: The Issue's repository, <owner>/<repo>
+        type: string
+        required: true
+      issue:
+        type: string
+        default: ""
+      sha:
+        type: string
+        default: ""
+      branch:
+        type: string
+        default: ""
+      stage:
+        description: route, shape, deliver or review
+        type: string
+        required: true
+      reason:
+        type: string
+        default: ""
+      assignee:
+        description: The first Assignee's user id (stage runs)
+        type: string
+        default: ""
+      ref:
+        type: string
+        default: ""
+    secrets:
+      token:
+        description: The gh login token of the Nibfin account (repo, workflow)
+        required: true
+
+permissions: {}
+
+env:
+  IMAGE: ghcr.io/taco3064/nibfin
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  route:
+    name: route
+    if: inputs.stage == 'route'
+    runs-on: [self-hosted, nibfin]
+    steps:
+      - name: Pull the image
+        id: image
+        run: |
+          podman pull "$IMAGE:main"
+          digest=$(podman image inspect --format '{{.Digest}}' "$IMAGE:main")
+          echo "Nibfin image: $IMAGE@$digest"
+          echo "ref=$IMAGE@$digest" >> "$GITHUB_OUTPUT"
+      - name: Route
+        env:
+          NIBFIN_GITHUB_TOKEN: ${{ secrets.token }}
+          NIBFIN_RUN_REPO: ${{ github.repository }}
+          NIBFIN_RUN_ID: ${{ github.run_id }}
+          IMAGE_REF: ${{ steps.image.outputs.ref }}
+          REPO: ${{ inputs.repo }}
+          ISSUE: ${{ inputs.issue }}
+          SHA: ${{ inputs.sha }}
+          BRANCH: ${{ inputs.branch }}
+        run: |
+          if [ -n "$ISSUE" ]; then
+            target=(--issue "$ISSUE")
+          elif [ -n "$SHA" ]; then
+            target=(--sha "$SHA")
+          else
+            target=(--branch "$BRANCH")
+          fi
+          podman run --rm --userns=keep-id:uid=1000,gid=1000 \
+            --env NIBFIN_GITHUB_TOKEN --env NIBFIN_RUN_REPO --env NIBFIN_RUN_ID \
+            "$IMAGE_REF" nibfin route --repo "$REPO" "${target[@]}"
+
+  stage:
+    name: stage
+    if: inputs.stage != 'route'
+    runs-on: [self-hosted, "nibfin-${{ inputs.assignee }}-${{ vars.NIBFIN_PROVIDER }}"]
+    steps:
+      - name: Check out the Issue's repository
+        uses: actions/checkout@v7
+        with:
+          repository: ${{ inputs.repo }}
+          token: ${{ secrets.token }}
+          path: nibfin-workspace
+          persist-credentials: false
+          clean: true
+      - name: Pull the image and remove older ones
+        id: image
+        run: |
+          podman pull "$IMAGE:main"
+          id=$(podman image inspect --format '{{.Id}}' "$IMAGE:main")
+          digest=$(podman image inspect --format '{{.Digest}}' "$IMAGE:main")
+          echo "Nibfin image: $IMAGE@$digest"
+          echo "ref=$IMAGE@$digest" >> "$GITHUB_OUTPUT"
+          podman images --format '{{.ID}} {{.Repository}}' | sort -u |
+            while read -r other repository; do
+              if [ "$repository" != "$IMAGE" ]; then
+                continue
+              fi
+              case "$id" in
+                "$other"*) continue ;;
+              esac
+              podman image rm "$other" || echo "Kept image $other: podman refused to remove it"
+            done
+          podman image prune -f
+      - name: Run the stage
+        env:
+          NIBFIN_GITHUB_TOKEN: ${{ secrets.token }}
+          NIBFIN_RUN_REPO: ${{ github.repository }}
+          NIBFIN_RUN_ID: ${{ github.run_id }}
+          NIBFIN_AGENT_HOME: /nibfin/home
+          NIBFIN_WORKSPACE: /workspace
+          NIBFIN_TOOL_CACHE: /nibfin/tools
+          NIBFIN_NEXT_FILE: /nibfin/out/next.json
+          NIBFIN_MEMORY_REQUIRED: ${{ vars.NIBFIN_MEMORY || '3g' }}
+          MEMORY: ${{ vars.NIBFIN_MEMORY || '3g' }}
+          MEMORY_HIGH: ${{ vars.NIBFIN_MEMORY_HIGH || '2560m' }}
+          PIDS_LIMIT: ${{ vars.NIBFIN_PIDS_LIMIT || '4096' }}
+          CPUS: ${{ vars.NIBFIN_CPUS || '4' }}
+          PROVIDER: ${{ vars.NIBFIN_PROVIDER }}
+          MODEL: ${{ vars.NIBFIN_MODEL }}
+          IMAGE_REF: ${{ steps.image.outputs.ref }}
+          STAGE: ${{ inputs.stage }}
+          REPO: ${{ inputs.repo }}
+          ISSUE: ${{ inputs.issue }}
+          REASON: ${{ inputs.reason }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/nibfin-out"
+          options=(--stage "$STAGE" --repo "$REPO" --issue "$ISSUE" --provider "$PROVIDER")
+          if [ -n "$MODEL" ]; then
+            options+=(--model "$MODEL")
+          fi
+          if [ -n "$REASON" ]; then
+            options+=(--reason "$REASON")
+          fi
+          podman run --rm --userns=keep-id:uid=1000,gid=1000 \
+            --pids-limit "$PIDS_LIMIT" --memory "$MEMORY" --cpus "$CPUS" \
+            --cgroup-conf "memory.high=$MEMORY_HIGH" \
+            --volume "$GITHUB_WORKSPACE/nibfin-workspace:/workspace:Z" \
+            --volume "nibfin-home-$PROVIDER:/nibfin/home" \
+            --volume nibfin-tools:/nibfin/tools \
+            --volume "$RUNNER_TEMP/nibfin-out:/nibfin/out:Z" \
+            --env NIBFIN_GITHUB_TOKEN --env NIBFIN_RUN_REPO --env NIBFIN_RUN_ID \
+            --env NIBFIN_AGENT_HOME --env NIBFIN_WORKSPACE --env NIBFIN_TOOL_CACHE \
+            --env NIBFIN_NEXT_FILE --env NIBFIN_MEMORY_REQUIRED \
+            "$IMAGE_REF" nibfin run "${options[@]}"
+      - name: Clean up
+        if: always()
+        run: rm -rf "$GITHUB_WORKSPACE/nibfin-workspace" "$RUNNER_TEMP/nibfin-out"

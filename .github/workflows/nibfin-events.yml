@@ -1,0 +1,114 @@
+name: Nibfin · Events
+
+# Reusable: turns one GitHub event of the calling repository into a route run of the
+# execution repository's nibfin-shared-runner.yml. Events only wake an Issue; Core
+# decides from GitHub state what runs. Callers: nibfin-issue.yml (see
+# docs/nibfin-callers.md). Event text reaches the script only through env.
+
+on:
+  workflow_call:
+    secrets:
+      token:
+        description: The gh login token of the Nibfin account (repo, workflow)
+        required: true
+
+permissions: {}
+
+jobs:
+  wake:
+    name: wake
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Wake the Issue
+        env:
+          GH_TOKEN: ${{ secrets.token }}
+          EXECUTION_REPO: ${{ vars.NIBFIN_EXECUTION_REPO }}
+          EVENT_NAME: ${{ github.event_name }}
+          ACTION: ${{ github.event.action }}
+          REPO: ${{ github.repository }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          ISSUE: ${{ github.event.issue.number }}
+          ISSUE_LABELS: ${{ toJSON(github.event.issue.labels.*.name) }}
+          LABEL: ${{ github.event.label.name }}
+          SENDER: ${{ github.event.sender.login }}
+          RUN_EVENT: ${{ github.event.workflow_run.event }}
+          RUN_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          RUN_SHA: ${{ github.event.workflow_run.head_sha }}
+          RUN_HEAD_REPO: ${{ github.event.workflow_run.head_repository.full_name }}
+          SUITE_APP: ${{ github.event.check_suite.app.slug }}
+          SUITE_BRANCH: ${{ github.event.check_suite.head_branch }}
+          STATUS_SHA: ${{ github.event.sha }}
+          PUSH_REF: ${{ github.ref }}
+          PUSH_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          if [ -z "$EXECUTION_REPO" ]; then
+            echo "The variable NIBFIN_EXECUTION_REPO is not set" >&2
+            exit 1
+          fi
+          wake() {
+            local inputs=(-f stage=route -f "repo=$REPO")
+            for pair in "$@"; do
+              inputs+=(-f "$pair")
+            done
+            gh workflow run nibfin-shared-runner.yml --repo "$EXECUTION_REPO" "${inputs[@]}"
+            echo "Woke $REPO: $*"
+          }
+          case "$EVENT_NAME" in
+            issues)
+              if ! jq -e 'index("scope") != null' <<<"$ISSUE_LABELS" >/dev/null; then
+                echo "#$ISSUE has no scope label; not routed"
+                exit 0
+              fi
+              case "$ACTION:$LABEL" in
+                labeled:shaped | unlabeled:shaped | labeled:delivered | \
+                  unlabeled:delivered | labeled:pending)
+                  echo "Nibfin's own label change ($ACTION $LABEL); not routed"
+                  exit 0
+                  ;;
+              esac
+              permission=$(gh api "repos/$REPO/collaborators/$SENDER/permission" \
+                --jq .permission)
+              case "$permission" in
+                admin | write) ;;
+                *)
+                  echo "$SENDER has $permission permission; not routed"
+                  exit 0
+                  ;;
+              esac
+              wake "issue=$ISSUE"
+              ;;
+            workflow_run)
+              if [ "$RUN_EVENT" = pull_request ]; then
+                case "$RUN_BRANCH" in
+                  nibfin/issue-*) ;;
+                  *) exit 0 ;;
+                esac
+                if [ "$RUN_HEAD_REPO" != "$REPO" ]; then
+                  echo "A pull request from $RUN_HEAD_REPO; not routed"
+                  exit 0
+                fi
+                wake "branch=$RUN_BRANCH" "ref=$RUN_BRANCH"
+              else
+                wake "sha=$RUN_SHA" "ref=$RUN_SHA"
+              fi
+              ;;
+            check_suite)
+              if [ "$SUITE_APP" = github-actions ] || [ -z "$SUITE_BRANCH" ]; then
+                exit 0
+              fi
+              wake "branch=$SUITE_BRANCH" "ref=$SUITE_BRANCH"
+              ;;
+            status)
+              wake "sha=$STATUS_SHA" "ref=$STATUS_SHA"
+              ;;
+            push)
+              if [ "$PUSH_REF" != "refs/heads/$DEFAULT_BRANCH" ]; then
+                exit 0
+              fi
+              wake "sha=$PUSH_SHA" "ref=$PUSH_SHA"
+              ;;
+            *)
+              echo "The $EVENT_NAME event is not routed"
+              ;;
+          esac
