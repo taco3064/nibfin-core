@@ -222,6 +222,23 @@ describe("readWorkspaceState", () => {
   });
 });
 
+describe("prepareStageJob", () => {
+  it("checks the host memory before reading the configuration", async () => {
+    const issues = fakeIssues(fakeIssue());
+    const fake = fakeDeps([]);
+    const context = { ...jobContext(workspace), memoryRequired: 64 * 1024 ** 3 };
+    const error = await rejection(
+      prepareStageJob(context, issues.github.client, fake.deps),
+    );
+    assert.ok(error instanceof StageError);
+    assert.equal(error.code, "STAGE_HOST_MEMORY_LOW");
+    assert.deepEqual(fake.configReads, []);
+    const enough = { ...context, memoryRequired: 1024 ** 3 };
+    await prepareStageJob(enough, issues.github.client, fake.deps);
+    assert.deepEqual(fake.configReads, [workspace]);
+  });
+});
+
 describe("defaultStageDeps", () => {
   it("logs to stdout", (t) => {
     const write = t.mock.method(process.stdout, "write", () => true);

@@ -13,6 +13,7 @@ import {
 } from "../github/index.ts";
 import type { JobContext } from "./context.ts";
 import { StageError } from "./errors.ts";
+import { checkHostMemory, readMeminfo } from "./host-memory.ts";
 import { composePrompt, type PromptSection, type StageRole } from "./prompt.ts";
 import {
   readWorkspaceState,
@@ -33,6 +34,8 @@ export interface StageDeps {
     tools: NibfinConfig["tools"],
     options: { workspace: string; cacheDir: string },
   ) => Promise<string[]>;
+  /** The host's `/proc/meminfo` text, for the memory check (#674). */
+  readMeminfo: () => Promise<string>;
   /** One line of the Job log. */
   log: (line: string) => void;
 }
@@ -42,6 +45,7 @@ export const defaultStageDeps: StageDeps = {
   readNibfinConfig,
   resolveRoleSkill,
   prepareTools,
+  readMeminfo,
   log: (line) => process.stdout.write(`${line}\n`),
 };
 
@@ -61,14 +65,16 @@ export function issueOf(context: JobContext): IssueRef {
 }
 
 /**
- * Reads `.nibfin.json` before any role runs (a `ConfigError` rejects the Job as is)
- * and installs its tools once for the Job.
+ * Right before a stage's first agent run: checks the host's available memory
+ * (`STAGE_HOST_MEMORY_LOW`), reads `.nibfin.json` (a `ConfigError` rejects the Job as
+ * is) and installs its tools once for the Job.
  */
 export async function prepareStageJob(
   context: JobContext,
   client: ActingClient,
   deps: StageDeps,
 ): Promise<StageJob> {
+  await checkHostMemory(context.memoryRequired, deps.readMeminfo);
   const config = await deps.readNibfinConfig(context.workspace);
   const pathEntries = await deps.prepareTools(config.tools, {
     workspace: context.workspace,

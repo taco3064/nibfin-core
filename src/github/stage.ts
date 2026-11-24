@@ -6,7 +6,7 @@ import type { RunState } from "./run-state.ts";
 import type { IssueSnapshot, PullRequestState } from "./snapshot.ts";
 
 export type IneligibleReason =
-  "closed" | "no-scope" | "paused" | "blocked" | "no-assignee";
+  "closed" | "no-scope" | "paused" | "pending" | "blocked" | "no-assignee";
 
 export type CiStage = "review" | "awaiting-ci" | "ci-failed";
 
@@ -59,6 +59,9 @@ export function deriveStage(snapshot: IssueSnapshot): Stage {
   }
   if (has(nibfinLabels.pause)) {
     return { stage: "ineligible", reason: "paused" };
+  }
+  if (has(nibfinLabels.pending)) {
+    return { stage: "ineligible", reason: "pending" };
   }
   const blockers = snapshot.blockedBy.filter((dependency) => !isResolved(dependency));
   if (blockers.length > 0) {

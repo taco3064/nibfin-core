@@ -4,13 +4,12 @@ import {
   type ActingClient,
   type DeliveryOutcome,
   deriveStage,
-  findMarkedComment,
   type IssueSnapshot,
-  nibfinLabels,
   readIssueSnapshot,
+  readPullRequest,
 } from "../github/index.ts";
 import { issueOf, prepareStageJob, runStageAgent } from "./agent.ts";
-import { closeIssue } from "./closing.ts";
+import { closedAsDelivered, closeIssue } from "./closing.ts";
 import type { JobContext } from "./context.ts";
 import { currentReview, describeStage } from "./deliver-eligibility.ts";
 import { readDeliverSources } from "./deliver-prompts.ts";
@@ -22,10 +21,10 @@ import {
   type ReviewerResult,
   reviewerRole,
 } from "./review-roles.ts";
+import { trackProgress } from "./progress.ts";
 import {
   blockReview,
   defaultReviewDeps,
-  deliveredCommentKey,
   handBackToShape,
   issueName,
   requestReviewFix,
@@ -113,6 +112,9 @@ async function reviewPullRequest(
     deps.log(`${issueName(scope)}: the Shape is reported wrong; not reviewing`);
     return handBackToShape;
   }
+  // Reading the pull request starts GitHub's mergeability computation early, so the
+  // merge after the review usually finds it done (#674).
+  await readPullRequest(client, context.repo, pull.number);
   const existing = await currentReview(client, issue, pull);
   if (existing?.current === true) {
     const { url } = existing.comment;
@@ -129,6 +131,7 @@ async function reviewPullRequest(
     now.pullRequest.number === pull.number &&
     now.pullRequest.headSha === head;
   if (!same) {
+    scope.progress.mark();
     deps.log(
       `The Issue moved on during the review (now ${describeStage(now)}); ` +
         "stopping without writing",
@@ -143,17 +146,6 @@ async function reviewPullRequest(
     return blockReview(scope, reviewerRole.title, verdict.reason);
   }
   return mergeReviewed(scope, pull, head, shapeVersion);
-}
-
-/** A closed Issue that this stage already closed as delivered: only wake remains. */
-async function closedAsDelivered(scope: ReviewScope, snapshot: IssueSnapshot) {
-  if (!snapshot.issue.labels.includes(nibfinLabels.delivered)) {
-    return false;
-  }
-  const issue = issueOf(scope.context);
-  return (
-    (await findMarkedComment(scope.client, issue, deliveredCommentKey)) !== undefined
-  );
 }
 
 async function dispatch(scope: ReviewScope): Promise<NextAction> {
@@ -173,7 +165,7 @@ async function dispatch(scope: ReviewScope): Promise<NextAction> {
       return closeIssue(scope, snapshot);
   }
   const closed = stage.stage === "ineligible" && stage.reason === "closed";
-  if (closed && (await closedAsDelivered(scope, snapshot))) {
+  if (closed && (await closedAsDelivered(client, issueOf(context), snapshot))) {
     deps.log(`${issueName(scope)} is already closed as delivered; waking downstream`);
     return { ...noNextAction, wake: await wakeDownstream(scope) };
   }
@@ -192,14 +184,15 @@ export async function runReviewStage(
   client: ActingClient,
   deps: ReviewDeps = defaultReviewDeps,
 ): Promise<number> {
-  const scope: ReviewScope = { context, client, deps };
+  const progress = trackProgress(client);
+  const scope: ReviewScope = { context, client: progress.client, deps, progress };
   let next: NextAction;
   try {
     next = await dispatch(scope);
   } catch (error) {
-    await writeNextAction(context, noNextAction);
+    await writeNextAction(context, noNextAction, progress.progressed);
     throw error;
   }
-  await writeNextAction(context, next);
+  await writeNextAction(context, next, progress.progressed);
   return 0;
 }

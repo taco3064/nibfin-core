@@ -106,7 +106,7 @@ describe("runShapeStage rewrite of a Shape reported wrong", () => {
       `PATCH /repos/acme/app/issues/comments/${report.id}`,
       "POST /repos/acme/app/issues/1/labels",
     ]);
-    assert.deepEqual(t.next(), { stage: "deliver", reason: null });
+    assert.deepEqual(t.next(), { stage: "deliver", reason: null, progressed: true });
   });
 
   it("keeps the reason through every changes-required round", async () => {
@@ -128,7 +128,7 @@ describe("runShapeStage rewrite of a Shape reported wrong", () => {
     assert.match(prompts[2], /## Previous proposed Shape\n\nv1/);
     assert.doesNotMatch(prompts[2], /## Previous Shape\n/);
     assert.equal(t.shape.body, `${shapeMarker}\nv3`);
-    assert.deepEqual(t.next(), { stage: "deliver", reason: null });
+    assert.deepEqual(t.next(), { stage: "deliver", reason: null, progressed: true });
   });
 
   it("resolves a rewrite whose text is unchanged, keeping the version", async () => {
@@ -139,7 +139,7 @@ describe("runShapeStage rewrite of a Shape reported wrong", () => {
     assert.equal(commentVersion(t.shape), version);
     assert.equal(report.body, `${wrongMarker}\n${resolvedBody(version, version)}`);
     assert.ok(t.issues.main.labels.includes("shaped"));
-    assert.deepEqual(t.next(), { stage: "deliver", reason: null });
+    assert.deepEqual(t.next(), { stage: "deliver", reason: null, progressed: true });
   });
 
   it("writes no next action and publishes nothing when paused meanwhile", async () => {
@@ -153,7 +153,7 @@ describe("runShapeStage rewrite of a Shape reported wrong", () => {
     const report = t.report(shapeWrongBody(commentVersion(t.shape), reason));
     const before = report.body;
     assert.equal(await t.run(), 0);
-    assert.deepEqual(t.next(), { stage: null, reason: null });
+    assert.deepEqual(t.next(), { stage: null, reason: null, progressed: false });
     assert.equal(t.shape.body, `${shapeMarker}\nOld plan`);
     assert.equal(report.body, before);
     assert.deepEqual(t.issues.github.writes(), []);
@@ -171,7 +171,7 @@ describe("runShapeStage rewrite of a Shape reported wrong", () => {
     assert.ok(error instanceof GitHubError);
     assert.equal(error.code, "GITHUB_WRITE_UNCONFIRMED");
     assert.match(String(error.cause), /version did not change/);
-    assert.deepEqual(t.next(), { stage: null, reason: null });
+    assert.deepEqual(t.next(), { stage: null, reason: null, progressed: true });
     assert.match(
       t.issues.marked("shape-wrong")[0].body,
       /^<!-- nibfin:shape-wrong -->\nThe/,
@@ -184,7 +184,7 @@ describe("runShapeStage rewrite of a Shape reported wrong", () => {
     t.report(shapeWrongBody(commentVersion(t.shape), reason));
     const error = await rejection(t.run());
     assert.equal((error as StageError).code, "STAGE_BLOCKED");
-    assert.deepEqual(t.next(), { stage: null, reason: null });
+    assert.deepEqual(t.next(), { stage: null, reason: null, progressed: true });
   });
 });
 
@@ -206,7 +206,7 @@ describe("runShapeStage redo after a crash during a rewrite", () => {
       report.body,
       `${wrongMarker}\n${resolvedBody(commentVersion(t.shape), "1.1")}`,
     );
-    assert.deepEqual(t.next(), { stage: "deliver", reason: null });
+    assert.deepEqual(t.next(), { stage: "deliver", reason: null, progressed: true });
   });
 
   it("re-validates after the resolve and updates Rewritten as", async () => {
@@ -231,14 +231,14 @@ describe("runShapeStage redo after a crash during a rewrite", () => {
       report.body,
       `${wrongMarker}\n${resolvedBody(commentVersion(t.shape), "1.1")}`,
     );
-    assert.deepEqual(t.next(), { stage: "deliver", reason: null });
+    assert.deepEqual(t.next(), { stage: "deliver", reason: null, progressed: true });
   });
 
   it("restarts delivery when shaped was already added", async () => {
     const t = await setup([], fakeIssue({ labels: ["scope", "shaped"] }));
     t.report(resolvedBody(commentVersion(t.shape), "1.1"));
     assert.equal(await t.run(), 0);
-    assert.deepEqual(t.next(), { stage: "deliver", reason: null });
+    assert.deepEqual(t.next(), { stage: "deliver", reason: null, progressed: false });
     assert.deepEqual(t.fake.runs, []);
     assert.deepEqual(t.issues.github.writes(), []);
   });
@@ -261,7 +261,7 @@ describe("runShapeStage redo after a crash during a rewrite", () => {
         t.report(text);
       }
       assert.equal(await t.run(), 0);
-      assert.deepEqual(t.next(), { stage: null, reason: null });
+      assert.deepEqual(t.next(), { stage: null, reason: null, progressed: false });
       assert.deepEqual(t.fake.runs, []);
     });
   }
@@ -276,13 +276,13 @@ describe("runShapeStage redo after a crash during a rewrite", () => {
     t.report("The approved Shape is wrong (Writer).\n\nNo version line.");
     assert.equal(await t.run(), 0);
     assert.ok(t.fake.logs.some((line) => /no valid Shape version line/.test(line)));
-    assert.deepEqual(t.next(), { stage: null, reason: null });
+    assert.deepEqual(t.next(), { stage: null, reason: null, progressed: true });
   });
 
   it("writes no next action after a first Shape", async () => {
     const t = await setup([approved]);
     assert.equal(await t.run(), 0);
-    assert.deepEqual(t.next(), { stage: null, reason: null });
+    assert.deepEqual(t.next(), { stage: null, reason: null, progressed: true });
   });
 });
 
@@ -308,6 +308,7 @@ describe("runShapeStage rewrite with delivery work on GitHub", () => {
     assert.deepEqual(JSON.parse(readFileSync(world.nextFile, "utf8")), {
       stage: "review",
       reason: null,
+      progressed: true,
     });
   });
 
@@ -319,10 +320,10 @@ describe("runShapeStage rewrite with delivery work on GitHub", () => {
     const client = world.issues.github.client;
     assert.equal(await runShapeStage(world.context, client, world.agent.deps), 0);
     const next = () => JSON.parse(readFileSync(world.nextFile, "utf8")) as unknown;
-    assert.deepEqual(next(), { stage: "deliver", reason: null });
+    assert.deepEqual(next(), { stage: "deliver", reason: null, progressed: false });
     assert.deepEqual(world.issues.github.writes(), []);
     assert.equal(await world.run(), 0);
-    assert.deepEqual(next(), { stage: "shape", reason: null });
+    assert.deepEqual(next(), { stage: "shape", reason: null, progressed: true });
     assert.deepEqual(world.issues.main.labels, ["scope"]);
     assert.deepEqual(world.agent.runs, []);
   });

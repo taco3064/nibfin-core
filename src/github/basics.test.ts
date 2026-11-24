@@ -1,8 +1,14 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { createClient } from "./client.ts";
+import { connectClient, createClient, readActor } from "./client.ts";
+import { GitHubError } from "./errors.ts";
+import { failure, fakeGitHub, rejection } from "./fake-github.test.ts";
 import { nibfinLabels } from "./labels.ts";
-import { isNibfinWorkflow, nibfinWorkflowPrefix } from "./nibfin-workflows.ts";
+import {
+  isNibfinWorkflow,
+  nibfinRunTitle,
+  nibfinWorkflowPrefix,
+} from "./nibfin-workflows.ts";
 import { formatIssue, labelNames, parseRepositoryUrl } from "./repo.ts";
 import { commitStatusState, runState } from "./run-state.ts";
 
@@ -29,6 +35,31 @@ describe("createClient", () => {
   });
 });
 
+describe("readActor and connectClient", () => {
+  it("reads the token's own account with GET /user", async () => {
+    const github = fakeGitHub({ "GET /user": { data: { id: 7, login: "owner" } } });
+    assert.deepEqual(await readActor(github.client), { id: 7, login: "owner" });
+  });
+
+  it("fails as a read when GET /user fails", async () => {
+    const github = fakeGitHub({ "GET /user": failure(403) });
+    const error = await rejection(readActor(github.client));
+    assert.ok(error instanceof GitHubError);
+    assert.equal(error.code, "GITHUB_READ_FAILED");
+  });
+
+  it("connects a client that writes as the token's account", async () => {
+    const seen: string[] = [];
+    const fetch = (input: string | URL) => {
+      seen.push(new URL(input).pathname);
+      return Promise.resolve(Response.json({ id: 9, login: "taco" }));
+    };
+    const client = await connectClient("secret-token", { request: { fetch } });
+    assert.deepEqual(client.actor, { id: 9, login: "taco" });
+    assert.deepEqual(seen, ["/user"]);
+  });
+});
+
 describe("Nibfin workflows", () => {
   it("recognizes names by the single prefix", () => {
     assert.equal(nibfinWorkflowPrefix, "Nibfin ·");
@@ -37,6 +68,9 @@ describe("Nibfin workflows", () => {
     assert.equal(isNibfinWorkflow("nibfin · events"), false);
     assert.equal(isNibfinWorkflow(null), false);
     assert.equal(isNibfinWorkflow(undefined), false);
+    const title = nibfinRunTitle({ owner: "acme", repo: "app" }, 3, "route");
+    assert.equal(title, "Nibfin · acme/app#3 · route");
+    assert.equal(isNibfinWorkflow(title), true);
   });
 
   it("names the labels Nibfin uses", () => {
@@ -45,6 +79,7 @@ describe("Nibfin workflows", () => {
       shaped: "shaped",
       delivered: "delivered",
       pause: "pause",
+      pending: "pending",
     });
   });
 });

@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 import {
   cdFixBranch,
   deliveryBranch,
+  issueOfBranch,
   probeBranch,
   readIssueBranches,
   readPullRequests,
@@ -19,6 +20,16 @@ describe("branch names", () => {
   it("names the delivery and fix branches", () => {
     assert.equal(deliveryBranch(667), "nibfin/issue-667");
     assert.equal(cdFixBranch(667, 2), "nibfin/issue-667-cd-2");
+    assert.equal(issueOfBranch("nibfin/issue-667"), 667);
+    assert.equal(issueOfBranch("nibfin/issue-667-cd-2"), 667);
+    for (const other of [
+      "main",
+      "nibfin/issue-",
+      "nibfin/issue-01",
+      "nibfin/issue-6-cd-0",
+    ]) {
+      assert.equal(issueOfBranch(other), undefined, other);
+    }
   });
 });
 

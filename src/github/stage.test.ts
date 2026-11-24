@@ -127,12 +127,22 @@ describe("deriveStage: eligibility", () => {
     ]);
     const open = { ...everything, state: "open" as const };
     assert.deepEqual(stageOf(deriveStage(snapshot(open))), ["ineligible", "no-scope"]);
-    const scoped = { ...open, labels: ["scope", "pause"] };
+    const scoped = { ...open, labels: ["scope", "pause", "pending"] };
     assert.deepEqual(stageOf(deriveStage(snapshot(scoped))), ["ineligible", "paused"]);
+    const waiting = { ...scoped, labels: ["scope", "pending"] };
+    assert.deepEqual(stageOf(deriveStage(snapshot(waiting))), ["ineligible", "pending"]);
     const active = { ...scoped, labels: ["scope"] };
     assert.deepEqual(stageOf(deriveStage(snapshot(active))), ["ineligible", "blocked"]);
     const free = { ...active, blockedBy: [] };
     assert.deepEqual(stageOf(deriveStage(snapshot(free))), ["ineligible", "no-assignee"]);
+  });
+
+  it("holds an Issue with pending at any stage, including delivery", () => {
+    const merged = [pr(1, { merged: true })];
+    const held = snapshot({ labels: ["scope", "shaped", "pending"], delivery: merged });
+    assert.deepEqual(stageOf(deriveStage(held)), ["ineligible", "pending"]);
+    const unshaped = snapshot({ labels: ["scope", "pending"] });
+    assert.deepEqual(stageOf(deriveStage(unshaped)), ["ineligible", "pending"]);
   });
 
   it("pauses an Issue in any unfinished stage, including delivery", () => {

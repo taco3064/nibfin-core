@@ -1,10 +1,15 @@
-import { type GitHubClient, GitHubError, type Repo } from "../github/index.ts";
+import {
+  type GitHubClient,
+  GitHubError,
+  nibfinRunTitle,
+  type Repo,
+} from "../github/index.ts";
 import type { JobContext } from "./context.ts";
 import { StageError } from "./errors.ts";
 
 /** The run name #674 gives every Deliver Job of an Issue. */
 export function deliverRunName(repo: Repo, issue: number): string {
-  return `Nibfin · ${repo.owner}/${repo.repo}#${issue} · deliver`;
+  return nibfinRunTitle(repo, issue, "deliver");
 }
 
 function missing(field: string): StageError {

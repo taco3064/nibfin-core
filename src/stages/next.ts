@@ -1,5 +1,6 @@
-import { writeFile } from "node:fs/promises";
-import type { FixReason, JobContext } from "./context.ts";
+import { readFile, writeFile } from "node:fs/promises";
+import { type FixReason, fixReasons, type JobContext } from "./context.ts";
+import { StageError } from "./errors.ts";
 
 /** An Issue whose next stage should run now, as `<owner>/<repo>` and number. */
 export interface WakeTarget {
@@ -19,12 +20,22 @@ export interface NextAction {
   wake?: WakeTarget[];
 }
 
+/**
+ * The next-action file: the action plus `progressed`, true when the run wrote to
+ * GitHub (comment, label, push, PR, merge, close) or found a PR head other than the
+ * one it started with (#674).
+ */
+export interface NextActionRecord extends NextAction {
+  progressed: boolean;
+}
+
 export const noNextAction: NextAction = { stage: null, reason: null };
 
 /** Writes `action` as JSON to `NIBFIN_NEXT_FILE`; does nothing when it is not set. */
 export async function writeNextAction(
   context: Pick<JobContext, "nextFile">,
   action: NextAction,
+  progressed: boolean,
 ): Promise<void> {
   if (context.nextFile === undefined) {
     return;
@@ -35,6 +46,51 @@ export async function writeNextAction(
     ...(action.wake === undefined
       ? {}
       : { wake: action.wake.map(({ repo, issue }) => ({ repo, issue })) }),
+    progressed,
   };
   await writeFile(context.nextFile, `${JSON.stringify(json)}\n`);
+}
+
+const stages = ["shape", "deliver", "review", null];
+const repoPattern = /^[A-Za-z0-9-]+\/[A-Za-z0-9._-]+$/;
+
+function isWakeTarget(value: unknown): value is WakeTarget {
+  const target = value as Partial<WakeTarget> | null;
+  return (
+    typeof target === "object" &&
+    target !== null &&
+    typeof target.repo === "string" &&
+    repoPattern.test(target.repo) &&
+    typeof target.issue === "number" &&
+    Number.isSafeInteger(target.issue) &&
+    target.issue > 0
+  );
+}
+
+function isRecord(value: unknown): value is NextActionRecord {
+  const record = value as Partial<NextActionRecord> | null;
+  return (
+    typeof record === "object" &&
+    record !== null &&
+    stages.includes(record.stage as string | null) &&
+    (record.reason === null || fixReasons.some((reason) => reason === record.reason)) &&
+    (record.wake === undefined ||
+      (Array.isArray(record.wake) && record.wake.every(isWakeTarget))) &&
+    typeof record.progressed === "boolean"
+  );
+}
+
+/** Reads the next-action file a stage wrote; a malformed one is invalid input. */
+export async function readNextAction(path: string): Promise<NextActionRecord> {
+  let value: unknown;
+  try {
+    value = JSON.parse(await readFile(path, "utf8"));
+  } catch (error) {
+    const message = "NIBFIN_NEXT_FILE could not be read as JSON";
+    throw new StageError("STAGE_INPUT_INVALID", message, error);
+  }
+  if (!isRecord(value)) {
+    throw new StageError("STAGE_INPUT_INVALID", "NIBFIN_NEXT_FILE is malformed");
+  }
+  return value;
 }

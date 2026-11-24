@@ -95,7 +95,7 @@ describe("runDeliverStage eligibility", () => {
       assert.deepEqual(world.agent.logs, [
         `acme/app#1 is not at the deliver stage: ${expected}`,
       ]);
-      assert.deepEqual(next(world), { stage: null, reason: null });
+      assert.deepEqual(next(world), { stage: null, reason: null, progressed: false });
       assert.deepEqual(world.agent.runs, []);
       assert.deepEqual(world.git.calls, []);
       assert.deepEqual(world.issues.github.writes(), []);
@@ -113,7 +113,7 @@ describe("runDeliverStage eligibility", () => {
     });
     const error = await rejection(world.run());
     assert.equal((error as StageError).code, "STAGE_WRITER_ACTIVE");
-    assert.deepEqual(next(world), { stage: null, reason: null });
+    assert.deepEqual(next(world), { stage: null, reason: null, progressed: false });
     assert.deepEqual(world.agent.runs, []);
     assert.deepEqual(world.agent.configReads, []);
     assert.deepEqual(world.git.calls, []);
@@ -156,7 +156,7 @@ describe("runDeliverStage on a new branch", () => {
         { title: pull.title, body: pull.body, base: pull.base, head: pull.head },
         { title: "Add the widget (#1)", body: "Part of #1", base: "main", head: branch },
       );
-      assert.deepEqual(next(world), { stage: "review", reason: null });
+      assert.deepEqual(next(world), { stage: "review", reason: null, progressed: true });
       const [writerRun, acceptorRun] = world.agent.runs;
       assert.equal(roleOf(writerRun.prompt), "Writer");
       assert.equal(roleOf(acceptorRun.prompt), "Accept sub agent");
@@ -252,7 +252,7 @@ describe("runDeliverStage on a new branch", () => {
     const world = await deliveryWorld({ steps: [writer(() => world, ["a.txt"]), pass] });
     world.required.push("verify");
     assert.equal(await world.run(), 0);
-    assert.deepEqual(next(world), { stage: null, reason: null });
+    assert.deepEqual(next(world), { stage: null, reason: null, progressed: true });
   });
 });
 
@@ -328,7 +328,7 @@ describe("runDeliverStage stops", () => {
       comment.body,
       /The delivery is blocked \(Writer\)\.\n\nThe API is missing/,
     );
-    assert.deepEqual(next(world), { stage: null, reason: null });
+    assert.deepEqual(next(world), { stage: null, reason: null, progressed: true });
     assert.equal(world.pulls.length, 0);
   });
 
@@ -406,7 +406,7 @@ describe("runDeliverStage stops", () => {
     assert.equal(await world.run(), 0);
     assert.deepEqual(pushes(world), []);
     assert.equal(world.fixture.remoteHead(branch), undefined);
-    assert.deepEqual(next(world), { stage: null, reason: null });
+    assert.deepEqual(next(world), { stage: null, reason: null, progressed: false });
     assert.ok(
       world.agent.logs.some((line) =>
         /no longer eligible \(ineligible \(paused/.test(line),
@@ -455,7 +455,7 @@ describe("runDeliverStage stops", () => {
     });
     assert.equal(await world.run(), 0);
     assert.equal(world.pulls.length, 0);
-    assert.deepEqual(next(world), { stage: null, reason: null });
+    assert.deepEqual(next(world), { stage: null, reason: null, progressed: true });
   });
 
   it("saves the Writer's work when its run fails, then fails", async () => {

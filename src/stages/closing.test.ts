@@ -63,6 +63,7 @@ describe("runReviewStage closing", () => {
     assert.deepEqual(w.next(), {
       ...noNext,
       wake: [{ repo: "acme/app", issue: 2 }],
+      progressed: true,
     });
     const url = "https://github.com/acme/app";
     assert.deepEqual(delivered(w), [
@@ -161,7 +162,7 @@ describe("runReviewStage closing", () => {
       return typeof post === "function" ? post(request) : post;
     });
     assert.equal(await w.review(), 0);
-    assert.deepEqual(w.next(), noNext);
+    assert.deepEqual(w.next(), { ...noNext, progressed: true });
     assert.equal(delivered(w).length, 1);
     assert.equal(w.issues.main.state, "open");
     assert.ok(!w.issues.main.labels.includes("delivered"));
@@ -186,7 +187,11 @@ describe("runReviewStage closing", () => {
     seedComment(w.issues, w.issues.main, "<!-- nibfin:delivered -->\nDelivered.");
     addDownstream(w, { number: 2, labels: ["scope", "shaped"] });
     assert.equal(await w.review(), 0);
-    assert.deepEqual(w.next(), { ...noNext, wake: [{ repo: "acme/app", issue: 2 }] });
+    assert.deepEqual(w.next(), {
+      ...noNext,
+      wake: [{ repo: "acme/app", issue: 2 }],
+      progressed: false,
+    });
     assert.deepEqual(w.issues.github.writes(), []);
   });
 
@@ -198,7 +203,7 @@ describe("runReviewStage closing", () => {
     const error = await rejection(w.review());
     assert.equal((error as GitHubError).code, "GITHUB_READ_FAILED");
     assert.equal(w.issues.main.state, "closed");
-    assert.deepEqual(w.next(), noNext);
+    assert.deepEqual(w.next(), { ...noNext, progressed: true });
   });
 });
 
@@ -212,7 +217,7 @@ describe("runReviewStage dispatch", () => {
       workflowRun(30, { status: "in_progress", conclusion: null, sha: "merge-7" }),
     );
     assert.equal(await w.review(), 0);
-    assert.deepEqual(w.next(), noNext);
+    assert.deepEqual(w.next(), { ...noNext, progressed: false });
     assert.deepEqual(w.agent.logs, ["acme/app#1 is waiting for CD (cd-runs-pending)"]);
   });
 
@@ -220,7 +225,11 @@ describe("runReviewStage dispatch", () => {
     const w = await reviewWorld();
     mergePull(w, w.pull, "failure");
     assert.equal(await w.review(), 0);
-    assert.deepEqual(w.next(), { stage: "deliver", reason: "cd-failure" });
+    assert.deepEqual(w.next(), {
+      stage: "deliver",
+      reason: "cd-failure",
+      progressed: false,
+    });
     assert.deepEqual(w.issues.github.writes(), []);
   });
 
@@ -252,7 +261,7 @@ describe("runReviewStage dispatch", () => {
       const w = await reviewWorld();
       change(w);
       assert.equal(await w.review(), 0);
-      assert.deepEqual(w.next(), noNext);
+      assert.deepEqual(w.next(), { ...noNext, progressed: false });
       assert.deepEqual(w.agent.logs, [
         `acme/app#1 is not at the review stage: ${expected}`,
       ]);

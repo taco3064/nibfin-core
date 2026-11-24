@@ -66,7 +66,7 @@ describe("runReviewStage review", () => {
       },
     ]);
     assert.equal(await w.review(), 0);
-    assert.deepEqual(w.next(), { stage: "deliver", reason: "review" });
+    assert.deepEqual(w.next(), { stage: "deliver", reason: "review", progressed: true });
     assert.deepEqual(prCommentBodies(w), [
       `<!-- nibfin:review -->\nReviewed head: ${w.head}\n` +
         `Reviewed Shape: ${shapeVersion(w.issues)}\n\n` +
@@ -83,7 +83,7 @@ describe("runReviewStage review", () => {
     const lines = `Reviewed head: ${w.head}\nReviewed Shape: ${shapeVersion(w.issues)}`;
     addPullComment(w, 7, `<!-- nibfin:review -->\n${lines}\n\nX`);
     assert.equal(await w.review(), 0);
-    assert.deepEqual(w.next(), { stage: "deliver", reason: "review" });
+    assert.deepEqual(w.next(), { stage: "deliver", reason: "review", progressed: false });
     assert.deepEqual(w.agent.runs, []);
     assert.deepEqual(w.git.calls, []);
     assert.deepEqual(w.issues.github.writes(), []);
@@ -104,7 +104,7 @@ describe("runReviewStage review", () => {
     ]);
     const error = await rejection(w.review());
     assert.equal((error as StageError).code, "STAGE_RESULT_INVALID");
-    assert.deepEqual(w.next(), { stage: null, reason: null });
+    assert.deepEqual(w.next(), { stage: null, reason: null, progressed: false });
     assert.deepEqual(w.issues.github.writes(), []);
     assertNoTokenLeak(w);
   });
@@ -119,7 +119,7 @@ describe("runReviewStage review", () => {
       },
     ]);
     assert.equal(await w.review(), 0);
-    assert.deepEqual(w.next(), { stage: null, reason: null });
+    assert.deepEqual(w.next(), { stage: null, reason: null, progressed: true });
     assert.deepEqual(w.issues.github.writes(), []);
     assert.match(w.agent.logs.at(-1)!, /moved on during the review/);
   });
@@ -130,7 +130,7 @@ describe("runReviewStage review", () => {
     ]);
     const error = await rejection(w.review());
     assert.equal((error as StageError).code, "STAGE_BLOCKED");
-    assert.deepEqual(w.next(), { stage: null, reason: null });
+    assert.deepEqual(w.next(), { stage: null, reason: null, progressed: true });
     assert.deepEqual(
       w.issues.marked("review-blocked").map((comment) => comment.body),
       [
@@ -144,7 +144,7 @@ describe("runReviewStage review", () => {
   it("merges a clean pull request at the reviewed head", async () => {
     const w = await world((get) => [verdict(get, { outcome: "clean" })]);
     assert.equal(await w.review(), 0);
-    assert.deepEqual(w.next(), { stage: null, reason: null });
+    assert.deepEqual(w.next(), { stage: null, reason: null, progressed: true });
     assert.deepEqual(
       w.mergeRequests.map((request) => request.body),
       [{ sha: w.head, merge_method: "rebase" }],
@@ -193,5 +193,25 @@ describe("checkoutReviewedHead", () => {
       checkoutReviewedHead(fixtureGit(w.fixture), { base: "main", head: "abc1234" }),
     );
     assert.equal((error as StageError).code, "STAGE_INPUT_INVALID");
+  });
+});
+
+describe("runReviewStage mergeability", () => {
+  it("reads the pull request when it pins the head, before the review", async () => {
+    const w = await world((get) => [
+      () => {
+        const reads = get().issues.github.calls.filter(
+          (call) => call.method === "GET" && call.path === "/repos/acme/app/pulls/7",
+        );
+        assert.equal(reads.length, 1);
+        return agentResult({
+          reviewedHead: get().head,
+          outcome: "problems",
+          problems: ["Fix it."],
+        });
+      },
+    ]);
+    assert.equal(await w.review(), 0);
+    assert.deepEqual(w.next(), { stage: "deliver", reason: "review", progressed: true });
   });
 });

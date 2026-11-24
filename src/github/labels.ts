@@ -4,4 +4,6 @@ export const nibfinLabels = {
   shaped: "shaped",
   delivered: "delivered",
   pause: "pause",
+  /** Set by Nibfin when a person must act; removing it is the go-ahead (#674). */
+  pending: "pending",
 } as const;

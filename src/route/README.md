@@ -1,0 +1,86 @@
+# `src/route`
+
+Decides from GitHub state what runs next for an Issue, and dispatches it to the
+execution repository (#674). GitHub events only wake an Issue; this module is the one
+authority for "what runs next".
+
+## Route
+
+`routeIssue(client, repo, issue, log)` derives `{ stage, reason, assignee } | null`
+from the snapshot, composing the stages' own rules:
+
+1. derived `shape` → `shape`;
+2. a delivery stage with a pending `shape-wrong` report (`readPendingReport`) →
+   `deliver` (its start removes `shaped`);
+3. `review` whose PR has a current review comment (`currentReview(...)?.current ===
+true`; a stale one falls to rule 4) → `deliver review`;
+4. any other delivery stage → `shapeNextAction(stage, issue)` (`done` → `review`,
+   `awaiting-*` → `null`);
+5. closed as delivered (`closedAsDelivered`) → `review` (wake-only redo);
+6. anything else (paused, `pending`, no scope, blocked, no Assignee) → `null`.
+
+`assignee` is the first Assignee's user id; without one the route is `null`.
+`readRoute` also says whether the Issue is open. The actor (for marked comments) is
+the token's account, read once with `GET /user`.
+
+The stages keep writing their next actions; only their `wake` lists are dispatched.
+For every documented non-null next action, the route on the resulting state asks for
+the same run, except two cases that end the same way: a Deliver `review` fix with no
+new head, and a Shape rewrite with unchanged text and head (the route gives
+`deliver review` where the stage wrote `review`). `route.test.ts` holds that table.
+
+`routeEvent(client, repo, target)` maps an event to its Issue: `{ issue }` as is,
+`{ branch }` through `issueOfBranch` (`nibfin/issue-<n>[-cd-<k>]`), and `{ sha }`
+through the first open or merged pull request of `GET /commits/{sha}/pulls` whose
+head is such a branch. Anything else belongs to no Issue.
+
+## Dispatch
+
+Core dispatches `nibfin-shared-runner.yml` of the execution repository
+(`NIBFIN_RUN_REPO`) on its default branch with `return_run_details`, and logs the run
+URL. A dispatch cannot be confirmed by a re-read: no response or a 5xx is
+`GITHUB_WRITE_UNCONFIRMED`, any other failure `GITHUB_WRITE_REJECTED`.
+
+- `dispatchRoute`: inputs `stage: route`, `repo`, `issue`. Never deduplicated, so no
+  wake is lost.
+- `dispatchStage`: inputs `stage`, `repo`, `issue`, `reason` (empty for none) and
+  `assignee`. It first lists the execution repository's runs that have not started
+  (`requested`, `waiting`, `pending`, `queued`; one request each) and skips when one
+  other than this run is titled exactly `Nibfin · <owner>/<repo>#<n> · <stage>`: a
+  waiting run reads GitHub when it starts. `in_progress` runs never cause a skip.
+
+## Commands
+
+`nibfin route --repo <owner>/<repo> (--issue <n> | --sha <sha> | --branch <b>)`
+reads `NIBFIN_GITHUB_TOKEN`, `NIBFIN_RUN_REPO` and optionally `NIBFIN_RUN_ID` from
+the environment.
+
+- `--issue`: dispatches the Issue's route result (deduplicated), or logs why nothing
+  runs.
+- `--sha` / `--branch`: dispatches one route run for the mapped Issue, so every stage
+  decision for an Issue happens inside that Issue's concurrency group. Nothing for an
+  unrelated commit or branch.
+
+After `nibfin run` exits 0 (`continueAfterStage`), Core reads the stage's next-action
+file and dispatches a route for each `wake` target first. Then, only while the Issue
+is open, it dispatches the Issue's route result. When the stage wrote
+`progressed: false` and the route asks for the same stage and reason again, it stops
+with `STAGE_NO_PROGRESS` instead (marked temporary after a review run: GitHub may
+still be computing mergeability). A closed Issue's own route is never dispatched
+after a stage, so closing cannot loop. Without `NIBFIN_NEXT_FILE` nothing is
+dispatched.
+
+## Failures
+
+Any failure of `nibfin run` or `nibfin route` once the Issue is known goes through
+`requestPerson` (`src/stages/pending.ts`): the marked `pending` comment (the code and
+message, the run URL from `NIBFIN_RUN_REPO`/`NIBFIN_RUN_ID`, the temporary note for
+`GITHUB_READ_FAILED`, `GITHUB_WRITE_UNCONFIRMED`, `STAGE_GIT_FAILED`,
+`TOOL_INSTALL_FAILED`, `AGENT_RUN_FAILED` and `STAGE_RESULT_INVALID`, and "remove the
+`pending` label to continue") and the `pending` label, confirmed by the read-back
+labels. `STAGE_WRITER_ACTIVE` is a wait, not a failure: another Writer runs and its
+own post-stage route continues the Issue. The command still exits non-zero with the
+original code. When the `pending` write fails too (GitHub unreachable), the run's
+failure is the only record.
+
+Tests use a fake GitHub API (`fake-runner.test.ts` adds the execution repository).

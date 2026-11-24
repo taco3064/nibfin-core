@@ -56,6 +56,7 @@ import {
   runGitProcess,
 } from "./git.ts";
 import { type NextAction, noNextAction, writeNextAction } from "./next.ts";
+import { type Progress, trackProgress } from "./progress.ts";
 import { BranchPusher } from "./push.ts";
 import { type RefWatcher, watchRefDirectory } from "./ref-watcher.ts";
 import { requireNoOtherWriter } from "./writer-guard.ts";
@@ -112,6 +113,9 @@ class DeliverRun {
   readonly eligible: Eligible;
   readonly fix: string | undefined;
   readonly pusher: BranchPusher;
+  readonly progress: Progress;
+  /** The remote head when the run started; a push changes it. */
+  readonly startHead: string | undefined;
   /** The last re-read that found the Issue no longer eligible. */
   lastCheck: Eligibility | undefined;
 
@@ -123,7 +127,10 @@ class DeliverRun {
     eligible: Eligible;
     fix: string | undefined;
     remoteHead: string | undefined;
+    progress: Progress;
   }) {
+    this.progress = options.progress;
+    this.startHead = options.remoteHead;
     this.job = options.job;
     this.deps = options.deps;
     this.git = options.git;
@@ -147,6 +154,11 @@ class DeliverRun {
 
   get context(): JobContext {
     return this.job.context;
+  }
+
+  /** Whether the run wrote to GitHub or pushed. */
+  get progressed(): boolean {
+    return this.progress.progressed || this.pusher.remoteHead !== this.startHead;
   }
 
   /** Re-reads GitHub: the Issue must still be eligible for this reason and branch. */
@@ -183,7 +195,7 @@ class DeliverRun {
     const { client } = this.job;
     const key = deliverBlockedCommentKey;
     const comment = await upsertMarkedComment(client, this.issue, key, body);
-    await writeNextAction(this.context, noNextAction);
+    await writeNextAction(this.context, noNextAction, this.progressed);
     const message = `${title} returned blocked (${comment.url}):\n${reason}`;
     throw new StageError("STAGE_BLOCKED", message);
   }
@@ -376,11 +388,12 @@ class DeliverRun {
 
 async function startRun(
   context: JobContext,
-  client: ActingClient,
+  progress: Progress,
   deps: DeliverDeps,
   eligible: Eligible,
   coreRepo: string,
 ): Promise<DeliverRun> {
+  const { client } = progress;
   const job = await prepareStageJob(context, client, deps);
   const git = new Git({
     workspace: context.workspace,
@@ -397,7 +410,7 @@ async function startRun(
   const prepared = await prepareBranch(git, {
     base,
     branch: eligible.branch,
-    actor: context.actor,
+    actor: client.actor,
   });
   const fixOptions = { client, repo: context.repo, redact: (t: string) => git.redact(t) };
   const fix =
@@ -410,6 +423,7 @@ async function startRun(
     eligible,
     fix,
     remoteHead: prepared.remoteHead,
+    progress,
   });
 }
 
@@ -422,45 +436,51 @@ async function startRun(
  */
 export async function runDeliverStage(
   context: JobContext,
-  client: ActingClient,
+  actingClient: ActingClient,
   deps: DeliverDeps = defaultDeliverDeps,
 ): Promise<number> {
   const where = `${context.repo.owner}/${context.repo.repo}#${context.issue}`;
+  const progress = trackProgress(actingClient);
+  const { client } = progress;
   const scope = { client, context, log: deps.log };
   const eligibility = await readEligibility(client, context);
   let redo: NextAction | undefined;
   try {
     redo = await finishShapeReport(scope, eligibility);
   } catch (error) {
-    await writeNextAction(context, noNextAction);
+    await writeNextAction(context, noNextAction, progress.progressed);
     throw error;
   }
   if (redo !== undefined) {
-    await writeNextAction(context, redo);
+    await writeNextAction(context, redo, progress.progressed);
     return 0;
   }
   if (!eligibility.eligible) {
     deps.log(`${where} is not at the deliver stage: ${eligibility.description}`);
-    await writeNextAction(context, await ineligibleNextAction(scope, eligibility, true));
+    const next = await ineligibleNextAction(scope, eligibility, true);
+    await writeNextAction(context, next, progress.progressed);
     return 0;
   }
   try {
     await requireNoOtherWriter(client, context);
   } catch (error) {
-    await writeNextAction(context, noNextAction);
+    await writeNextAction(context, noNextAction, progress.progressed);
     throw error;
   }
   const coreRepo = await mkdtemp(join(deps.coreRepoParent, "nibfin-push-"));
+  let run: DeliverRun | undefined;
   try {
-    const run = await startRun(context, client, deps, eligibility, coreRepo);
+    run = await startRun(context, progress, deps, eligibility, coreRepo);
     const reported = await run.rounds();
-    await writeNextAction(context, reported ?? (await run.publish()));
+    const next = reported ?? (await run.publish());
+    await writeNextAction(context, next, run.progressed);
   } catch (error) {
     if (!(error instanceof Ineligible)) {
       throw error;
     }
     const next = await ineligibleNextAction(scope, error.eligibility, false);
-    await writeNextAction(context, next);
+    // Only a started run re-checks eligibility, so `run` is set here.
+    await writeNextAction(context, next, run!.progressed);
   } finally {
     await rm(coreRepo, { recursive: true, force: true });
   }

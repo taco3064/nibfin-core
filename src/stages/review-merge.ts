@@ -158,6 +158,7 @@ export async function mergeReviewed(
     stage.pullRequest.number === pull.number &&
     stage.pullRequest.headSha === head;
   if (!samePull) {
+    scope.progress.mark();
     deps.log(`Not merging: the Issue is now ${describeStage(stage)}`);
     return noNextAction;
   }
@@ -175,6 +176,7 @@ export async function mergeReviewed(
     );
   const detail = await readPullRequest(client, context.repo, pull.number);
   if (detail.headSha !== head || detail.state !== "open") {
+    scope.progress.mark();
     deps.log(`Not merging: ${pull.url} is no longer open at ${head}`);
     return noNextAction;
   }
@@ -191,6 +193,7 @@ export async function mergeReviewed(
   }
   const result = await merge(scope, pull, head);
   if (result.outcome === "head-changed") {
+    scope.progress.mark();
     deps.log(`Not merged: the head of ${pull.url} is no longer ${head}`);
     return noNextAction;
   }
@@ -211,6 +214,7 @@ async function notMergeable(
     return blockReview(scope, mergeTitle, workflowsReason(message));
   }
   if (/head branch was modified/i.test(message)) {
+    scope.progress.mark();
     scope.deps.log(`Not merged: the head of ${pull.url} moved (${message})`);
     return noNextAction;
   }

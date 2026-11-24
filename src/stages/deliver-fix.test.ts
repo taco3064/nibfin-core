@@ -111,7 +111,7 @@ describe("runDeliverStage for ci-failure", () => {
     }
     assert.match(writerRun.prompt, /Fix what the fix reason below points at/);
     assert.match(writerRun.prompt, /pushes only after a fresh Accept passes/);
-    assert.deepEqual(next(world), { stage: null, reason: null });
+    assert.deepEqual(next(world), { stage: null, reason: null, progressed: true });
   });
 
   it("pushes nothing when the Writer is blocked on an open PR", async () => {
@@ -164,7 +164,7 @@ describe("runDeliverStage for review", () => {
     );
     assert.match(writerRun.prompt, /Rename the widget\./);
     assert.equal(pushes(world).length, 1);
-    assert.deepEqual(next(world), { stage: "review", reason: null });
+    assert.deepEqual(next(world), { stage: "review", reason: null, progressed: true });
   });
 
   for (const [name, comments] of [

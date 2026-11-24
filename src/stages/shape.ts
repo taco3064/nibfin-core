@@ -17,6 +17,7 @@ import {
 import type { JobContext } from "./context.ts";
 import { StageError } from "./errors.ts";
 import { type NextAction, noNextAction, writeNextAction } from "./next.ts";
+import { trackProgress } from "./progress.ts";
 import type { PromptSection, StageRole } from "./prompt.ts";
 import { notAtShape, publishShape, shapeBlockedCommentKey } from "./shape-publish.ts";
 import {
@@ -175,14 +176,15 @@ export async function runShapeStage(
   client: ActingClient,
   deps: StageDeps = defaultStageDeps,
 ): Promise<number> {
+  const progress = trackProgress(client);
   let next: NextAction;
   try {
-    next = await shapeStage(context, client, deps);
+    next = await shapeStage(context, progress.client, deps);
   } catch (error) {
-    await writeNextAction(context, noNextAction);
+    await writeNextAction(context, noNextAction, progress.progressed);
     throw error;
   }
-  await writeNextAction(context, next);
+  await writeNextAction(context, next, progress.progressed);
   return 0;
 }
 
