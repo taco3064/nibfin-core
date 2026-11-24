@@ -3,8 +3,14 @@ import { describe, it } from "node:test";
 import { failure, fakeToken, paged } from "../github/fake-github.test.ts";
 import { pull } from "../github/fixtures.test.ts";
 import { GitHubError } from "../github/index.ts";
+import { fakeBranches } from "../route/fake-branches.test.ts";
 import { fakeRunner } from "../route/fake-runner.test.ts";
-import { fakeIssue, type FakeIssue, fakeIssues } from "../stages/fake-job.test.ts";
+import {
+  fakeIssue,
+  type FakeIssue,
+  fakeIssues,
+  seedComment,
+} from "../stages/fake-job.test.ts";
 import { capture } from "./fake-io.test.ts";
 import { readRouteInput } from "./route.ts";
 import type { RunDeps } from "./run.ts";
@@ -66,6 +72,58 @@ describe("nibfin route --issue", () => {
     assert.match(result.stderr, /^nibfin: GITHUB_READ_FAILED: list requested runs/);
     assert.match(result.stdout, /Added pending to acme\/app#1/);
     assert.ok(t.issues.main.labels.includes("pending"));
+  });
+});
+
+describe("nibfin route --issue deletes a closed Issue's branches", () => {
+  const branches = ["nibfin/issue-1", "nibfin/issue-1-cd-1"];
+
+  function closedDelivered() {
+    const t = routeDeps({ state: "closed", labels: ["scope", "shaped", "delivered"] });
+    seedComment(t.issues, t.issues.main, "<!-- nibfin:delivered -->\nDelivered.");
+    return { ...t, branches: fakeBranches(t.issues.github, branches) };
+  }
+
+  it("deletes them, then still dispatches the closed delivered Issue", async () => {
+    const t = closedDelivered();
+    const result = await capture([...route, "--issue", "1"], t.deps);
+    assert.equal(result.code, 0);
+    assert.deepEqual(t.branches.deleted, branches);
+    assert.deepEqual(t.runner.dispatched, [
+      { stage: "review", repo: "acme/app", issue: "1", reason: "", assignee: "5" },
+    ]);
+    const writes = t.issues.github.writes().map((call) => call.method);
+    assert.deepEqual(writes, ["DELETE", "DELETE", "POST"]);
+    assert.match(result.stdout, /^acme\/app#1: deleted branch nibfin\/issue-1\n/);
+  });
+
+  it("deletes them for a closed Issue with nothing to run", async () => {
+    const t = routeDeps({ state: "closed", labels: ["scope", "pause", "pending"] });
+    const deleted = fakeBranches(t.issues.github, branches);
+    const result = await capture([...route, "--issue", "1"], t.deps);
+    assert.equal(result.code, 0);
+    assert.deepEqual(deleted.deleted, branches);
+    assert.match(result.stdout, /nothing to run \(ineligible \(closed\)\)\n$/);
+  });
+
+  it("adds pending and dispatches nothing when a delete fails", async () => {
+    const t = closedDelivered();
+    const path = "/repos/acme/app/git/refs/heads/nibfin/issue-1-cd-1";
+    t.issues.github.routes.set(`DELETE ${path}`, failure(422));
+    const result = await capture([...route, "--issue", "1"], t.deps);
+    assert.equal(result.code, 1);
+    assert.match(result.stderr, /GITHUB_WRITE_REJECTED: delete branch acme\/app:/);
+    assert.ok(t.issues.main.labels.includes("pending"));
+    assert.deepEqual(t.runner.dispatched, []);
+  });
+
+  it("deletes nothing for an open Issue", async () => {
+    const t = routeDeps({ labels: ["scope"] });
+    const kept = fakeBranches(t.issues.github, branches);
+    const result = await capture([...route, "--issue", "1"], t.deps);
+    assert.equal(result.code, 0);
+    assert.deepEqual(kept.deleted, []);
+    assert.equal(t.runner.dispatched.length, 1);
   });
 });
 

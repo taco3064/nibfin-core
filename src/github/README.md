@@ -118,6 +118,11 @@ checked against its summary the same way (#673).
   gives GitHub's message. An unknown outcome re-reads the pull request: merged at
   `sha` confirms the merge, anything else is `GITHUB_WRITE_UNCONFIRMED`, never a
   retry.
+- `deleteBranch(client, repo, name)` (#700): `DELETE …/git/refs/heads/<name>`. GitHub
+  documents no answer for a missing ref, so an unknown outcome or any 4xx re-reads
+  `GET …/git/ref/heads/<name>` (`branchExists`): a 404 there is success, otherwise
+  `GITHUB_WRITE_UNCONFIRMED` or `GITHUB_WRITE_REJECTED`. Deleting a branch closes its
+  open pull request.
 
 After an unknown outcome each write re-reads GitHub: a confirmed effect is reused,
 otherwise it fails with `GITHUB_WRITE_UNCONFIRMED`.

@@ -56,7 +56,12 @@ reads `NIBFIN_GITHUB_TOKEN`, `NIBFIN_RUN_REPO` and optionally `NIBFIN_RUN_ID` fr
 the environment.
 
 - `--issue`: dispatches the Issue's route result (deduplicated), or logs why nothing
-  runs.
+  runs. When the Issue is closed (any reason or label, since a closed Issue derives
+  `closed` first), it first deletes the Issue's branches whose ref exists
+  (`deleteIssueBranches`: `nibfin/issue-<n>` and every probed
+  `nibfin/issue-<n>-cd-<k>`, #700). A close wakes the route through the `closed`
+  Issue event; a delete failure sets `pending` and nothing is dispatched in that run.
+  A merged pull request keeps its branch while the Issue is open.
 - `--sha` / `--branch`: dispatches one route run for the mapped Issue, so every stage
   decision for an Issue happens inside that Issue's concurrency group. Nothing for an
   unrelated commit or branch.

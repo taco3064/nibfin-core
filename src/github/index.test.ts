@@ -13,6 +13,7 @@ test("the github module exports its public API", () => {
     "connectClient",
     "createClient",
     "defaultSnapshotReaders",
+    "deleteBranch",
     "deliveryBranch",
     "deliveryOutcome",
     "deriveStage",

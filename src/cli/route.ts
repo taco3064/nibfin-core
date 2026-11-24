@@ -1,6 +1,7 @@
 import type { ActingClient, Repo } from "../github/index.ts";
 import {
   continueAfterStage,
+  deleteIssueBranches,
   dispatchRoute,
   dispatchStage,
   readRoute,
@@ -95,10 +96,11 @@ export function readRouteInput(
 const lineLog = (io: CliIo) => (line: string) => void io.stdout.write(`${line}\n`);
 
 /**
- * `nibfin route`: for `--issue`, derives the Issue's route and dispatches its stage
- * (deduplicated); for `--sha` or `--branch`, maps the event to its Issue and
- * dispatches that Issue's route run, so every stage decision happens inside the
- * Issue's own concurrency group. A failure once the Issue is known sets `pending`.
+ * `nibfin route`: for `--issue`, derives the Issue's route, deletes a closed Issue's
+ * branches (#700), then dispatches its stage (deduplicated); for `--sha` or
+ * `--branch`, maps the event to its Issue and dispatches that Issue's route run, so
+ * every stage decision happens inside the Issue's own concurrency group. A failure
+ * once the Issue is known sets `pending`.
  */
 export async function runRoute(
   args: readonly string[],
@@ -126,6 +128,9 @@ export async function runRoute(
       log(`${name}: ${JSON.stringify(target)} belongs to no Issue; nothing to route`);
     } else if ("issue" in target) {
       const state = await readRoute(client, repo, issue, log);
+      if (!state.open) {
+        await deleteIssueBranches(client, repo, issue, log);
+      }
       if (state.route === null) {
         log(`${name}#${issue}: nothing to run (${describeStage(state.stage)})`);
       } else {
