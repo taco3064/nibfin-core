@@ -308,13 +308,19 @@ describe("readIssueRecord with an incomplete answer", () => {
       issueNode(repository).comments = {
         pageInfo: { hasNextPage: false, endCursor: null },
         nodes: [
-          { databaseId: 3, body: "b", url: "u", author: {}, userContentEdits: null },
+          {
+            fullDatabaseId: "7124643976",
+            body: "b",
+            url: "u",
+            author: {},
+            userContentEdits: null,
+          },
         ],
       };
     });
     const record = await readIssueRecord(answering(data).client, target);
     assert.deepEqual(record.comments, [
-      { id: 3, authorId: null, body: "b", url: "u", versions: 1 },
+      { id: 7124643976, authorId: null, body: "b", url: "u", versions: 1 },
     ]);
     assert.deepEqual(record.branches.delivery.pullRequests, []);
     assert.equal(record.branches.nextFixBranch, fix(1));
@@ -382,6 +388,42 @@ describe("readIssueRecord with an incomplete answer", () => {
         };
       },
       /^GraphQL returned a missing comment$/,
+    ],
+    [
+      "a comment without an id",
+      (repository) => {
+        issueNode(repository).comments = {
+          pageInfo: { hasNextPage: false, endCursor: null },
+          nodes: [
+            {
+              fullDatabaseId: null,
+              body: "b",
+              url: "u",
+              author: null,
+              userContentEdits: null,
+            },
+          ],
+        };
+      },
+      /^GraphQL returned comment id null$/,
+    ],
+    [
+      "a comment id beyond a safe integer",
+      (repository) => {
+        issueNode(repository).comments = {
+          pageInfo: { hasNextPage: false, endCursor: null },
+          nodes: [
+            {
+              fullDatabaseId: "90071992547409930",
+              body: "b",
+              url: "u",
+              author: null,
+              userContentEdits: null,
+            },
+          ],
+        };
+      },
+      /^GraphQL returned comment id 90071992547409930$/,
     ],
     [
       "no pull requests of a fix branch",
