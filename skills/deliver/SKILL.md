@@ -94,9 +94,9 @@ required deliverables and maintained tests in the commits.
   conclusions, instructions or answers meant for the Acceptor or the reviewer), tracked
   instruction files and CLI memory included. Maintained, run-independent content (product
   text that addresses roles, such as skills, prompts and result formats, and the
-  repository's agent configuration as maintained), the CLI's own session data and the
-  settings Core writes are not notes. The later roles judge the branch itself; they need
-  no hand-off from you.
+  repository's agent configuration as maintained), the CLI's own session data and login
+  refreshes, and the settings Core writes are not notes. The later roles judge the branch
+  itself; they need no hand-off from you.
 - For every security-related change, compare the original requirement, the protected
   assets and the intended permissions with the planned change and its actual effects. If
   the route could weaken the protection the user intended, stop and report the exact
