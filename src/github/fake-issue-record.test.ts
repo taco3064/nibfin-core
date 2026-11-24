@@ -88,7 +88,7 @@ function dependencyNode(issue: RestIssue) {
 
 function commentNode(comment: RestComment) {
   return {
-    databaseId: comment.id,
+    fullDatabaseId: String(comment.id),
     body: comment.body ?? "",
     url: comment.html_url,
     author: comment.user === null ? null : { databaseId: comment.user.id },

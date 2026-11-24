@@ -69,8 +69,9 @@ the environment.
 After `nibfin run` exits 0 (`continueAfterStage`), Core reads the stage's next-action
 file and dispatches a route for each `wake` target first. Its reads go to GitHub
 fresh (`freshReads`), never to answers the stage read earlier in the Job (#689).
-Then, only while the Issue is open, it dispatches the Issue's route result. When the stage wrote
-`progressed: false` and the route asks for the same stage and reason again, it stops
+Then, only while the Issue is open, it dispatches the Issue's route result. When the
+stage wrote `progressed: false` and the route asks for the same stage and reason again,
+it stops
 with `STAGE_NO_PROGRESS` instead (marked temporary after a review run: GitHub may
 still be computing mergeability). A closed Issue's own route is never dispatched
 after a stage, so closing cannot loop. Without `NIBFIN_NEXT_FILE` nothing is

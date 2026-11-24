@@ -77,7 +77,7 @@ const pullsFragment = `fragment Pulls on PullRequestConnection {
 const commentsFragment = `fragment Comments on IssueCommentConnection {
   pageInfo { hasNextPage endCursor }
   nodes {
-    databaseId body url
+    fullDatabaseId body url
     author { ... on User { databaseId } ... on Bot { databaseId } }
     userContentEdits(first: 1) { totalCount }
   }
@@ -183,7 +183,8 @@ interface Pulls {
 }
 
 interface CommentNode {
-  databaseId: number;
+  /** A GraphQL `BigInt` (a string): comment ids exceed the 32-bit `databaseId`. */
+  fullDatabaseId: string | null;
   body: string;
   url: string;
   author: { databaseId?: number } | null;
@@ -298,9 +299,13 @@ function pullRequests(operation: string, branch: string, pulls: Pulls) {
     .toSorted((a, b) => b.number - a.number);
 }
 
-function comment(node: CommentNode): RecordComment {
+function comment(operation: string, node: CommentNode): RecordComment {
+  const id = Number(node.fullDatabaseId);
+  if (node.fullDatabaseId === null || !Number.isSafeInteger(id) || id <= 0) {
+    throw incomplete(operation, `GraphQL returned comment id ${node.fullDatabaseId}`);
+  }
   return {
-    id: node.databaseId,
+    id,
     authorId: node.author?.databaseId ?? null,
     body: node.body,
     url: node.url,
@@ -334,7 +339,7 @@ async function allComments(
   if (nodes.includes(null)) {
     throw incomplete(operation, "GraphQL returned a missing comment");
   }
-  return (nodes as CommentNode[]).map(comment);
+  return (nodes as CommentNode[]).map((node) => comment(operation, node));
 }
 
 function variablesOf(issue: IssueRef) {
