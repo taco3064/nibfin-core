@@ -202,3 +202,26 @@ describe("runDeliverStage on a new branch with protected paths", () => {
     assert.equal(world.pulls.length, 0);
   });
 });
+
+describe("runDeliverStage with a protected edit hidden from git status", () => {
+  for (const flag of ["--skip-worktree", "--assume-unchanged"]) {
+    it(`stops before the Acceptor on a ${flag} edit under .rulesync/`, async () => {
+      const world = await deliveryWorld({
+        config,
+        steps: [
+          writer((cwd) => {
+            put(cwd, "a.txt");
+            git(cwd, "update-index", flag, ".rulesync/rules.md");
+            writeFileSync(join(cwd, ".rulesync", "rules.md"), "evil\n");
+          }),
+          pass,
+        ],
+      });
+      advanceBase(world, (other) => put(other, ".rulesync/rules.md", "rules\n"));
+      await assertStopped(world, /Changed on the branch: .*\n- \.rulesync\/rules\.md$/);
+      const { workspace } = world.fixture;
+      assert.equal(git(workspace, "status", "--porcelain", "--ignored"), "");
+      assert.equal(world.pulls.length, 0);
+    });
+  }
+});

@@ -297,9 +297,16 @@ protection does not apply, because the token has the `workflow` scope.
   A merge-base diff tells which paths the branch changed itself.
 - **Where.** The check runs before each push, and before each Acceptor after the
   workspace branch is fetched into Core's repository (also on a branch with an open
-  PR, which is not pushed before Accept). Before an Acceptor, an ignored workspace
-  file at a protected path (`git status --ignored`) also stops the run. No diff
-  shows it, but the Acceptor would read it.
+  PR, which is not pushed before Accept). Before an Acceptor, the working tree
+  must also match that head on every protected path (`workingTreeChanges`). Core
+  reads the head's protected entries from its own repository (`git ls-tree`) and
+  compares them with the files and links on disk by blob hash. Each entry must be
+  reached through real directories. No other file may sit on or below a protected
+  path, or in place of a parent of one. The workspace's index and Git config take
+  no part, so an ignored file, or an edit hidden by `--skip-worktree`,
+  `--assume-unchanged` or an fsmonitor hook, also stops the run. No diff or status
+  shows these, but rulesync and the Acceptor would read them. The executable bit
+  is not compared.
 - **Failure.** `STAGE_PROTECTED_PATH` lists the paths in two groups. Paths changed
   on the branch belong to a separately authorized maintenance route and must be
   removed from the branch. Paths only behind the base mean the branch must be

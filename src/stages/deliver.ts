@@ -60,11 +60,11 @@ import { type NextAction, noNextAction, writeNextAction } from "./next.ts";
 import { type Progress, trackProgress } from "./progress.ts";
 import {
   isUnprotected,
-  matchProtected,
   protectedChanges,
   protectedPathError,
   protectedPaths,
   type ProtectedSet,
+  workingTreeChanges,
 } from "./protected-paths.ts";
 import { BranchPusher } from "./push.ts";
 import { type RefWatcher, watchRefDirectory } from "./ref-watcher.ts";
@@ -328,25 +328,21 @@ class DeliverRun {
 
   /**
    * No Acceptor runs on a head that differs from `origin/<base>` on a protected
-   * path, or on a workspace with an ignored file at a protected path (which no diff
-   * shows but the Acceptor would still read). The head is fetched into Core's
-   * repository and compared there, as before a push.
+   * path, or on a working tree whose protected paths differ from that head (an
+   * ignored file, or an edit hidden by index flags, that no diff or status shows
+   * but rulesync and the Acceptor would still read). The head is fetched into Core's
+   * repository and compared there, as before a push; the working tree is read from
+   * the file system without trusting the workspace's index or Git config.
    */
   async requireUnprotected(): Promise<void> {
     const head = await fetchWorkspaceBranch(this.git, this.branch);
     const changes = await protectedChanges(this.git, this.base, head, this.protectedSet);
-    const status = await this.git.run([
-      "status",
-      "--porcelain",
-      "--ignored",
-      "--untracked-files=all",
-      "-z",
-    ]);
-    const ignored = status
-      .split("\0")
-      .filter((entry) => entry.startsWith("!! "))
-      .map((entry) => entry.slice(3).replace(/\/+$/, ""));
-    const extra = matchProtected(ignored, this.protectedSet);
+    const extra = await workingTreeChanges(
+      this.git,
+      this.git.workspace,
+      head,
+      this.protectedSet,
+    );
     changes.changedOnBranch = [...new Set([...changes.changedOnBranch, ...extra])].sort();
     if (!isUnprotected(changes)) {
       throw protectedPathError(this.branch, this.base, changes);
