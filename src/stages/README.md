@@ -184,7 +184,9 @@ written, so they follow the skill's Disclosure rules.
    `Nibfin · <owner>/<repo>#<n> · deliver` (run name or workflow name) is
    `STAGE_WRITER_ACTIVE`: Pending, nothing written. GitHub offers no query for a
    concurrency holder.
-3. **Branch.** The base is the workspace's checked-out branch. Core fetches it and the
+3. **Branch.** The base is the workspace's checked-out branch. Before anything else
+   on it, Core builds the protected set from that base checkout (see
+   [Protected paths](#protected-paths)). Core fetches the base and the
    Issue branch (unshallowing a shallow checkout), checks out the pushed branch or
    creates it from `origin/<base>`, and sets the local commit identity to the actor
    (`<id>+<login>@users.noreply.github.com`).
@@ -201,7 +203,8 @@ written, so they follow the skill's Disclosure rules.
 5. **Closing keywords.** A commit ahead of the base whose message would close this
    Issue (`Closes #n`, `fixes owner/repo#n`, the Issue URL, …) goes back to the
    Writer as a defect; the PR body is `Part of #<n>`.
-6. **Accept** (read-only, `accept` skill, a fresh run each time) with the Issue, the
+6. **Accept** (read-only, `accept` skill, a fresh run each time) runs only after the
+   [protected-path check](#protected-paths) passes. It gets the Issue, the
    Shape, the local diff against `origin/<base>` and the fix context, never the
    Writer's output. `defects` go to the Writer, then a fresh Acceptor; there is no
    round limit. `blocked` writes `deliver-blocked` and stops.
@@ -258,6 +261,52 @@ refs/heads/<dir>`) triggers a push whenever `refs/heads/<branch>` changed. The
   the Writer returns, also when it is blocked or its run failed.
 - **Branch with an open PR** (`ci-failure`, `review`): Core pushes only after Accept
   passes.
+- **Protected paths.** Before each push, after the "nothing ahead" check, Core checks
+  the head for protected paths (below). A head that fails is not pushed and fails
+  like a rejected push: no later push happens in the run, and `flush` reports it.
+
+### Protected paths
+
+Proposal §3 forbids the agent to change its own execution policy. Core enforces it
+for every head it pushes or hands to an Acceptor. GitHub's own workflow-file
+protection does not apply, because the token has the `workflow` scope.
+
+- **The set.** `protectedPaths` builds it once per run from the base checkout,
+  before the Issue branch is checked out. Its config is the base checkout's
+  `.nibfin.json`, the one the run's agents read their role skills from. It
+  contains:
+  - the directories `.github/workflows/`, `.nibfin/` and `.rulesync/`;
+  - the files `.nibfin.json`, `CODEOWNERS`, `.github/CODEOWNERS` and
+    `docs/CODEOWNERS` (where GitHub reads CODEOWNERS);
+  - every `skills.<role>.path` in that config, wherever it lies. Core's own
+    `skills/` directory is product source and not protected.
+- **Symlinks.** Each named path is resolved one part at a time in the base
+  checkout, as the OS does. Every symlink on the way is protected, and so is the
+  real path it resolves to inside the workspace, with the kind of the named entry
+  (`.rulesync → config/rules` protects `config/rules/` as a directory). A link
+  that leaves the workspace is protected, but its target is not. A missing part
+  ends the walk.
+- **Matching.** A path matches an entry when it is the entry, lies below a
+  directory entry, or is a parent of the entry. Git lists a symlink or a file that
+  replaces a directory under its own path, so adding, removing or retargeting a
+  parent (`docs → evil`) of a protected path matches. Matching is case-sensitive.
+- **Comparison.** In Core's repository, Core compares the head with the current
+  tree of `refs/remotes/origin/<base>` (`git diff --name-only --no-renames`,
+  two-dot). Any protected difference in content, mode, type or existence stops
+  the run. That includes one the head only carries because it is behind the base.
+  A merge-base diff tells which paths the branch changed itself.
+- **Where.** The check runs before each push, and before each Acceptor after the
+  workspace branch is fetched into Core's repository (also on a branch with an open
+  PR, which is not pushed before Accept). Before an Acceptor, an ignored workspace
+  file at a protected path (`git status --ignored`) also stops the run. No diff
+  shows it, but the Acceptor would read it.
+- **Failure.** `STAGE_PROTECTED_PATH` lists the paths in two groups. Paths changed
+  on the branch belong to a separately authorized maintenance route and must be
+  removed from the branch. Paths only behind the base mean the branch must be
+  updated from the base (rebased onto `origin/<base>`). The error takes the
+  ordinary failure path: `pending` and the marked `pending` comment with the code
+  and message. It is not a temporary code. Pushes of earlier clean heads stand. A
+  branch pushed before this check existed is refused the same way on its next run.
 
 ### Next action
 
