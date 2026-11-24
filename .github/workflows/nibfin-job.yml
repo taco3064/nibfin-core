@@ -130,6 +130,7 @@ jobs:
           MEMORY_HIGH: ${{ vars.NIBFIN_MEMORY_HIGH || '2560m' }}
           PIDS_LIMIT: ${{ vars.NIBFIN_PIDS_LIMIT || '4096' }}
           CPUS: ${{ vars.NIBFIN_CPUS || '4' }}
+          CONTAINER_LIMITS: ${{ vars.NIBFIN_CONTAINER_LIMITS }}
           PROVIDER: ${{ vars.NIBFIN_PROVIDER }}
           MODEL: ${{ vars.NIBFIN_MODEL }}
           IMAGE_REF: ${{ steps.image.outputs.ref }}
@@ -146,9 +147,14 @@ jobs:
           if [ -n "$REASON" ]; then
             options+=(--reason "$REASON")
           fi
-          podman run --rm --userns=keep-id:uid=1000,gid=1000 \
-            --pids-limit "$PIDS_LIMIT" --memory "$MEMORY" --cpus "$CPUS" \
-            --cgroup-conf "memory.high=$MEMORY_HIGH" \
+          # NIBFIN_CONTAINER_LIMITS=off: the host cannot apply per-container limits
+          # (e.g. a WSL-based podman machine); the memory check still runs.
+          limits=()
+          if [ "$CONTAINER_LIMITS" != "off" ]; then
+            limits=(--pids-limit "$PIDS_LIMIT" --memory "$MEMORY" --cpus "$CPUS"
+              --cgroup-conf "memory.high=$MEMORY_HIGH")
+          fi
+          podman run --rm --userns=keep-id:uid=1000,gid=1000 "${limits[@]}" \
             --volume "$GITHUB_WORKSPACE/nibfin-workspace:/workspace:Z" \
             --volume "nibfin-home-$PROVIDER:/nibfin/home" \
             --volume nibfin-tools:/nibfin/tools \
