@@ -71,12 +71,32 @@ required deliverables and maintained tests in the commits.
 
 ## Protected paths and credentials
 
-- Never modify your own execution policy, Secrets, protected workflows, `.nibfin/`,
-  CODEOWNERS or other protected paths. If the Shape needs a change to one of them, stop
-  and report the path and why; those changes use a separately authorized maintenance
-  route.
+- Never modify your own execution policy or Secrets, nor the protected paths:
+  `.github/workflows/`, `.nibfin.json`, `.nibfin/`, `.rulesync/`, the CODEOWNERS files
+  GitHub reads, and every role skill file the base branch's `.nibfin.json` names (wherever
+  it lies). The Deliver stage stops a branch that changes one before the push. Nibfin's
+  own built-in `skills/` in its Core repository are product source, not protected paths.
+  If the Shape needs a change to one of them, stop and report the path and why; those
+  changes use a separately authorized maintenance route.
 - Credentials never appear in command arguments, logs, commits, Issue or PR text, or agent
   content. Do not request, read out or expose management credentials.
+- Anything you build that uses the orchestrator's own credentials (such as Core's GitHub
+  credential) keeps them away from agents: they never reach an agent's environment,
+  arguments or prompt, and the authenticated operations that use them never read state an
+  agent is given to write (the workspace including ignored files and its `.git`
+  configuration, the agent's config home, environment the agent sets). State the
+  orchestrating process holds, which an agent could reach only by deliberately attacking
+  it as the same user, follows the product authority; where it accepts that risk, do not
+  build extra protection around it. The agent CLI's own model login in its config home is
+  part of the accepted design.
+- Leave no note for a later role anywhere: not in your commits, ignored files, the config
+  home or the environment. A note is a hand-off about this Issue or run (status,
+  conclusions, instructions or answers meant for the Acceptor or the reviewer), tracked
+  instruction files and CLI memory included. Maintained, run-independent content (product
+  text that addresses roles, such as skills, prompts and result formats, and the
+  repository's agent configuration as maintained), the CLI's own session data and the
+  settings Core writes are not notes. The later roles judge the branch itself; they need
+  no hand-off from you.
 - For every security-related change, compare the original requirement, the protected
   assets and the intended permissions with the planned change and its actual effects. If
   the route could weaken the protection the user intended, stop and report the exact
