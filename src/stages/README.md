@@ -71,6 +71,10 @@ looks temporary (network, GitHub or a single agent run); removing the label retr
 it" for `GITHUB_READ_FAILED`, `GITHUB_WRITE_UNCONFIRMED`, `STAGE_GIT_FAILED`,
 `TOOL_INSTALL_FAILED`, `AGENT_RUN_FAILED` and `STAGE_RESULT_INVALID`, and "Remove the
 `pending` label to continue") and adds `pending`, confirmed by the read-back labels.
+When GitHub rejects that comment (`GITHUB_WRITE_REJECTED`, e.g. a message listing
+thousands of paths), it writes it once more as the same body with only the fenced
+message block replaced by "The full message is in the run log.", then adds `pending`
+as usual; no size limit applies. The full message always goes to the Job log.
 `nibfin run` and `nibfin route` call it on every failure once the Issue is known,
 whatever the code, except `STAGE_WRITER_ACTIVE` (a wait: another Writer runs and its
 own post-stage route continues the Issue). The no-progress stop (`STAGE_NO_PROGRESS`,

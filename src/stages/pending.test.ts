@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { AgentError } from "../agent/index.ts";
 import { ConfigError } from "../config/index.ts";
-import { failure, rejection } from "../github/fake-github.test.ts";
+import { failure, rejection, sequence } from "../github/fake-github.test.ts";
 import { GitHubError } from "../github/index.ts";
 import { NoProgressError, StageError, type StageErrorCode } from "./errors.ts";
 import { fakeIssue, fakeIssues } from "./fake-job.test.ts";
@@ -118,7 +118,29 @@ describe("requestPerson", () => {
     assert.equal(error.code, "GITHUB_WRITE_UNCONFIRMED");
   });
 
-  it("fails when GitHub rejects the comment", async () => {
+  it("writes a rejected comment again without the message", async () => {
+    const issues = fakeIssues(fakeIssue());
+    const route = "POST /repos/acme/app/issues/1/comments";
+    issues.github.routes.set(
+      route,
+      sequence(failure(422), issues.github.routes.get(route)!),
+    );
+    const error = new StageError("STAGE_GIT_FAILED", "a very long message");
+    assert.equal(await requestPerson(issues.github.client, issue, error, url), true);
+    const fence = "```text\na very long message\n```";
+    const full = pendingBody(error, url);
+    assert.ok(full.includes(fence));
+    const [comment] = issues.marked(pendingCommentKey);
+    const short = full.replace(fence, "The full message is in the run log.");
+    assert.ok(comment.body.endsWith(`\n${short}`));
+    assert.doesNotMatch(comment.body, /a very long message|```/);
+    assert.match(comment.body, temporaryNote);
+    assert.ok(issues.main.labels.includes("pending"));
+    const posts = issues.github.writes().filter((call) => route.endsWith(call.path));
+    assert.equal(posts.length, 2);
+  });
+
+  it("fails when GitHub rejects the comment without the message too", async () => {
     const issues = fakeIssues(fakeIssue());
     issues.github.routes.set("POST /repos/acme/app/issues/1/comments", failure(403));
     const error = await rejection(
@@ -126,6 +148,19 @@ describe("requestPerson", () => {
     );
     assert.ok(error instanceof GitHubError);
     assert.equal(error.code, "GITHUB_WRITE_REJECTED");
+    assert.equal(issues.github.writes().length, 2);
+    assert.ok(!issues.main.labels.includes("pending"));
+  });
+
+  it("does not write again after any other comment failure", async () => {
+    const issues = fakeIssues(fakeIssue());
+    issues.github.routes.set("POST /repos/acme/app/issues/1/comments", failure(500));
+    const error = await rejection(
+      requestPerson(issues.github.client, issue, new Error("x"), url),
+    );
+    assert.ok(error instanceof GitHubError);
+    assert.notEqual(error.code, "GITHUB_WRITE_REJECTED");
+    assert.ok(!issues.main.labels.includes("pending"));
   });
 });
 
