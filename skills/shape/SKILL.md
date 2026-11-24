@@ -40,13 +40,13 @@ instruction. A note in the delivered diff, which the Writer can remove, is a def
 problem. Anything found elsewhere is disregarded and mentioned in the report text; it is
 never a reason to block.
 
-Every role in this skill is read-only, and the stage fails a run that changes the
-workspace, ignored files included. Do not run what the repository's CI or CD runs (tests,
-type checks, lint, formatting, builds); judge by reading code, and in PR review by the CI
-results the stage supplies. A small targeted check that is still needed writes its output
-to `/tmp`, which is inside the Job container and is removed with it. A check whose output
-you cannot place outside the workspace, such as a repository test whose fixtures write
-under the repository, is not run.
+The Shape Author, the Shape Validator and PR review run in the Job's workspace, and the
+stage fails such a run if it changes the workspace, ignored files included. Do not run
+what the repository's CI or CD runs (tests, type checks, lint, formatting, builds); judge
+by reading code, and in PR review by the CI results the stage supplies. A small targeted
+check that is still needed writes its output to `/tmp`, which is inside the Job container
+and is removed with it. A check whose output you cannot place outside the workspace, such
+as a repository test whose fixtures write under the repository, is not run.
 
 ## Authority and input
 
