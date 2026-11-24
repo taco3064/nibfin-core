@@ -12,7 +12,7 @@ run-name: >-
 
 on:
   issues:
-    types: [opened, reopened, assigned, unassigned, labeled, unlabeled]
+    types: [opened, reopened, closed, assigned, unassigned, labeled, unlabeled]
   workflow_run:
     # Every workflow that runs on push to main or produces a required check.
     workflows: [CI, Image]

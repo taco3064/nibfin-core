@@ -34,7 +34,7 @@ run-name: >-
 
 on:
   issues:
-    types: [opened, reopened, assigned, unassigned, labeled, unlabeled]
+    types: [opened, reopened, closed, assigned, unassigned, labeled, unlabeled]
   workflow_run:
     workflows: [CI] # this repository's CI/CD workflow names
     types: [completed]
@@ -54,7 +54,10 @@ jobs:
 ```
 
 The push trigger also gives every merge commit the `Nibfin ·` push run that CD
-detection waits for, so keep it unfiltered on the default branch.
+detection waits for, so keep it unfiltered on the default branch. The `closed` type
+wakes a closed Issue, whose route deletes its `nibfin/issue-<n>` and
+`nibfin/issue-<n>-cd-<k>` branches (#700); a peer whose caller predates it adds
+`closed` by hand.
 
 ## Hand setup
 
@@ -71,6 +74,9 @@ Nothing below is done by Nibfin; the Owner does it once.
 - Settings: limit Issue and pull request creation to collaborators, and require
   approval of fork pull request workflows for all external contributors. The public
   execution repository's self-hosted runners hold the login volumes.
+- Keep "Automatically delete head branches" off: Nibfin deletes an Issue's branches
+  when the Issue closes, not when a pull request merges (#700). `gh nibfin init` must
+  not enable it.
 - Old-design cleanup: delete the variable `NIBFIN_SHARED_RUNNER_POOL` and the
   `NIBFIN_WAKE_*` secrets wherever they exist.
 
