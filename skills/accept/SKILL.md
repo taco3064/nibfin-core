@@ -49,28 +49,32 @@ yourself. Do not require a particular base commit, hash or fixed version.
 ## Verification
 
 Derive what to check from the Issue goal, the Shape's expected behavior and its
-constraints. Choose decisive, feasible methods for the change and the environment you
-have: source inspection, existing tests and targeted local checks. Check relevant failure
-paths, compatibility and trust boundaries, including the credential rules the Shape names.
-Always check the protected paths, whether or not the Shape names them:
-`.github/workflows/`, `.nibfin.json`, `.nibfin/`, `.rulesync/`, the CODEOWNERS files
-GitHub reads, and every role skill file the base branch's `.nibfin.json` names (wherever
-it lies), plus the agents' own execution policy and Secrets; the product's built-in role
-skills (shipped in the image) are not protected paths. A change the diff makes and the
-Writer can revert is a defect; one the approved Shape prescribes is blocked, with the
-cause.
+constraints. Do not run what the repository's CI or CD runs (tests, type checks, lint,
+formatting, builds): PR CI runs them on GitHub's machines, and a failure there already
+sends a fix back to Deliver. Judge what CI cannot: whether the diff does what the Issue
+and the Shape require, its scope, protected paths, credential flows and other properties
+that need reading the code. Use source inspection; a small targeted check that is still
+needed writes its output outside the workspace (for example the system temporary
+directory), so the workspace stays unchanged. Check relevant failure paths, compatibility
+and trust boundaries, including the credential rules the Shape names. Always check the
+protected paths, whether or not the Shape names them: `.github/workflows/`,
+`.nibfin.json`, `.nibfin/`, `.rulesync/`, the CODEOWNERS files GitHub reads, and every
+role skill file the base branch's `.nibfin.json` names (wherever it lies), plus the
+agents' own execution policy and Secrets; the product's built-in role skills (shipped in
+the image) are not protected paths. A change the diff makes and the Writer can revert is a
+defect; one the approved Shape prescribes is blocked, with the cause.
 
 - Code inspection can suffice when it establishes the required behavior and no stronger
   evidence is required.
-- Before relying on a test, check any environment property that decides whether it reaches
-  the intended assertion. For filesystem fixtures, verify the actual test identity,
-  temporary path and relevant ancestors against the same path and permission checks the
-  implementation uses. If the default fixture is unsuitable, use a permitted equivalent.
-  Report a setup failure separately from the behavior it prevented you from checking.
+- Before relying on a test as evidence of coverage, read whether it can reach the intended
+  assertion: for filesystem fixtures, whether the test identity, temporary path and
+  relevant ancestors meet the same path and permission checks the implementation uses. A
+  test that cannot reach its assertion is a defect in the test.
 - Distinguish simulated evidence from real provider or host evidence. Do not present one
   as the other.
-- In a fix run, confirm that the cited failed run or review comment is actually resolved
-  by the diff, not only that the checks you chose pass.
+- In a fix run, confirm by reading the diff against the cited failed run or review comment
+  that it is actually resolved; do not re-run CI to show it. The next PR CI run decides
+  that run's checks.
 - When the change touches credentials, environment variables, child processes or
   authenticated operations, trace how credentials and environment reach agents and child
   processes, whether or not the Shape names them. The rules cover the credentials the
