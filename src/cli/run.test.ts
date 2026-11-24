@@ -41,7 +41,7 @@ describe("run --stage", () => {
   const env: NodeJS.ProcessEnv = {
     NIBFIN_GITHUB_TOKEN: fakeToken,
     NIBFIN_AGENT_HOME: "/login/claude",
-    NIBFIN_WORKSPACE: "/workspace",
+    NIBFIN_WORKSPACE: "/nibfin-test-workspace",
     NIBFIN_TOOL_CACHE: "/cache",
     NIBFIN_RUN_REPO: "acme/runner",
     NIBFIN_RUN_ID: "900",
@@ -111,7 +111,7 @@ describe("run --stage", () => {
       return true;
     };
     try {
-      const context = jobContext("/workspace");
+      const context = jobContext("/nibfin-test-workspace");
       const { client } = issues.github;
       assert.equal(await defaultRunDeps.stages.deliver(context, client), 0);
       assert.equal(await defaultRunDeps.stages.review(context, client), 0);
