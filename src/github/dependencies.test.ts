@@ -35,6 +35,15 @@ describe("readBlocking", () => {
     assert.equal((missingError as GitHubError).code, "GITHUB_READ_FAILED");
   });
 
+  it("fails when GitHub answers without the repository", async () => {
+    const github = fakeGitHub({
+      "GRAPHQL IssueBlocking": { data: { data: { repository: null } } },
+    });
+    const error = await rejection(readBlocking(github.client, target));
+    assert.equal((error as GitHubError).code, "GITHUB_READ_FAILED");
+    assert.match(String((error as GitHubError).cause), /acme\/app#1 was not found/);
+  });
+
   it("accepts an Issue without a dependency summary", async () => {
     const github = fakeGitHub({
       "GET /repos/acme/app/issues/1": { data: issue(1) },

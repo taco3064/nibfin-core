@@ -239,6 +239,23 @@ describe("marked comments", () => {
     assert.equal(await findMarkedComment(none.github.client, target, "shape"), undefined);
   });
 
+  it("lists the comments of a pull request with REST", async () => {
+    const github = fakeGitHub({
+      "GET /repos/acme/app/issues/7/comments": paged([
+        comment(3, null, marked("ghost")),
+        comment(4, fakeActor.id, null),
+        comment(5, fakeActor.id, marked("review")),
+      ]),
+    });
+    const pr = { ...target, number: 7 };
+    const found = await findMarkedComment(github.client, pr, "shape", "pull-request");
+    assert.equal(found?.id, 5);
+    assert.deepEqual(
+      github.calls.map((call) => `${call.method} ${call.path}`),
+      ["GET /repos/acme/app/issues/7/comments"],
+    );
+  });
+
   it("fails when the comments cannot be read", async () => {
     const github = fakeGitHub({
       "GET /repos/acme/app/issues/1": { data: issue(1) },

@@ -10,6 +10,7 @@ import {
 } from "./fake-github.test.ts";
 import { comment, issue, type IssueOptions, pull } from "./fixtures.test.ts";
 import { queryGraphql, readIssueRecord } from "./issue-query.ts";
+import { freshReads } from "./read-cache.ts";
 
 const target = { owner: "acme", repo: "app", number: 1 };
 const issuePath = "GET /repos/acme/app/issues/1";
@@ -300,6 +301,33 @@ describe("readIssueRecord with an incomplete answer", () => {
     assert.deepEqual(record.comments, []);
   });
 
+  it("skips missing pulls and refs and reads an organization author", async () => {
+    const data = recordData((repository) => {
+      repository.delivery = { pageInfo: { hasNextPage: false }, nodes: [null] };
+      repository.fixRefs = { pageInfo: { hasNextPage: false }, nodes: [null] };
+      issueNode(repository).comments = {
+        pageInfo: { hasNextPage: false, endCursor: null },
+        nodes: [
+          { databaseId: 3, body: "b", url: "u", author: {}, userContentEdits: null },
+        ],
+      };
+    });
+    const record = await readIssueRecord(answering(data).client, target);
+    assert.deepEqual(record.comments, [
+      { id: 3, authorId: null, body: "b", url: "u", versions: 1 },
+    ]);
+    assert.deepEqual(record.branches.delivery.pullRequests, []);
+    assert.equal(record.branches.nextFixBranch, fix(1));
+  });
+
+  it("fails when GitHub answers without the repository", async () => {
+    const github = answering({ data: { data: { repository: null } } });
+    await expectReadFailure(
+      readIssueRecord(github.client, target),
+      /^acme\/app#1 was not found$/,
+    );
+  });
+
   const cases: Array<[string, (repository: Record<string, unknown>) => void, RegExp]> = [
     [
       "no Issue and no error",
@@ -384,6 +412,14 @@ describe("readIssueRecord with an incomplete answer", () => {
       }),
       { "GRAPHQL IssueComments": { data: { data: { repository: null } } } },
     );
+    await expectReadFailure(
+      readIssueRecord(comments.client, target),
+      /^GraphQL returned no comments$/,
+    );
+    comments.routes.set("GRAPHQL IssueComments", {
+      data: { data: { repository: { issue: null } } },
+    });
+    freshReads(comments.client);
     await expectReadFailure(
       readIssueRecord(comments.client, target),
       /^GraphQL returned no comments$/,

@@ -82,6 +82,25 @@ describe("requestPerson", () => {
     assert.deepEqual(issues.github.writes(), []);
   });
 
+  it("marks a write rejected by a rate limit temporary", () => {
+    const limited = Object.assign(new Error("You have exceeded a secondary rate limit"), {
+      status: 403,
+      response: { status: 403, headers: {}, data: {} },
+    });
+    const error = new GitHubError("GITHUB_WRITE_REJECTED", "write x", limited);
+    const body = pendingBody(error, url);
+    assert.match(
+      body,
+      /write x: write rejected \(HTTP 403, rate limited \(secondary\)\)/,
+    );
+    assert.match(body, temporaryNote);
+    const plain = new GitHubError("GITHUB_WRITE_REJECTED", "write x", {
+      status: 403,
+      response: { status: 403, headers: {}, data: {} },
+    });
+    assert.doesNotMatch(pendingBody(plain, url), temporaryNote);
+  });
+
   it("marks a no-progress stop temporary only when it says so", () => {
     const wait = pendingBody(new NoProgressError("mergeability", true), url);
     assert.match(wait, temporaryNote);

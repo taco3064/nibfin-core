@@ -110,6 +110,19 @@ describe("runShapeStage publication", () => {
     assert.match(t.fake.logs.at(-1)!, /^Published the Shape: https:/);
   });
 
+  it("reads the Issue once before its first agent run", async () => {
+    const seen: string[] = [];
+    const t = setup([
+      () => {
+        seen.push(...t.issues.github.calls.map((call) => `${call.method} ${call.path}`));
+        return ready("Plan");
+      },
+      approved,
+    ]);
+    assert.equal(await t.run(), 0);
+    assert.deepEqual(seen, ["POST /graphql"]);
+  });
+
   it("does nothing when run again after publishing", async () => {
     const t = setup([ready("Plan"), approved]);
     await t.run();

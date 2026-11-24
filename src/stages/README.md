@@ -466,7 +466,8 @@ Shape.
 - **Shape version** `<shape comment id>.<versions>`, where the versions are the
   comment's `userContentEdits` count read in the same GraphQL query as the Shape
   text (`readCurrentShape`). It changes exactly when the Shape body is rewritten or
-  the comment recreated; nothing is stored locally and every check re-reads it.
+  the comment recreated; nothing is stored locally and every check reads it from
+  GitHub (within a Job, once between writes, agent runs and pushes; #689).
   That the count grows only on body edits and is current right after a write is an
   assumption shared with the review-round count of #673 (GraphQL documents
   `userContentEdits` only as "a list of edits"); the Shape stage's write check
