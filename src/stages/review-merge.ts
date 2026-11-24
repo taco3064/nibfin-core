@@ -1,6 +1,7 @@
 import {
   allowedMergeMethods,
   deriveStage,
+  freshReads,
   GitHubError,
   mergePullRequest,
   type MergeResult,
@@ -152,6 +153,8 @@ export async function mergeReviewed(
   shapeVersion: string,
 ): Promise<NextAction> {
   const { client, context, deps } = scope;
+  // The merge cannot be undone: its re-check always reads GitHub's current state.
+  freshReads(client);
   const stage = deriveStage(await readIssueSnapshot(client, context.repo, context.issue));
   const samePull =
     stage.stage === "review" &&

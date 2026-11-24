@@ -391,9 +391,8 @@ async function issueBranches(
       const probe = {
         name,
         exists: refs.has(name),
-        pullRequests: [] as PullRequestSummary[],
+        pullRequests: pullRequests(operation, name, pulls),
       };
-      probe.pullRequests = pullRequests(operation, name, pulls);
       if (!probe.exists && probe.pullRequests.length === 0) {
         return {
           delivery,
