@@ -279,9 +279,10 @@ authority, the latest `main` and the proposed Shape, and checks for itself:
   hidden;
 - the external claims the plan depends on are true. A wrong claim, or an unverified one
   you verified yourself, is changes-required, citing the URL or command and the observed
-  result you used. Otherwise a claim marked unverified is acceptable when the plan
-  tolerates it being false or Accept can verify it after Deliver; if not, return blocked
-  with the cause;
+  result you used. A claim with neither a citation nor an unverified mark is
+  changes-required: cite it, or mark it unverified with what depends on it. Otherwise a
+  claim marked unverified is acceptable when the plan tolerates it being false or Accept
+  can verify it after Deliver; if not, return blocked with the cause;
 - when the Issue itself needs a change, apply the Re-planning rule yourself: return
   blocked with a concrete amendment request (the exact text or edge, the evidence, and
   whether it is a small amendment) only when the Shape cannot be completed truthfully
