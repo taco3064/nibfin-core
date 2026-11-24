@@ -184,20 +184,26 @@ describe("readIssueSnapshot", () => {
     }
   });
 
-  it("uses replacement readers when given", async () => {
-    const github = scenario({});
-    const blocker = {
-      owner: "x",
-      repo: "y",
-      number: 2,
-      state: "open" as const,
-      labels: [],
-      url: "u",
-    };
-    const snapshot = await readIssueSnapshot(github.client, repo, 1, {
-      readBlockedBy: () => Promise.resolve([blocker]),
+  it("uses replacement CI and CD readers when given", async () => {
+    const github = scenario({
+      pulls: {
+        "nibfin/issue-1": [pull(10, { merged: true, mergeSha: "m10" })],
+        [fixHead]: [pull(11, { head: fixHead, sha: "h11" })],
+      },
     });
-    assert.deepEqual(snapshot.blockedBy, [blocker]);
-    assert.equal(deriveStage(snapshot).stage, "ineligible");
+    const ci = { requiredChecks: [], results: [] };
+    const cd = { mergeCommitSha: "m10", nibfinRunPresent: true, runs: [] };
+    const snapshot = await readIssueSnapshot(github.client, repo, 1, {
+      readCi: () => Promise.resolve(ci),
+      readCdRuns: () => Promise.resolve(cd),
+    });
+    assert.deepEqual(
+      snapshot.pullRequests.map((pr) => [pr.ci, pr.cd]),
+      [
+        [ci, null],
+        [null, cd],
+      ],
+    );
+    assert.equal(deriveStage(snapshot).stage, "review");
   });
 });

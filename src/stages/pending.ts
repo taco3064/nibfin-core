@@ -1,7 +1,9 @@
 import {
   type ActingClient,
+  GitHubError,
   type IssueRef,
   nibfinLabels,
+  rateLimitOf,
   type Repo,
   setLabels,
   upsertMarkedComment,
@@ -46,6 +48,9 @@ export function runUrl(repo: Repo | undefined, id: number | undefined) {
 function isTemporary(error: unknown, code: string | undefined): boolean {
   if (error instanceof NoProgressError) {
     return error.temporary;
+  }
+  if (error instanceof GitHubError && rateLimitOf(error.cause) !== undefined) {
+    return true;
   }
   return code !== undefined && temporaryCodes.has(code);
 }

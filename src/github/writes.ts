@@ -15,7 +15,8 @@ import {
 import { nibfinLabels } from "./labels.ts";
 import type { MergeMethod } from "./merge-methods.ts";
 import { readPullRequest } from "./pull-request.ts";
-import { formatIssue, type IssueRef, labelNames, type Repo } from "./repo.ts";
+import { type RecordComment, readIssueRecord } from "./issue-query.ts";
+import { formatIssue, type IssueRef, type Repo } from "./repo.ts";
 
 interface WriteRecovery<T> {
   /** Re-reads GitHub after an unknown outcome; a value means the write took effect. */
@@ -116,16 +117,53 @@ export function commentMarker(key: string): string {
   return `<!-- nibfin:${key} -->`;
 }
 
+/** What a marked comment is on: an Issue (the default) or a pull request. */
+export type CommentTarget = "issue" | "pull-request";
+
+/** The oldest of `comments` by the actor that starts with the marker of `key`. */
+function oldestMarked<T extends { id: number; body: string }>(
+  comments: ReadonlyArray<T & { authorId: number | null }>,
+  actor: number,
+  marker: string,
+): T | undefined {
+  return comments
+    .filter((comment) => comment.authorId === actor && comment.body.startsWith(marker))
+    .toSorted((a, b) => a.id - b.id)
+    .at(0);
+}
+
+/**
+ * The actor's oldest marked comment of `key` on Issue `issue` as the Issue record reads
+ * it, with its number of versions.
+ */
+export async function readMarkedComment(
+  client: ActingClient,
+  issue: IssueRef,
+  key: string,
+): Promise<RecordComment | undefined> {
+  const marker = commentMarker(key);
+  const { comments } = await readIssueRecord(client, issue);
+  return oldestMarked(comments, client.actor.id, marker);
+}
+
 /**
  * The oldest comment on `target` that starts with the marker of `key` and was written by
- * the client's actor. Comments of other authors never count.
+ * the client's actor. Comments of other authors never count. An Issue's comments come
+ * from its Issue record; a pull request's from the REST comment list.
  */
 export async function findMarkedComment(
   client: ActingClient,
   target: IssueRef,
   key: string,
+  on: CommentTarget = "issue",
 ): Promise<MarkedComment | undefined> {
   const marker = commentMarker(key);
+  if (on === "issue") {
+    const found = await readMarkedComment(client, target, key);
+    return found === undefined
+      ? undefined
+      : { id: found.id, body: found.body, url: found.url };
+  }
   const comments = await read(`list comments of ${formatIssue(target)}`, () =>
     client.paginate("GET /repos/{owner}/{repo}/issues/{issue_number}/comments", {
       owner: target.owner,
@@ -134,14 +172,16 @@ export async function findMarkedComment(
       per_page: 100,
     }),
   );
-  return comments
-    .flatMap(({ id, user, body, html_url }) =>
-      user?.id === client.actor.id && body?.startsWith(marker)
-        ? [{ id, body, url: html_url }]
-        : [],
-    )
-    .toSorted((a, b) => a.id - b.id)
-    .at(0);
+  return oldestMarked(
+    comments.map(({ id, user, body, html_url }) => ({
+      id,
+      authorId: user?.id ?? null,
+      body: body ?? "",
+      url: html_url,
+    })),
+    client.actor.id,
+    marker,
+  );
 }
 
 /**
@@ -154,14 +194,16 @@ export async function upsertMarkedComment(
   target: IssueRef,
   key: string,
   body: string,
+  on: CommentTarget = "issue",
 ): Promise<MarkedComment> {
   const desired = `${commentMarker(key)}\n${body}`;
-  const existing = await findMarkedComment(client, target, key);
+  const find = () => findMarkedComment(client, target, key, on);
+  const existing = await find();
   if (existing?.body === desired) {
     return existing;
   }
   const confirm = async () => {
-    const comment = await findMarkedComment(client, target, key);
+    const comment = await find();
     return comment?.body === desired ? comment : undefined;
   };
   const operation = `write ${key} comment on ${formatIssue(target)}`;
@@ -190,7 +232,7 @@ export async function upsertMarkedComment(
     },
     { confirm: async () => ((await confirm()) ? true : undefined) },
   );
-  const comment = await findMarkedComment(client, target, key);
+  const comment = await find();
   if (!comment) {
     throw new GitHubError(
       "GITHUB_WRITE_UNCONFIRMED",
@@ -207,15 +249,7 @@ export interface LabelChanges {
 }
 
 async function readLabels(client: ActingClient, issue: IssueRef): Promise<string[]> {
-  const labels = await read(`list labels of ${formatIssue(issue)}`, () =>
-    client.paginate("GET /repos/{owner}/{repo}/issues/{issue_number}/labels", {
-      owner: issue.owner,
-      repo: issue.repo,
-      issue_number: issue.number,
-      per_page: 100,
-    }),
-  );
-  return labelNames(labels);
+  return (await readIssueRecord(client, issue)).labels;
 }
 
 /**
@@ -283,14 +317,7 @@ export async function setLabels(
 }
 
 async function readIssueState(client: ActingClient, issue: IssueRef): Promise<string> {
-  const { data } = await read(`read ${formatIssue(issue)}`, () =>
-    client.request("GET /repos/{owner}/{repo}/issues/{issue_number}", {
-      owner: issue.owner,
-      repo: issue.repo,
-      issue_number: issue.number,
-    }),
-  );
-  return data.state;
+  return (await readIssueRecord(client, issue)).state;
 }
 
 /**

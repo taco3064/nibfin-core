@@ -4,9 +4,7 @@ export {
   deliveryBranch,
   type IssueBranches,
   issueOfBranch,
-  probeBranch,
   type PullRequestSummary,
-  readIssueBranches,
   readPullRequests,
 } from "./branches.ts";
 export { type CdState, readCdRuns, type WorkflowRunSummary } from "./cd-runs.ts";
@@ -17,21 +15,30 @@ export {
   connectClient,
   createClient,
   type GitHubClient,
+  type LogLine,
+  type NibfinOctokit,
   readActor,
 } from "./client.ts";
+export { freshReads, shareReadCache } from "./read-cache.ts";
+export { type DependencyIssue, readBlocking } from "./dependencies.ts";
 export {
-  type DependencyIssue,
-  type DependencyKind,
-  readBlockedBy,
-  readBlocking,
-  readDependencies,
-} from "./dependencies.ts";
+  type IssueRecord,
+  queryGraphql,
+  readIssueRecord,
+  type RecordComment,
+} from "./issue-query.ts";
 export {
   type CommentWithVersions,
   readCommentVersions,
   readCommentWithVersions,
 } from "./comment-edits.ts";
-export { GitHubError, type GitHubErrorCode, responseMessage } from "./errors.ts";
+export {
+  GitHubError,
+  type GitHubErrorCode,
+  type RateLimit,
+  rateLimitOf,
+  responseMessage,
+} from "./errors.ts";
 export { type IssueText, readIssueText } from "./issue-text.ts";
 export { readJobLog, readRunJobs, type WorkflowJobSummary } from "./job-logs.ts";
 export { nibfinLabels } from "./labels.ts";
@@ -87,6 +94,7 @@ export {
 export {
   closeDelivered,
   commentMarker,
+  type CommentTarget,
   deleteBranch,
   ensurePullRequest,
   findMarkedComment,
@@ -96,6 +104,7 @@ export {
   type MergeResult,
   mergePullRequest,
   type PullRequestRequest,
+  readMarkedComment,
   setLabels,
   upsertMarkedComment,
 } from "./writes.ts";

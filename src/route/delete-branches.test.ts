@@ -1,12 +1,15 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { fakeGitHub, paged, repo } from "../github/fake-github.test.ts";
-import { pull } from "../github/fixtures.test.ts";
+import { issue, pull } from "../github/fixtures.test.ts";
 import { deleteIssueBranches } from "./delete-branches.ts";
 import { fakeBranches } from "./fake-branches.test.ts";
 
 function world(refs: readonly string[], pulls: unknown[] = []) {
-  const github = fakeGitHub({ "GET /repos/acme/app/pulls": paged(pulls) });
+  const github = fakeGitHub({
+    "GET /repos/acme/app/issues/1": { data: issue(1, { state: "closed" }) },
+    "GET /repos/acme/app/pulls": paged(pulls),
+  });
   const branches = fakeBranches(github, refs);
   const logs: string[] = [];
   const run = () =>

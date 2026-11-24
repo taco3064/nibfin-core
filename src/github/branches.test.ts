@@ -4,8 +4,6 @@ import {
   cdFixBranch,
   deliveryBranch,
   issueOfBranch,
-  probeBranch,
-  readIssueBranches,
   readPullRequests,
 } from "./branches.ts";
 import { GitHubError } from "./errors.ts";
@@ -13,8 +11,6 @@ import { failure, fakeGitHub, paged, rejection, repo } from "./fake-github.test.
 import { pull } from "./fixtures.test.ts";
 
 const pulls = "GET /repos/acme/app/pulls";
-const ref = (branch: string) => `GET /repos/acme/app/git/ref/heads/${branch}`;
-const found = { data: { ref: "refs/heads/x" } };
 
 describe("branch names", () => {
   it("names the delivery and fix branches", () => {
@@ -97,62 +93,5 @@ describe("readPullRequests", () => {
     );
     assert.ok(error instanceof GitHubError);
     assert.equal(error.code, "GITHUB_READ_FAILED");
-  });
-});
-
-describe("probeBranch", () => {
-  it("reports an existing ref through the exact ref endpoint", async () => {
-    const github = fakeGitHub({ [pulls]: paged([]), [ref("nibfin/issue-1")]: found });
-    const probe = await probeBranch(github.client, repo, "nibfin/issue-1");
-    assert.deepEqual(probe, { name: "nibfin/issue-1", exists: true, pullRequests: [] });
-  });
-
-  it("treats a 404 ref as absent but fails on other errors", async () => {
-    const absent = fakeGitHub({ [pulls]: paged([]) });
-    const probe = await probeBranch(absent.client, repo, "nibfin/issue-1");
-    assert.equal(probe.exists, false);
-    const broken = fakeGitHub({
-      [pulls]: paged([]),
-      [ref("nibfin/issue-1")]: failure(403),
-    });
-    const error = await rejection(probeBranch(broken.client, repo, "nibfin/issue-1"));
-    assert.equal((error as GitHubError).code, "GITHUB_READ_FAILED");
-  });
-});
-
-describe("readIssueBranches", () => {
-  const pullsBy = (byHead: Record<string, unknown[]>) =>
-    fakeGitHub({
-      [pulls]: (request) => {
-        const head = request.query.get("head")?.replace("acme:", "") ?? "";
-        return paged(byHead[head] ?? [])(request);
-      },
-    });
-
-  it("uses the delivery branch when no fix branch exists", async () => {
-    const github = pullsBy({ "nibfin/issue-1": [pull(5)] });
-    const branches = await readIssueBranches(github.client, repo, 1);
-    assert.equal(branches.current.name, "nibfin/issue-1");
-    assert.equal(branches.current, branches.delivery);
-    assert.deepEqual(branches.fixes, []);
-    assert.equal(branches.nextFixBranch, "nibfin/issue-1-cd-1");
-  });
-
-  it("finds fix branches by pull request or ref up to the first missing k", async () => {
-    const github = pullsBy({
-      "nibfin/issue-1": [pull(5, { merged: true })],
-      "nibfin/issue-1-cd-1": [pull(6, { head: "nibfin/issue-1-cd-1", merged: true })],
-    });
-    github.routes.set(ref("nibfin/issue-1-cd-2"), found);
-    const branches = await readIssueBranches(github.client, repo, 1);
-    assert.deepEqual(
-      branches.fixes.map((fix) => [fix.name, fix.exists, fix.pullRequests.length]),
-      [
-        ["nibfin/issue-1-cd-1", false, 1],
-        ["nibfin/issue-1-cd-2", true, 0],
-      ],
-    );
-    assert.equal(branches.current.name, "nibfin/issue-1-cd-2");
-    assert.equal(branches.nextFixBranch, "nibfin/issue-1-cd-3");
   });
 });

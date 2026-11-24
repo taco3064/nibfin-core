@@ -1,6 +1,6 @@
 import type { GitHubClient } from "./client.ts";
-import { read } from "./errors.ts";
-import { formatIssue, type IssueRef } from "./repo.ts";
+import { readIssueRecord } from "./issue-query.ts";
+import type { IssueRef } from "./repo.ts";
 
 /** The text of an Issue, which the snapshot leaves out. */
 export interface IssueText {
@@ -9,17 +9,14 @@ export interface IssueText {
   body: string;
 }
 
-/** Reads an Issue's current title and body; any failure is `GITHUB_READ_FAILED`. */
+/**
+ * Reads an Issue's current title and body from its Issue record; any failure is
+ * `GITHUB_READ_FAILED`.
+ */
 export async function readIssueText(
   client: GitHubClient,
   issue: IssueRef,
 ): Promise<IssueText> {
-  const { data } = await read(`read text of ${formatIssue(issue)}`, () =>
-    client.request("GET /repos/{owner}/{repo}/issues/{issue_number}", {
-      owner: issue.owner,
-      repo: issue.repo,
-      issue_number: issue.number,
-    }),
-  );
-  return { title: data.title, body: data.body ?? "" };
+  const { title, body } = await readIssueRecord(client, issue);
+  return { title, body };
 }

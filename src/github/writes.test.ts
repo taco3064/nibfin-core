@@ -161,7 +161,7 @@ function issueFake(
   const outcome = (key: string) => outcomes[key] ?? "ok";
   const github: FakeGitHub = fakeGitHub({
     "GET /repos/acme/app/issues/1": () => ({
-      data: issue(1, { state: model.state as "open" }),
+      data: issue(1, { state: model.state as "open", labels: model.labels }),
     }),
     "PATCH /repos/acme/app/issues/1": (call) =>
       answer(outcome("close"), () => {
@@ -240,7 +240,10 @@ describe("marked comments", () => {
   });
 
   it("fails when the comments cannot be read", async () => {
-    const github = fakeGitHub({ "GET /repos/acme/app/issues/1/comments": failure(500) });
+    const github = fakeGitHub({
+      "GET /repos/acme/app/issues/1": { data: issue(1) },
+      "GET /repos/acme/app/issues/1/comments": failure(500),
+    });
     await expectCode(
       findMarkedComment(github.client, target, "shape"),
       "GITHUB_READ_FAILED",
@@ -306,6 +309,7 @@ describe("marked comments", () => {
       "GITHUB_WRITE_REJECTED",
     );
     const gone = fakeGitHub({
+      "GET /repos/acme/app/issues/1": { data: issue(1) },
       "GET /repos/acme/app/issues/1/comments": paged([]),
       "POST /repos/acme/app/issues/1/comments": {
         status: 201,
@@ -406,9 +410,7 @@ describe("setLabels", () => {
       setLabels(forbidden.github.client, target, { remove: ["a"] }),
       "GITHUB_WRITE_REJECTED",
     );
-    const unreadable = fakeGitHub({
-      "GET /repos/acme/app/issues/1/labels": networkError(),
-    });
+    const unreadable = fakeGitHub({ "GET /repos/acme/app/issues/1": networkError() });
     await expectCode(
       setLabels(unreadable.client, target, { add: ["a"] }),
       "GITHUB_READ_FAILED",

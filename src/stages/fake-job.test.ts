@@ -63,6 +63,8 @@ function commentJson(issue: FakeIssue, comment: FakeComment) {
     user: { id: comment.userId, login: `user-${comment.userId}` },
     body: comment.body,
     html_url: `${issueUrl(issue)}#issuecomment-${comment.id}`,
+    // Fake-only: GraphQL `userContentEdits.totalCount` for the Issue record.
+    edits: (comment.versions ?? 1) === 1 ? 0 : comment.versions,
   };
 }
 

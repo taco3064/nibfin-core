@@ -79,7 +79,12 @@ export async function currentReview(
   pull: PullRequestState,
 ): Promise<HeadReview | undefined> {
   const target = { owner: issue.owner, repo: issue.repo, number: pull.number };
-  const comment = await findMarkedComment(client, target, reviewCommentKey);
+  const comment = await findMarkedComment(
+    client,
+    target,
+    reviewCommentKey,
+    "pull-request",
+  );
   if (comment === undefined || reviewedHead(comment.body) !== pull.headSha) {
     return undefined;
   }

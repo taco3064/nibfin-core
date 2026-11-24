@@ -30,10 +30,42 @@ function describe(code: GitHubErrorCode): string {
 }
 
 function describeCause(cause: unknown): string {
-  if (hasResponse(cause)) {
-    return `HTTP ${statusOf(cause)}`;
+  if (!hasResponse(cause)) {
+    return "no response";
   }
-  return "no response";
+  const status = statusOf(cause);
+  const limit = rateLimitOf(cause);
+  const answer = status === undefined ? "GraphQL" : `HTTP ${status}`;
+  return limit === undefined ? answer : `${answer}, rate limited (${limit})`;
+}
+
+export type RateLimit = "primary" | "secondary";
+
+/**
+ * The rate limit GitHub answered with, if any: a 403/429 with
+ * `x-ratelimit-remaining: 0` or a GraphQL `RATE_LIMITED` error is primary; a message
+ * about a secondary rate limit is secondary. The throttling plugin throws a GraphQL
+ * rate limit as an error with the response but no status.
+ */
+export function rateLimitOf(error: unknown): RateLimit | undefined {
+  if (!hasResponse(error)) {
+    return undefined;
+  }
+  const { response, message } = error as {
+    response: { headers?: Record<string, unknown>; data?: unknown };
+    message?: unknown;
+  };
+  const status = statusOf(error);
+  if (/\bsecondary rate\b/i.test(String(message))) {
+    return "secondary";
+  }
+  const limited = status === 403 || status === 429;
+  if (limited && response.headers?.["x-ratelimit-remaining"] === "0") {
+    return "primary";
+  }
+  const errors = (response.data as { errors?: unknown } | undefined)?.errors;
+  const graphql = Array.isArray(errors) ? (errors as Array<{ type?: unknown }>) : [];
+  return graphql.some((item) => item?.type === "RATE_LIMITED") ? "primary" : undefined;
 }
 
 /** The HTTP status of an Octokit `RequestError`, if the error carries one. */

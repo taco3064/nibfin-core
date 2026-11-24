@@ -1,4 +1,4 @@
-import type { Repo } from "../github/index.ts";
+import { freshReads, type Repo } from "../github/index.ts";
 import {
   type FixReason,
   NoProgressError,
@@ -41,6 +41,8 @@ export async function continueAfterStage(
   finished: FinishedStage,
   record: NextActionRecord,
 ): Promise<void> {
+  // The route reads the state the stage left, not what it read before.
+  freshReads(scope.client);
   for (const target of record.wake ?? []) {
     await dispatchRoute(scope, parseRepo(target.repo), target.issue);
   }

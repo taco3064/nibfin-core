@@ -59,6 +59,8 @@ async function setup(
     actor: fakeActor,
   });
   const logs: string[] = [];
+  /** The number of pushes seen at each `afterPush` call. */
+  const afterPushes: number[] = [];
   const pusher = new BranchPusher({
     git: subject,
     base: "main",
@@ -66,10 +68,11 @@ async function setup(
     protectedSet,
     remoteHead: prepared.remoteHead,
     beforePush: options.beforePush ?? (() => Promise.resolve(true)),
+    afterPush: () => void afterPushes.push(pushes().length),
     log: (line) => logs.push(line),
   });
   const pushes = () => recorder.calls.filter(isPush);
-  return { fixture, recorder, subject, pusher, logs, pushes };
+  return { fixture, recorder, subject, pusher, logs, pushes, afterPushes };
 }
 
 function commit(fixture: GitFixture, name: string): string {
@@ -95,6 +98,8 @@ describe("BranchPusher", () => {
       `Pushed ${branch} at ${first}`,
       `Pushed ${branch} at ${second}`,
     ]);
+    // Fresh GitHub reads follow each push.
+    assert.deepEqual(t.afterPushes, [1, 2]);
     for (const call of t.recorder.calls) {
       assert.ok(!call.args.join(" ").includes(fakeToken));
     }

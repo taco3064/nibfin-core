@@ -154,7 +154,8 @@ async function reviewRounds(scope: ReviewScope, pulls: PullRequestState[]) {
   let rounds = 0;
   for (const pull of pulls) {
     const target = pullTarget(scope, pull.number);
-    const comment = await findMarkedComment(scope.client, target, reviewCommentKey);
+    const key = reviewCommentKey;
+    const comment = await findMarkedComment(scope.client, target, key, "pull-request");
     if (comment !== undefined) {
       rounds += await readCommentVersions(scope.client, scope.context.repo, comment.id);
     }
