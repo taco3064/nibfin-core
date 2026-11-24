@@ -1,6 +1,7 @@
 export type AgentErrorCode =
   | "AGENT_RUN_FAILED"
   | "AGENT_LOGIN_REQUIRED"
+  | "AGENT_USAGE_LIMIT"
   | "AGENT_CONFIG_GENERATION_FAILED"
   | "AGENT_CONFIG_INVALID";
 
@@ -9,6 +10,11 @@ export interface AgentErrorDetails {
   exitCode?: number | null;
   /** The command that renews the provider login. */
   loginCommand?: string;
+  /**
+   * When the provider's usage limit resets, as Nibfin displays it; absent when the
+   * CLI did not report it.
+   */
+  usageLimitReset?: string;
   /** Output captured from a tool whose output is not streamed to the Job. */
   output?: string;
   cause?: unknown;
@@ -19,6 +25,7 @@ export class AgentError extends Error {
   readonly code: AgentErrorCode;
   readonly exitCode: number | null | undefined;
   readonly loginCommand: string | undefined;
+  readonly usageLimitReset: string | undefined;
   readonly output: string | undefined;
 
   constructor(code: AgentErrorCode, message: string, details: AgentErrorDetails) {
@@ -27,6 +34,7 @@ export class AgentError extends Error {
     this.code = code;
     this.exitCode = details.exitCode;
     this.loginCommand = details.loginCommand;
+    this.usageLimitReset = details.usageLimitReset;
     this.output = details.output;
   }
 }

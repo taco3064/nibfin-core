@@ -1,3 +1,4 @@
+import { AgentError } from "../agent/index.ts";
 import {
   type ActingClient,
   GitHubError,
@@ -30,6 +31,9 @@ const waitCode = "STAGE_WRITER_ACTIVE";
 /** GitHub answered and refused a write, e.g. a body it will not take. */
 const rejectedCode = "GITHUB_WRITE_REJECTED";
 
+/** The provider's usage limit stopped the agent; it is not over before the reset. */
+const usageLimitCode = "AGENT_USAGE_LIMIT";
+
 /** The code of a failure, if it carries one. */
 export function codeOf(error: unknown): string | undefined {
   if (typeof error !== "object" || error === null || !("code" in error)) {
@@ -43,6 +47,16 @@ export function runUrl(repo: Repo | undefined, id: number | undefined) {
   return repo === undefined || id === undefined
     ? undefined
     : `https://github.com/${repo.owner}/${repo.repo}/actions/runs/${id}`;
+}
+
+/** When to remove `pending` after a usage-limit stop, outside the fenced message. */
+function usageLimitNote(error: unknown): string {
+  const reset = error instanceof AgentError ? error.usageLimitReset : undefined;
+  return reset === undefined
+    ? "The provider's usage limit was reached; the CLI did not report when it " +
+        "resets. Remove the `pending` label after the limit resets to continue."
+    : `The provider's usage limit was reached; it resets at \`${reset}\`. Remove ` +
+        "the `pending` label after that time to continue.";
 }
 
 function isTemporary(error: unknown, code: string | undefined): boolean {
@@ -77,6 +91,9 @@ export function pendingBody(
       : ["The full message is in the run log."]),
     "",
   ];
+  if (code === usageLimitCode) {
+    lines.push(usageLimitNote(error), "");
+  }
   if (isTemporary(error, code)) {
     lines.push(
       "This looks temporary (network, GitHub or a single agent run); removing the " +

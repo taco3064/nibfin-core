@@ -21,6 +21,7 @@ import {
 } from "./provider.ts";
 import { resolveCommand } from "./resolve-command.ts";
 import { generateAgentConfig } from "./rulesync.ts";
+import type { UsageLimitReport } from "./stream.ts";
 
 export type AgentExecutables = Record<Provider | "rulesync", Command>;
 
@@ -63,6 +64,8 @@ export const defaultExecutables: AgentExecutables = {
 
 interface Observation {
   loginSignal: boolean;
+  /** The latest usage-limit report; a later `allowed` clears an earlier rejection. */
+  usageLimit: UsageLimitReport | undefined;
   result: string | undefined;
 }
 
@@ -74,6 +77,7 @@ function observe(spec: ProviderSpec, observation: Observation, line: string): vo
   if (spec.isLoginSignal(event)) {
     observation.loginSignal = true;
   }
+  observation.usageLimit = spec.usageLimitFromEvent(event) ?? observation.usageLimit;
   observation.result = spec.resultFromEvent(event) ?? observation.result;
 }
 
@@ -82,22 +86,56 @@ async function loginStatusFails(spec: ProviderSpec, base: ProcessRequest) {
   return status.exitCode === 1;
 }
 
+function loginRequired(provider: Provider, status: ExitStatus): AgentError {
+  const name = providerSpecs[provider].displayName;
+  const login = loginCommand(provider);
+  const exit = describeExit(status);
+  const message = `${name} login is missing or expired (${exit}). Run: ${login}`;
+  return new AgentError("AGENT_LOGIN_REQUIRED", message, {
+    exitCode: status.exitCode,
+    loginCommand: login,
+  });
+}
+
+function usageLimitReached(
+  provider: Provider,
+  status: ExitStatus,
+  report: UsageLimitReport,
+): AgentError {
+  const name = providerSpecs[provider].displayName;
+  const limit = report.type === undefined ? "its" : `its ${report.type}`;
+  const exit = describeExit(status);
+  const { reset } = report;
+  const message =
+    reset === undefined
+      ? `${name} stopped at ${limit} usage limit (${exit}); the CLI did not report ` +
+        "when it resets. Remove the pending label after the limit resets to continue."
+      : `${name} stopped at ${limit} usage limit (${exit}); it resets at ${reset}. ` +
+        "Remove the pending label after that time to continue.";
+  return new AgentError("AGENT_USAGE_LIMIT", message, {
+    exitCode: status.exitCode,
+    ...(reset === undefined ? {} : { usageLimitReset: reset }),
+  });
+}
+
 async function failure(
   provider: Provider,
   status: ExitStatus,
-  loginSignal: boolean,
+  observation: Observation,
   base: ProcessRequest,
 ): Promise<AgentError> {
   const spec = providerSpecs[provider];
   const name = spec.displayName;
   const exit = describeExit(status);
-  if (loginSignal || (await loginStatusFails(spec, base))) {
-    const login = loginCommand(provider);
-    const message = `${name} login is missing or expired (${exit}). Run: ${login}`;
-    return new AgentError("AGENT_LOGIN_REQUIRED", message, {
-      exitCode: status.exitCode,
-      loginCommand: login,
-    });
+  if (observation.loginSignal) {
+    return loginRequired(provider, status);
+  }
+  // Known before the login-status command, so that command does not run for it.
+  if (observation.usageLimit?.rejected === true) {
+    return usageLimitReached(provider, status, observation.usageLimit);
+  }
+  if (await loginStatusFails(spec, base)) {
+    return loginRequired(provider, status);
   }
   const message = `${name} failed with ${exit}; its output is in the log above`;
   return new AgentError("AGENT_RUN_FAILED", message, { exitCode: status.exitCode });
@@ -149,7 +187,11 @@ export async function runAgent(options: RunAgentOptions): Promise<AgentResult> {
   await rm(lastMessageFile, { force: true });
   await options.beforeStart?.();
   try {
-    const observation: Observation = { loginSignal: false, result: undefined };
+    const observation: Observation = {
+      loginSignal: false,
+      usageLimit: undefined,
+      result: undefined,
+    };
     const status = await runStreaming({
       ...agent,
       args: spec.headlessArgs(options.model ?? spec.defaultModel, lastMessageFile),
@@ -159,7 +201,7 @@ export async function runAgent(options: RunAgentOptions): Promise<AgentResult> {
       onLine: (line) => observe(spec, observation, line),
     });
     if (status.exitCode !== 0) {
-      throw await failure(provider, status, observation.loginSignal, base);
+      throw await failure(provider, status, observation, base);
     }
     const finalMessage = await spec.readFinalMessage(observation.result, lastMessageFile);
     if (finalMessage === undefined) {
