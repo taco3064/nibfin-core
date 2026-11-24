@@ -55,10 +55,10 @@ paths, compatibility and trust boundaries, including the credential rules the Sh
 Always check the protected paths, whether or not the Shape names them:
 `.github/workflows/`, `.nibfin.json`, `.nibfin/`, `.rulesync/`, the CODEOWNERS files
 GitHub reads, and every role skill file the base branch's `.nibfin.json` names (wherever
-it lies), plus the agents' own execution policy and Secrets; Nibfin's own built-in
-`skills/` in its Core repository are product source, not protected paths. A change the
-diff makes and the Writer can revert is a defect; one the approved Shape prescribes is
-blocked, with the cause.
+it lies), plus the agents' own execution policy and Secrets; the product's built-in role
+skills (shipped in the image) are not protected paths. A change the diff makes and the
+Writer can revert is a defect; one the approved Shape prescribes is blocked, with the
+cause.
 
 - Code inspection can suffice when it establishes the required behavior and no stronger
   evidence is required.
@@ -87,10 +87,11 @@ blocked, with the cause.
   prescribes is blocked, with the cause. A gap in code the diff does not change is not a
   defect of this work; mention it in your report text, which reaches only the Job log.
 - When the change implements or alters a read-only or independence check, check its
-  coverage of the whole workspace, including ignored files, and the agent's config home,
-  not only the Git diff. Coverage the diff reduces is a defect; reduced coverage the
-  approved Shape prescribes is blocked, with the cause; a gap already in code the diff
-  does not touch goes in your report text only.
+  coverage of the whole workspace, including ignored files, not only the Git diff. The
+  agent's config home is not compared; the CLI's automatic memory there is turned off
+  instead. Coverage the diff reduces is a defect; reduced coverage the approved Shape
+  prescribes is blocked, with the cause; a gap already in code the diff does not touch
+  goes in your report text only.
 
 ## Boundaries
 

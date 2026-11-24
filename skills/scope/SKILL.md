@@ -76,9 +76,9 @@ development Issue, and each one must pass all five checks:
    permission boundary. Work that must change an agent's own execution policy, Secrets or
    a protected path (`.github/workflows/`, `.nibfin.json`, `.nibfin/`, `.rulesync/`, the
    CODEOWNERS files GitHub reads, every role skill file the base branch's `.nibfin.json`
-   names; Nibfin's own built-in `skills/` in its Core repository are product source, not
-   protected) belongs on a separately authorized maintenance route; split out ordinary
-   code only when the rest stays independently useful.
+   names; the product's built-in role skills, shipped in the image, are not protected)
+   belongs on a separately authorized maintenance route; split out ordinary code only when
+   the rest stays independently useful.
 5. No accidental execution grant: a draft, tracking Issue, checklist, label or dependency
    is not a deliverable. Publish only eligible implementation Issues, with approved
    metadata and a provider read-back.

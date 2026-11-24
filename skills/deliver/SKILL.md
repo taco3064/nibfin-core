@@ -74,10 +74,10 @@ required deliverables and maintained tests in the commits.
 - Never modify your own execution policy or Secrets, nor the protected paths:
   `.github/workflows/`, `.nibfin.json`, `.nibfin/`, `.rulesync/`, the CODEOWNERS files
   GitHub reads, and every role skill file the base branch's `.nibfin.json` names (wherever
-  it lies). The Deliver stage stops a branch that changes one before the push. Nibfin's
-  own built-in `skills/` in its Core repository are product source, not protected paths.
-  If the Shape needs a change to one of them, stop and report the path and why; those
-  changes use a separately authorized maintenance route.
+  it lies). The Deliver stage stops a branch that changes one before the push. The
+  product's built-in role skills (shipped in the image) are not protected paths. If the
+  Shape needs a change to one of them, stop and report the path and why; those changes use
+  a separately authorized maintenance route.
 - Credentials never appear in command arguments, logs, commits, Issue or PR text, or agent
   content. Do not request, read out or expose management credentials.
 - Anything you build that uses the orchestrator's own credentials (such as Core's GitHub
