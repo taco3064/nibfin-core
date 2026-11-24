@@ -50,6 +50,18 @@ headless in `workspace` and returns `{ exitCode, finalMessage }`.
   - `AGENT_LOGIN_REQUIRED` with the re-login command `gh nibfin login --provider <p>`,
     when the stream reports a rejected login, or `claude auth status` /
     `codex login status` exits 1.
+  - `AGENT_USAGE_LIMIT` when the provider's subscription usage limit stopped the run,
+    with the reset time in `usageLimitReset` and in the message when the CLI reports
+    it, or a message saying it did not (#704). Claude Code: the latest
+    `rate_limit_event` before a non-zero exit has status `rejected` in
+    `rate_limit_info`; a later `allowed` event clears it. The message names the
+    `rateLimitType` (only when it matches `^[a-z_]+$`) and gives the integer
+    `resetsAt` as ISO 8601 UTC. Codex: an `error` or `turn.failed` message containing
+    "hit your usage limit" before a non-zero exit; the reset time is its "Try again at
+    <time>." clause when that is at most 64 plain characters. No other CLI text is
+    copied. A login signal wins over it, and the login-status command does not run for
+    it. Nibfin does not wait, retry or poll: a person removes `pending` after the
+    reset.
   - `AGENT_RUN_FAILED` for any other non-zero exit, or a run without a final message.
   - `AGENT_CONFIG_GENERATION_FAILED` with rulesync's exit code and output.
   - `AGENT_CONFIG_INVALID` when `settings.json` is not a JSON object.

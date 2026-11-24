@@ -83,8 +83,9 @@ Any failure of `nibfin run` or `nibfin route` once the Issue is known goes throu
 `requestPerson` (`src/stages/pending.ts`): the marked `pending` comment (the code and
 message, the run URL from `NIBFIN_RUN_REPO`/`NIBFIN_RUN_ID`, the temporary note for
 `GITHUB_READ_FAILED`, `GITHUB_WRITE_UNCONFIRMED`, `STAGE_GIT_FAILED`,
-`TOOL_INSTALL_FAILED`, `AGENT_RUN_FAILED` and `STAGE_RESULT_INVALID`, and "remove the
-`pending` label to continue") and the `pending` label, confirmed by the read-back
+`TOOL_INSTALL_FAILED`, `AGENT_RUN_FAILED` and `STAGE_RESULT_INVALID`, the usage-limit
+note with the reset time for `AGENT_USAGE_LIMIT`, and "remove the `pending` label to
+continue") and the `pending` label, confirmed by the read-back
 labels. `STAGE_WRITER_ACTIVE` is a wait, not a failure: another Writer runs and its
 own post-stage route continues the Issue. The command still exits non-zero with the
 original code. When the `pending` write fails too (GitHub unreachable), the run's

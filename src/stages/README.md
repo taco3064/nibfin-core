@@ -69,12 +69,14 @@ code and message, sets `pending` (see Pending) and exits 1.
 marked `pending` Issue comment (the code and message, the run URL, the note "this
 looks temporary (network, GitHub or a single agent run); removing the label retries
 it" for `GITHUB_READ_FAILED`, `GITHUB_WRITE_UNCONFIRMED`, `STAGE_GIT_FAILED`,
-`TOOL_INSTALL_FAILED`, `AGENT_RUN_FAILED` and `STAGE_RESULT_INVALID`, and "Remove the
-`pending` label to continue") and adds `pending`, confirmed by the read-back labels.
-When GitHub rejects that comment (`GITHUB_WRITE_REJECTED`, e.g. a message listing
-thousands of paths), it writes it once more as the same body with only the fenced
-message block replaced by "The full message is in the run log.", then adds `pending`
-as usual; no size limit applies. The full message always goes to the Job log.
+`TOOL_INSTALL_FAILED`, `AGENT_RUN_FAILED` and `STAGE_RESULT_INVALID`, for
+`AGENT_USAGE_LIMIT` the note that the provider's usage limit was reached, when it
+resets (or that the CLI did not report it) and to remove `pending` after that time,
+and "Remove the `pending` label to continue") and adds `pending`, confirmed by the
+read-back labels. When GitHub rejects that comment (`GITHUB_WRITE_REJECTED`, e.g. a
+message listing thousands of paths), it writes it once more as the same body with only
+the fenced message block replaced by "The full message is in the run log.", then adds
+`pending` as usual; no size limit applies. The full message always goes to the Job log.
 `nibfin run` and `nibfin route` call it on every failure once the Issue is known,
 whatever the code, except `STAGE_WRITER_ACTIVE` (a wait: another Writer runs and its
 own post-stage route continues the Issue). The no-progress stop (`STAGE_NO_PROGRESS`,
