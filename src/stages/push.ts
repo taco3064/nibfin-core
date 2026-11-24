@@ -1,11 +1,19 @@
 import { StageError } from "./errors.ts";
-import { type Git, gitFailed, type GitOutput } from "./git.ts";
+import { fetchWorkspaceBranch, type Git, gitFailed, type GitOutput } from "./git.ts";
+import {
+  isUnprotected,
+  protectedChanges,
+  protectedPathError,
+  type ProtectedSet,
+} from "./protected-paths.ts";
 
 export interface PusherOptions {
   git: Git;
   /** The base branch; a head without commits ahead of `origin/<base>` is not pushed. */
   base: string;
   branch: string;
+  /** A head that differs from `origin/<base>` on one of these paths is not pushed. */
+  protectedSet: ProtectedSet;
   /** The remote head Core fetched; `undefined` while the branch was never pushed. */
   remoteHead: string | undefined;
   /**
@@ -47,7 +55,8 @@ function rejected(branch: string, expected: string | undefined, output: GitOutpu
  * Pushes run one at a time, and requests during a push collapse into one follow-up
  * push of the then current head. A failed push is never retried as an overwrite: it
  * stops all further pushes and `flush` reports it. A head with no commits ahead of
- * the base is never pushed.
+ * the base is never pushed; a head that differs from the base on a protected path
+ * fails with `STAGE_PROTECTED_PATH` instead of being pushed.
  */
 export class BranchPusher {
   readonly #options: PusherOptions;
@@ -107,8 +116,7 @@ export class BranchPusher {
   async #pushOnce(): Promise<void> {
     const { git, base, branch, log } = this.#options;
     const ref = `refs/heads/${branch}`;
-    await git.coreRequired(["fetch", "--no-tags", git.workspace, `+${ref}:${ref}`]);
-    const head = (await git.coreRequired(["rev-parse", "--verify", ref])).trim();
+    const head = await fetchWorkspaceBranch(git, branch);
     if (head === this.#remote) {
       return;
     }
@@ -117,6 +125,10 @@ export class BranchPusher {
     if (Number(ahead.trim()) === 0) {
       log(`${branch} has no commits ahead of ${base}; nothing is pushed`);
       return;
+    }
+    const changes = await protectedChanges(git, base, head, this.#options.protectedSet);
+    if (!isUnprotected(changes)) {
+      throw protectedPathError(branch, base, changes);
     }
     if (!(await this.#options.beforePush())) {
       this.#halted = true;

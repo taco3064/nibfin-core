@@ -251,6 +251,16 @@ export async function prepareBranch(
   return { base, branch, remoteHead: fetched };
 }
 
+/**
+ * Fetches the workspace's `branch` into Core's repository under the same name
+ * (without the token) and returns its head there.
+ */
+export async function fetchWorkspaceBranch(git: Git, branch: string): Promise<string> {
+  const ref = `refs/heads/${branch}`;
+  await git.coreRequired(["fetch", "--no-tags", git.workspace, `+${ref}:${ref}`]);
+  return (await git.coreRequired(["rev-parse", "--verify", ref])).trim();
+}
+
 /** The diff of the branch against the merge base with `origin/<base>`. */
 export async function diffAgainstBase(git: Git, base: string): Promise<string> {
   return git.run(["diff", `refs/remotes/origin/${base}...HEAD`]);
