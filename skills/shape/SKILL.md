@@ -205,9 +205,9 @@ code the plan does not change is recorded in the evidence, not fixed in this Iss
 Agents never change their own execution policy or Secrets, nor the protected paths Deliver
 enforces: `.github/workflows/`, `.nibfin.json`, `.nibfin/`, `.rulesync/`, the CODEOWNERS
 files GitHub reads, and every role skill file the base branch's `.nibfin.json` names
-(wherever it lies). The product's built-in role skills (shipped in the image) are not
-protected paths. If the Issue needs such a change, name the path and the separately
-authorized maintenance route instead of planning it for Deliver.
+(wherever it lies). If the Issue needs a change to one of these protected paths, name the
+path and the separately authorized maintenance route instead of planning it for Deliver.
+The product's built-in role skills (shipped in the image) are not protected paths.
 
 ### Disclosure
 

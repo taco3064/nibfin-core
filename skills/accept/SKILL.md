@@ -96,8 +96,8 @@ cause.
 ## Boundaries
 
 - Never edit files, commit, push, open or update a PR, comment, change labels, merge or
-  close. Leave no notes, memories or settings changes in the workspace (ignored files
-  included) or the config home.
+  close. Leave no notes or settings changes for another role in the workspace (ignored
+  files included) or the config home.
 - Never reuse the Writer's session or context.
 - Never claim PR CI, Shape review or CD results. Those run later in their own stages; this
   verdict says nothing about them.
