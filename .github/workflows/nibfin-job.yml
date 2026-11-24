@@ -83,6 +83,29 @@ jobs:
           podman run --rm --userns=keep-id:uid=1000,gid=1000 \
             --env NIBFIN_GITHUB_TOKEN --env NIBFIN_RUN_REPO --env NIBFIN_RUN_ID \
             "$IMAGE_REF" nibfin route --repo "$REPO" "${target[@]}"
+      - name: Ask a person to act
+        # `nibfin route` adds `pending` itself once it knows the Issue; this covers an
+        # image pull or a container that never started.
+        if: failure() && inputs.issue != ''
+        env:
+          TOKEN: ${{ secrets.token }}
+          REPO: ${{ inputs.repo }}
+          ISSUE: ${{ inputs.issue }}
+          STAGE: route
+        run: |
+          api="https://api.github.com/repos/$REPO/issues/$ISSUE"
+          headers=(-H "Authorization: Bearer $TOKEN" -H "Accept: application/vnd.github+json"
+            -H "X-GitHub-Api-Version: 2022-11-28")
+          labels=$(curl -fsS "${headers[@]}" "$api/labels?per_page=100")
+          if grep -Eq '"name": *"pending"' <<< "$labels"; then
+            echo "$REPO#$ISSUE already has pending"
+            exit 0
+          fi
+          run="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          curl -fsS "${headers[@]}" -X POST "$api/labels" -d '{"labels":["pending"]}' > /dev/null
+          body="Nibfin's $STAGE Job failed: $run. Fix the cause, then remove the \`pending\` label to continue."
+          curl -fsS "${headers[@]}" -X POST "$api/comments" -d "{\"body\": \"$body\"}" > /dev/null
+          echo "Added pending to $REPO#$ISSUE"
 
   stage:
     name: stage
@@ -125,7 +148,6 @@ jobs:
             done
           podman image prune -f
       - name: Run the stage
-        id: stage
         env:
           NIBFIN_GITHUB_TOKEN: ${{ secrets.token }}
           NIBFIN_RUN_REPO: ${{ github.repository }}
@@ -183,10 +205,10 @@ jobs:
             fi
           done
       - name: Ask a person to act
-        # The stage records its own failures (adding `pending`, or not when another
-        # Writer is active); a failed step outside it (checkout, image pull, clean up)
-        # would otherwise stop the Issue silently.
-        if: failure() && inputs.issue != '' && steps.stage.outcome != 'failure'
+        # Every failed step needs a person (`nibfin run` exits 0 while another Writer
+        # is active). `nibfin run` adds `pending` itself when it can; this covers the
+        # rest: checkout, image pull, a container that never started, clean up.
+        if: failure() && inputs.issue != ''
         env:
           TOKEN: ${{ secrets.token }}
           REPO: ${{ inputs.repo }}
@@ -203,6 +225,6 @@ jobs:
           fi
           run="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
           curl -fsS "${headers[@]}" -X POST "$api/labels" -d '{"labels":["pending"]}' > /dev/null
-          body="Nibfin's $STAGE Job failed outside the stage: $run. Fix the cause, then remove the \`pending\` label to continue."
+          body="Nibfin's $STAGE Job failed: $run. Fix the cause, then remove the \`pending\` label to continue."
           curl -fsS "${headers[@]}" -X POST "$api/comments" -d "{\"body\": \"$body\"}" > /dev/null
           echo "Added pending to $REPO#$ISSUE"
