@@ -1,5 +1,6 @@
 import { type ActingClient, connectClient } from "../github/index.ts";
 import {
+  isWait,
   type JobContext,
   readJobContext,
   runDeliverStage,
@@ -60,7 +61,9 @@ function stageName(args: readonly string[], deps: RunDeps): StageName | undefine
 
 /**
  * Runs one stage, then continues the Issue from GitHub state (`routeAfterStage`).
- * Any failure once the client exists sets `pending` on the Issue.
+ * Any failure once the client exists sets `pending` on the Issue and exits 1, except
+ * `STAGE_WRITER_ACTIVE`: a wait that writes nothing and exits 0, so a non-zero exit
+ * always means a person must act.
  */
 async function runStage(
   args: readonly string[],
@@ -89,6 +92,9 @@ async function runStage(
     return code;
   } catch (error) {
     printFailure(io, error);
+    if (isWait(error)) {
+      return 0;
+    }
     const issue = { ...context.repo, number: context.issue };
     await askPerson(io, client, issue, error, runUrl(context.runRepo, context.runId));
     return 1;

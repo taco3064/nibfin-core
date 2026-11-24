@@ -19,6 +19,7 @@ test("the stages module exports its public API", () => {
     "describeStage",
     "fixReasons",
     "isDeliveryStage",
+    "isWait",
     "jobOptions",
     "loginCommentKey",
     "parseAgentResult",

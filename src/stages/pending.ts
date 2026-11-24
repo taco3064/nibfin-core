@@ -42,6 +42,11 @@ export function codeOf(error: unknown): string | undefined {
   return typeof error.code === "string" ? error.code : undefined;
 }
 
+/** Whether `error` is the wait for another Writer, which writes nothing. */
+export function isWait(error: unknown): boolean {
+  return codeOf(error) === waitCode;
+}
+
 /** The URL of a workflow run, from the execution repository and run id. */
 export function runUrl(repo: Repo | undefined, id: number | undefined) {
   return repo === undefined || id === undefined
@@ -120,7 +125,7 @@ export async function requestPerson(
   error: unknown,
   url: string | undefined,
 ): Promise<boolean> {
-  if (codeOf(error) === waitCode) {
+  if (isWait(error)) {
     return false;
   }
   try {
