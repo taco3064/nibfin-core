@@ -22,7 +22,9 @@ workflows. The previous implementation is kept for reference at the tag
 | `src/agent/`  | Agent CLI runner (#668)                               |
 | `src/config/` | `.nibfin.json`, role skill text and tools (#669)      |
 | `src/stages/` | Delivery stages (#671–#673)                           |
+| `src/route/`  | What runs next for an Issue, and its dispatch (#674)  |
 | `skills/`     | Role Skills, rewritten by #670                        |
+| `docs/`       | Workflow callers and hand setup (#674)                |
 
 Tests sit next to the code as `src/**/*.test.ts`.
 
@@ -57,6 +59,13 @@ Nibfin jobs run in one container image, built in the cloud by the `Image` workfl
 - **Where:** `ghcr.io/taco3064/nibfin`, one multi-arch (amd64, arm64) image per run,
   tagged with the commit SHA and carrying a GitHub artifact attestation. Each
   architecture is smoke-tested before it is pushed. The run summary reports the digest.
+- **`:main`:** the tag Nibfin's own Jobs pull (#674). A run on `main` moves it to its
+  image only forward: when `:main` is absent, or its
+  `org.opencontainers.image.revision` label names an ancestor of the commit (or the
+  commit itself). Image runs of one ref queue instead of cancelling each other.
+- **Workflows:** `nibfin-*.yml` run the delivery stages for Nibfin's own repositories;
+  see `docs/nibfin-callers.md`. CI lints every workflow with actionlint
+  (`.github/actionlint.yaml`).
 
 Always pull by digest:
 
