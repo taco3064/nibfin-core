@@ -127,6 +127,8 @@ describe("runShapeStage rewrite of a Shape reported wrong", () => {
     assert.match(prompts[2], /## Task\n\nRevise the previous proposed Shape/);
     assert.match(prompts[2], /## Previous proposed Shape\n\nv1/);
     assert.doesNotMatch(prompts[2], /## Previous Shape\n/);
+    assert.match(prompts[3], /## Previous proposed Shape\n\nv1/);
+    assert.match(prompts[3], /## Previous Validator findings\n\n- Name the flag/);
     assert.equal(t.shape.body, `${shapeMarker}\nv3`);
     assert.deepEqual(t.next(), { stage: "deliver", reason: null, progressed: true });
   });

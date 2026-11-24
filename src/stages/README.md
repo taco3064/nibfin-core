@@ -134,9 +134,12 @@ removing it resumes from GitHub state.
    else the Shape Author proposes one.
 4. The Shape Validator runs separately with only the sources and the proposed Shape,
    plus the reason while a `shape-wrong` report is active (then it also checks that
-   the Shape resolves it). `changes-required` sends its findings and the previous
-   Shape (and an active reason) to the Author for a revision and a fresh
-   validation, without a round limit; each round is logged.
+   the Shape resolves it). In a revision round it also gets the previous proposed
+   Shape and the previous Validator findings, so it can compare the versions; the
+   first round is unchanged. It never sees the Author's reasoning.
+   `changes-required` sends its findings and the previous Shape (and an active
+   reason) to the Author for a revision and a fresh validation, without a round
+   limit; each round is logged.
 5. Before publishing, the stage reads the snapshot and the sources again. If the
    Issue is no longer at the Shape stage (paused, closed, …) it stops without
    publishing. If the Issue's title or body changed, a fresh validation runs against
