@@ -54,18 +54,17 @@ formatting, builds): PR CI runs them on GitHub's machines, and a failure there a
 sends a fix back to Deliver. Judge what CI cannot: whether the diff does what the Issue
 and the Shape require, its scope, protected paths, credential flows and other properties
 that need reading the code. Use source inspection; a small targeted check that is still
-needed writes its output outside the workspace (for example the system temporary
-directory), so the workspace stays unchanged. A check whose output you cannot place
-outside the workspace, such as a repository test whose fixtures write under the
-repository, is not run: judge by reading the code and leave it to PR CI. Check relevant
-failure paths, compatibility and trust boundaries, including the credential rules the
-Shape names. Always check the protected paths, whether or not the Shape names them:
-`.github/workflows/`, `.nibfin.json`, `.nibfin/`, `.rulesync/`, the CODEOWNERS files
-GitHub reads, and every role skill file the base branch's `.nibfin.json` names (wherever
-it lies), plus the agents' own execution policy and Secrets; the product's built-in role
-skills (shipped in the image) are not protected paths. A change the diff makes and the
-Writer can revert is a defect; one the approved Shape prescribes is blocked, with the
-cause.
+needed writes its output to `/tmp`, which is inside the Job container and is removed with
+it, so the workspace stays unchanged. A check whose output you cannot place outside the
+workspace, such as a repository test whose fixtures write under the repository, is not
+run: judge by reading the code and leave it to PR CI. Check relevant failure paths,
+compatibility and trust boundaries, including the credential rules the Shape names. Always
+check the protected paths, whether or not the Shape names them: `.github/workflows/`,
+`.nibfin.json`, `.nibfin/`, `.rulesync/`, the CODEOWNERS files GitHub reads, and every
+role skill file the base branch's `.nibfin.json` names (wherever it lies), plus the
+agents' own execution policy and Secrets; the product's built-in role skills (shipped in
+the image) are not protected paths. A change the diff makes and the Writer can revert is a
+defect; one the approved Shape prescribes is blocked, with the cause.
 
 - Code inspection can suffice when it establishes the required behavior and no stronger
   evidence is required.
