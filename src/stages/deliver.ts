@@ -7,6 +7,7 @@ import {
   deriveStage,
   ensurePullRequest,
   findMarkedComment,
+  freshReads,
   type IssueRef,
   readIssueSnapshot,
   type Repo,
@@ -158,6 +159,7 @@ class DeliverRun {
       protectedSet: options.protectedSet,
       remoteHead: options.remoteHead,
       beforePush: () => this.stillEligible(),
+      afterPush: () => freshReads(this.job.client),
       log: options.deps.log,
     });
   }
@@ -177,6 +179,7 @@ class DeliverRun {
 
   /** Re-reads GitHub: the Issue must still be eligible for this reason and branch. */
   async stillEligible(): Promise<boolean> {
+    freshReads(this.job.client);
     const now = await readEligibility(this.job.client, this.context);
     if (now.eligible && now.branch === this.branch) {
       return true;

@@ -20,8 +20,14 @@ import {
 } from "../stages/index.ts";
 import { askPerson, type CliIo, printFailure } from "./failure.ts";
 
-/** How the CLI connects to GitHub: a client that writes as the token's account. */
-export type Connect = (token: string) => Promise<ActingClient>;
+/**
+ * How the CLI connects to GitHub: a client that writes as the token's account and
+ * writes its rate-limit waits to `log` (the Job log).
+ */
+export type Connect = (
+  token: string,
+  log: (line: string) => void,
+) => Promise<ActingClient>;
 
 interface RouteInput {
   repo: Repo;
@@ -93,7 +99,8 @@ export function readRouteInput(
   };
 }
 
-const lineLog = (io: CliIo) => (line: string) => void io.stdout.write(`${line}\n`);
+/** Writes one line to the Job log (stdout). */
+export const lineLog = (io: CliIo) => (line: string) => void io.stdout.write(`${line}\n`);
 
 /**
  * `nibfin route`: for `--issue`, derives the Issue's route, deletes a closed Issue's
@@ -112,7 +119,7 @@ export async function runRoute(
   let client: ActingClient;
   try {
     input = readRouteInput(args, env);
-    client = await connect(input.token);
+    client = await connect(input.token, lineLog(io));
   } catch (error) {
     printFailure(io, error);
     return 1;

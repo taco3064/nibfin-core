@@ -1,5 +1,16 @@
-import { Octokit } from "@octokit/rest";
-import type { ActingClient, Actor } from "./client.ts";
+import {
+  type ActingClient,
+  type Actor,
+  type ClientOptions,
+  createClient,
+  type NibfinOctokit,
+} from "./client.ts";
+import {
+  answerRecordQuery,
+  operationOf,
+  recordOperations,
+  type RestGet,
+} from "./fake-issue-record.test.ts";
 
 /** Test support: a fake GitHub REST API behind a real Octokit (no network). */
 
@@ -22,21 +33,61 @@ export interface FakeResponse {
   headers?: Record<string, string>;
 }
 
+type FetchLike = (input: string | URL, init?: RequestInit) => Promise<Response>;
+
 export type Handler = (request: FakeRequest) => FakeResponse | Promise<FakeResponse>;
 export type Route = Handler | FakeResponse;
 
 export interface FakeGitHub {
-  client: Octokit & ActingClient;
+  client: NibfinOctokit & ActingClient;
+  /** The lines the client wrote to the Job log (rate-limit waits). */
+  log: string[];
   calls: FakeRequest[];
   /** Calls other than GET and GraphQL queries (Nibfin sends no mutations). */
   writes: () => FakeRequest[];
   routes: Map<string, Route>;
 }
 
-/** A fake API: routes are keyed `"<METHOD> <decoded path>"`; others answer 404. */
+/**
+ * A fake API: routes are keyed `"<METHOD> <decoded path>"`; others answer 404. Nibfin's
+ * Issue-record GraphQL queries are answered from the REST routes (see
+ * `fake-issue-record.test.ts`) unless a route `"GRAPHQL <operation>"` answers them.
+ */
 export function fakeGitHub(routes: Record<string, Route> = {}): FakeGitHub {
   const table = new Map(Object.entries(routes));
   const calls: FakeRequest[] = [];
+  const answer = async (request: FakeRequest): Promise<FakeResponse> => {
+    const route = table.get(`${request.method} ${request.path}`);
+    if (route === undefined) {
+      return { status: 404, data: { message: "Not Found" } };
+    }
+    return typeof route === "function" ? route(request) : route;
+  };
+  const restGet: RestGet = async (path, query = {}) => {
+    const response = await answer({
+      method: "GET",
+      path,
+      query: new URLSearchParams(query),
+      body: undefined,
+      headers: {},
+    });
+    return {
+      status: response.status ?? 200,
+      data: response.data,
+      headers: response.headers,
+    };
+  };
+  const route = async (request: FakeRequest): Promise<FakeResponse> => {
+    const operation = request.path === "/graphql" ? operationOf(request.body) : undefined;
+    if (operation === undefined || !recordOperations.includes(operation)) {
+      return answer(request);
+    }
+    const own = table.get(`GRAPHQL ${operation}`);
+    if (own !== undefined) {
+      return typeof own === "function" ? own(request) : own;
+    }
+    return answerRecordQuery(request.body, restGet, () => [...table.keys()]);
+  };
   const fetch = async (input: string | URL, init?: RequestInit): Promise<Response> => {
     const url = new URL(input);
     const method = init?.method ?? "GET";
@@ -50,13 +101,7 @@ export function fakeGitHub(routes: Record<string, Route> = {}): FakeGitHub {
       headers,
     };
     calls.push(request);
-    const route = table.get(`${method} ${request.path}`);
-    const response =
-      route === undefined
-        ? { status: 404, data: { message: "Not Found" } }
-        : typeof route === "function"
-          ? await route(request)
-          : route;
+    const response = await route(request);
     const status = response.status ?? 200;
     const answer = new Response(
       status === 204 ? null : JSON.stringify(response.data ?? {}),
@@ -66,17 +111,49 @@ export function fakeGitHub(routes: Record<string, Route> = {}): FakeGitHub {
     Object.defineProperty(answer, "url", { value: url.href });
     return answer;
   };
-  const octokit = new Octokit({
-    auth: fakeToken,
-    request: { fetch },
-    log: { debug() {}, info() {}, warn() {}, error() {} },
-  });
+  const log: string[] = [];
+  const client = createClient(
+    fakeToken,
+    fakeActor,
+    testClientOptions(fetch),
+    (line) => void log.push(line),
+  );
   return {
-    client: Object.assign(octokit, { actor: fakeActor }),
+    client,
+    log,
     calls,
     writes: () =>
       calls.filter((call) => call.method !== "GET" && call.path !== "/graphql"),
     routes: table,
+  };
+}
+
+/** A limiter that runs every job at once, so tests do not wait between writes. */
+const immediate = {
+  key: () => ({
+    schedule: (
+      _options: unknown,
+      run: (...args: unknown[]) => unknown,
+      ...args: unknown[]
+    ) => run(...args),
+  }),
+};
+
+/**
+ * Client options for tests: requests go to `fetch`, retries and rate-limit waits take
+ * no time, and writes are not spaced out.
+ */
+export function testClientOptions(fetch: FetchLike): ClientOptions {
+  return {
+    request: { fetch },
+    log: { debug() {}, info() {}, warn() {}, error() {} },
+    throttle: {
+      retryAfterBaseValue: 0,
+      write: immediate,
+      search: immediate,
+      notifications: immediate,
+    } as unknown as ClientOptions["throttle"],
+    retry: { retryAfterBaseValue: 0 },
   };
 }
 

@@ -76,7 +76,13 @@ export async function sendBackToDeliver(
 ): Promise<NextAction> {
   const body = `Reviewed head: ${head}\nReviewed Shape: ${shapeVersion}\n\n${text}`;
   const target = pullTarget(scope, pullNumber);
-  const comment = await upsertMarkedComment(scope.client, target, reviewCommentKey, body);
+  const comment = await upsertMarkedComment(
+    scope.client,
+    target,
+    reviewCommentKey,
+    body,
+    "pull-request",
+  );
   scope.deps.log(`Review comment: ${comment.url}; requesting a review fix`);
   return requestReviewFix;
 }

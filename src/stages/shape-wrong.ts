@@ -7,7 +7,7 @@ import {
   type IssueRef,
   type MarkedComment,
   nibfinLabels,
-  readCommentWithVersions,
+  readMarkedComment,
   setLabels,
   type Stage,
   upsertMarkedComment,
@@ -37,23 +37,21 @@ export interface CurrentShape {
 }
 
 /**
- * The actor's marked `shape` comment with its text and version, both from one
- * GraphQL read of the comment; `undefined` when there is none.
+ * The actor's marked `shape` comment with its text and version, both from the one
+ * GraphQL Issue-record read of the comment; `undefined` when there is none.
  */
 export async function readCurrentShape(
   client: ActingClient,
   issue: IssueRef,
 ): Promise<CurrentShape | undefined> {
-  const comment = await findMarkedComment(client, issue, shapeCommentKey);
+  const comment = await readMarkedComment(client, issue, shapeCommentKey);
   if (comment === undefined) {
     return undefined;
   }
-  const repo = { owner: issue.owner, repo: issue.repo };
-  const read = await readCommentWithVersions(client, repo, comment.id);
   return {
-    body: read.body,
-    text: shapeOfComment(read.body),
-    version: `${comment.id}.${read.versions}`,
+    body: comment.body,
+    text: shapeOfComment(comment.body),
+    version: `${comment.id}.${comment.versions}`,
   };
 }
 

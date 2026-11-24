@@ -1,4 +1,4 @@
-import type { ActingClient } from "../github/index.ts";
+import { type ActingClient, shareReadCache } from "../github/index.ts";
 
 /**
  * Whether a stage run made progress (#674): it wrote to GitHub through its client
@@ -37,7 +37,10 @@ export function trackProgress(client: ActingClient): Progress {
     );
   }, client.request) as Request;
   return {
-    client: { actor: client.actor, paginate: client.paginate, request },
+    client: shareReadCache(
+      { actor: client.actor, paginate: client.paginate, request },
+      client,
+    ),
     get progressed() {
       return progressed;
     },

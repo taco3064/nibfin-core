@@ -113,38 +113,3 @@ export async function branchExists(
   );
   return ref !== undefined;
 }
-
-/** Probes one branch: its pull requests and whether its ref exists (404 = absent). */
-export async function probeBranch(
-  client: GitHubClient,
-  repo: Repo,
-  name: string,
-): Promise<BranchProbe> {
-  const pullRequests = await readPullRequests(client, repo, name);
-  const exists = await branchExists(client, repo, name);
-  return { name, exists, pullRequests };
-}
-
-/**
- * The delivery branch and every fix branch `-cd-1`, `-cd-2`, … up to the first `k` that
- * has neither a pull request nor a ref.
- */
-export async function readIssueBranches(
-  client: GitHubClient,
-  repo: Repo,
-  issueNumber: number,
-): Promise<IssueBranches> {
-  const delivery = await probeBranch(client, repo, deliveryBranch(issueNumber));
-  const fixes: BranchProbe[] = [];
-  let probe = await probeBranch(client, repo, cdFixBranch(issueNumber, 1));
-  while (probe.exists || probe.pullRequests.length > 0) {
-    fixes.push(probe);
-    probe = await probeBranch(client, repo, cdFixBranch(issueNumber, fixes.length + 1));
-  }
-  return {
-    delivery,
-    fixes,
-    current: fixes.at(-1) ?? delivery,
-    nextFixBranch: probe.name,
-  };
-}

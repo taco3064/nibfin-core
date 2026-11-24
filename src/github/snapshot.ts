@@ -1,14 +1,9 @@
-import {
-  type BranchProbe,
-  type IssueBranches,
-  type PullRequestSummary,
-  readIssueBranches,
-} from "./branches.ts";
+import type { BranchProbe, IssueBranches, PullRequestSummary } from "./branches.ts";
 import { type CdState, readCdRuns } from "./cd-runs.ts";
 import type { Actor, GitHubClient } from "./client.ts";
-import { type DependencyIssue, readBlockedBy } from "./dependencies.ts";
-import { GitHubError, read } from "./errors.ts";
-import { formatIssue, type IssueRef, labelNames, type Repo } from "./repo.ts";
+import type { DependencyIssue } from "./dependencies.ts";
+import { readIssueRecord } from "./issue-query.ts";
+import type { IssueRef, Repo } from "./repo.ts";
 import { type CiState, readCi } from "./required-checks.ts";
 
 /** A pull request with the CI of an open one and the CD of a merged one. */
@@ -42,24 +37,19 @@ export interface IssueSnapshot {
   pullRequests: PullRequestState[];
 }
 
-/** The readers a snapshot is built from; replaceable for callers that need to. */
+/** The CI and CD readers a snapshot is built from; replaceable for callers. */
 export interface SnapshotReaders {
-  readIssueBranches: typeof readIssueBranches;
   readCi: typeof readCi;
   readCdRuns: typeof readCdRuns;
-  readBlockedBy: typeof readBlockedBy;
 }
 
-export const defaultSnapshotReaders: SnapshotReaders = {
-  readIssueBranches,
-  readCi,
-  readCdRuns,
-  readBlockedBy,
-};
+export const defaultSnapshotReaders: SnapshotReaders = { readCi, readCdRuns };
 
 /**
- * Everything the stage rules need about Issue `issueNumber`, read from GitHub. Every list
- * is read in full; any failed read fails the whole snapshot with `GITHUB_READ_FAILED`.
+ * Everything the stage rules need about Issue `issueNumber`, read from GitHub: the Issue,
+ * its Blocked by and its branches from the Issue record (one GraphQL query), then CI of
+ * each open and CD of each merged pull request (REST). Every list is read in full; any
+ * failed read fails the whole snapshot with `GITHUB_READ_FAILED`.
  */
 export async function readIssueSnapshot(
   client: GitHubClient,
@@ -68,41 +58,18 @@ export async function readIssueSnapshot(
   deps: Partial<SnapshotReaders> = {},
 ): Promise<IssueSnapshot> {
   const readers = { ...defaultSnapshotReaders, ...deps };
-  const ref: IssueRef = { ...repo, number: issueNumber };
-  const operation = `read ${formatIssue(ref)}`;
-  const { data } = await read(operation, () =>
-    client.request("GET /repos/{owner}/{repo}/issues/{issue_number}", {
-      ...repo,
-      issue_number: issueNumber,
-    }),
-  );
-  if (data.pull_request) {
-    throw new GitHubError(
-      "GITHUB_READ_FAILED",
-      operation,
-      new Error(`${formatIssue(ref)} is a pull request`),
-    );
-  }
-  const blockedBy = await readers.readBlockedBy(
-    client,
-    ref,
-    data.issue_dependencies_summary?.total_blocked_by,
-  );
-  const probes = await readers.readIssueBranches(client, repo, issueNumber);
-  const branches = await withRunData(client, repo, probes, readers);
+  const record = await readIssueRecord(client, { ...repo, number: issueNumber });
+  const branches = await withRunData(client, repo, record.branches, readers);
   return {
     issue: {
-      ...ref,
-      state: data.state === "closed" ? "closed" : "open",
-      stateReason: data.state_reason ?? null,
-      labels: labelNames(data.labels),
-      assignees: (data.assignees ?? []).map((user) => ({
-        id: Number(user.id),
-        login: user.login,
-      })),
-      url: data.html_url,
+      ...record.issue,
+      state: record.state,
+      stateReason: record.stateReason,
+      labels: record.labels,
+      assignees: record.assignees,
+      url: record.url,
     },
-    blockedBy,
+    blockedBy: record.blockedBy,
     branches,
     pullRequests: [branches.delivery, ...branches.fixes]
       .flatMap((branch) => branch.pullRequests)

@@ -1,14 +1,15 @@
 import {
   type ActingClient,
   deleteBranch,
-  readIssueBranches,
+  readIssueRecord,
   type Repo,
 } from "../github/index.ts";
 
 /**
  * Deletes the branches of Issue `issue` whose ref exists: `nibfin/issue-<n>` and every
- * `nibfin/issue-<n>-cd-<k>` that `readIssueBranches` probes (#700). Nothing else is
- * touched. Deleting a branch also closes its open pull request.
+ * `nibfin/issue-<n>-cd-<k>` that the Issue record probes (#700). Nothing else is
+ * touched. Deleting a branch also closes its open pull request. The record is the one
+ * the route already read, so the read cache answers it.
  */
 export async function deleteIssueBranches(
   client: ActingClient,
@@ -16,7 +17,7 @@ export async function deleteIssueBranches(
   issue: number,
   log: (line: string) => void,
 ): Promise<void> {
-  const branches = await readIssueBranches(client, repo, issue);
+  const { branches } = await readIssueRecord(client, { ...repo, number: issue });
   for (const probe of [branches.delivery, ...branches.fixes]) {
     if (probe.exists) {
       await deleteBranch(client, repo, probe.name);

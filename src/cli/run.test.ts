@@ -124,15 +124,30 @@ describe("run --stage", () => {
     ]);
   });
 
-  it("connects by default with the token's own account", async () => {
+  it("connects with the token's own account, logging rate limits", async () => {
     const original = globalThis.fetch;
-    globalThis.fetch = () => Promise.resolve(Response.json({ id: 7, login: "owner" }));
+    const answers = [
+      // A primary rate limit whose reset has passed: retried at once.
+      Response.json(
+        { message: "API rate limit exceeded" },
+        {
+          status: 403,
+          headers: { "x-ratelimit-remaining": "0", "x-ratelimit-reset": "0" },
+        },
+      ),
+      Response.json({ id: 7, login: "owner" }),
+    ];
+    globalThis.fetch = () => Promise.resolve(answers.shift()!);
+    const lines: string[] = [];
     try {
-      const client = await defaultRunDeps.connect("token");
+      const client = await defaultRunDeps.connect("token", (line) => lines.push(line));
       assert.deepEqual(client.actor, { id: 7, login: "owner" });
     } finally {
       globalThis.fetch = original;
     }
+    assert.deepEqual(lines, [
+      "GitHub primary rate limit on GET /user: waiting 0 s (retry 1 of 2)",
+    ]);
   });
 
   for (const stage of [[], ["--stage"], ["--stage", "accept"], ["--stage", "toString"]]) {

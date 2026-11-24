@@ -8,6 +8,7 @@ import {
 import {
   type ActingClient,
   findMarkedComment,
+  freshReads,
   type IssueRef,
   upsertMarkedComment,
 } from "../github/index.ts";
@@ -123,6 +124,8 @@ export async function runStageAgent(
     workspace: context.workspace,
   });
   const prompt = composePrompt({ skill, role, sections });
+  // GitHub may change while the agent runs; reads before and after it go to GitHub.
+  freshReads(job.client);
   // Recorded after rulesync generated its files, right before the CLI starts.
   let before: WorkspaceState | undefined;
   const recordWorkspace = async () => {
@@ -141,12 +144,14 @@ export async function runStageAgent(
       ...(role.readOnly ? { beforeStart: recordWorkspace } : {}),
     }));
   } catch (error) {
+    freshReads(job.client);
     if (error instanceof AgentError && error.code === "AGENT_LOGIN_REQUIRED") {
       const body = loginBody(job);
       await upsertMarkedComment(job.client, issueOf(context), loginCommentKey, body);
     }
     throw error;
   }
+  freshReads(job.client);
   await settleLoginComment(job);
   if (role.readOnly) {
     if (before === undefined) {

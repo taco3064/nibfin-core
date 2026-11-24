@@ -8,7 +8,7 @@ import {
   runUrl,
 } from "../stages/index.ts";
 import { askPerson, type CliIo, printFailure } from "./failure.ts";
-import { type Connect, routeAfterStage, runRoute } from "./route.ts";
+import { type Connect, lineLog, routeAfterStage, runRoute } from "./route.ts";
 import { readVersion } from "./version.ts";
 
 export type { CliIo, OutputStream } from "./failure.ts";
@@ -42,7 +42,7 @@ export interface RunDeps {
 
 export const defaultRunDeps: RunDeps = {
   env: process.env,
-  connect: (token) => connectClient(token),
+  connect: (token, log) => connectClient(token, {}, log),
   stages: {
     shape: runShapeStage,
     deliver: (context, client) => runDeliverStage(context, client),
@@ -76,7 +76,7 @@ async function runStage(
   let client: ActingClient;
   try {
     context = readJobContext(args, deps.env);
-    client = await deps.connect(context.token);
+    client = await deps.connect(context.token, lineLog(io));
   } catch (error) {
     printFailure(io, error);
     return 1;

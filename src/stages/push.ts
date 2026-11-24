@@ -21,6 +21,8 @@ export interface PusherOptions {
    * the Issue was paused meanwhile. Nothing is pushed after that.
    */
   beforePush: () => Promise<boolean>;
+  /** Called after each push attempt, so later GitHub reads see its effect. */
+  afterPush: () => void;
   log: (line: string) => void;
 }
 
@@ -141,6 +143,7 @@ export class BranchPusher {
       git.remoteUrl,
       `${head}:${ref}`,
     ]);
+    this.#options.afterPush();
     if (output.exitCode !== 0) {
       throw rejected(branch, this.#remote, output);
     }
