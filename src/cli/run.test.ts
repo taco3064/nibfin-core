@@ -221,9 +221,11 @@ describe("run --stage", () => {
     const error = new StageError("STAGE_WRITER_ACTIVE", "another Writer runs");
     const t = stageDeps(() => Promise.reject(error));
     const result = await capture(["run", "--stage", "deliver", ...args], t.deps);
-    assert.equal(result.code, 1);
+    assert.equal(result.code, 0);
     assert.equal(result.stdout, "");
+    assert.equal(result.stderr, "nibfin: STAGE_WRITER_ACTIVE: another Writer runs\n");
     assert.deepEqual(t.issues.github.writes(), []);
+    assert.deepEqual(t.runner.dispatched, []);
   });
 
   it("reports a pending write that fails too", async () => {

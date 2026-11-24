@@ -60,8 +60,10 @@ the GitHub client and Core's own Git remote calls, reaches the container only as
 environment, arguments and prompt are the allowlist in `src/agent`. The agent runs as
 the same uid in the same container and could read Core's process environment;
 decision A accepts this as equal to a local agent running `gh auth token`. Unknown
-stages and malformed options print the usage and exit 1. Any other failure prints its
-code and message, sets `pending` (see Pending) and exits 1.
+stages and malformed options print the usage and exit 1. `STAGE_WRITER_ACTIVE` prints
+its code and message, writes nothing and exits 0. Any other failure prints its code
+and message, sets `pending` (see Pending) or reports that it could not, and exits 1,
+so a non-zero exit always means a person must act.
 
 ## Pending
 
@@ -79,8 +81,9 @@ the fenced message block replaced by "The full message is in the run log.", then
 `pending` as usual; no size limit applies. The full message always goes to the Job log.
 `nibfin run` and `nibfin route` call it on every failure once the Issue is known,
 whatever the code, except `STAGE_WRITER_ACTIVE` (a wait: another Writer runs and its
-own post-stage route continues the Issue). The no-progress stop (`STAGE_NO_PROGRESS`,
-see `src/route`) takes the same path. The stage-specific comments stay as they are.
+own post-stage route continues the Issue; `nibfin run` exits 0 for it). The no-progress
+stop (`STAGE_NO_PROGRESS`, see `src/route`) takes the same path. The stage-specific
+comments stay as they are.
 While `pending` is present the Issue derives `ineligible (pending)` and nothing runs;
 removing it resumes from GitHub state.
 

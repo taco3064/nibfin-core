@@ -87,8 +87,8 @@ message, the run URL from `NIBFIN_RUN_REPO`/`NIBFIN_RUN_ID`, the temporary note 
 note with the reset time for `AGENT_USAGE_LIMIT`, and "remove the `pending` label to
 continue") and the `pending` label, confirmed by the read-back
 labels. `STAGE_WRITER_ACTIVE` is a wait, not a failure: another Writer runs and its
-own post-stage route continues the Issue. The command still exits non-zero with the
-original code. When the `pending` write fails too (GitHub unreachable), the run's
-failure is the only record.
+own post-stage route continues the Issue. `nibfin run` prints it and exits 0;
+`nibfin route` never raises it. When the `pending` write fails too (GitHub
+unreachable), the run's failure is the only record.
 
 Tests use a fake GitHub API (`fake-runner.test.ts` adds the execution repository).

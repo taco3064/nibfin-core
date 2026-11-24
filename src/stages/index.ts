@@ -35,6 +35,7 @@ export {
 } from "./next.ts";
 export {
   codeOf,
+  isWait,
   pendingCommentKey,
   requestPerson,
   runUrl,
