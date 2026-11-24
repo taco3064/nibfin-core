@@ -25,6 +25,9 @@ export const temporaryCodes: ReadonlySet<string> = new Set([
 /** Another Writer is running; its own post-stage route continues the Issue. */
 const waitCode = "STAGE_WRITER_ACTIVE";
 
+/** GitHub answered and refused a write, e.g. a body it will not take. */
+const rejectedCode = "GITHUB_WRITE_REJECTED";
+
 /** The code of a failure, if it carries one. */
 export function codeOf(error: unknown): string | undefined {
   if (typeof error !== "object" || error === null || !("code" in error)) {
@@ -47,8 +50,15 @@ function isTemporary(error: unknown, code: string | undefined): boolean {
   return code !== undefined && temporaryCodes.has(code);
 }
 
-/** The `pending` comment body for `error`. */
-export function pendingBody(error: unknown, url: string | undefined): string {
+/**
+ * The `pending` comment body for `error`. Without `withMessage` the fenced message
+ * block is replaced by a pointer to the run log, where the full message always goes.
+ */
+export function pendingBody(
+  error: unknown,
+  url: string | undefined,
+  withMessage = true,
+): string {
   const code = codeOf(error);
   const message = error instanceof Error ? error.message : String(error);
   const lines = [
@@ -57,9 +67,9 @@ export function pendingBody(error: unknown, url: string | undefined): string {
     `- Code: \`${code ?? "none"}\``,
     `- Run: ${url ?? "unknown"}`,
     "",
-    "```text",
-    message,
-    "```",
+    ...(withMessage
+      ? ["```text", message, "```"]
+      : ["The full message is in the run log."]),
     "",
   ];
   if (isTemporary(error, code)) {
@@ -77,7 +87,9 @@ export function pendingBody(error: unknown, url: string | undefined): string {
  * Asks a person to act on `issue` after `error`: upserts the marked `pending`
  * comment and adds `pending`, confirmed by the read-back labels. Nothing runs for
  * the Issue while `pending` is present; removing it is the go-ahead. A
- * `STAGE_WRITER_ACTIVE` error is a wait, not a failure, and writes nothing.
+ * `STAGE_WRITER_ACTIVE` error is a wait, not a failure, and writes nothing. When
+ * GitHub rejects the comment (`GITHUB_WRITE_REJECTED`, e.g. a very long message), it
+ * writes it once more without the message, then adds the label as usual.
  * Returns whether it wrote.
  */
 export async function requestPerson(
@@ -89,7 +101,15 @@ export async function requestPerson(
   if (codeOf(error) === waitCode) {
     return false;
   }
-  await upsertMarkedComment(client, issue, pendingCommentKey, pendingBody(error, url));
+  try {
+    await upsertMarkedComment(client, issue, pendingCommentKey, pendingBody(error, url));
+  } catch (failure) {
+    if (codeOf(failure) !== rejectedCode) {
+      throw failure;
+    }
+    const short = pendingBody(error, url, false);
+    await upsertMarkedComment(client, issue, pendingCommentKey, short);
+  }
   const labels = await setLabels(client, issue, { add: [nibfinLabels.pending] });
   if (!labels.includes(nibfinLabels.pending)) {
     throw unconfirmed("add pending", "The read-back labels lack pending");
