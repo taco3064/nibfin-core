@@ -19,6 +19,12 @@ on:
 permissions:
   contents: read
 
+# A cancelled Image run would count as a failed CD run, so runs of one ref wait in
+# order instead of replacing each other.
+concurrency:
+  group: image-${{ github.ref }}
+  queue: max
+
 jobs:
   build:
     name: build (${{ matrix.arch }})
@@ -48,6 +54,7 @@ jobs:
           platforms: linux/${{ matrix.arch }}
           load: true
           tags: nibfin:smoke
+          labels: org.opencontainers.image.revision=${{ github.sha }}
       - name: Smoke test
         run: sh .github/scripts/smoke-image.sh nibfin:smoke
       - uses: docker/login-action@v4
@@ -63,6 +70,7 @@ jobs:
           file: Containerfile
           platforms: linux/${{ matrix.arch }}
           tags: ${{ env.IMAGE }}
+          labels: org.opencontainers.image.revision=${{ github.sha }}
           outputs: type=image,push-by-digest=true,name-canonical=true,push=true
       - name: Export digest
         env:
@@ -105,8 +113,11 @@ jobs:
       - name: Create manifest list
         working-directory: ${{ runner.temp }}/digests
         run: |
-          docker buildx imagetools create --tag "$IMAGE:$GITHUB_SHA" \
-            $(printf "$IMAGE@sha256:%s " *)
+          set --
+          for digest in *; do
+            set -- "$@" "$IMAGE@sha256:$digest"
+          done
+          docker buildx imagetools create --tag "$IMAGE:$GITHUB_SHA" "$@"
       - name: Inspect digest
         id: inspect
         run: |
@@ -130,3 +141,34 @@ jobs:
             echo "- Digest: \`$DIGEST\`"
             echo "- Pull: \`podman pull $IMAGE@$DIGEST\`"
           } >> "$GITHUB_STEP_SUMMARY"
+      # Nibfin Jobs pull :main. It moves only forward: when :main is absent, or its
+      # revision is an ancestor of this commit (or the same commit).
+      - name: Move main forward
+        if: github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DIGEST: ${{ steps.inspect.outputs.digest }}
+        run: |
+          errors="$RUNNER_TEMP/inspect-main.err"
+          if config=$(docker buildx imagetools inspect "$IMAGE:main" \
+            --format '{{json .Image}}' 2> "$errors"); then
+            revision=$(jq -er \
+              '."linux/amd64".config.Labels["org.opencontainers.image.revision"]' \
+              <<< "$config")
+            status=$(gh api "repos/$GITHUB_REPOSITORY/compare/$revision...$GITHUB_SHA" \
+              --jq .status)
+            case "$status" in
+              ahead | identical) ;;
+              *)
+                echo ":main is at $revision ($status from $GITHUB_SHA); not moved"
+                exit 0
+                ;;
+            esac
+          elif grep -qi "not found" "$errors"; then
+            echo ":main does not exist yet"
+          else
+            cat "$errors" >&2
+            exit 1
+          fi
+          docker buildx imagetools create --tag "$IMAGE:main" "$IMAGE@$DIGEST"
+          echo "- Moved \`main\` to \`$DIGEST\`" >> "$GITHUB_STEP_SUMMARY"

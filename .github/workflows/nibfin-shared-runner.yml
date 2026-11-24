@@ -1,0 +1,66 @@
+name: Nibfin · Shared runner
+
+# Every route and stage Job of every Issue runs here, in the execution repository.
+# Core dispatches it (nibfin route, nibfin run) and each repository's
+# nibfin-issue.yml wakes it. Runs of one Issue share one concurrency group and never
+# overlap; up to 100 wait in order.
+run-name: >-
+  ${{ inputs.issue != ''
+  && format('Nibfin · {0}#{1} · {2}', inputs.repo, inputs.issue, inputs.stage)
+  || format('Nibfin · {0}@{1} · route', inputs.repo, inputs.ref) }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      repo:
+        description: The Issue's repository, <owner>/<repo>
+        type: string
+        required: true
+      issue:
+        description: The Issue number (empty for a sha or branch route)
+        type: string
+        default: ""
+      sha:
+        type: string
+        default: ""
+      branch:
+        type: string
+        default: ""
+      stage:
+        type: choice
+        options: [route, shape, deliver, review]
+        required: true
+      reason:
+        description: Deliver only, ci-failure, review or cd-failure
+        type: string
+        default: ""
+      assignee:
+        description: The first Assignee's user id (stage runs)
+        type: string
+        default: ""
+      ref:
+        description: The sha or branch of a route run, for its title
+        type: string
+        default: ""
+
+permissions: {}
+
+concurrency:
+  group: nibfin-${{ inputs.repo }}-${{ inputs.issue || inputs.ref }}
+  cancel-in-progress: false
+  queue: max
+
+jobs:
+  job:
+    uses: ./.github/workflows/nibfin-job.yml
+    with:
+      repo: ${{ inputs.repo }}
+      issue: ${{ inputs.issue }}
+      sha: ${{ inputs.sha }}
+      branch: ${{ inputs.branch }}
+      stage: ${{ inputs.stage }}
+      reason: ${{ inputs.reason }}
+      assignee: ${{ inputs.assignee }}
+      ref: ${{ inputs.ref }}
+    secrets:
+      token: ${{ secrets.NIBFIN_GITHUB_TOKEN }}

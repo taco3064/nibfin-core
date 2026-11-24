@@ -1,0 +1,32 @@
+name: Nibfin · Issue events
+
+# Wakes the Issue an event belongs to; Core decides what runs. It also runs on every
+# push to main, which is the "Nibfin ·" push run CD detection waits for.
+run-name: >-
+  ${{ github.event.issue
+  && format('Nibfin · {0}#{1} · wake', github.repository, github.event.issue.number)
+  || format('Nibfin · {0}@{1} · wake', github.repository,
+  github.event.workflow_run && (github.event.workflow_run.event == 'pull_request'
+  && github.event.workflow_run.head_branch || github.event.workflow_run.head_sha)
+  || github.event.check_suite.head_branch || github.event.sha || github.sha) }}
+
+on:
+  issues:
+    types: [opened, reopened, assigned, unassigned, labeled, unlabeled]
+  workflow_run:
+    # Every workflow that runs on push to main or produces a required check.
+    workflows: [CI, Image]
+    types: [completed]
+  check_suite:
+    types: [completed]
+  status:
+  push:
+    branches: [main]
+
+permissions: {}
+
+jobs:
+  wake:
+    uses: ./.github/workflows/nibfin-events.yml
+    secrets:
+      token: ${{ secrets.NIBFIN_GITHUB_TOKEN }}
