@@ -49,3 +49,66 @@ export function isCodexLoginSignal(event: AgentEvent): boolean {
     codexReloginSentences.some((sentence) => message.includes(sentence))
   );
 }
+
+/**
+ * The latest usage-limit report of a CLI. Only `type` (a plain identifier) and
+ * `reset` (a reformatted or length-bounded time) come from the stream, so no free
+ * text from the CLI reaches a comment.
+ */
+export interface UsageLimitReport {
+  /** The provider refused the run because its usage limit was reached. */
+  rejected: boolean;
+  /** The limit, such as `five_hour`, when the CLI names it. */
+  type?: string;
+  /** When the limit resets, when the CLI reports it. */
+  reset?: string;
+}
+
+function unixSecondsToIso(value: unknown): string | undefined {
+  if (typeof value !== "number" || !Number.isSafeInteger(value)) {
+    return undefined;
+  }
+  const date = new Date(value * 1000);
+  if (Number.isNaN(date.getTime())) {
+    return undefined;
+  }
+  return date.toISOString().replace(/\.\d{3}Z$/, "Z");
+}
+
+/**
+ * Claude Code's `rate_limit_event`, emitted whenever its rate-limit state changes:
+ * `status` `allowed`, `allowed_warning` or `rejected`, an optional `resetsAt` in unix
+ * seconds and an optional `rateLimitType`.
+ */
+export function claudeUsageLimit(event: AgentEvent): UsageLimitReport | undefined {
+  if (event.type !== "rate_limit_event" || !isRecord(event.rate_limit_info)) {
+    return undefined;
+  }
+  const info = event.rate_limit_info;
+  const report: UsageLimitReport = { rejected: info.status === "rejected" };
+  const type = stringField(info, "rateLimitType");
+  if (type !== undefined && /^[a-z_]{1,64}$/.test(type)) {
+    report.type = type;
+  }
+  const reset = unixSecondsToIso(info.resetsAt);
+  if (reset !== undefined) {
+    report.reset = reset;
+  }
+  return report;
+}
+
+/** The time of Codex's " Try again at <time>." clause: plain characters, bounded. */
+const codexResetPattern = /Try again at ([\w :,/+-]{1,64}?)\.(?:\s|$)/;
+
+/**
+ * A Codex `error` or `turn.failed` event whose message says "You've hit your usage
+ * limit", with the time of its "Try again at" clause when present.
+ */
+export function codexUsageLimit(event: AgentEvent): UsageLimitReport | undefined {
+  const message = codexErrorMessage(event);
+  if (message === undefined || !message.includes("hit your usage limit")) {
+    return undefined;
+  }
+  const reset = codexResetPattern.exec(message)?.[1];
+  return reset === undefined ? { rejected: true } : { rejected: true, reset };
+}

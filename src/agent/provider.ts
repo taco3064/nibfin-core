@@ -3,8 +3,11 @@ import { readOptionalFile } from "./fs.ts";
 import {
   type AgentEvent,
   claudeResult,
+  claudeUsageLimit,
+  codexUsageLimit,
   isClaudeLoginSignal,
   isCodexLoginSignal,
+  type UsageLimitReport,
 } from "./stream.ts";
 
 export type Provider = "codex" | "claude";
@@ -27,6 +30,8 @@ export interface ProviderSpec {
   readonly loginStatusArgs: readonly string[];
   headlessArgs(model: string | undefined, lastMessageFile: string): string[];
   isLoginSignal(event: AgentEvent): boolean;
+  /** The usage-limit report an event carries; the latest report counts. */
+  usageLimitFromEvent(event: AgentEvent): UsageLimitReport | undefined;
   resultFromEvent(event: AgentEvent): string | undefined;
   readFinalMessage(
     streamResult: string | undefined,
@@ -59,6 +64,7 @@ const claude: ProviderSpec = {
     ...modelArgs("--model", model),
   ],
   isLoginSignal: isClaudeLoginSignal,
+  usageLimitFromEvent: claudeUsageLimit,
   resultFromEvent: claudeResult,
   readFinalMessage: (streamResult) => Promise.resolve(streamResult),
   prepareHome: enableProjectMcpServers,
@@ -86,6 +92,7 @@ const codex: ProviderSpec = {
     "-",
   ],
   isLoginSignal: isCodexLoginSignal,
+  usageLimitFromEvent: codexUsageLimit,
   resultFromEvent: () => undefined,
   readFinalMessage: (_streamResult, lastMessageFile) => readOptionalFile(lastMessageFile),
   // `--trust` saves project trust through Codex's own config editor.
