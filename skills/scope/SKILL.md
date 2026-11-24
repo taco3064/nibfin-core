@@ -18,8 +18,8 @@ Role limits apply equally to people and agents.
 Plan, Publish and Audit are separate modes.
 
 - Plan is read-only. It proposes the full Issue portfolio and its dependency order.
-- Publish writes only the Issues, metadata and native dependencies the Owner approved, and
-  reads them back.
+- Publish writes only the Issues, metadata and native dependencies the Owner approved, or
+  a small amendment (see Small amendments), and reads them back.
 - Audit is read-only. It compares existing Issues with the requirements, source and native
   dependencies, and reports gaps.
 
@@ -43,7 +43,8 @@ code currently lives; record drift instead of changing ownership silently.
   obligation in it, including cross-cutting security, compatibility, documentation and
   operational obligations. A slice cannot claim whole-product completeness.
 - The current Issue is the requirement for its work and may be edited lawfully. Editing an
-  existing Issue goes through Publish with the Owner's approval of that edit.
+  existing Issue goes through Publish: a small amendment with the Owner informed, any
+  other edit with the Owner's approval of that edit.
 - Do not hardcode a project's repositories, Issue numbers, platforms, commands, labels,
   versions or policies in this skill; read them from the authority and the provider.
 
@@ -72,10 +73,12 @@ development Issue, and each one must pass all five checks:
    affected product decision. Never make an absent capability both a prerequisite and the
    deliverable, and never add a research Issue to hide the gap.
 4. Deliverable by the delivery flow: the change can be made by the Writer within the agent
-   permission boundary. Work that must change an agent's own execution policy, Secrets,
-   protected workflows, `.nibfin/`, CODEOWNERS or other protected paths belongs on a
-   separately authorized maintenance route; split out ordinary code only when the rest
-   stays independently useful.
+   permission boundary. Work that must change an agent's own execution policy, Secrets or
+   a protected path (`.github/workflows/`, `.nibfin.json`, `.nibfin/`, `.rulesync/`, the
+   CODEOWNERS files GitHub reads, every role skill file the base branch's `.nibfin.json`
+   names; Nibfin's own built-in `skills/` in its Core repository are product source, not
+   protected) belongs on a separately authorized maintenance route; split out ordinary
+   code only when the rest stays independently useful.
 5. No accidental execution grant: a draft, tracking Issue, checklist, label or dependency
    is not a deliverable. Publish only eligible implementation Issues, with approved
    metadata and a provider read-back.
@@ -188,10 +191,10 @@ not authorize writes.
 ## Publish
 
 Publish needs the Owner's explicit approval of the concrete manifest: bodies,
-repositories, metadata and native edges. Before the first write, refresh the authority,
-duplicate, eligibility, ownership, permission and disclosure checks. If material facts or
-the approved write set changed, return `REPLAN_REQUIRED`; if a write cannot safely
-proceed, return `PUBLICATION_BLOCKED`.
+repositories, metadata and native edges. A small amendment is the only exception (below).
+Before the first write, refresh the authority, duplicate, eligibility, ownership,
+permission and disclosure checks. If material facts or the approved write set changed,
+return `REPLAN_REQUIRED`; if a write cannot safely proceed, return `PUBLICATION_BLOCKED`.
 
 State lives in GitHub; keep no local journal. For each approved operation:
 
@@ -214,12 +217,30 @@ Verdicts:
 
 Publication does not shape, deliver or complete any Issue.
 
+### Small amendments
+
+Shape returns blocked with an amendment request when the Issue itself needs a change. A
+small amendment changes no outcome, included or excluded work, ownership or estimate. It
+is one of:
+
+- correcting a factual reference (a path, name, interface or limit) proven by current code
+  or the provider's documentation;
+- aligning wording with an already-approved authority clause or Owner decision, cited;
+- adding a `Blocked by` edge to an open Issue that owns an undelivered output this Issue
+  cannot start or finish without.
+
+Publish may apply a small amendment without a manifest approval. Refresh the evidence,
+apply only that amendment, read back the body and both directions of any edge as for every
+write, then comment on the Issue what changed and why so the Owner is informed. Anything
+else, including new requirements and new or cancelled Issues, needs an approved manifest.
+
 ## Audit
 
 Audit the same work-type, ownership and dependency rules as Plan. Compare current Issues
 with source and native relationships; identify gaps, duplicates, misrouted work and the
 next owner. Distinguish reported verification from evidence you observed directly. Audit
-stays read-only; corrections go through an approved Publish.
+stays read-only; corrections go through Publish (an approved manifest, or a small
+amendment).
 
 Verdicts:
 
