@@ -81,7 +81,12 @@ Nothing below is done by Nibfin; the Owner does it once.
   `NIBFIN_MEMORY` (default `3g`, also the memory check before the first agent run),
   `NIBFIN_MEMORY_HIGH` (default `2560m`, an integer with optional K/M/G; above it
   the kernel throttles and reclaims instead of killing), `NIBFIN_PIDS_LIMIT`
-  (default `4096`) and `NIBFIN_CPUS` (default `4`).
+  (default `4096`), `NIBFIN_CPUS` (default `4`) and `NIBFIN_CONTAINER_LIMITS`.
+  Set `NIBFIN_CONTAINER_LIMITS` to exactly `off` to start the stage container without
+  `--pids-limit`, `--memory`, `--cpus` and `--cgroup-conf memory.high`; unset or any
+  other value keeps them. With limits off, `NIBFIN_MEMORY` still sets the memory check
+  threshold (default `3g`), and `NIBFIN_MEMORY_HIGH`, `NIBFIN_PIDS_LIMIT` and
+  `NIBFIN_CPUS` have no effect.
 - The image package `ghcr.io/taco3064/nibfin` is public (see the README). Jobs pull
   `:main`, which the Image workflow moves forward after each build on `main`.
 
@@ -102,8 +107,14 @@ Nothing below is done by Nibfin; the Owner does it once.
   (`gh api users/<login> --jq .id`). An Issue whose first Assignee has no runner with
   its label waits until GitHub cancels the stage run.
 - Run each runner as a service in a lingering systemd user session
-  (`loginctl enable-linger <user>`), with the cgroup v2 `cpu`, `memory` and `pids`
-  controllers delegated to the user, so rootless Podman can apply the limits.
+  (`loginctl enable-linger <user>`). With the container limits on (the default),
+  delegate the cgroup v2 `cpu`, `memory` and `pids` controllers to the user, so
+  rootless Podman can apply them.
+- A WSL-based `podman machine` cannot apply per-container limits: cap the VM's memory
+  in `.wslconfig` on the Windows host and set `NIBFIN_CONTAINER_LIMITS=off` in
+  nibfin-core. The cap is for the whole VM and must leave more than `NIBFIN_MEMORY`
+  available inside it, or every stage run ends in `pending`
+  (`STAGE_HOST_MEMORY_LOW`).
 - Create the two volumes and log in once with the same user namespace the Jobs use:
 
   ```sh
