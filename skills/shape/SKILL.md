@@ -281,9 +281,12 @@ authority, the latest `main` and the proposed Shape, and checks for itself:
   result you used. Otherwise a claim marked unverified is acceptable when the plan
   tolerates it being false or Accept can verify it after Deliver; if not, return blocked
   with the cause;
-- an amendment request is used only where the Shape cannot be completed truthfully without
-  the Issue change, or an edge is missing to an output the Issue cannot start or finish
-  without;
+- when the Issue itself needs a change, apply the Re-planning rule yourself: return
+  blocked with a concrete amendment request (the exact text or edge, the evidence, and
+  whether it is a small amendment) only when the Shape cannot be completed truthfully
+  without the change, or an edge is missing to an output the Issue cannot start or finish
+  without; a merely useful amendment belongs in the Shape's evidence, so accept it there
+  or ask for it with changes-required;
 - each mechanism chosen beyond the Issue's outcome carries its simplicity reasoning;
 - a change that adds writes the program performs while running has its interruption walk,
   and nothing in it waits on a timer or, without authority, on a person;
