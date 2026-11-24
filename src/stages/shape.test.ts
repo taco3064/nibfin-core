@@ -127,7 +127,15 @@ describe("runShapeStage publication", () => {
     assert.equal(roleOf(revise), "Shape Author");
     assert.match(revise, /## Previous proposed Shape\n\nv1/);
     assert.match(revise, /## Validator findings\n\n- Name the module/);
-    assert.doesNotMatch(t.fake.runs[3].prompt, /Name the module/);
+    const first = t.fake.runs[1].prompt;
+    assert.equal(roleOf(first), "Shape Validator");
+    assert.doesNotMatch(first, /## Previous proposed Shape/);
+    assert.doesNotMatch(first, /## Previous Validator findings/);
+    const second = t.fake.runs[3].prompt;
+    assert.equal(roleOf(second), "Shape Validator");
+    assert.match(second, /## Proposed Shape\n\nv2/);
+    assert.match(second, /## Previous proposed Shape\n\nv1/);
+    assert.match(second, /## Previous Validator findings\n\n- Name the module/);
     assert.deepEqual(t.fake.logs.slice(0, 5), [
       "Round 1: Shape Author",
       "Round 1: Shape Validator",
@@ -135,6 +143,26 @@ describe("runShapeStage publication", () => {
       "Round 2: Shape Author",
       "Round 2: Shape Validator",
     ]);
+  });
+
+  it("gives a revision-round Validator only the immediately previous round", async () => {
+    const t = setup([
+      ready("v1"),
+      changes("First finding"),
+      ready("v2"),
+      changes("Second finding"),
+      ready("v3"),
+      approved,
+    ]);
+    assert.equal(await t.run(), 0);
+    assert.equal(t.issues.marked("shape")[0]?.body, `${shapeMarker}\nv3`);
+    const third = t.fake.runs[5].prompt;
+    assert.equal(roleOf(third), "Shape Validator");
+    assert.match(third, /## Proposed Shape\n\nv3/);
+    assert.match(third, /## Previous proposed Shape\n\nv2/);
+    assert.match(third, /## Previous Validator findings\n\n- Second finding/);
+    assert.doesNotMatch(third, /\bv1\b/);
+    assert.doesNotMatch(third, /First finding/);
   });
 
   it("validates an existing unpublished Shape before any Author run", async () => {

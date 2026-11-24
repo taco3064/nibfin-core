@@ -82,6 +82,18 @@ interface Revision {
   findings: readonly string[];
 }
 
+/** The previous round's Shape and findings, titled for the reading role. */
+function revisionSections(
+  revision: Revision,
+  shapeTitle: string,
+  findingsTitle: string,
+): PromptSection[] {
+  return [
+    { title: shapeTitle, body: revision.previous },
+    { title: findingsTitle, body: listFindings(revision.findings) },
+  ];
+}
+
 const proposeTask = "Propose the Shape for the current Issue.";
 const rewriteTask =
   "Rewrite the Shape: the previous one was found wrong. Use the reason below and " +
@@ -127,8 +139,7 @@ async function author(job: StageJob, issue: IssueRef, state: RoundState) {
   }
   if (revision !== undefined) {
     sections.push(
-      { title: "Previous proposed Shape", body: revision.previous },
-      { title: "Validator findings", body: listFindings(revision.findings) },
+      ...revisionSections(revision, "Previous proposed Shape", "Validator findings"),
     );
   }
   if (report !== undefined) {
@@ -146,9 +157,13 @@ const validateTask = "Validate the proposed Shape for the current Issue independ
 const resolvesTask =
   " Also check that it resolves why the previous Shape was found wrong (below).";
 
-/** The Validator sees only the sources, the proposed Shape and an active report. */
+/**
+ * The Validator sees only the sources, the proposed Shape, in a revision round the
+ * previous proposed Shape and the previous Validator findings (to compare versions),
+ * and an active report. It never sees the Author's reasoning.
+ */
 async function validate(job: StageJob, state: RoundState, shape: string) {
-  const { report } = state;
+  const { report, revision } = state;
   const sections: PromptSection[] = [
     {
       title: "Task",
@@ -157,6 +172,12 @@ async function validate(job: StageJob, state: RoundState, shape: string) {
     ...sourceSections(state.sources),
     { title: "Proposed Shape", body: shape },
   ];
+  if (revision !== undefined) {
+    const shapeTitle = "Previous proposed Shape";
+    sections.push(
+      ...revisionSections(revision, shapeTitle, "Previous Validator findings"),
+    );
+  }
   if (report !== undefined) {
     sections.push(reasonSection(report));
   }
