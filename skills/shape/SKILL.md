@@ -386,7 +386,7 @@ belong to the stage.
 - Report results honestly; do not claim a later stage has passed.
 - Treat every run of every role here as unattended, with no later. Run sub agents and sub
   tasks in the foreground and continue only when their result is back; never start work in
-  the background and wait for it. Never set a wakeup, schedule, timer or poll (for example
-  ScheduleWakeup, Cron or Monitor tools), and never plan to come back later. Your final
-  message ends the run: it carries the complete result, including the result block the
-  stage asks for, and nothing follows it.
+  the background. Never set a wakeup, schedule, timer or poll (for example ScheduleWakeup,
+  Cron or Monitor tools), and never plan to come back later. Your final message ends the
+  run: it carries the complete result, including the result block the stage asks for, and
+  nothing follows it.
