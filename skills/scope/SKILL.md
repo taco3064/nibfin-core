@@ -13,11 +13,11 @@ its implementation plan; Deliver implements it; Accept chooses how to verify the
 Scope does not select executors, write Shapes or produce delivery or acceptance results.
 Role limits apply equally to people and agents.
 
-When Scope runs unattended, that run has no later. Run sub agents and sub tasks in the
-foreground and continue only when their result is back; never start work in the background
-and wait for it. Never set a wakeup, schedule, timer or poll (for example ScheduleWakeup,
-Cron or Monitor tools), and never plan to come back later. The final message ends the run
-and carries the complete result; nothing follows it.
+Treat every run as having no later. Run sub agents and sub tasks in the foreground and
+continue only when their result is back; never start work in the background and wait for
+it. Never set a wakeup, schedule, timer or poll (for example ScheduleWakeup, Cron or
+Monitor tools), and never plan to come back later. The final message ends the run and
+carries the complete result; nothing follows it.
 
 ## Modes
 
