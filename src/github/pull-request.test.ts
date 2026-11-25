@@ -42,7 +42,8 @@ describe("readCommitPullRequests", () => {
   it("lists the pull requests of a commit with title and URL", async () => {
     const github = fakeGitHub({
       "GET /repos/acme/app/commits/abc/pulls": paged([
-        { ...pull(330), title: "Add the widget" },
+        { ...pull(330), title: "Add the widget", body: "Part of #12" },
+        { ...pull(331), title: "Fix it", body: null },
       ]),
     });
     assert.deepEqual(await readCommitPullRequests(github.client, repo, "abc"), [
@@ -50,6 +51,13 @@ describe("readCommitPullRequests", () => {
         number: 330,
         title: "Add the widget",
         url: "https://github.com/acme/app/pull/330",
+        body: "Part of #12",
+      },
+      {
+        number: 331,
+        title: "Fix it",
+        url: "https://github.com/acme/app/pull/331",
+        body: "",
       },
     ]);
   });

@@ -1,6 +1,8 @@
 import type { IssueRef } from "../github/index.ts";
 
-const keywords = "close|closes|closed|fix|fixes|fixed|resolve|resolves|resolved";
+/** GitHub's closing keywords, as a regular expression alternation. */
+export const closingKeywords =
+  "close|closes|closed|fix|fixes|fixed|resolve|resolves|resolved";
 
 function escape(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -16,7 +18,7 @@ function closingPattern(issue: IssueRef): RegExp {
   const target =
     `(?:(?:${repo})?#${issue.number}` +
     `|https://github\\.com/${repo}/issues/${issue.number})`;
-  return new RegExp(`\\b(?:${keywords}):?\\s+${target}(?![\\w/-])`, "i");
+  return new RegExp(`\\b(?:${closingKeywords}):?\\s+${target}(?![\\w/-])`, "i");
 }
 
 /** The messages that would close `issue` when merged. */
