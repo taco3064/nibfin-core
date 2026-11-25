@@ -18,7 +18,7 @@ export const usage = `Usage: nibfin <option>
        nibfin run --stage shape --repo <owner>/<repo> --issue <n> --provider <p>
                   [--model <model>]
        nibfin run --stage deliver --repo <owner>/<repo> --issue <n> --provider <p>
-                  [--model <model>] [--reason ci-failure|review|cd-failure]
+                  [--model <model>] [--reason ci-failure|review|cd-failure|conflict]
        nibfin run --stage review --repo <owner>/<repo> --issue <n> --provider <p>
                   [--model <model>]
        nibfin route --repo <owner>/<repo> (--issue <n> | --sha <sha> | --branch <b>)
