@@ -10,6 +10,9 @@ peers: their events wake their Issues by dispatching to the execution repository
 - `nibfin-shared-runner.yml` (nibfin-core): run titles, one concurrency group per
   Issue, calls `nibfin-job.yml`.
 - `nibfin-job.yml` (nibfin-core, reusable): checkout, image, container and clean-up.
+- `nibfin-runner-request.yml` (nibfin-core): answers a collaborator's runner request
+  Issue with a registration token encrypted to their SSH key; it follows gh-nibfin's
+  template of the same name.
 
 Events only wake an Issue. Core reads GitHub, decides what runs (`src/route`) and
 dispatches it. When a person is needed, Core adds the `pending` label with a comment;
@@ -82,8 +85,9 @@ Nothing below is done by Nibfin; the Owner does it once.
 
 ### nibfin-core only
 
-- Variables: `NIBFIN_PROVIDER` (`codex` or `claude`; never taken from an Issue,
-  repository text or dispatch input) and optionally `NIBFIN_MODEL`. Optional limits:
+- Variables: optionally `NIBFIN_MODEL`. The provider is not a variable: each runner's
+  `.env` sets `NIBFIN_PROVIDER` (`codex` or `claude`), so it is never taken from an
+  Issue, repository text, a variable or a dispatch input. Optional limits:
   `NIBFIN_MEMORY` (default `3g`, also the memory check before the first agent run),
   `NIBFIN_MEMORY_HIGH` (default `2560m`, an integer with optional K/M/G; above it
   the kernel throttles and reclaims instead of killing), `NIBFIN_PIDS_LIMIT`
@@ -108,9 +112,11 @@ Nothing below is done by Nibfin; the Owner does it once.
 - The VM needs only Podman, git 2.18 or later (for `actions/checkout`) and the
   GitHub Actions runner. A personal account's runner serves one repository, so the
   runners register with `taco3064/nibfin-core`.
-- Two runners. Labels: `nibfin` for route runs, and `nibfin-<user id>-<provider>` for
-  the stage runs of Issues whose Assignee has that user id
-  (`gh api users/<login> --jq .id`). Route dispatches a stage only when some runner of
+- Two runners. Labels: `nibfin` for route runs, and `nibfin-<user id>` for the stage
+  runs of Issues whose Assignee has that user id (`gh api users/<login> --jq .id`).
+  Each runner's `.env` sets `NIBFIN_PROVIDER=<provider>`; restart the runner after
+  changing it. Of one member's runners of two providers, whichever takes the Job
+  first runs it. Route dispatches a stage only when some runner of
   the execution repository has the label `nibfin-<user id>` of the Issue's only
   Assignee (compared case-insensitively, online or offline, busy or idle); without one
   the Issue is an ordinary assignment and nothing is dispatched, labelled or commented.
