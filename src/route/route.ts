@@ -19,17 +19,19 @@ import {
   shapeNextAction,
 } from "../stages/index.ts";
 
-/** The stage to run for an Issue, on the first Assignee's runner. */
+/** The stage to run for an Issue, on its only Assignee's runner. */
 export interface IssueRoute {
   stage: "shape" | "deliver" | "review";
   reason: FixReason | null;
-  /** The first Assignee's user id. */
+  /** The only Assignee's user id. */
   assignee: number;
 }
 
 /** An Issue's route, whether it is open, and its derived stage for the log. */
 export interface RouteState {
   open: boolean;
+  /** How many Assignees the Issue has. */
+  assignees: number;
   route: IssueRoute | null;
   stage: Stage;
 }
@@ -72,7 +74,11 @@ async function nextFor(
   return nothing;
 }
 
-/** Reads the Issue and derives what runs next for it (see `routeIssue`). */
+/**
+ * Reads the Issue and derives what runs next for it (see `routeIssue`). With several
+ * Assignees the stage is `ineligible (multiple-assignees)` and the route `null`, so
+ * a route always names the Issue's only Assignee (#720).
+ */
 export async function readRoute(
   client: ActingClient,
   repo: Repo,
@@ -83,18 +89,20 @@ export async function readRoute(
   const stage = deriveStage(snapshot);
   const ref = { ...repo, number: issue };
   const next = await nextFor(client, ref, snapshot, stage, log);
-  const assignee = snapshot.issue.assignees.at(0)?.id;
-  const open = snapshot.issue.state === "open";
+  const { assignees } = snapshot.issue;
+  const assignee = assignees.at(0)?.id;
+  const state = { open: snapshot.issue.state === "open", assignees: assignees.length };
   if (next.stage === null || assignee === undefined) {
-    return { open, route: null, stage };
+    return { ...state, route: null, stage };
   }
-  return { open, route: { stage: next.stage, reason: next.reason, assignee }, stage };
+  return { ...state, route: { stage: next.stage, reason: next.reason, assignee }, stage };
 }
 
 /**
  * The one authority for what runs next for an Issue (#674): the stage, its reason
- * and the first Assignee's user id, or `null` when nothing should run (paused,
- * `pending`, no scope, blocked, no Assignee, waiting for CI or CD, …).
+ * and the only Assignee's user id, or `null` when nothing should run (paused,
+ * `pending`, no scope, several Assignees, blocked, no Assignee, waiting for CI or
+ * CD, …).
  */
 export async function routeIssue(
   client: ActingClient,

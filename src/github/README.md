@@ -123,7 +123,8 @@ without Nibfin's own workflows. Nibfin's own push run for that commit is the sig
 the set is complete.
 
 `deriveStage(snapshot)` checks, in order: `ineligible` (`closed`, `no-scope`, `paused`,
-`pending` (#674: Nibfin needs a person; removing the label resumes), `blocked` by an
+`pending` (#674: Nibfin needs a person; removing the label resumes),
+`multiple-assignees` (more than one Assignee, #720), `blocked` by an
 Issue that is not Closed + `delivered`, `no-assignee`), then `shape` without
 `shaped`, then `deliveryOutcome(snapshot)` on the current branch:
 
@@ -207,6 +208,10 @@ otherwise it fails with `GITHUB_WRITE_UNCONFIRMED`.
 - `readNotStartedRuns(client, repo)`: the runs with status `requested`, `waiting`,
   `pending` or `queued`, one list request (all pages) per status, with their
   `display_title`.
+- `readRunnerLabels(client, repo)` (#720): the label names of every self-hosted runner
+  of the repository (`GET …/actions/runners`, all pages; needs admin access),
+  lowercased since runner labels are case-insensitive, whatever a runner's `status`
+  or `busy`. `runnerLabel(id)` forms an Assignee's label `nibfin-<user id>`.
 - `dispatchWorkflow(client, repo, workflow, inputs)`: dispatches `workflow` on the
   repository's default branch (`readDefaultBranch`) with `return_run_details` and
   returns the run URL when GitHub reports it. No response or a 5xx is
