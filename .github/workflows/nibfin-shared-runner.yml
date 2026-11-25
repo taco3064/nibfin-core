@@ -31,7 +31,7 @@ on:
         options: [route, shape, deliver, review]
         required: true
       reason:
-        description: Deliver only, ci-failure, review or cd-failure
+        description: Deliver only, ci-failure, review, cd-failure or conflict
         type: string
         default: ""
       assignee:
