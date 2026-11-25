@@ -179,8 +179,9 @@ async function dispatch(scope: ReviewScope): Promise<NextAction> {
 /**
  * The review stage, by the derived stage: `review` reviews the PR head and sends
  * problems back to Deliver or merges a clean PR; `cd-failed` asks for a CD-failure
- * fix; `done` writes the closing comment, closes the Issue as delivered and names
- * the downstream Issues to wake. Returns the exit code; writes the next action.
+ * fix; `conflict` asks for a conflict fix; `done` writes the closing comment, closes
+ * the Issue as delivered and names the downstream Issues to wake. Returns the exit
+ * code; writes the next action.
  */
 export async function runReviewStage(
   context: JobContext,
