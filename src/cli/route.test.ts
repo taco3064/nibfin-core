@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { failure, fakeToken, paged } from "../github/fake-github.test.ts";
 import { pull } from "../github/fixtures.test.ts";
-import { GitHubError } from "../github/index.ts";
+import { freshReads, GitHubError } from "../github/index.ts";
 import { fakeBranches } from "../route/fake-branches.test.ts";
 import { fakeRunner } from "../route/fake-runner.test.ts";
 import {
@@ -61,6 +61,84 @@ describe("nibfin route --issue", () => {
     assert.equal(result.code, 0);
     assert.equal(result.stdout, "acme/app#1: nothing to run (ineligible (pending))\n");
     assert.deepEqual(t.runner.dispatched, []);
+  });
+
+  it("writes nothing when no runner has the Assignee's label", async () => {
+    const t = routeDeps({ labels: ["scope"] });
+    t.runner.runners = [];
+    const result = await capture([...route, "--issue", "1"], t.deps);
+    assert.equal(result.code, 0);
+    assert.deepEqual(t.runner.dispatched, []);
+    assert.deepEqual(t.issues.github.writes(), []);
+    assert.equal(
+      result.stdout,
+      "acme/app#1: no runner of the execution repository has the label nibfin-5; " +
+        "an ordinary assignment, nothing dispatched\n",
+    );
+  });
+
+  it("asks for exactly one Assignee with pending, and exits 0", async () => {
+    const assignees = [
+      { id: 5, login: "taco" },
+      { id: 6, login: "other" },
+      { id: 7, login: "third" },
+    ];
+    const t = routeDeps({ labels: ["scope", "shaped"], assignees });
+    const result = await capture([...route, "--issue", "1"], t.deps);
+    assert.deepEqual(result, {
+      code: 0,
+      stdout: "acme/app#1: 3 Assignees; added pending to ask for exactly one\n",
+      stderr: "",
+    });
+    assert.deepEqual(t.runner.dispatched, []);
+    assert.ok(t.issues.main.labels.includes("pending"));
+    const [comment, ...more] = t.issues.marked("pending");
+    assert.deepEqual(more, []);
+    assert.match(comment.body, /Code: `STAGE_MULTIPLE_ASSIGNEES`/);
+    assert.match(comment.body, /exactly one Assignee, and this Issue has 3\./);
+    assert.match(comment.body, /Leave exactly one Assignee, then remove the `pending`/);
+    assert.match(comment.body, /acme\/runner\/actions\/runs\/900/);
+    assert.doesNotMatch(comment.body, /@|taco|other|third/);
+    assert.doesNotMatch(comment.body, /looks temporary/);
+  });
+
+  it("repeats the request for one Assignee safely", async () => {
+    const assignees = [
+      { id: 5, login: "taco" },
+      { id: 6, login: "other" },
+    ];
+    const t = routeDeps({ labels: ["scope"], assignees });
+    await capture([...route, "--issue", "1"], t.deps);
+    // While pending is present, the route writes nothing more. Each route run is a
+    // new process, so none sees another's cached reads.
+    const writes = t.issues.github.writes().length;
+    freshReads(t.issues.github.client);
+    const held = await capture([...route, "--issue", "1"], t.deps);
+    assert.equal(held.stdout, "acme/app#1: nothing to run (ineligible (pending))\n");
+    assert.equal(t.issues.github.writes().length, writes);
+    // A person removed pending with two Assignees left, or the label never landed.
+    t.issues.main.labels = ["scope"];
+    freshReads(t.issues.github.client);
+    const again = await capture([...route, "--issue", "1"], t.deps);
+    assert.equal(again.code, 0);
+    assert.ok(t.issues.main.labels.includes("pending"));
+    assert.equal(t.issues.marked("pending").length, 1);
+    assert.deepEqual(t.runner.dispatched, []);
+  });
+
+  it("fails with the failure's note when asking for one Assignee fails", async () => {
+    const assignees = [
+      { id: 5, login: "taco" },
+      { id: 6, login: "other" },
+    ];
+    const t = routeDeps({ labels: ["scope"], assignees });
+    const path = "POST /repos/acme/app/issues/1/labels";
+    t.issues.github.routes.set(path, failure(502));
+    const result = await capture([...route, "--issue", "1"], t.deps);
+    assert.equal(result.code, 1);
+    assert.match(result.stderr, /^nibfin: GITHUB_WRITE_UNCONFIRMED/);
+    const [comment] = t.issues.marked("pending");
+    assert.match(comment.body, /Code: `GITHUB_WRITE_UNCONFIRMED`/);
   });
 
   it("adds pending when the route fails", async () => {
