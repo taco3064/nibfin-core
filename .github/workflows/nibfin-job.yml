@@ -80,7 +80,12 @@ jobs:
           else
             target=(--branch "$BRANCH")
           fi
-          podman run --rm --userns=keep-id:uid=1000,gid=1000 \
+          # Labels let a Dashboard on this host map `podman events` to the Issue.
+          labels=(--label "nibfin.repo=$REPO")
+          if [ -n "$ISSUE" ]; then
+            labels+=(--label "nibfin.issue=$ISSUE")
+          fi
+          podman run --rm --userns=keep-id:uid=1000,gid=1000 "${labels[@]}" \
             --env NIBFIN_GITHUB_TOKEN --env NIBFIN_RUN_REPO --env NIBFIN_RUN_ID \
             "$IMAGE_REF" nibfin route --repo "$REPO" "${target[@]}"
       - name: Ask a person to act
@@ -185,7 +190,9 @@ jobs:
             limits=(--pids-limit "$PIDS_LIMIT" --memory "$MEMORY" --cpus "$CPUS"
               --cgroup-conf "memory.high=$MEMORY_HIGH")
           fi
+          # Labels let a Dashboard on this host map `podman events` to the Issue.
           podman run --rm --userns=keep-id:uid=1000,gid=1000 "${limits[@]}" \
+            --label "nibfin.repo=$REPO" --label "nibfin.issue=$ISSUE" \
             --volume "$GITHUB_WORKSPACE/nibfin-workspace:/workspace:Z" \
             --volume "nibfin-home-$PROVIDER:/nibfin/home" \
             --volume nibfin-tools:/nibfin/tools \
