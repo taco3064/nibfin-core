@@ -12,7 +12,7 @@ import {
 } from "../stages/fake-job.test.ts";
 import { addPullComment, reviewWorld } from "../stages/fake-review.test.ts";
 import { continueAfterStage, type FinishedStage } from "./after-stage.ts";
-import { fakeRunner } from "./fake-runner.test.ts";
+import { fakeRunner, selfHostedRunner } from "./fake-runner.test.ts";
 
 const repo = { owner: "acme", repo: "app" };
 
@@ -89,6 +89,18 @@ describe("continueAfterStage", () => {
     assert.deepEqual(runner.dispatched, []);
     assert.deepEqual(issues.github.writes(), []);
     assert.deepEqual(runner.logs, ["acme/app#1: nothing to run now"]);
+  });
+
+  it("asks a collaborator assigned during the run after the stage", async () => {
+    const world = await deliveryWorld();
+    const runner = fakeRunner(world.issues.github);
+    world.issues.main.assignees = [{ id: 7, login: "ann" }];
+    runner.runners = [selfHostedRunner(1, ["nibfin-7"])];
+    await continueAfterStage(runner.scope, finished("review"), record(true));
+    assert.deepEqual(runner.dispatched, []);
+    assert.ok(world.issues.main.labels.includes("pause"));
+    assert.equal(world.issues.marked("consent-7").length, 1);
+    assert.match(runner.logs.at(-1)!, /consent of Assignee\(s\) 7; nothing dispatched$/);
   });
 
   it("dispatches the same stage again after progress", async () => {

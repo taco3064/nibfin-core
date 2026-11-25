@@ -1,5 +1,6 @@
 import {
   type ActingClient,
+  type Actor,
   deriveStage,
   GitHubError,
   type IssueRef,
@@ -25,6 +26,8 @@ export interface IssueRoute {
   reason: FixReason | null;
   /** The only Assignee's user id. */
   assignee: number;
+  /** All the Issue's Assignees in GitHub's order, asked for consent (#721). */
+  assignees: readonly Actor[];
 }
 
 /** An Issue's route, whether it is open, and its derived stage for the log. */
@@ -95,7 +98,11 @@ export async function readRoute(
   if (next.stage === null || assignee === undefined) {
     return { ...state, route: null, stage };
   }
-  return { ...state, route: { stage: next.stage, reason: next.reason, assignee }, stage };
+  return {
+    ...state,
+    route: { stage: next.stage, reason: next.reason, assignee, assignees },
+    stage,
+  };
 }
 
 /**

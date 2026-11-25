@@ -4,7 +4,7 @@ import { failure, fakeToken, paged } from "../github/fake-github.test.ts";
 import { pull } from "../github/fixtures.test.ts";
 import { freshReads, GitHubError } from "../github/index.ts";
 import { fakeBranches } from "../route/fake-branches.test.ts";
-import { fakeRunner } from "../route/fake-runner.test.ts";
+import { fakeRunner, selfHostedRunner } from "../route/fake-runner.test.ts";
 import {
   fakeIssue,
   type FakeIssue,
@@ -150,6 +150,26 @@ describe("nibfin route --issue", () => {
     assert.match(result.stderr, /^nibfin: GITHUB_READ_FAILED: list requested runs/);
     assert.match(result.stdout, /Added pending to acme\/app#1/);
     assert.ok(t.issues.main.labels.includes("pending"));
+  });
+
+  it("pauses for a collaborator Assignee, then dispatches without pause", async () => {
+    const t = routeDeps({ labels: ["scope"], assignees: [{ id: 7, login: "ann" }] });
+    t.runner.runners = [selfHostedRunner(1, ["nibfin-7"])];
+    const first = await capture([...route, "--issue", "1"], t.deps);
+    assert.equal(first.code, 0);
+    assert.deepEqual(t.runner.dispatched, []);
+    assert.ok(t.issues.main.labels.includes("pause"));
+    const [comment] = t.issues.marked("consent-7");
+    assert.match(comment.body, /^<!-- nibfin:consent-7 -->\n@ann, /);
+    assert.match(first.stdout, /added pause for the consent of Assignee\(s\) 7/);
+    t.issues.main.labels.splice(t.issues.main.labels.indexOf("pause"), 1);
+    freshReads(t.issues.github.client);
+    const second = await capture([...route, "--issue", "1"], t.deps);
+    assert.equal(second.code, 0);
+    assert.deepEqual(t.runner.dispatched, [
+      { stage: "shape", repo: "acme/app", issue: "1", reason: "", assignee: "7" },
+    ]);
+    assert.equal(t.issues.marked("consent-7").length, 1);
   });
 });
 

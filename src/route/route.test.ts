@@ -68,8 +68,9 @@ function onFixBranch(world: DeliveryWorld) {
 }
 
 const assignee = 5;
+const assignees = [{ id: 5, login: "taco" }];
 const route = (stage: NextAction["stage"], reason: NextAction["reason"]) =>
-  stage === null ? null : { stage, reason, assignee };
+  stage === null ? null : { stage, reason, assignee, assignees };
 
 describe("routeIssue", () => {
   const table: Array<[string, Build, ReturnType<typeof route>]> = [
@@ -179,6 +180,7 @@ describe("routeIssue", () => {
     const assignees = [{ id: 9, login: "only" }];
     const state = await readRoute(await plain({ assignees })(), repo, 1, log);
     assert.equal(state.route?.assignee, 9);
+    assert.deepEqual(state.route?.assignees, assignees);
     assert.equal(state.assignees, 1);
   });
 

@@ -6,7 +6,7 @@ authority for "what runs next".
 
 ## Route
 
-`routeIssue(client, repo, issue, log)` derives `{ stage, reason, assignee } | null`
+`routeIssue(client, repo, issue, log)` derives `{ stage, reason, assignee, assignees } | null`
 from the snapshot, composing the stages' own rules:
 
 1. derived `shape` → `shape`;
@@ -21,6 +21,8 @@ true`; a stale one falls to rule 4) → `deliver review`;
 (multiple-assignees)`, #720), blocked, no Assignee) → `null`.
 
 `assignee` is the only Assignee's user id; without exactly one the route is `null`.
+`assignees` holds all the Issue's Assignees (`{ id, login }`, GitHub's order) for the
+consent check.
 `readRoute` also gives the number of Assignees.
 `readRoute` also says whether the Issue is open. The actor (for marked comments) is
 the token's account, read once with `GET /user`.
@@ -57,6 +59,18 @@ URL. A dispatch cannot be confirmed by a re-read: no response or a 5xx is
   (`requested`, `waiting`, `pending`, `queued`; one request each) and skips when one
   other than this run is titled exactly `Nibfin · <owner>/<repo>#<n> · <stage>`: a
   waiting run reads GitHub when it starts. `in_progress` runs never cause a skip.
+- Consent (#721, `askForConsent`): after those two checks and before dispatching,
+  `dispatchStage` reads the execution repository's owner id (`readRepoOwnerId`).
+  Every Assignee in `route.assignees` other than the owner who has no Nibfin comment
+  `consent-<user id>` on the Issue (`findMarkedComment`; other authors never count)
+  is unasked. With any unasked, it adds `pause` (confirmed by the read-back labels,
+  else `GITHUB_WRITE_UNCONFIRMED`), then writes one marked `consent-<user id>`
+  comment per unasked Assignee in GitHub's order, mentioning them, and dispatches
+  nothing. Removing `pause` is the go-ahead; the comment says this is a consent step,
+  not a security control. Each Assignee is asked once per Issue. The check comes after
+  the waiting-run skip, so a queued run is never paused under itself; reassignment
+  during a queued or running run is not detected, and the next dispatch follows the
+  Assignees then.
 
 ## Commands
 

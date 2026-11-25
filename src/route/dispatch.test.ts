@@ -6,12 +6,19 @@ import {
   networkError,
   rejection,
 } from "../github/fake-github.test.ts";
-import { GitHubError, notStartedStatuses } from "../github/index.ts";
+import { freshReads, GitHubError, notStartedStatuses } from "../github/index.ts";
+import { fakeIssue, fakeIssues } from "../stages/fake-job.test.ts";
 import { dispatchRoute, dispatchStage, sharedRunnerWorkflow } from "./dispatch.ts";
 import { dispatchPath, fakeRunner, selfHostedRunner } from "./fake-runner.test.ts";
 
 const repo = { owner: "acme", repo: "app" };
-const deliver = { stage: "deliver" as const, reason: "ci-failure" as const, assignee: 5 };
+const taco = { id: 5, login: "taco" };
+const deliver = {
+  stage: "deliver" as const,
+  reason: "ci-failure" as const,
+  assignee: 5,
+  assignees: [taco],
+};
 const title = "Nibfin · acme/app#1 · deliver";
 
 describe("dispatchStage", () => {
@@ -160,6 +167,57 @@ describe("dispatchStage", () => {
     assert.ok(error instanceof GitHubError);
     assert.equal(error.code, "GITHUB_READ_FAILED");
     assert.deepEqual(runner.dispatched, []);
+  });
+});
+
+describe("dispatchStage asks for consent (#721)", () => {
+  const ann = { id: 7, login: "ann" };
+  const forAnn = { ...deliver, assignee: 7, assignees: [ann] };
+
+  function annWorld() {
+    const issues = fakeIssues(
+      fakeIssue({ assignees: [ann], labels: ["scope", "shaped"] }),
+    );
+    const runner = fakeRunner(issues.github);
+    runner.runners = [selfHostedRunner(1, ["nibfin-7"])];
+    return { issues, runner };
+  }
+
+  it("pauses and dispatches nothing for a collaborator not yet asked", async () => {
+    const { issues, runner } = annWorld();
+    assert.equal(await dispatchStage(runner.scope, repo, 1, forAnn), false);
+    assert.deepEqual(runner.dispatched, []);
+    assert.ok(issues.main.labels.includes("pause"));
+    assert.equal(issues.marked("consent-7").length, 1);
+    assert.deepEqual(runner.logs, [
+      "acme/app#1: added pause for the consent of Assignee(s) 7; nothing dispatched",
+    ]);
+  });
+
+  it("dispatches once the collaborator was asked", async () => {
+    const { issues, runner } = annWorld();
+    await dispatchStage(runner.scope, repo, 1, forAnn);
+    issues.main.labels.splice(issues.main.labels.indexOf("pause"), 1);
+    freshReads(issues.github.client);
+    assert.equal(await dispatchStage(runner.scope, repo, 1, forAnn), true);
+    assert.equal(runner.dispatched[0].assignee, "7");
+    assert.equal(issues.marked("consent-7").length, 1);
+  });
+
+  it("reads no owner and pauses nothing without a runner", async () => {
+    const { issues, runner } = annWorld();
+    runner.runners = [];
+    assert.equal(await dispatchStage(runner.scope, repo, 1, forAnn), false);
+    assert.deepEqual(issues.github.writes(), []);
+    assert.ok(!issues.github.calls.some((call) => call.path === "/repos/acme/runner"));
+  });
+
+  it("skips for a waiting run without pausing", async () => {
+    const { issues, runner } = annWorld();
+    runner.runs.push({ id: 3, status: "queued", display_title: title });
+    assert.equal(await dispatchStage(runner.scope, repo, 1, forAnn), false);
+    assert.deepEqual(issues.github.writes(), []);
+    assert.ok(!issues.github.calls.some((call) => call.path === "/repos/acme/runner"));
   });
 });
 
