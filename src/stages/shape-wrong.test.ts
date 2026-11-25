@@ -216,6 +216,10 @@ describe("shapeNextAction", () => {
       { stage: "review", reason: null },
     ],
     [
+      { stage: "conflict", branch: "b", pullRequest: pull },
+      { stage: "deliver", reason: "conflict" },
+    ],
+    [
       {
         stage: "cd-failed",
         branch: "b",

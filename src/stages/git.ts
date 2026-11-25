@@ -251,6 +251,64 @@ export async function prepareBranch(
   return { base, branch, remoteHead: fetched };
 }
 
+/** `origin/<base>` after a refresh, and whether `HEAD` already contains it. */
+export interface RefreshedBase {
+  head: string;
+  contained: boolean;
+}
+
+/**
+ * Fetches `base` from GitHub into Core's repository again and brings it into the
+ * workspace from there (as `prepareBranch` does, base only), then checks whether the
+ * new `origin/<base>` is an ancestor of `HEAD`.
+ */
+export async function refreshBase(git: Git, base: string): Promise<RefreshedBase> {
+  const ref = `refs/remotes/origin/${base}`;
+  await git.remoteRequired([
+    "fetch",
+    "--no-tags",
+    git.remoteUrl,
+    `+refs/heads/${base}:${ref}`,
+  ]);
+  await fetchFromCore(git, [ref]);
+  const head = (await git.run(["rev-parse", "--verify", ref])).trim();
+  const args = ["merge-base", "--is-ancestor", ref, "HEAD"];
+  const output = await git.probe(args);
+  if (output.exitCode !== 0 && output.exitCode !== 1) {
+    throw gitFailed(args, output);
+  }
+  return { head, contained: output.exitCode === 0 };
+}
+
+/** A commit on `origin/<base>` that `HEAD` does not have. */
+export interface BaseCommit {
+  sha: string;
+  /** `%h %s`. */
+  line: string;
+}
+
+/**
+ * The commits of `origin/<base>` that `HEAD` lacks, newest first: at most `limit`,
+ * and how many more there are.
+ */
+export async function newBaseCommits(
+  git: Git,
+  base: string,
+  limit: number,
+): Promise<{ commits: BaseCommit[]; more: number }> {
+  const range = `HEAD..refs/remotes/origin/${base}`;
+  const total = Number((await git.run(["rev-list", "--count", range])).trim());
+  const log = await git.run(["log", `--max-count=${limit}`, "--format=%H %h %s", range]);
+  const commits = log
+    .split("\n")
+    .filter((line) => line !== "")
+    .map((line) => {
+      const space = line.indexOf(" ");
+      return { sha: line.slice(0, space), line: line.slice(space + 1) };
+    });
+  return { commits, more: total - commits.length };
+}
+
 /**
  * Fetches the workspace's `branch` into Core's repository under the same name
  * (without the token) and returns its head there.

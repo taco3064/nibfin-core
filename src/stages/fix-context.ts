@@ -6,7 +6,9 @@ import {
   type RequiredCheckResult,
   type WorkflowRunSummary,
 } from "../github/index.ts";
+import { describeNewBaseCommits, rebaseInstructions } from "./base-moved.ts";
 import type { FixPointer } from "./deliver-eligibility.ts";
+import type { Git } from "./git.ts";
 import { fenced } from "./prompt.ts";
 
 /** How many trailing lines of a failed job's log the Writer and Acceptor get. */
@@ -17,6 +19,9 @@ export interface FixContextOptions {
   repo: Repo;
   /** Removes the token from log text. */
   redact: (text: string) => string;
+  /** The workspace, with the branch checked out and `origin/<base>` fetched. */
+  git: Git;
+  base: string;
 }
 
 async function logTail(options: FixContextOptions, jobId: number): Promise<string> {
@@ -67,7 +72,8 @@ async function describeRun(
  * `ci-failure` → the failed required checks with URLs, and the log tail of each
  * GitHub Actions job (other checks and statuses: URL only); `review` → the review
  * comment; `cd-failure` → the failed CD runs of the merged PR with the log tails of
- * their failed jobs. Log text is redacted of the token.
+ * their failed jobs; `conflict` → the PR, what to do, and the commits of the base the
+ * branch lacks with their pull requests. Log text is redacted of the token.
  */
 export async function describeFix(
   options: FixContextOptions,
@@ -79,6 +85,12 @@ export async function describeFix(
     for (const result of fix.failed) {
       parts.push(await describeCheck(options, result));
     }
+  } else if (fix.reason === "conflict") {
+    parts.push(
+      `Pull request: ${fix.pullRequest.url}`,
+      `It conflicts with \`${options.base}\`. ${rebaseInstructions(options.base)}`,
+      await describeNewBaseCommits(options),
+    );
   } else if (fix.reason === "review") {
     parts.push(
       `Pull request: ${fix.pullRequest.url}`,

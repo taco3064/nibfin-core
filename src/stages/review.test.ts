@@ -197,6 +197,20 @@ describe("checkoutReviewedHead", () => {
 });
 
 describe("runReviewStage mergeability", () => {
+  it("asks for a conflict fix when the pull request conflicts", async () => {
+    const w = await reviewWorld();
+    w.mergeable = false;
+    assert.equal(await w.review(), 0);
+    assert.deepEqual(w.next(), {
+      stage: "deliver",
+      reason: "conflict",
+      progressed: false,
+    });
+    assert.deepEqual(w.agent.runs, []);
+    assert.deepEqual(w.issues.github.writes(), []);
+    assert.match(w.agent.logs.at(-1)!, /conflicts with its base; requesting a fix/);
+  });
+
   it("reads the pull request when it pins the head, before the review", async () => {
     const w = await world((get) => [
       () => {

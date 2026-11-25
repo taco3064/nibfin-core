@@ -20,9 +20,11 @@ import {
   gitNullPath,
   githubRemoteUrl,
   messagesAhead,
+  newBaseCommits,
   prepareBranch,
   refDirectory,
   refFormat,
+  refreshBase,
 } from "./git.ts";
 
 const basic = Buffer.from(`x-access-token:${fakeToken}`).toString("base64");
@@ -191,6 +193,49 @@ describe("prepareBranch", () => {
     });
     const error = await rejection(prepareBranch(subject, options));
     assert.equal((error as StageError).code, "STAGE_GIT_FAILED");
+  });
+});
+
+describe("refreshBase and newBaseCommits", () => {
+  const options = { base: "main", branch: "nibfin/issue-1", actor: fakeActor };
+
+  it("fetches the moved base into the workspace and finds it missing", async () => {
+    const fixture = await makeGitFixture("git-");
+    const subject = fixtureGit(fixture);
+    await prepareBranch(subject, options);
+    const start = git(fixture.workspace, "rev-parse", "HEAD");
+    assert.deepEqual(await refreshBase(subject, "main"), {
+      head: start,
+      contained: true,
+    });
+    assert.deepEqual(await newBaseCommits(subject, "main", 50), { commits: [], more: 0 });
+    const one = commitFile(fixture.other, "b.txt", "b\n", "feat: b");
+    const two = commitFile(fixture.other, "c.txt", "c\n", "feat: c");
+    git(fixture.other, "push", "--quiet", "origin", "main");
+    assert.deepEqual(await refreshBase(subject, "main"), { head: two, contained: false });
+    assert.equal(git(fixture.workspace, "rev-parse", "refs/remotes/origin/main"), two);
+    const short = (sha: string) => git(fixture.workspace, "rev-parse", "--short", sha);
+    assert.deepEqual(await newBaseCommits(subject, "main", 1), {
+      commits: [{ sha: two, line: `${short(two)} feat: c` }],
+      more: 1,
+    });
+    assert.equal((await newBaseCommits(subject, "main", 5)).commits[1].sha, one);
+    git(fixture.workspace, "rebase", "--quiet", "refs/remotes/origin/main");
+    assert.equal((await refreshBase(subject, "main")).contained, true);
+  });
+
+  it("fails when Git cannot answer the ancestry", async () => {
+    const fixture = await makeGitFixture("git-");
+    const fake = recordingGit((call) =>
+      call.args.includes("--is-ancestor")
+        ? { exitCode: 128, stdout: "", stderr: "fatal: bad object" }
+        : undefined,
+    );
+    const subject = fixtureGit(fixture, fake.run);
+    await prepareBranch(subject, options);
+    const error = await rejection(refreshBase(subject, "main"));
+    assert.equal((error as StageError).code, "STAGE_GIT_FAILED");
+    assert.match((error as StageError).message, /git merge-base failed: fatal: bad/);
   });
 });
 

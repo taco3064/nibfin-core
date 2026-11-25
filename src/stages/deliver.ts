@@ -2,6 +2,7 @@ import { watch } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 import {
   type ActingClient,
   deriveStage,
@@ -11,6 +12,7 @@ import {
   type IssueRef,
   readIssueSnapshot,
   type Repo,
+  type Stage,
   upsertMarkedComment,
 } from "../github/index.ts";
 import {
@@ -21,6 +23,7 @@ import {
   type StageDeps,
   type StageJob,
 } from "./agent.ts";
+import { baseMovedDefect } from "./base-moved.ts";
 import { closingMessages } from "./closing-keywords.ts";
 import type { JobContext } from "./context.ts";
 import { type Eligibility, readEligibility } from "./deliver-eligibility.ts";
@@ -54,6 +57,7 @@ import {
   messagesAhead,
   prepareBranch,
   refDirectory,
+  refreshBase,
   refFormat,
   runGitProcess,
 } from "./git.ts";
@@ -77,6 +81,10 @@ export const deliverBlockedCommentKey = "deliver-blocked";
 const blockedResolvedBody =
   "Resolved: the delivery passed Accept and has a pull request.";
 
+/** How often, and how far apart, publishing reads whether GitHub computed `mergeable`. */
+export const mergeableReads = 5;
+export const mergeableDelayMs = 3000;
+
 /** What the Deliver stage calls out to, beyond the harness; tests replace each. */
 export interface DeliverDeps extends StageDeps {
   runGit: GitRunner;
@@ -84,6 +92,8 @@ export interface DeliverDeps extends StageDeps {
   watch: typeof watch;
   /** Where Core creates its own push repository, outside the workspace. */
   coreRepoParent: string;
+  /** Waits `ms` milliseconds between mergeability reads. */
+  wait: (ms: number) => Promise<void>;
 }
 
 export const defaultDeliverDeps: DeliverDeps = {
@@ -92,6 +102,7 @@ export const defaultDeliverDeps: DeliverDeps = {
   remoteUrl: githubRemoteUrl,
   watch,
   coreRepoParent: tmpdir(),
+  wait: (ms) => delay(ms),
 };
 
 type Eligible = Extract<Eligibility, { eligible: true }>;
@@ -371,8 +382,24 @@ class DeliverRun {
   }
 
   /**
-   * Writer and Accept rounds until a fresh Acceptor passes; no round limit. Returns
-   * the next action when the Writer found the Shape wrong instead.
+   * After a pass: fetches `origin/<base>` again. When the head no longer contains it,
+   * the base moved during the run: the defect asks the Writer to rebase onto it.
+   */
+  async baseMoved(): Promise<string | undefined> {
+    const refreshed = await refreshBase(this.git, this.base);
+    if (refreshed.contained) {
+      return undefined;
+    }
+    this.deps.log(`origin/${this.base} moved to ${refreshed.head}; not publishing`);
+    const { client } = this.job;
+    const scope = { git: this.git, client, repo: this.context.repo, base: this.base };
+    return baseMovedDefect(scope, refreshed.head);
+  }
+
+  /**
+   * Writer and Accept rounds until a fresh Acceptor passes on a head that contains
+   * the current base; no round limit. Returns the next action when the Writer found
+   * the Shape wrong instead.
    */
   async rounds(): Promise<NextAction | undefined> {
     let defects: readonly string[] | undefined;
@@ -386,9 +413,14 @@ class DeliverRun {
         await this.requireUnprotected();
         const verdict = await this.accept(round);
         if (verdict.outcome === "pass") {
-          return undefined;
+          const moved = await this.baseMoved();
+          if (moved === undefined) {
+            return undefined;
+          }
+          defects = [moved];
+        } else {
+          defects = verdict.defects;
         }
-        defects = verdict.defects;
       }
       this.deps.log(
         `Round ${round}: defects\n${defects.map((d) => `- ${d}`).join("\n")}`,
@@ -397,8 +429,37 @@ class DeliverRun {
   }
 
   /**
+   * The stage after the pull request exists, read fresh until GitHub computed the
+   * open PR's `mergeable` (at most `mergeableReads` reads); still unknown after that,
+   * the CI rules apply.
+   */
+  async settledStage(): Promise<Stage> {
+    const { client } = this.job;
+    for (let read = 1; ; read += 1) {
+      freshReads(client);
+      const snapshot = await readIssueSnapshot(
+        client,
+        this.context.repo,
+        this.issue.number,
+      );
+      const open = snapshot.branches.current.pullRequests.find(
+        (pull) => pull.state === "open",
+      );
+      if (open?.mergeable !== null) {
+        return deriveStage(snapshot);
+      }
+      if (read === mergeableReads) {
+        this.deps.log(`GitHub has not computed the mergeability of ${open.url} yet`);
+        return deriveStage(snapshot);
+      }
+      await this.deps.wait(mergeableDelayMs);
+    }
+  }
+
+  /**
    * After a pass: re-checks eligibility, pushes what is pending (re-checking again
-   * right before a push), then opens or reuses the pull request.
+   * right before a push), then opens or reuses the pull request. A pull request that
+   * conflicts with its base asks for the `conflict` fix.
    */
   async publish(): Promise<NextAction> {
     await this.requireEligible();
@@ -417,12 +478,11 @@ class DeliverRun {
     if (await findMarkedComment(client, this.issue, key)) {
       await upsertMarkedComment(client, this.issue, key, blockedResolvedBody);
     }
-    const snapshot = await readIssueSnapshot(
-      client,
-      this.context.repo,
-      this.issue.number,
-    );
-    const stage = deriveStage(snapshot).stage;
+    const stage = (await this.settledStage()).stage;
+    if (stage === "conflict") {
+      this.deps.log(`${pull.url} conflicts with ${this.base}; asking for a conflict fix`);
+      return { stage: "deliver", reason: "conflict" };
+    }
     return stage === "review" ? { stage: "review", reason: null } : noNextAction;
   }
 }
@@ -455,7 +515,13 @@ async function startRun(
     branch: eligible.branch,
     actor: client.actor,
   });
-  const fixOptions = { client, repo: context.repo, redact: (t: string) => git.redact(t) };
+  const fixOptions = {
+    client,
+    repo: context.repo,
+    redact: (t: string) => git.redact(t),
+    git,
+    base,
+  };
   const fix =
     eligible.fix === undefined ? undefined : await describeFix(fixOptions, eligible.fix);
   return new DeliverRun({

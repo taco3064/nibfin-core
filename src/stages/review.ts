@@ -161,6 +161,9 @@ async function dispatch(scope: ReviewScope): Promise<NextAction> {
     case "cd-failed":
       deps.log(`${issueName(scope)}: CD failed; requesting a CD-failure fix`);
       return { stage: "deliver", reason: "cd-failure" };
+    case "conflict":
+      deps.log(`${issueName(scope)}: the PR conflicts with its base; requesting a fix`);
+      return { stage: "deliver", reason: "conflict" };
     case "done":
       return closeIssue(scope, snapshot);
   }
