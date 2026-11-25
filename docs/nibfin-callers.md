@@ -121,6 +121,9 @@ Nothing below is done by Nibfin; the Owner does it once.
   Assignee (compared case-insensitively, online or offline, busy or idle); without one
   the Issue is an ordinary assignment and nothing is dispatched, labelled or commented.
   An Issue with several Assignees gets `pending` with a comment asking for exactly one.
+  An Issue assigned to a collaborator (anyone but the execution repository's owner)
+  first gets `pause` and a comment asking them to read it and remove `pause`, once per
+  collaborator (#721); removing `pause` starts the stage.
 - Run each runner as a service in a lingering systemd user session
   (`loginctl enable-linger <user>`). With the container limits on (the default),
   delegate the cgroup v2 `cpu`, `memory` and `pids` controllers to the user, so

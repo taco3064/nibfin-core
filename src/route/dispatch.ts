@@ -7,6 +7,7 @@ import {
   type Repo,
   runnerLabel,
 } from "../github/index.ts";
+import { askForConsent } from "./consent.ts";
 import type { IssueRoute } from "./route.ts";
 
 /** The execution repository's workflow that runs every route and stage Job. */
@@ -55,7 +56,12 @@ export async function dispatchRoute(
  * ordinary assignment and nothing is written. It also skips when a run of the
  * execution repository that has not started (`requested`, `waiting`, `pending`,
  * `queued`) already has its title; a waiting run reads GitHub when it starts.
- * Running runs never count. Returns whether it dispatched.
+ * Running runs never count. Then, before dispatching, it asks for consent (#721):
+ * when an Assignee other than the execution repository's owner has no Nibfin
+ * comment `consent-<user id>` on the Issue yet, it adds `pause`, writes those
+ * comments and dispatches nothing; removing `pause` is the go-ahead. The check comes
+ * after the waiting-run skip so a queued run is never paused under itself.
+ * Returns whether it dispatched.
  */
 export async function dispatchStage(
   scope: DispatchScope,
@@ -77,6 +83,9 @@ export async function dispatchStage(
   );
   if (waiting !== undefined) {
     scope.log(`Not dispatching ${title}: run ${waiting.id} is waiting to start`);
+    return false;
+  }
+  if (await askForConsent(scope, { ...repo, number: issue }, route.assignees)) {
     return false;
   }
   await dispatch(scope, title, {
