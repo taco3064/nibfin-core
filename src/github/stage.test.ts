@@ -139,6 +139,24 @@ describe("deriveStage: eligibility", () => {
     assert.deepEqual(stageOf(deriveStage(snapshot(free))), ["ineligible", "no-assignee"]);
   });
 
+  it("checks several Assignees after pending and before blockers", () => {
+    const blockedBy = [dependency("open")];
+    const several = { assignees: 2, blockedBy };
+    for (const [labels, reason] of [
+      [["scope", "pause"], "paused"],
+      [["scope", "pending"], "pending"],
+      [["scope"], "multiple-assignees"],
+      [["scope", "shaped"], "multiple-assignees"],
+    ] as const) {
+      const stage = deriveStage(snapshot({ ...several, labels: [...labels] }));
+      assert.deepEqual(stageOf(stage), ["ineligible", reason]);
+    }
+    const closed = snapshot({ ...several, state: "closed" });
+    assert.deepEqual(stageOf(deriveStage(closed)), ["ineligible", "closed"]);
+    const single = snapshot({ assignees: 1, blockedBy });
+    assert.deepEqual(stageOf(deriveStage(single)), ["ineligible", "blocked"]);
+  });
+
   it("holds an Issue with pending at any stage, including delivery", () => {
     const merged = [pr(1, { merged: true })];
     const held = snapshot({ labels: ["scope", "shaped", "pending"], delivery: merged });
