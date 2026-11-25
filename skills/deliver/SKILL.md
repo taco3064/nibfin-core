@@ -49,12 +49,16 @@ Issues or change native dependencies.
   you did not expect, stop and report it instead of overwriting them.
 - When a rebase conflicts, first understand the other side. From the conflicting files and
   the new base commits, find their pull requests and Issues (the stage lists them when it
-  sends you back) and read what they completed: behavior, interfaces, contracts and tests.
-  Resolve the conflict so that both Issues' results hold: keep the other side's behavior,
-  interfaces and tests, and never delete or revert them to make your change pass.
+  sends you back) and learn what they completed (behavior, interfaces, contracts and
+  tests) from the base commits, their messages, the code and the tests, plus whatever the
+  stage supplies. You cannot read pull request or Issue text yourself; missing text alone
+  is never a reason to return blocked. Resolve the conflict so that both Issues' results
+  hold: keep the other side's behavior, interfaces and tests, and never delete or revert
+  them to make your change pass.
 - If both cannot hold, for example because the two Issues' requirements contradict, or a
-  resolution would change a security boundary, keep the work, do not pick a side, and
-  return blocked naming both Issues and the conflicting requirements.
+  resolution would change a security boundary, abort the unfinished rebase so the branch
+  keeps its committed work, do not pick a side, and return blocked naming both Issues and
+  the conflicting requirements.
 - After a rebase, rerun the checks the rebased changes affect, including the tests of the
   other Issues whose code you merged with. Results from the old head do not count for the
   new head.
