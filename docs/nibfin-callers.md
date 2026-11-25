@@ -109,9 +109,12 @@ Nothing below is done by Nibfin; the Owner does it once.
   GitHub Actions runner. A personal account's runner serves one repository, so the
   runners register with `taco3064/nibfin-core`.
 - Two runners. Labels: `nibfin` for route runs, and `nibfin-<user id>-<provider>` for
-  the stage runs of Issues whose first Assignee has that user id
-  (`gh api users/<login> --jq .id`). An Issue whose first Assignee has no runner with
-  its label waits until GitHub cancels the stage run.
+  the stage runs of Issues whose Assignee has that user id
+  (`gh api users/<login> --jq .id`). Route dispatches a stage only when some runner of
+  the execution repository has the label `nibfin-<user id>` of the Issue's only
+  Assignee (compared case-insensitively, online or offline, busy or idle); without one
+  the Issue is an ordinary assignment and nothing is dispatched, labelled or commented.
+  An Issue with several Assignees gets `pending` with a comment asking for exactly one.
 - Run each runner as a service in a lingering systemd user session
   (`loginctl enable-linger <user>`). With the container limits on (the default),
   delegate the cgroup v2 `cpu`, `memory` and `pids` controllers to the user, so

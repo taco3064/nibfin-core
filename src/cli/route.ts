@@ -1,4 +1,4 @@
-import type { ActingClient, Repo } from "../github/index.ts";
+import type { ActingClient, IssueRef, Repo } from "../github/index.ts";
 import {
   continueAfterStage,
   deleteIssueBranches,
@@ -6,6 +6,7 @@ import {
   dispatchStage,
   readRoute,
   routeEvent,
+  type RouteState,
   type RouteTarget,
 } from "../route/index.ts";
 import {
@@ -14,6 +15,7 @@ import {
   positiveInteger,
   readNextAction,
   readRepo,
+  requestPerson,
   required,
   runUrl,
   StageError,
@@ -99,6 +101,35 @@ export function readRouteInput(
   };
 }
 
+/**
+ * The `pending` note for an Issue with several Assignees (#720). It names no
+ * logins, so no one is mentioned.
+ */
+export function multipleAssignees(count: number): StageError {
+  return new StageError(
+    "STAGE_MULTIPLE_ASSIGNEES",
+    `Nibfin runs an Issue for exactly one Assignee, and this Issue has ${count}. ` +
+      "Leave exactly one Assignee, then remove the `pending` label to continue.",
+  );
+}
+
+/**
+ * Asks for exactly one Assignee when the Issue derives `ineligible
+ * (multiple-assignees)`: the marked `pending` comment and `pending`. A decision,
+ * not a failed run; a failing write fails the run.
+ */
+async function askForOneAssignee(
+  client: ActingClient,
+  issue: IssueRef,
+  state: RouteState,
+  url: string | undefined,
+  log: (line: string) => void,
+): Promise<void> {
+  const name = `${issue.owner}/${issue.repo}#${issue.number}`;
+  await requestPerson(client, issue, multipleAssignees(state.assignees), url);
+  log(`${name}: ${state.assignees} Assignees; added pending to ask for exactly one`);
+}
+
 /** Writes one line to the Job log (stdout). */
 export const lineLog = (io: CliIo) => (line: string) => void io.stdout.write(`${line}\n`);
 
@@ -138,7 +169,12 @@ export async function runRoute(
       if (!state.open) {
         await deleteIssueBranches(client, repo, issue, log);
       }
-      if (state.route === null) {
+      const several =
+        state.stage.stage === "ineligible" && state.stage.reason === "multiple-assignees";
+      if (several) {
+        const url = runUrl(input.runRepo, input.runId);
+        await askForOneAssignee(client, { ...repo, number: issue }, state, url, log);
+      } else if (state.route === null) {
         log(`${name}#${issue}: nothing to run (${describeStage(state.stage)})`);
       } else {
         await dispatchStage(scope, repo, issue, state.route);
