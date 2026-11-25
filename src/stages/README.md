@@ -39,7 +39,9 @@ the field, never its value.
 | `NIBFIN_AGENT_HOME`      | The agent CLI's config home on the login volume (absolute)  |
 | `NIBFIN_WORKSPACE`       | A checkout of the base branch by name, without persisted    |
 |                          | credentials                                                 |
-| `NIBFIN_TOOL_CACHE`      | The cache for `.nibfin.json` tools, outside the workspace   |
+| `NIBFIN_TOOL_CACHE`      | The cache for `.nibfin.json` tools, outside the workspace;  |
+|                          | the agent's run gets `PLAYWRIGHT_BROWSERS_PATH` set to its  |
+|                          | `ms-playwright` directory (#716)                            |
 | `NIBFIN_RUN_REPO`        | The execution repository (`GITHUB_REPOSITORY`): Deliver's   |
 |                          | Writer check, the run URL of `pending`, and where Core      |
 |                          | dispatches what runs next                                   |
