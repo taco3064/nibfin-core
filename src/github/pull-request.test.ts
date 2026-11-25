@@ -5,6 +5,7 @@ import { fakeGitHub, networkError, paged, rejection, repo } from "./fake-github.
 import { pull } from "./fixtures.test.ts";
 import {
   readApprovalCount,
+  readCommitPullRequests,
   readCommitsAhead,
   readForcePushedHeads,
   readPullRequest,
@@ -34,6 +35,28 @@ describe("readPullRequest", () => {
   it("fails when it cannot be read", async () => {
     const github = fakeGitHub({ "GET /repos/acme/app/pulls/7": networkError() });
     await expectReadFailure(readPullRequest(github.client, repo, 7));
+  });
+});
+
+describe("readCommitPullRequests", () => {
+  it("lists the pull requests of a commit with title and URL", async () => {
+    const github = fakeGitHub({
+      "GET /repos/acme/app/commits/abc/pulls": paged([
+        { ...pull(330), title: "Add the widget" },
+      ]),
+    });
+    assert.deepEqual(await readCommitPullRequests(github.client, repo, "abc"), [
+      {
+        number: 330,
+        title: "Add the widget",
+        url: "https://github.com/acme/app/pull/330",
+      },
+    ]);
+  });
+
+  it("fails when they cannot be read", async () => {
+    const github = fakeGitHub();
+    await expectReadFailure(readCommitPullRequests(github.client, repo, "abc"));
   });
 });
 

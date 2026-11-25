@@ -48,21 +48,59 @@ export interface FakeGitHub {
   routes: Map<string, Route>;
 }
 
+const pullListPath = /^\/repos\/[^/]+\/[^/]+\/pulls$/;
+
+/** Keeps each pull request a `GET …/pulls` list answered with, by path. */
+function rememberPulls(
+  request: FakeRequest,
+  response: FakeResponse,
+  listed: Map<string, unknown>,
+): void {
+  if (request.method !== "GET" || !pullListPath.test(request.path)) {
+    return;
+  }
+  for (const pull of Array.isArray(response.data) ? response.data : []) {
+    listed.set(`${request.path}/${(pull as { number: number }).number}`, pull);
+  }
+}
+
+/**
+ * An unrouted `GET …/pulls/{n}` answers with the pull request a list answered with
+ * earlier, mergeable unless it says otherwise; `undefined` for anything else.
+ */
+function listedPull(
+  request: FakeRequest,
+  listed: Map<string, unknown>,
+): FakeResponse | undefined {
+  const pull = request.method === "GET" ? listed.get(request.path) : undefined;
+  if (pull === undefined) {
+    return undefined;
+  }
+  return { data: { mergeable: true, mergeable_state: "clean", ...(pull as object) } };
+}
+
 /**
  * A fake API: routes are keyed `"<METHOD> <decoded path>"`; others answer 404. Nibfin's
  * Issue-record GraphQL queries are answered from the REST routes (see
  * `fake-issue-record.test.ts`) unless a route `"GRAPHQL <operation>"` answers them
- * (a handler may return `undefined` to leave a request to the REST routes).
+ * (a handler may return `undefined` to leave a request to the REST routes). An
+ * unrouted `GET …/pulls/{n}` answers with that pull request as a list answered it,
+ * mergeable unless the list item says otherwise.
  */
 export function fakeGitHub(routes: Record<string, Route> = {}): FakeGitHub {
   const table = new Map(Object.entries(routes));
   const calls: FakeRequest[] = [];
+  const listed = new Map<string, unknown>();
   const answer = async (request: FakeRequest): Promise<FakeResponse> => {
     const route = table.get(`${request.method} ${request.path}`);
     if (route === undefined) {
-      return { status: 404, data: { message: "Not Found" } };
+      return (
+        listedPull(request, listed) ?? { status: 404, data: { message: "Not Found" } }
+      );
     }
-    return typeof route === "function" ? route(request) : route;
+    const response = typeof route === "function" ? await route(request) : route;
+    rememberPulls(request, response, listed);
+    return response;
   };
   const restGet: RestGet = async (path, query = {}) => {
     const response = await answer({

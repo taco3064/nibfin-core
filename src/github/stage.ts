@@ -13,6 +13,8 @@ export type CiStage = "review" | "awaiting-ci" | "ci-failed";
 /** Where the delivery of a shaped Issue stands, from its branches, PRs, CI and CD. */
 export type DeliveryOutcome =
   | { stage: "deliver"; branch: string }
+  /** The open PR conflicts with its base: GitHub runs no CI for it. */
+  | { stage: "conflict"; branch: string; pullRequest: PullRequestState }
   | {
       stage: CiStage;
       branch: string;
@@ -85,11 +87,15 @@ function isResolved(dependency: DependencyIssue): boolean {
 
 /**
  * The PR, CI, CD and fix-branch rules on the current branch (the highest fix branch,
- * else the delivery branch). No label or Issue-state checks.
+ * else the delivery branch). No label or Issue-state checks. An open PR that GitHub
+ * finds not mergeable is `conflict` before any CI rule, since it gets no CI.
  */
 export function deliveryOutcome(snapshot: IssueSnapshot): DeliveryOutcome {
   const branch = snapshot.branches.current;
   const open = branch.pullRequests.find((pull) => pull.state === "open");
+  if (open?.mergeable === false) {
+    return { stage: "conflict", branch: branch.name, pullRequest: open };
+  }
   if (open) {
     return ciOutcome(branch.name, open);
   }

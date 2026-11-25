@@ -162,3 +162,35 @@ export async function readCommitsAhead(
   );
   return answer?.data.commits.map((commit) => commit.sha);
 }
+
+/** A pull request GitHub associates with a commit. */
+export interface CommitPullRequest {
+  number: number;
+  title: string;
+  url: string;
+}
+
+/**
+ * The pull requests GitHub associates with commit `sha`
+ * (`GET …/commits/{sha}/pulls`, all pages).
+ */
+export async function readCommitPullRequests(
+  client: GitHubClient,
+  repo: Repo,
+  sha: string,
+): Promise<CommitPullRequest[]> {
+  const pulls = await read(
+    `list pull requests of commit ${repo.owner}/${repo.repo}@${sha}`,
+    () =>
+      client.paginate("GET /repos/{owner}/{repo}/commits/{commit_sha}/pulls", {
+        ...repo,
+        commit_sha: sha,
+        per_page: 100,
+      }),
+  );
+  return pulls.map((pull) => ({
+    number: pull.number,
+    title: pull.title,
+    url: pull.html_url,
+  }));
+}

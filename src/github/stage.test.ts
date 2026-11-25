@@ -37,6 +37,7 @@ interface PrOptions {
   nibfinRun?: boolean;
   runs?: WorkflowRunSummary[];
   cd?: null;
+  mergeable?: boolean | null;
 }
 
 function pr(number: number, options: PrOptions = {}): PullRequestState {
@@ -63,6 +64,7 @@ function pr(number: number, options: PrOptions = {}): PullRequestState {
             runs: options.runs ?? [],
           }
         : null,
+    mergeable: options.mergeable ?? null,
   };
 }
 
@@ -200,6 +202,17 @@ describe("deliveryOutcome: pull requests and CI", () => {
   it("waits for CI when the PR has no CI data", () => {
     const outcome = deliveryOutcome(snapshot({ delivery: [pr(2, { ci: null })] }));
     assert.equal(outcome.stage, "awaiting-ci");
+  });
+
+  it("derives conflict for an open PR that is not mergeable, before CI", () => {
+    const failed = [result(verify, "failed")];
+    const open = pr(2, { checks: [verify], results: failed, mergeable: false });
+    const outcome = deliveryOutcome(snapshot({ delivery: [open] }));
+    assert.deepEqual(outcome, { stage: "conflict", branch: delivery, pullRequest: open });
+    const pending = pr(2, { checks: [verify], results: failed, mergeable: null });
+    assert.equal(deliveryOutcome(snapshot({ delivery: [pending] })).stage, "ci-failed");
+    const clean = pr(2, { mergeable: true });
+    assert.equal(deliveryOutcome(snapshot({ delivery: [clean] })).stage, "review");
   });
 
   it("applies the CI rules, failure winning over pending", () => {

@@ -101,9 +101,13 @@ missing `data` into `GITHUB_READ_FAILED`.
 nibfin/` matching `issue-<n>-cd-`), three fix branches per query, until a `k` has
   neither. The highest existing `k` is the current branch; the next `k` is
   `nextFixBranch`. `issueOfBranch(branch)` maps either branch name back to `n`.
-- Each pull request, newest first, with its CI when open and its CD when merged.
+- Each pull request, newest first, with its CI when open and its CD when merged. The
+  open pull request of the current branch also carries GitHub's `mergeable`
+  (`readPullRequest`; `null` while GitHub computes it, and for every other pull
+  request, which is not read).
 
-`deps` can replace the CI and CD readers (`readCi`, `readCdRuns`). CI and CD stay
+`deps` can replace the CI, CD and pull request readers (`readCi`, `readCdRuns`,
+`readPullRequest`). CI and CD stay
 REST: no single GraphQL query keeps their required-check semantics; within a Job they
 are read once through the read cache.
 
@@ -123,20 +127,23 @@ the set is complete.
 Issue that is not Closed + `delivered`, `no-assignee`), then `shape` without
 `shaped`, then `deliveryOutcome(snapshot)` on the current branch:
 
-| Current branch                         | Stage                                     |
-| -------------------------------------- | ----------------------------------------- |
-| No PR, or only closed-unmerged PRs     | `deliver`                                 |
-| Open PR, no required checks            | `review`                                  |
-| Open PR, a required check failed       | `ci-failed` (wins over pending)           |
-| Open PR, a required check not done     | `awaiting-ci`                             |
-| Open PR, all required checks succeeded | `review`                                  |
-| Merged, no Nibfin push run yet         | `awaiting-cd` (`nibfin-push-run-missing`) |
-| Merged, a CD run failed                | `cd-failed` (wins over pending)           |
-| Merged, a CD run not done              | `awaiting-cd` (`cd-runs-pending`)         |
-| Merged, all CD runs succeeded or none  | `done`                                    |
+| Current branch                         | Stage                                      |
+| -------------------------------------- | ------------------------------------------ |
+| No PR, or only closed-unmerged PRs     | `deliver`                                  |
+| Open PR, conflicts with the base       | `conflict` (`mergeable: false`, before CI) |
+| Open PR, no required checks            | `review`                                   |
+| Open PR, a required check failed       | `ci-failed` (wins over pending)            |
+| Open PR, a required check not done     | `awaiting-ci`                              |
+| Open PR, all required checks succeeded | `review`                                   |
+| Merged, no Nibfin push run yet         | `awaiting-cd` (`nibfin-push-run-missing`)  |
+| Merged, a CD run failed                | `cd-failed` (wins over pending)            |
+| Merged, a CD run not done              | `awaiting-cd` (`cd-runs-pending`)          |
+| Merged, all CD runs succeeded or none  | `done`                                     |
 
-An open PR is used before a merged one. `cd-failed` names `nextFixBranch`; once that
-branch exists it is the current branch, and its PR follows the same rules.
+An open PR is used before a merged one. A conflicting PR gets no `pull_request` CI
+from GitHub, so `conflict` is checked first; while `mergeable` is `null` the CI rules
+apply. `cd-failed` names `nextFixBranch`; once that branch exists it is the current
+branch, and its PR follows the same rules.
 
 Results: `success`, `neutral`, `skipped` succeed; `failure`, `cancelled`, `timed_out`,
 `startup_failure`, `stale` and status `error`/`failure` fail; anything else, including
@@ -227,6 +234,8 @@ otherwise it fails with `GITHUB_WRITE_UNCONFIRMED`.
   commits (heads removed by a force push are not listed).
 - `readForcePushedHeads(client, repo, n)`: the head right before each force push,
   from GraphQL `HeadRefForcePushedEvent.beforeCommit`, all pages.
+- `readCommitPullRequests(client, repo, sha)`: number, title and URL of the pull
+  requests GitHub associates with a commit (`GET …/commits/{sha}/pulls`).
 - `readCommitsAhead(client, repo, base, head)`: the commits of `head` that `base`
   lacks (`GET …/compare/{base}...{head}`, at most the 250 GitHub returns);
   `undefined` when GitHub no longer has `head` (404).

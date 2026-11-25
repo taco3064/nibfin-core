@@ -36,6 +36,8 @@ export interface FakePull {
   title?: string;
   body?: string;
   base?: string;
+  /** GitHub's `mergeable` of the pull request itself; `true` when left out. */
+  mergeable?: boolean | null;
 }
 
 export interface DeliveryWorld {
@@ -52,6 +54,8 @@ export interface DeliveryWorld {
   runnerRuns: unknown[];
   /** Comments on pull requests, by number. */
   pullComments: Map<number, FakeComment[]>;
+  /** The pull requests GitHub associates with a commit, by SHA. */
+  commitPulls: Map<string, unknown[]>;
   agent: FakeDeps;
   git: ReturnType<typeof recordingGit>;
   deps: DeliverDeps;
@@ -122,8 +126,21 @@ function routeBranches(world: DeliveryWorld) {
   }
 }
 
-/** Answers a path the table does not hold: per-SHA checks and per-PR comments. */
+/**
+ * Answers a path the table does not hold: per-SHA checks and pull requests, single
+ * pull requests and per-PR comments.
+ */
 function dynamicRoute(world: DeliveryWorld, request: FakeRequest) {
+  const single = /^\/repos\/acme\/app\/pulls\/(\d+)$/.exec(request.path);
+  const found = world.pulls.find((pull) => pull.number === Number(single?.[1]));
+  if (found) {
+    const mergeable = found.mergeable === undefined ? true : found.mergeable;
+    return { data: { ...pullJson(found), mergeable, mergeable_state: "clean" } };
+  }
+  const commitPulls = /^\/repos\/acme\/app\/commits\/([^/]+)\/pulls$/.exec(request.path);
+  if (commitPulls) {
+    return paged(world.commitPulls.get(commitPulls[1]) ?? [])(request);
+  }
   const checks = /^\/repos\/acme\/app\/commits\/([^/]+)\/check-runs$/.exec(request.path);
   if (checks) {
     return paged(world.checkRuns.get(checks[1]) ?? [], "check_runs")(request);
@@ -227,6 +244,7 @@ export async function deliveryWorld(options: WorldOptions = {}): Promise<Deliver
     pushRuns: [],
     runnerRuns: [],
     pullComments: new Map(),
+    commitPulls: new Map(),
     agent,
     git,
     deps,

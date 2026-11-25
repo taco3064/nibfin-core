@@ -58,8 +58,10 @@ export {
   readMergeSettings,
 } from "./merge-methods.ts";
 export {
+  type CommitPullRequest,
   type PullRequestDetail,
   readApprovalCount,
+  readCommitPullRequests,
   readCommitsAhead,
   readForcePushedHeads,
   readPullRequest,
