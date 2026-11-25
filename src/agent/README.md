@@ -18,6 +18,10 @@ headless in `workspace` and returns `{ exitCode, finalMessage }`.
   `CLAUDE_CODE_DISABLE_AUTO_MEMORY=1`, set by Core rather than inherited.
   `childEnvironment(parent, extra)` builds this environment and is exported, so the
   tool installs in `src/config` (#669) use the same allowlist.
+- **Run environment.** The optional `environment` adds variables to the CLI's own run
+  only, below the inherited, provider and config-home variables, so it cannot override
+  them; its login-status command and rulesync do not get it. The stages pass
+  `PLAYWRIGHT_BROWSERS_PATH` in the tool cache this way (#716).
 - **Tool `PATH`.** The optional `pathEntries` (the `.nibfin.json` tools from
   `prepareTools`, #671) go ahead of the inherited `PATH` for the CLI's own run only;
   its login-status command and rulesync keep the unmodified `PATH`. Before that

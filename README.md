@@ -54,6 +54,8 @@ Nibfin jobs run in one container image, built in the cloud by the `Image` workfl
   or the workflow itself), and on manual dispatch.
 - **What:** `node:24-bookworm-slim` with `git`, `gh`, `uv`, the Codex and Claude CLIs and
   `rulesync`, installed unmodified at their current release, plus the built `nibfin` CLI.
+  It also carries the system libraries and fonts Playwright's Chromium needs, installed
+  by Playwright's own `install-deps chromium` at its current release (see Browsers).
   Everything runs as the non-root user `node` (uid 1000) in `/workspace`. The image
   holds no credentials.
 - **Where:** `ghcr.io/taco3064/nibfin`, one multi-arch (amd64, arm64) image per run,
@@ -79,3 +81,24 @@ GHCR creates the package as private on the first run, and the workflow token can
 that. After the first run, the Owner makes it public once: open the `nibfin` package on
 GitHub, go to **Package settings**, and under **Danger Zone** choose **Change
 visibility** → **Public**.
+
+### Browsers
+
+An agent in a Job can drive a headless Chromium with Playwright, for example to
+screenshot a web UI at several viewport widths. The image has Chromium's system
+libraries and fonts (Latin, emoji, CJK, Thai and a Unifont fallback) but no browser
+and no Playwright package; the project brings both:
+
+1. Pin `playwright` or `@playwright/test` in the project's `package.json` and
+   lockfile; that version is the one the Job uses.
+2. In the Job, run `npm ci`, then `npx playwright install chromium`. No root and no
+   `--with-deps` are needed. For headless-only use,
+   `npx playwright install --only-shell chromium` downloads only the headless shell
+   (about 130 MB instead of about 340 MB).
+
+Core sets `PLAYWRIGHT_BROWSERS_PATH` to `ms-playwright` in the tool cache
+(`NIBFIN_TOOL_CACHE`) for the agent's run, so downloads persist across Jobs: a later Job
+on the same Playwright version downloads nothing. Playwright itself removes builds
+that the last installing project no longer uses, so after a version change the old
+build is deleted; another repository on a different version downloads its build again.
+Only Chromium is supported; Firefox and WebKit lack their system libraries.
