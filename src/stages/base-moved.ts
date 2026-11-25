@@ -5,7 +5,7 @@ import {
   readIssueTitle,
   type Repo,
 } from "../github/index.ts";
-import { closingKeywords } from "./closing-keywords.ts";
+import { closingKeywords, issueTarget } from "./closing-keywords.ts";
 import { type Git, newBaseCommits } from "./git.ts";
 
 /** How many new base commits the Writer gets listed. */
@@ -28,17 +28,17 @@ export function rebaseInstructions(base: string): string {
   );
 }
 
-const issuePattern = new RegExp(
-  `\\b(?:part of|${closingKeywords}):?\\s+#(\\d+)\\b`,
-  "gi",
-);
-
 /**
- * The Issues a pull request's description links in this repository: Nibfin's own
- * `Part of #<n>` and closing keywords before `#<n>`, in order, without repeats.
+ * The Issues a pull request's description links in `repo`: Nibfin's own `Part of`
+ * and closing keywords before `#<n>`, `owner/repo#<n>` or the Issue's URL, in order,
+ * without repeats. References to other repositories are skipped.
  */
-export function linkedIssues(body: string): number[] {
-  const numbers = [...body.matchAll(issuePattern)].map((match) => Number(match[1]));
+export function linkedIssues(body: string, repo: Repo): number[] {
+  const target = issueTarget(repo, "(\\d+)");
+  const pattern = new RegExp(`\\b(?:part of|${closingKeywords}):?\\s+${target}\\b`, "gi");
+  const numbers = [...body.matchAll(pattern)].map((match) =>
+    Number(match[1] ?? match[2]),
+  );
   return [...new Set(numbers)];
 }
 
@@ -48,7 +48,7 @@ async function describePull(
   pull: CommitPullRequest,
 ): Promise<string[]> {
   const lines = [`  - Pull request #${pull.number}: ${pull.title} (${pull.url})`];
-  for (const number of linkedIssues(pull.body)) {
+  for (const number of linkedIssues(pull.body, scope.repo)) {
     const issue = await readIssueTitle(scope.client, { ...scope.repo, number });
     lines.push(`    - Issue #${number}: ${issue.title} (${issue.url})`);
   }

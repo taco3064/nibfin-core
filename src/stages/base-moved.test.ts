@@ -129,9 +129,23 @@ describe("baseMovedDefect", () => {
 describe("linkedIssues", () => {
   it("finds Part of and closing keywords before #<n>, once each", () => {
     assert.deepEqual(
-      linkedIssues("Part of #12\nResolves: #3, fixed #12 and see #4; part of other#5"),
+      linkedIssues(
+        "Part of #12\nResolves: #3, fixed #12 and see #4; part of other#5",
+        repo,
+      ),
       [12, 3],
     );
-    assert.deepEqual(linkedIssues(""), []);
+    assert.deepEqual(linkedIssues("", repo), []);
+  });
+
+  it("finds owner/repo#<n> and Issue URLs of this repository only", () => {
+    assert.deepEqual(
+      linkedIssues(
+        "Part of acme/app#7, closes https://github.com/acme/app/issues/8, " +
+          "fixes other/app#9, part of https://github.com/other/app/issues/10",
+        repo,
+      ),
+      [7, 8],
+    );
   });
 });
