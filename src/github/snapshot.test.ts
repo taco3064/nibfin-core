@@ -78,6 +78,20 @@ function scenario(setup: Scenario): FakeGitHub {
 
 const fixHead = "nibfin/issue-1-cd-1";
 
+/** A pull request summary as `readPullRequest` returns it. */
+function snapshotPull(number: number) {
+  return {
+    number,
+    state: "open" as const,
+    merged: false,
+    headRef: "nibfin/issue-1",
+    headSha: `head-${number}`,
+    baseRef: "main",
+    mergeCommitSha: null,
+    url: "",
+  };
+}
+
 describe("readIssueSnapshot", () => {
   it("reads the Issue, blockers, branches, CI of open and CD of merged PRs", async () => {
     const github = scenario({
@@ -169,6 +183,7 @@ describe("readIssueSnapshot", () => {
       "GET /repos/acme/app/pulls",
       "GET /repos/acme/app/commits/h11/check-runs",
       "GET /repos/acme/app/actions/runs",
+      "GET /repos/acme/app/pulls/11",
     ];
     for (const route of routes) {
       const github = scenario({
@@ -205,5 +220,51 @@ describe("readIssueSnapshot", () => {
       ],
     );
     assert.equal(deriveStage(snapshot).stage, "review");
+  });
+
+  it("reads mergeable of the current branch's open PR only", async () => {
+    const github = scenario({
+      pulls: {
+        "nibfin/issue-1": [pull(10)],
+        [fixHead]: [pull(11, { head: fixHead, sha: "h11" })],
+      },
+      checkRuns: { h11: [], "head-10": [] },
+    });
+    github.routes.set("GET /repos/acme/app/pulls/11", {
+      data: { ...pull(11, { head: fixHead, sha: "h11" }), mergeable: false },
+    });
+    const snapshot = await readIssueSnapshot(github.client, repo, 1);
+    assert.deepEqual(
+      snapshot.pullRequests.map((pr) => [pr.number, pr.mergeable]),
+      [
+        [11, false],
+        [10, null],
+      ],
+    );
+    const reads = github.calls.filter((call) => /\/pulls\/\d+$/.test(call.path));
+    assert.deepEqual(
+      reads.map((call) => call.path),
+      ["/repos/acme/app/pulls/11"],
+    );
+    const stage = deriveStage(snapshot);
+    assert.equal(stage.stage, "conflict");
+    assert.equal("pullRequest" in stage && stage.pullRequest.number, 11);
+  });
+
+  it("keeps the CI rules while GitHub computes mergeable", async () => {
+    const github = scenario({
+      pulls: { "nibfin/issue-1": [pull(10)] },
+      checkRuns: { "head-10": [] },
+    });
+    const snapshot = await readIssueSnapshot(github.client, repo, 1, {
+      readPullRequest: (_client, _repo, number) =>
+        Promise.resolve({
+          ...snapshotPull(number),
+          mergeable: null,
+          mergeableState: "unknown",
+        }),
+    });
+    assert.equal(snapshot.pullRequests[0]?.mergeable, null);
+    assert.equal(deriveStage(snapshot).stage, "awaiting-ci");
   });
 });

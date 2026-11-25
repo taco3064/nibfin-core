@@ -3,13 +3,19 @@ import { type CdState, readCdRuns } from "./cd-runs.ts";
 import type { Actor, GitHubClient } from "./client.ts";
 import type { DependencyIssue } from "./dependencies.ts";
 import { readIssueRecord } from "./issue-query.ts";
+import { readPullRequest } from "./pull-request.ts";
 import type { IssueRef, Repo } from "./repo.ts";
 import { type CiState, readCi } from "./required-checks.ts";
 
-/** A pull request with the CI of an open one and the CD of a merged one. */
+/**
+ * A pull request with the CI of an open one and the CD of a merged one, and GitHub's
+ * `mergeable` for the open one of the current branch.
+ */
 export interface PullRequestState extends PullRequestSummary {
   ci: CiState | null;
   cd: CdState | null;
+  /** `null` while GitHub computes it, and for every other pull request (not read). */
+  mergeable: boolean | null;
 }
 
 export interface BranchState extends Omit<BranchProbe, "pullRequests"> {
@@ -37,18 +43,24 @@ export interface IssueSnapshot {
   pullRequests: PullRequestState[];
 }
 
-/** The CI and CD readers a snapshot is built from; replaceable for callers. */
+/** The CI, CD and pull request readers a snapshot is built from; replaceable. */
 export interface SnapshotReaders {
   readCi: typeof readCi;
   readCdRuns: typeof readCdRuns;
+  readPullRequest: typeof readPullRequest;
 }
 
-export const defaultSnapshotReaders: SnapshotReaders = { readCi, readCdRuns };
+export const defaultSnapshotReaders: SnapshotReaders = {
+  readCi,
+  readCdRuns,
+  readPullRequest,
+};
 
 /**
  * Everything the stage rules need about Issue `issueNumber`, read from GitHub: the Issue,
  * its Blocked by and its branches from the Issue record (one GraphQL query), then CI of
- * each open and CD of each merged pull request (REST). Every list is read in full; any
+ * each open and CD of each merged pull request, and `mergeable` of the current
+ * branch's open pull request (REST). Every list is read in full; any
  * failed read fails the whole snapshot with `GITHUB_READ_FAILED`.
  */
 export async function readIssueSnapshot(
@@ -89,9 +101,10 @@ async function withRunData(
     if (known) {
       return known;
     }
+    const current = probe === probes.current;
     const pullRequests: PullRequestState[] = [];
     for (const pull of probe.pullRequests) {
-      pullRequests.push(await pullRequestState(client, repo, pull, readers));
+      pullRequests.push(await pullRequestState(client, repo, pull, readers, current));
     }
     const state = { ...probe, pullRequests };
     states.set(probe, state);
@@ -115,14 +128,17 @@ async function pullRequestState(
   repo: Repo,
   pull: PullRequestSummary,
   readers: SnapshotReaders,
+  current: boolean,
 ): Promise<PullRequestState> {
-  const ci =
-    pull.state === "open"
-      ? await readers.readCi(client, repo, pull.baseRef, pull.headSha)
+  const open = pull.state === "open";
+  const mergeable =
+    open && current
+      ? (await readers.readPullRequest(client, repo, pull.number)).mergeable
       : null;
+  const ci = open ? await readers.readCi(client, repo, pull.baseRef, pull.headSha) : null;
   const cd =
     pull.merged && pull.mergeCommitSha !== null
       ? await readers.readCdRuns(client, repo, pull.baseRef, pull.mergeCommitSha)
       : null;
-  return { ...pull, ci, cd };
+  return { ...pull, ci, cd, mergeable };
 }
