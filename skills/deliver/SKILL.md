@@ -33,22 +33,31 @@ Issues or change native dependencies.
 
 - Work only on the Issue's branch, which the stage supplies (for example
   `nibfin/issue-<n>`). Git and GitHub hold all progress; keep no local journal.
-- Commit in coherent stages and push each stage as the work progresses. A pushed commit is
-  saved progress; anything not pushed is not.
+- Commit in coherent stages. You have no credentials: the stage fetches the base, updates
+  `origin/<base>` and pushes your commits; never fetch or push yourself. A pushed commit
+  is saved progress; anything not pushed is not.
 - On a redo, start from the pushed branch head and the existing PR, if one exists. Work
   that was never pushed is gone; redo it. Do not reconstruct a lost transcript or
   response.
 - The stage, not you, confirms that the previous Writer for this Issue has stopped before
   you start. Do not try to establish that yourself.
-- When `main` moves, rebase the branch onto current `main`. Push the result with
-  `--force-with-lease` bound to the remote head you observed; never use a plain force
-  push. If the remote branch has commits you did not expect, or the push is rejected, stop
-  and report it instead of overwriting them.
-- Resolve ordinary code and test conflicts within the Shape. If a resolution would change
-  requirements, another Issue's contract or a security boundary, keep the work, do not
-  pick a side, and report that specific conflict.
-- After a rebase, rerun the checks the rebased changes affect. Results from the old head
-  do not count for the new head.
+- Rebase the branch onto the `origin/<base>` the stage provides: before you return done
+  when the branch is behind it, when the stage reports that the base moved (it names the
+  new base commit and the pull requests and Issues it brought), and when it sends you back
+  because the open pull request conflicts with the base. The stage pushes the rebased
+  branch with a lease on the remote head; if it reports that the remote branch has commits
+  you did not expect, stop and report it instead of overwriting them.
+- When a rebase conflicts, first understand the other side. From the conflicting files and
+  the new base commits, find their pull requests and Issues (the stage lists them when it
+  sends you back) and read what they completed: behavior, interfaces, contracts and tests.
+  Resolve the conflict so that both Issues' results hold: keep the other side's behavior,
+  interfaces and tests, and never delete or revert them to make your change pass.
+- If both cannot hold, for example because the two Issues' requirements contradict, or a
+  resolution would change a security boundary, keep the work, do not pick a side, and
+  return blocked naming both Issues and the conflicting requirements.
+- After a rebase, rerun the checks the rebased changes affect, including the tests of the
+  other Issues whose code you merged with. Results from the old head do not count for the
+  new head.
 
 ## Hooks and checks
 
@@ -112,8 +121,8 @@ fresh Accept sub agent before any PR exists.
 - The Acceptor receives only the Issue, the approved Shape, the branch diff against `main`
   and the fix reason, if any. It never receives your summary, notes or confidence.
 - Its verdict goes back to the Deliver stage. You do not report, restate or replace it.
-- On defects, fix them within the Shape, push, and let a new fresh Accept sub agent review
-  the new diff. Repeat until it passes; there is no attempt limit.
+- On defects, fix them within the Shape, commit, and let a new fresh Accept sub agent
+  review the new diff. Repeat until it passes; there is no attempt limit.
 - A blocked verdict keeps its original underlying cause; do not reword it into a generic
   failure.
 - The Deliver stage opens the PR, or reuses the one found by the branch, only after a

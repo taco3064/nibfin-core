@@ -46,6 +46,10 @@ callers when you need them to judge behavior. If `main` has moved and the diff c
 with it, report the conflict or the invalidated check; do not rebase or repair it
 yourself. Do not require a particular base commit, hash or fixed version.
 
+Work other Issues merged into the base must survive. When the diff deletes or reverts
+behavior, interfaces or tests that are on the base and that the Shape does not ask to
+change, for example after a rebase that resolved a conflict, that is a defect.
+
 ## Verification
 
 Derive what to check from the Issue goal, the Shape's expected behavior and its
