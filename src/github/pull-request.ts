@@ -168,10 +168,12 @@ export interface CommitPullRequest {
   number: number;
   title: string;
   url: string;
+  /** The description; empty when it has none. */
+  body: string;
 }
 
 /**
- * The pull requests GitHub associates with commit `sha`
+ * The pull requests GitHub associates with commit `sha`, with their descriptions
  * (`GET …/commits/{sha}/pulls`, all pages).
  */
 export async function readCommitPullRequests(
@@ -192,5 +194,6 @@ export async function readCommitPullRequests(
     number: pull.number,
     title: pull.title,
     url: pull.html_url,
+    body: pull.body ?? "",
   }));
 }

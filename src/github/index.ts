@@ -39,7 +39,12 @@ export {
   rateLimitOf,
   responseMessage,
 } from "./errors.ts";
-export { type IssueText, readIssueText } from "./issue-text.ts";
+export {
+  type IssueText,
+  type IssueTitle,
+  readIssueText,
+  readIssueTitle,
+} from "./issue-text.ts";
 export { readJobLog, readRunJobs, type WorkflowJobSummary } from "./job-logs.ts";
 export { nibfinLabels } from "./labels.ts";
 export {

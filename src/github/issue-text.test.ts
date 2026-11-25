@@ -3,7 +3,7 @@ import { describe, it } from "node:test";
 import { GitHubError } from "./errors.ts";
 import { failure, fakeGitHub, rejection } from "./fake-github.test.ts";
 import { issue } from "./fixtures.test.ts";
-import { readIssueText } from "./issue-text.ts";
+import { readIssueText, readIssueTitle } from "./issue-text.ts";
 
 const target = { owner: "other", repo: "lib", number: 3 };
 const route = "GET /repos/other/lib/issues/3";
@@ -36,5 +36,22 @@ describe("readIssueText", () => {
     assert.ok(error instanceof GitHubError);
     assert.equal(error.code, "GITHUB_READ_FAILED");
     assert.equal(error.operation, "read other/lib#3");
+  });
+});
+
+describe("readIssueTitle", () => {
+  it("returns the title and URL", async () => {
+    const github = fakeGitHub({ [route]: { data: text("B") } });
+    assert.deepEqual(await readIssueTitle(github.client, target), {
+      title: "T",
+      url: "https://github.com/other/lib/issues/3",
+    });
+  });
+
+  it("fails when the Issue cannot be read", async () => {
+    const github = fakeGitHub({ [route]: failure(500) });
+    const error = await rejection(readIssueTitle(github.client, target));
+    assert.ok(error instanceof GitHubError);
+    assert.equal(error.code, "GITHUB_READ_FAILED");
   });
 });

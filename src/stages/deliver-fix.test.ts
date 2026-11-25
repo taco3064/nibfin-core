@@ -225,7 +225,8 @@ describe("runDeliverStage for conflict", () => {
       const short = git(world.fixture.workspace, "rev-parse", "--short", base);
       assert.ok(
         run.prompt.includes(
-          `- ${short} feat: base a (#330 Base a (https://github.com/acme/app/pull/330))`,
+          `- ${short} feat: base a\n` +
+            "  - Pull request #330: Base a (https://github.com/acme/app/pull/330)",
         ),
       );
     }

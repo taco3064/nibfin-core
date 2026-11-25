@@ -32,6 +32,7 @@ describe("runDeliverStage when the base moves", () => {
           number: 330,
           title: "Base work",
           html_url: "https://github.com/acme/app/pull/330",
+          body: "Part of #1",
         },
       ]);
       return pass;
@@ -56,8 +57,9 @@ describe("runDeliverStage when the base moves", () => {
     );
     assert.ok(
       fix.prompt.includes(
-        `- ${short} feat: base work (#330 Base work ` +
-          "(https://github.com/acme/app/pull/330))",
+        `- ${short} feat: base work\n` +
+          "  - Pull request #330: Base work (https://github.com/acme/app/pull/330)\n" +
+          "    - Issue #1: Add the widget (https://github.com/acme/app/issues/1)",
       ),
     );
     assert.match(acceptor.prompt, /Your role is Accept sub agent\./);
