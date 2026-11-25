@@ -33,11 +33,14 @@ run-name: >-
   || format('Nibfin · {0}@{1} · wake', github.repository,
   github.event.workflow_run && (github.event.workflow_run.event == 'pull_request'
   && github.event.workflow_run.head_branch || github.event.workflow_run.head_sha)
-  || github.event.check_suite.head_branch || github.event.sha || github.sha) }}
+  || github.event.pull_request.head.ref || github.event.check_suite.head_branch
+  || github.event.sha || github.sha) }}
 
 on:
   issues:
     types: [opened, reopened, closed, assigned, unassigned, labeled, unlabeled]
+  pull_request_review:
+    types: [submitted]
   workflow_run:
     workflows: [CI] # this repository's CI/CD workflow names
     types: [completed]
@@ -61,6 +64,12 @@ detection waits for, so keep it unfiltered on the default branch. The `closed` t
 wakes a closed Issue, whose route deletes its `nibfin/issue-<n>` and
 `nibfin/issue-<n>-cd-<k>` branches (#700); a peer whose caller predates it adds
 `closed` by hand.
+
+The `pull_request_review` (`submitted`) trigger wakes the Issue of a same-repository
+`nibfin/issue-*` pull request when a reviewer with admin or write permission submits a
+review, so a pull request that waits for a required approval is re-checked (#726); a
+peer whose caller predates it adds that trigger and the `pull_request.head.ref` run-name
+term by hand.
 
 ## Hand setup
 
