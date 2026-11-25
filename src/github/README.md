@@ -217,6 +217,9 @@ otherwise it fails with `GITHUB_WRITE_UNCONFIRMED`.
   returns the run URL when GitHub reports it. No response or a 5xx is
   `GITHUB_WRITE_UNCONFIRMED` (a dispatch cannot be confirmed by a re-read), any
   other failure `GITHUB_WRITE_REJECTED`.
+- `readRepoOwnerId(client, repo)` (#721): the repository's `owner.id` (an
+  organisation's id when it owns it), from the same `GET /repos/{owner}/{repo}`
+  read as `readDefaultBranch`, so within a run it costs no extra request.
 
 ## Merge admission (#673)
 

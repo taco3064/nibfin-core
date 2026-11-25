@@ -121,5 +121,6 @@ export {
   type QueuedRun,
   readDefaultBranch,
   readNotStartedRuns,
+  readRepoOwnerId,
 } from "./workflow-dispatch.ts";
 export { readRunnerLabels, runnerLabel } from "./runners.ts";

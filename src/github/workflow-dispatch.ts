@@ -34,12 +34,22 @@ export async function readNotStartedRuns(
   return runs;
 }
 
-/** The default branch of `repo`. */
-export async function readDefaultBranch(client: GitHubClient, repo: Repo) {
+/** `GET /repos/{owner}/{repo}`; within a run the read cache shares one request. */
+async function readRepo(client: GitHubClient, repo: Repo) {
   const { data } = await read(`read ${repo.owner}/${repo.repo}`, () =>
     client.request("GET /repos/{owner}/{repo}", { ...repo }),
   );
-  return data.default_branch;
+  return data;
+}
+
+/** The default branch of `repo`. */
+export async function readDefaultBranch(client: GitHubClient, repo: Repo) {
+  return (await readRepo(client, repo)).default_branch;
+}
+
+/** The user id of `repo`'s owner (`owner.id`; an organisation's id when it owns it). */
+export async function readRepoOwnerId(client: GitHubClient, repo: Repo): Promise<number> {
+  return Number((await readRepo(client, repo)).owner.id);
 }
 
 /**
