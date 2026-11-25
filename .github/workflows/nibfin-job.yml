@@ -115,7 +115,9 @@ jobs:
   stage:
     name: stage
     if: inputs.stage != 'route'
-    runs-on: [self-hosted, "nibfin-${{ inputs.assignee }}-${{ vars.NIBFIN_PROVIDER }}"]
+    # Any Runner of the Assignee; the provider is the Runner's own (NIBFIN_PROVIDER
+    # in its .env), never a repository variable or an input.
+    runs-on: [self-hosted, "nibfin-${{ inputs.assignee }}"]
     steps:
       - name: Remove what an earlier Job left behind
         run: |
@@ -167,7 +169,6 @@ jobs:
           PIDS_LIMIT: ${{ vars.NIBFIN_PIDS_LIMIT || '4096' }}
           CPUS: ${{ vars.NIBFIN_CPUS || '4' }}
           CONTAINER_LIMITS: ${{ vars.NIBFIN_CONTAINER_LIMITS }}
-          PROVIDER: ${{ vars.NIBFIN_PROVIDER }}
           MODEL: ${{ vars.NIBFIN_MODEL }}
           IMAGE_REF: ${{ steps.image.outputs.ref }}
           STAGE: ${{ inputs.stage }}
@@ -175,6 +176,15 @@ jobs:
           ISSUE: ${{ inputs.issue }}
           REASON: ${{ inputs.reason }}
         run: |
+          # The Runner's .env sets NIBFIN_PROVIDER; the runner reads it when it starts.
+          PROVIDER="${NIBFIN_PROVIDER:-}"
+          case "$PROVIDER" in
+            claude | codex) ;;
+            *)
+              echo "This Runner's .env must set NIBFIN_PROVIDER to claude or codex (it is \"$PROVIDER\"); restart the Runner after changing it" >&2
+              exit 1
+              ;;
+          esac
           mkdir -p "$RUNNER_TEMP/nibfin-out"
           options=(--stage "$STAGE" --repo "$REPO" --issue "$ISSUE" --provider "$PROVIDER")
           if [ -n "$MODEL" ]; then
