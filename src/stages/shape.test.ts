@@ -93,6 +93,9 @@ describe("runShapeStage publication", () => {
     assert.doesNotMatch(validatorRun.prompt, /Reasoning the Validator never sees/);
     for (const run of t.fake.runs) {
       assert.deepEqual(run.pathEntries, fakePathEntries);
+      assert.deepEqual(run.environment, {
+        PLAYWRIGHT_BROWSERS_PATH: "/cache/ms-playwright",
+      });
       assert.equal(run.model, "sonnet");
       assert.equal(run.home, "/login/claude");
       assert.equal(run.workspace, workspace);

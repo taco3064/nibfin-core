@@ -1,3 +1,4 @@
+import { join } from "node:path";
 import { AgentError, loginCommand, providerSpecs, runAgent } from "../agent/index.ts";
 import {
   type NibfinConfig,
@@ -50,13 +51,18 @@ export const defaultStageDeps: StageDeps = {
   log: (line) => process.stdout.write(`${line}\n`),
 };
 
-/** One Job: its context, client, `.nibfin.json` and tool `PATH` entries. */
+/**
+ * One Job: its context, client, `.nibfin.json`, tool `PATH` entries and the extra
+ * variables for the agent CLI's run.
+ */
 export interface StageJob {
   readonly context: JobContext;
   readonly client: ActingClient;
   readonly deps: StageDeps;
   readonly config: NibfinConfig;
   readonly pathEntries: readonly string[];
+  /** `PLAYWRIGHT_BROWSERS_PATH` in the tool cache, so browser downloads persist. */
+  readonly environment: Readonly<Record<string, string>>;
   /** Whether a successful run has already settled the login comment. */
   loginSettled: boolean;
 }
@@ -68,7 +74,8 @@ export function issueOf(context: JobContext): IssueRef {
 /**
  * Right before a stage's first agent run: checks the host's available memory
  * (`STAGE_HOST_MEMORY_LOW`), reads `.nibfin.json` (a `ConfigError` rejects the Job as
- * is) and installs its tools once for the Job.
+ * is) and installs its tools once for the Job. Playwright's browser downloads go to
+ * `ms-playwright` in the tool cache.
  */
 export async function prepareStageJob(
   context: JobContext,
@@ -81,7 +88,10 @@ export async function prepareStageJob(
     workspace: context.workspace,
     cacheDir: context.toolCache,
   });
-  return { context, client, deps, config, pathEntries, loginSettled: false };
+  const environment = {
+    PLAYWRIGHT_BROWSERS_PATH: join(context.toolCache, "ms-playwright"),
+  };
+  return { context, client, deps, config, pathEntries, environment, loginSettled: false };
 }
 
 function loginBody(job: StageJob): string {
@@ -141,6 +151,7 @@ export async function runStageAgent(
       home: context.agentHome,
       ...(context.model === undefined ? {} : { model: context.model }),
       pathEntries: job.pathEntries,
+      environment: job.environment,
       ...(role.readOnly ? { beforeStart: recordWorkspace } : {}),
     }));
   } catch (error) {
