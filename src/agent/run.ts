@@ -41,6 +41,13 @@ export interface RunAgentOptions {
    */
   pathEntries?: readonly string[];
   /**
+   * Extra variables for the agent CLI's run only, such as `PLAYWRIGHT_BROWSERS_PATH`.
+   * They cannot override the inherited variables, the provider's own run variables
+   * or its config-home variable; the login-status command and rulesync do not
+   * receive them.
+   */
+  environment?: Readonly<Record<string, string>>;
+  /**
    * Called after rulesync has generated the agent config and right before the CLI
    * starts, so a caller can record the workspace the CLI will see. A rejection stops
    * the run before the CLI starts.
@@ -142,20 +149,23 @@ async function failure(
 }
 
 /**
- * The agent CLI's own process: with `pathEntries`, an absolute command (resolved on
- * the unmodified `PATH`) and those entries ahead of the inherited `PATH`.
+ * The agent CLI's own process: `environment` below the base variables and, with
+ * `pathEntries`, an absolute command (resolved on the unmodified `PATH`) and those
+ * entries ahead of the inherited `PATH`.
  */
 async function agentRequest(
   base: ProcessRequest,
   pathEntries: readonly string[],
+  environment: Readonly<Record<string, string>>,
 ): Promise<ProcessRequest> {
+  const request = { ...base, env: { ...environment, ...base.env } };
   if (pathEntries.length === 0) {
-    return base;
+    return request;
   }
   const inherited = base.env.PATH;
   const command = await resolveCommand(base.command, base.cwd, inherited);
   const path = [...pathEntries, inherited].filter((entry) => entry !== undefined);
-  return { ...base, command, env: { ...base.env, PATH: path.join(delimiter) } };
+  return { ...request, command, env: { ...request.env, PATH: path.join(delimiter) } };
 }
 
 /**
@@ -182,7 +192,11 @@ export async function runAgent(options: RunAgentOptions): Promise<AgentResult> {
       [spec.configHomeVariable]: home,
     }),
   };
-  const agent = await agentRequest(base, options.pathEntries ?? []);
+  const agent = await agentRequest(
+    base,
+    options.pathEntries ?? [],
+    options.environment ?? {},
+  );
   const lastMessageFile = await gitPath(workspace, "nibfin-last-message");
   await rm(lastMessageFile, { force: true });
   await options.beforeStart?.();

@@ -166,3 +166,48 @@ describe("runAgent pathEntries", () => {
     assert.equal(env?.PATH, parentPath());
   });
 });
+
+describe("runAgent environment", () => {
+  const success = jsonLines({ type: "result", result: "done" });
+
+  it("adds the variables to the agent CLI's run only", async () => {
+    const workspace = await makeWorkspace(root);
+    await mkdir(join(workspace, ".rulesync"));
+    const home = join(root, `home-${Math.random()}`);
+    const fake = await createFakeCli(root, {
+      homeVariable: "CLAUDE_CONFIG_DIR",
+      stdout: success,
+      exit: 3,
+      statusExit: 0,
+    });
+    const rulesync = await createFakeCli(root, {
+      stdout: JSON.stringify({ success: true, data: { plan: { operations: [] } } }),
+    });
+    const browsers = join(root, "tools", "ms-playwright");
+    await assert.rejects(
+      runAgent({
+        provider: "claude",
+        workspace,
+        home,
+        prompt: "x",
+        environment: {
+          PLAYWRIGHT_BROWSERS_PATH: browsers,
+          CLAUDE_CONFIG_DIR: "/elsewhere",
+          CLAUDE_CODE_DISABLE_AUTO_MEMORY: "0",
+        },
+        executables: { claude: fake.command, rulesync: rulesync.command },
+        output: { stdout: captureSink(), stderr: captureSink() },
+      }),
+      { code: "AGENT_RUN_FAILED", exitCode: 3 },
+    );
+    const [agentEnv, statusEnv] = await fake.environments();
+    const [rulesyncEnv] = await rulesync.environments();
+    assert.equal(agentEnv?.PLAYWRIGHT_BROWSERS_PATH, browsers);
+    assert.equal(agentEnv?.CLAUDE_CONFIG_DIR, home);
+    assert.equal(agentEnv?.CLAUDE_CODE_DISABLE_AUTO_MEMORY, "1");
+    assert.equal(agentEnv?.PATH, parentPath());
+    assert.equal(statusEnv?.PLAYWRIGHT_BROWSERS_PATH, undefined);
+    assert.ok(rulesyncEnv);
+    assert.equal(rulesyncEnv.PLAYWRIGHT_BROWSERS_PATH, undefined);
+  });
+});
