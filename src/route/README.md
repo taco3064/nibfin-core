@@ -15,7 +15,7 @@ from the snapshot, composing the stages' own rules:
 3. `review` whose PR has a current review comment (`currentReview(...)?.current ===
 true`; a stale one falls to rule 4) → `deliver review`;
 4. any other delivery stage → `shapeNextAction(stage, issue)` (`done` → `review`,
-   `awaiting-*` → `null`);
+   `conflict` → `deliver conflict`, `awaiting-*` → `null`);
 5. closed as delivered (`closedAsDelivered`) → `review` (wake-only redo);
 6. anything else (paused, `pending`, no scope, blocked, no Assignee) → `null`.
 

@@ -234,8 +234,9 @@ otherwise it fails with `GITHUB_WRITE_UNCONFIRMED`.
   commits (heads removed by a force push are not listed).
 - `readForcePushedHeads(client, repo, n)`: the head right before each force push,
   from GraphQL `HeadRefForcePushedEvent.beforeCommit`, all pages.
-- `readCommitPullRequests(client, repo, sha)`: number, title and URL of the pull
-  requests GitHub associates with a commit (`GET …/commits/{sha}/pulls`).
+- `readCommitPullRequests(client, repo, sha)`: number, title, URL and description
+  of the pull requests GitHub associates with a commit (`GET …/commits/{sha}/pulls`).
+- `readIssueTitle(client, issue)`: an Issue's title and URL (`GET …/issues/{n}`).
 - `readCommitsAhead(client, repo, base, head)`: the commits of `head` that `base`
   lacks (`GET …/compare/{base}...{head}`, at most the 250 GitHub returns);
   `undefined` when GitHub no longer has `head` (404).

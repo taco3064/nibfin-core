@@ -23,7 +23,8 @@ the field, never its value.
 | `--issue`                | The Issue number                                            |
 | `--provider`             | `codex` or `claude`, from the Pool or runner configuration  |
 | `--model`                | Optional agent model                                        |
-| `--reason`               | Deliver only: `ci-failure`, `review` or `cd-failure`        |
+| `--reason`               | Deliver only: `ci-failure`, `review`, `cd-failure` or       |
+|                          | `conflict`                                                  |
 | `NIBFIN_GITHUB_TOKEN`    | Issues and Pull requests write, the reads in `src/github`;  |
 |                          | Deliver: Contents write (plus the workflows permission when |
 |                          | a change touches `.github/workflows/`) and Actions read on  |
@@ -183,8 +184,9 @@ written, so they follow the skill's Disclosure rules.
    `ci-failed`; `review` → `review` with the actor's marked `review` comment on the
    PR whose `Reviewed head: <sha>` line equals the PR head and whose
    `Reviewed Shape: <v>` line equals the current Shape version; `cd-failure` →
-   `cd-failed` (work on `nextFixBranch`), or `deliver` on a fix branch (a redo).
-   Otherwise it logs the stage and exits 0.
+   `cd-failed` (work on `nextFixBranch`), or `deliver` on a fix branch (a redo);
+   `conflict` → `conflict` (the open PR conflicts with its base). Otherwise it logs
+   the stage and exits 0.
 2. **Writer check.** It lists the in-progress workflow runs of `NIBFIN_RUN_REPO`
    (every workflow and page) other than `NIBFIN_RUN_ID`. Another run named
    `Nibfin · <owner>/<repo>#<n> · deliver` (run name or workflow name) is
@@ -214,16 +216,33 @@ written, so they follow the skill's Disclosure rules.
    Shape, the local diff against `origin/<base>` and the fix context, never the
    Writer's output. `defects` go to the Writer, then a fresh Acceptor; there is no
    round limit. `blocked` writes `deliver-blocked` and stops.
-7. **PR.** After a pass it re-checks eligibility, pushes what is pending and opens the
-   PR (`<Issue title> (#<n>)`), or reuses the branch's open one, and marks an earlier
-   `deliver-blocked` comment resolved.
+7. **Base refresh.** After a pass Core fetches `origin/<base>` from GitHub again into
+   its repository and the workspace (the Writer has no credentials to fetch). When
+   the head no longer contains it (`merge-base --is-ancestor`), the base moved
+   during the run: nothing is published, and the Writer gets one defect naming the
+   new base head, asking it to rebase onto `refs/remotes/origin/<base>`, resolve
+   conflicts keeping the base's work and rerun the affected checks, with the new
+   base commits (below). A fresh Acceptor follows; there is no round limit.
+8. **PR.** After a pass on a head that contains the base it re-checks eligibility,
+   pushes what is pending and opens the PR (`<Issue title> (#<n>)`), or reuses the
+   branch's open one, and marks an earlier `deliver-blocked` comment resolved. It
+   then reads the snapshot fresh until GitHub computed the open PR's `mergeable`
+   (at most 5 reads, 3 s apart; still unknown, it logs that and the CI rules apply).
 
 Fix context: `ci-failure` lists the failed required checks with URLs and, for a
 GitHub Actions check run (app `github-actions`, whose check-run id is the job id),
 the last 200 lines of the job log; other checks and statuses get their URL only.
 `review` gives the review comment. `cd-failure` lists the failed CD runs of the
 newest merged PR whose CD failed, with the log tails of their failed jobs
-(`filter=latest`). Log text is redacted of the token.
+(`filter=latest`). `conflict` gives the PR, that it conflicts with the base and what
+to do (as for a moved base), and the new base commits. Log text is redacted of the
+token.
+
+New base commits: the commits of `origin/<base>` the head lacks (`%h %s`, newest
+first, at most 50 and a count of the rest), each with the pull requests GitHub
+associates with it (`GET …/commits/{sha}/pulls`) and the Issues each links in its
+description (`Part of #<n>`, closing keywords) with their titles and URLs. A failed
+read is `GITHUB_READ_FAILED`.
 
 ### Pushes
 
@@ -265,8 +284,8 @@ refs/heads/<dir>`) triggers a push whenever `refs/heads/<branch>` changed. The
   watches the inode). With the reftable ref backend there is no loose ref, so the
   run logs that progress is saved by the final push only. Core pushes once more when
   the Writer returns, also when it is blocked or its run failed.
-- **Branch with an open PR** (`ci-failure`, `review`): Core pushes only after Accept
-  passes.
+- **Branch with an open PR** (`ci-failure`, `review`, `conflict`): Core pushes only
+  after Accept passes.
 - **Protected paths.** Before each push, after the "nothing ahead" check, Core checks
   the head for protected paths (below). A head that fails is not pushed and fails
   like a rejected push: no later push happens in the run, and `flush` reports it.
@@ -326,7 +345,8 @@ protection does not apply, because the token has the `workflow` scope.
 With `NIBFIN_NEXT_FILE` set, the stage writes `{ "stage": …, "reason": …,
 "progressed": … }` there for #673 and #674 (a push counts as progress):
 `{ "stage": "review", "reason": null }` when the snapshot after the PR
-derives `review`; `{ "stage": "shape", "reason": null }` after a Writer
+derives `review`; `{ "stage": "deliver", "reason": "conflict" }` when it derives
+`conflict`; `{ "stage": "shape", "reason": null }` after a Writer
 `shape-wrong`, on the redo that removes `shaped` for a pending report (any reason),
 and on an ineligible start at `shape` with an unresolved `shape-wrong` report (a
 redo after a crash before the next action); `{ "stage": "review", "reason": null }`
@@ -352,6 +372,7 @@ Results:
 |                                     | back or merge (below)                     |
 | `awaiting-cd`                       | Log the reason; next action none          |
 | `cd-failed`                         | Next `{ "deliver", "cd-failure" }`        |
+| `conflict`                          | Next `{ "deliver", "conflict" }`          |
 | `done`                              | Closing comment, `delivered`, close, wake |
 | Closed, `delivered` and the actor's | Wake only (a redo after a crash)          |
 | `delivered` comment                 |                                           |
@@ -510,6 +531,7 @@ The next actions of this flow, all stages together:
 `shapeNextAction` maps the stage derived after `shaped` is back: `deliver` on the
 delivery branch → `{ "deliver", null }`; `deliver` on a CD fix branch →
 `{ "deliver", "cd-failure" }`; `ci-failed` → `{ "deliver", "ci-failure" }`;
+`conflict` → `{ "deliver", "conflict" }`;
 `review` → `{ "review", null }`; `cd-failed` → `{ "deliver", "cd-failure" }`; `done`
 → `{ "review", null }` (closure); `awaiting-cd` and anything else → `null` (CD
 events follow). A Shape run at a delivery stage outside this flow re-emits the same
