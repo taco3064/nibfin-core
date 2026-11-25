@@ -27,6 +27,14 @@ RUN apt-get update \
   && apt-get install -y --no-install-recommends git gh \
   && rm -rf /var/lib/apt/lists/*
 
+# The system libraries and fonts Playwright's Chromium needs, from Playwright's own
+# installer at its current release. They need root, which Jobs do not have; a project's
+# lockfile still decides the Playwright version and `npx playwright install chromium`
+# downloads the browser into the tool cache. The playwright package is not kept.
+RUN npm exec --yes --package=playwright@latest -- playwright --version \
+  && npm exec --yes --package=playwright@latest -- playwright install-deps chromium \
+  && rm -rf /var/lib/apt/lists/* /root/.npm
+
 # uv from Astral's official image, outside HOME so a login volume cannot shadow it.
 COPY --from=ghcr.io/astral-sh/uv:0.13 /uv /uvx /usr/local/bin/
 
