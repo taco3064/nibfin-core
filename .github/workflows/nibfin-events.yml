@@ -35,6 +35,8 @@ jobs:
           RUN_BRANCH: ${{ github.event.workflow_run.head_branch }}
           RUN_SHA: ${{ github.event.workflow_run.head_sha }}
           RUN_HEAD_REPO: ${{ github.event.workflow_run.head_repository.full_name }}
+          REVIEW_BRANCH: ${{ github.event.pull_request.head.ref }}
+          REVIEW_HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
           SUITE_APP: ${{ github.event.check_suite.app.slug }}
           SUITE_BRANCH: ${{ github.event.check_suite.head_branch }}
           STATUS_SHA: ${{ github.event.sha }}
@@ -42,10 +44,30 @@ jobs:
           PUSH_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
-          if [ -z "$EXECUTION_REPO" ]; then
-            echo "The variable NIBFIN_EXECUTION_REPO is not set" >&2
-            exit 1
+          require_execution_repo() {
+            if [ -z "$EXECUTION_REPO" ]; then
+              echo "The variable NIBFIN_EXECUTION_REPO is not set" >&2
+              exit 1
+            fi
+          }
+          # A review is filtered to Nibfin's own pull requests before the variable is needed.
+          if [ "$EVENT_NAME" != pull_request_review ]; then
+            require_execution_repo
           fi
+          # Ends the run unrouted unless the sender has admin or write permission.
+          # A failed permission read fails the run.
+          require_writer() {
+            local permission
+            permission=$(gh api "repos/$REPO/collaborators/$SENDER/permission" \
+              --jq .permission)
+            case "$permission" in
+              admin | write) ;;
+              *)
+                echo "$SENDER has $permission permission; not routed"
+                exit 0
+                ;;
+            esac
+          }
           wake() {
             local inputs=(-f stage=route -f "repo=$REPO")
             for pair in "$@"; do
@@ -67,16 +89,21 @@ jobs:
                   exit 0
                   ;;
               esac
-              permission=$(gh api "repos/$REPO/collaborators/$SENDER/permission" \
-                --jq .permission)
-              case "$permission" in
-                admin | write) ;;
-                *)
-                  echo "$SENDER has $permission permission; not routed"
-                  exit 0
-                  ;;
-              esac
+              require_writer
               wake "issue=$ISSUE"
+              ;;
+            pull_request_review)
+              case "$REVIEW_BRANCH" in
+                nibfin/issue-*) ;;
+                *) exit 0 ;;
+              esac
+              if [ "$REVIEW_HEAD_REPO" != "$REPO" ]; then
+                echo "A review on a pull request from ${REVIEW_HEAD_REPO:-an unknown repository}; not routed"
+                exit 0
+              fi
+              require_execution_repo
+              require_writer
+              wake "branch=$REVIEW_BRANCH" "ref=$REVIEW_BRANCH"
               ;;
             workflow_run)
               if [ "$RUN_EVENT" = pull_request ]; then
