@@ -471,10 +471,10 @@ downstream repository the token does not cover is logged as unreadable.
 rebase request (also instead of reusing a review comment whose `Reviewed Shape` is
 not current: the head is reviewed again first), `{ "deliver", null }` at `review`
 with a pending `shape-wrong` report (instead of reviewing or merging),
-`{ "deliver", "cd-failure" }` at `cd-failed`, `wake` after the close (also on the
-redo), and `null` otherwise, including every failure. `"progressed": true` also when
-the re-read before writing or merging finds another stage, PR or head than the one
-pinned.
+`{ "deliver", "cd-failure" }` at `cd-failed`, `{ "deliver", "conflict" }` at
+`conflict`, `wake` after the close (also on the redo), and `null` otherwise,
+including every failure. `"progressed": true` also when the re-read before writing
+or merging finds another stage, PR or head than the one pinned.
 
 Result: `{ outcome: "clean" | "problems" | "blocked", reviewedHead, problems?,
 reason? }`; `problems` is a non-empty list of non-empty strings, `reason` a non-empty
