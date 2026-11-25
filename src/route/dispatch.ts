@@ -3,7 +3,9 @@ import {
   dispatchWorkflow,
   nibfinRunTitle,
   readNotStartedRuns,
+  readRunnerLabels,
   type Repo,
+  runnerLabel,
 } from "../github/index.ts";
 import type { IssueRoute } from "./route.ts";
 
@@ -47,10 +49,13 @@ export async function dispatchRoute(
 }
 
 /**
- * Dispatches the stage of `route` for the Issue unless a run of the execution
- * repository that has not started (`requested`, `waiting`, `pending`, `queued`)
- * already has its title; a waiting run reads GitHub when it starts. Running runs
- * never count. Returns whether it dispatched.
+ * Dispatches the stage of `route` for the Issue (#720) only when a self-hosted runner
+ * of the execution repository has the Assignee's label `nibfin-<user id>`
+ * (case-insensitive, online or not, busy or not); without one the Issue is an
+ * ordinary assignment and nothing is written. It also skips when a run of the
+ * execution repository that has not started (`requested`, `waiting`, `pending`,
+ * `queued`) already has its title; a waiting run reads GitHub when it starts.
+ * Running runs never count. Returns whether it dispatched.
  */
 export async function dispatchStage(
   scope: DispatchScope,
@@ -58,6 +63,14 @@ export async function dispatchStage(
   issue: number,
   route: IssueRoute,
 ): Promise<boolean> {
+  const label = runnerLabel(route.assignee);
+  if (!(await readRunnerLabels(scope.client, scope.runRepo)).has(label)) {
+    scope.log(
+      `${repoName(repo)}#${issue}: no runner of the execution repository has the ` +
+        `label ${label}; an ordinary assignment, nothing dispatched`,
+    );
+    return false;
+  }
   const title = nibfinRunTitle(repo, issue, route.stage);
   const waiting = (await readNotStartedRuns(scope.client, scope.runRepo)).find(
     (run) => run.id !== scope.runId && run.title === title,

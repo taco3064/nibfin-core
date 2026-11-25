@@ -70,6 +70,27 @@ describe("continueAfterStage", () => {
     assert.deepEqual(runner.logs, ["acme/app#1: nothing to run now"]);
   });
 
+  it("dispatches nothing when no runner has the Assignee's label", async () => {
+    const { issues, runner } = plainRunner({ labels: ["scope"] });
+    runner.runners = [];
+    await continueAfterStage(runner.scope, finished("deliver"), record(true));
+    assert.deepEqual(runner.dispatched, []);
+    assert.deepEqual(issues.github.writes(), []);
+    assert.match(runner.logs.at(-1)!, /an ordinary assignment, nothing dispatched$/);
+  });
+
+  it("writes nothing for several Assignees; the assigned route does", async () => {
+    const assignees = [
+      { id: 5, login: "taco" },
+      { id: 6, login: "other" },
+    ];
+    const { issues, runner } = plainRunner({ labels: ["scope", "shaped"], assignees });
+    await continueAfterStage(runner.scope, finished("deliver"), record(true));
+    assert.deepEqual(runner.dispatched, []);
+    assert.deepEqual(issues.github.writes(), []);
+    assert.deepEqual(runner.logs, ["acme/app#1: nothing to run now"]);
+  });
+
   it("dispatches the same stage again after progress", async () => {
     const { runner } = plainRunner({ labels: ["scope"] });
     await continueAfterStage(runner.scope, finished("shape"), record(true));

@@ -8,7 +8,7 @@ import {
 } from "../github/fake-github.test.ts";
 import { GitHubError, notStartedStatuses } from "../github/index.ts";
 import { dispatchRoute, dispatchStage, sharedRunnerWorkflow } from "./dispatch.ts";
-import { dispatchPath, fakeRunner } from "./fake-runner.test.ts";
+import { dispatchPath, fakeRunner, selfHostedRunner } from "./fake-runner.test.ts";
 
 const repo = { owner: "acme", repo: "app" };
 const deliver = { stage: "deliver" as const, reason: "ci-failure" as const, assignee: 5 };
@@ -87,6 +87,70 @@ describe("dispatchStage", () => {
       assert.equal(error.code, code);
     });
   }
+
+  it("dispatches whatever case, state or busyness the matching runner has", async () => {
+    for (const runners of [
+      [selfHostedRunner(1, ["NIBFIN-5"])],
+      [selfHostedRunner(1, ["nibfin-5"], { status: "offline" })],
+      [selfHostedRunner(1, ["nibfin-5"], { busy: true })],
+      [selfHostedRunner(1, ["linux"]), selfHostedRunner(2, ["gpu", "Nibfin-5"])],
+    ]) {
+      const runner = fakeRunner(fakeGitHub());
+      runner.runners = runners;
+      assert.equal(await dispatchStage(runner.scope, repo, 1, deliver), true);
+      assert.deepEqual(runner.dispatched, [
+        {
+          stage: "deliver",
+          repo: "acme/app",
+          issue: "1",
+          reason: "ci-failure",
+          assignee: "5",
+        },
+      ]);
+    }
+  });
+
+  it("finds the matching runner on a later page", async () => {
+    const github = fakeGitHub();
+    const runner = fakeRunner(github);
+    const others = Array.from({ length: 100 }, (_, id) => selfHostedRunner(id, []));
+    runner.runners = [...others, selfHostedRunner(100, ["nibfin-5"])];
+    assert.equal(await dispatchStage(runner.scope, repo, 1, deliver), true);
+    const listed = github.calls.filter((call) => call.path.endsWith("/runners"));
+    assert.equal(listed.length, 2);
+    assert.equal(listed[0].query.get("per_page"), "100");
+  });
+
+  for (const [name, runners] of [
+    ["no runner", []],
+    ["only other Assignees' labels", [selfHostedRunner(1, ["nibfin-50", "nibfin-4"])]],
+    ["only the old provider label", [selfHostedRunner(1, ["nibfin-5-claude"])]],
+  ] as const) {
+    it(`dispatches and writes nothing with ${name}`, async () => {
+      const github = fakeGitHub();
+      const runner = fakeRunner(github);
+      runner.runners = [...runners];
+      assert.equal(await dispatchStage(runner.scope, repo, 1, deliver), false);
+      assert.deepEqual(runner.dispatched, []);
+      assert.deepEqual(github.writes(), []);
+      assert.ok(!github.calls.some((call) => call.path.endsWith("/actions/runs")));
+      assert.deepEqual(runner.logs, [
+        "acme/app#1: no runner of the execution repository has the label nibfin-5; " +
+          "an ordinary assignment, nothing dispatched",
+      ]);
+    });
+  }
+
+  it("fails as a read when the runners cannot be listed", async () => {
+    const github = fakeGitHub();
+    const runner = fakeRunner(github);
+    github.routes.set("GET /repos/acme/runner/actions/runners", failure(403));
+    const error = await rejection(dispatchStage(runner.scope, repo, 1, deliver));
+    assert.ok(error instanceof GitHubError);
+    assert.equal(error.code, "GITHUB_READ_FAILED");
+    assert.match(error.message, /list runners of acme\/runner/);
+    assert.deepEqual(runner.dispatched, []);
+  });
 
   it("fails as a read when the runs cannot be listed", async () => {
     const github = fakeGitHub();
