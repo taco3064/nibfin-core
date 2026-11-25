@@ -113,6 +113,12 @@ defect; one the approved Shape prescribes is blocked, with the cause.
   verdict says nothing about them.
 - Keep the judgment within the Shape. Do not widen scope, create work or decide new
   product semantics.
+- This run is unattended and has no later. Run sub agents and sub tasks in the foreground
+  and continue only when their result is back; never start work in the background and wait
+  for it. Never set a wakeup, schedule, timer or poll (for example ScheduleWakeup, Cron or
+  Monitor tools), and never plan to come back later. Your final message ends the run: it
+  carries the complete result, including the result block the stage asks for, and nothing
+  follows it.
 
 ## Result
 
