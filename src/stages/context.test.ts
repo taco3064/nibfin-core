@@ -82,7 +82,7 @@ describe("readJobContext", () => {
       "an unknown reason",
       [...deliverArgs, "--reason", "flaky"],
       {},
-      "--reason must be one of ci-failure, review, cd-failure",
+      "--reason must be one of ci-failure, review, cd-failure, conflict",
     ],
     [
       "a bad run repo",

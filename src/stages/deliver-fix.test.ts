@@ -191,6 +191,62 @@ describe("runDeliverStage for review", () => {
   }
 });
 
+describe("runDeliverStage for conflict", () => {
+  /** PR #7 conflicts with `main`, which gained a commit of PR #330 on `a.txt`. */
+  async function conflictWorld(steps: AgentStep[]) {
+    const { world, head } = await openPullWorld({ reason: "conflict", steps });
+    const { other } = world.fixture;
+    git(other, "checkout", "--quiet", "main");
+    const base = commitFile(other, "a.txt", "base\n", "feat: base a");
+    git(other, "push", "--quiet", "origin", "main");
+    world.commitPulls.set(base, [
+      { number: 330, title: "Base a", html_url: "https://github.com/acme/app/pull/330" },
+    ]);
+    // GitHub finds the PR conflicting until its head changes.
+    Object.defineProperty(world.pulls[0], "mergeable", {
+      get: () => (world.fixture.remoteHead(branch) === head ? false : true),
+    });
+    return { world, head, base };
+  }
+
+  it("rebases onto the base it lists and updates the PR after Accept", async () => {
+    const rebase: AgentStep = (options) => {
+      git(options.workspace, "reset", "--quiet", "--hard", "refs/remotes/origin/main");
+      commitFile(options.workspace, "a.txt", "base\na\n", "feat: a");
+      return done;
+    };
+    const { world, head, base } = await conflictWorld([rebase, pass]);
+    assert.equal(await world.run(), 0);
+    const [writerRun, acceptorRun] = world.agent.runs;
+    for (const run of [writerRun, acceptorRun]) {
+      assert.match(run.prompt, /## Fix reason\n\nReason: conflict/);
+      assert.match(run.prompt, /Pull request: https:\/\/github\.com\/acme\/app\/pull\/7/);
+      assert.match(run.prompt, /It conflicts with `main`\. Rebase the branch onto/);
+      const short = git(world.fixture.workspace, "rev-parse", "--short", base);
+      assert.ok(
+        run.prompt.includes(
+          `- ${short} feat: base a (#330 Base a (https://github.com/acme/app/pull/330))`,
+        ),
+      );
+    }
+    const local = git(world.fixture.workspace, "rev-parse", "HEAD");
+    assert.equal(world.fixture.remoteHead(branch), local);
+    assert.equal(pushes(world).length, 1);
+    assert.ok(
+      pushes(world)[0].args.includes(`--force-with-lease=refs/heads/${branch}:${head}`),
+    );
+    assert.deepEqual(next(world), { stage: "review", reason: null, progressed: true });
+  });
+
+  it("is ineligible while the pull request does not conflict", async () => {
+    const { world } = await openPullWorld({ reason: "conflict" });
+    assert.equal(await world.run(), 0);
+    assert.deepEqual(world.agent.logs, [
+      "acme/app#1 is not at the deliver stage: review (conflict)",
+    ]);
+  });
+});
+
 describe("runDeliverStage for cd-failure", () => {
   function routeJobs(world: DeliveryWorld) {
     const job = (id: number, conclusion: string) => ({

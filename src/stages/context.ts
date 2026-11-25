@@ -5,7 +5,7 @@ import { StageError } from "./errors.ts";
 import { parseMemory } from "./host-memory.ts";
 
 /** The fix reasons of a Deliver run. */
-export const fixReasons = ["ci-failure", "review", "cd-failure"] as const;
+export const fixReasons = ["ci-failure", "review", "cd-failure", "conflict"] as const;
 export type FixReason = (typeof fixReasons)[number];
 
 /** What one Job runs on; supplied by the caller (#674). */

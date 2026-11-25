@@ -200,8 +200,8 @@ export function isDeliveryStage(stage: Stage): boolean {
 /**
  * What runs next after a rewritten Shape, from the stage derived after `shaped` is
  * back: Deliver on the delivery branch, a CD-failure fix on a fix branch, a CI fix,
- * a review (also of a `done` Issue, for its closure), or nothing while CD events
- * follow.
+ * a conflict fix, a review (also of a `done` Issue, for its closure), or nothing
+ * while CD events follow.
  */
 export function shapeNextAction(stage: Stage, issueNumber: number): NextAction {
   switch (stage.stage) {
@@ -211,6 +211,8 @@ export function shapeNextAction(stage: Stage, issueNumber: number): NextAction {
         : { stage: "deliver", reason: "cd-failure" };
     case "ci-failed":
       return { stage: "deliver", reason: "ci-failure" };
+    case "conflict":
+      return { stage: "deliver", reason: "conflict" };
     case "review":
     case "done":
       return { stage: "review", reason: null };

@@ -22,6 +22,7 @@ export const reviewCommentKey = "review";
 export type FixPointer =
   | { reason: "ci-failure"; pullRequest: PullRequestState; failed: RequiredCheckResult[] }
   | { reason: "review"; pullRequest: PullRequestState; comment: MarkedComment }
+  | { reason: "conflict"; pullRequest: PullRequestState }
   | {
       reason: "cd-failure";
       /** The newest merged PR whose CD failed, and its failed runs. */
@@ -124,6 +125,10 @@ async function decide(
     const fix = { reason, pullRequest: pull, failed };
     return { branch: stage.branch, openPull: pull, fix };
   }
+  if (reason === "conflict" && stage.stage === "conflict") {
+    const pull = stage.pullRequest;
+    return { branch: stage.branch, openPull: pull, fix: { reason, pullRequest: pull } };
+  }
   if (reason === "review" && stage.stage === "review") {
     const pull = stage.pullRequest;
     const issue = { ...context.repo, number: context.issue };
@@ -154,7 +159,7 @@ async function decide(
  * no reason → `deliver`; `ci-failure` → `ci-failed`; `review` → `review` with a
  * marked review comment that records the current PR head and the current Shape
  * version; `cd-failure` → `cd-failed` (on `nextFixBranch`), or `deliver` on a fix
- * branch (a redo).
+ * branch (a redo); `conflict` → `conflict` (the open PR conflicts with its base).
  */
 export async function readEligibility(
   client: ActingClient,

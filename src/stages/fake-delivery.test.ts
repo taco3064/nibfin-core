@@ -61,6 +61,8 @@ export interface DeliveryWorld {
   deps: DeliverDeps;
   context: JobContext;
   nextFile: string;
+  /** The waits between mergeability reads, in milliseconds. */
+  waits: number[];
   /** Resolves once a log line matching `pattern` was written. */
   waitForLog(pattern: RegExp): Promise<void>;
   run(): Promise<number>;
@@ -221,6 +223,7 @@ export async function deliveryWorld(options: WorldOptions = {}): Promise<Deliver
   };
   const git = recordingGit(options.override);
   const nextFile = join(fixture.root, "next.json");
+  const waits: number[] = [];
   const context: JobContext = {
     ...jobContext(fixture.workspace),
     runRepo: { owner: "acme", repo: "runner" },
@@ -234,6 +237,10 @@ export async function deliveryWorld(options: WorldOptions = {}): Promise<Deliver
     remoteUrl: () => fixture.remote,
     coreRepoParent: fixture.root,
     watch,
+    wait: (ms) => {
+      waits.push(ms);
+      return Promise.resolve();
+    },
   };
   const world: DeliveryWorld = {
     fixture,
@@ -250,6 +257,7 @@ export async function deliveryWorld(options: WorldOptions = {}): Promise<Deliver
     deps,
     context,
     nextFile,
+    waits,
     waitForLog: (pattern) =>
       new Promise((resolve) => {
         const listener = () => {

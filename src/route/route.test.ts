@@ -101,6 +101,11 @@ describe("routeIssue", () => {
       route("deliver", "ci-failure"),
     ],
     ["awaiting-ci", atReview((w) => void (w.required = ["test"])), null],
+    [
+      "conflict",
+      atReview((w) => void (w.mergeable = false)),
+      route("deliver", "conflict"),
+    ],
     ["cd-failed", () => delivery((w) => failedCd(w)), route("deliver", "cd-failure")],
     ["a CD fix branch", () => delivery(onFixBranch), route("deliver", "cd-failure")],
     ["done", atReview((w) => mergePull(w, w.pull)), route("review", null)],
