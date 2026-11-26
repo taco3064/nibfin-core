@@ -495,7 +495,8 @@ async function startRun(
   coreRepo: string,
 ): Promise<DeliverRun> {
   const { client } = progress;
-  const job = await prepareStageJob(context, client, deps);
+  const skills = [writerRole.skill, acceptorRole.skill];
+  const job = await prepareStageJob(context, client, deps, skills);
   const git = new Git({
     workspace: context.workspace,
     coreRepo,

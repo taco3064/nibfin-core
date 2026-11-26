@@ -219,7 +219,8 @@ async function shapeStage(
   if (stage.stage !== "shape") {
     return notAtShape({ client, issue, log: deps.log }, stage);
   }
-  const job = await prepareStageJob(context, client, deps);
+  const skills = [shapeAuthorRole.skill, shapeValidatorRole.skill];
+  const job = await prepareStageJob(context, client, deps, skills);
   const sources = await readShapeSources(client, snapshot);
   const current = await readCurrentShape(client, issue);
   const report = await readShapeWrong(client, issue, current?.version, deps.log);
