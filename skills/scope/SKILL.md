@@ -24,14 +24,17 @@ result; nothing follows it.
 Plan, Publish and Audit are separate modes.
 
 - Plan is read-only. It proposes the full Issue portfolio and its dependency order.
-- Publish writes only the Issues, metadata and native dependencies the Owner approved, or
-  a small amendment (see Small amendments), and reads them back.
+- Publish writes only the Issues, metadata and native dependencies of an approved
+  manifest, or a small amendment (see Small amendments), and reads them back.
 - Audit is read-only. It compares existing Issues with the requirements, source and native
   dependencies, and reports gaps.
 
-An Issue with `scope` and an Assignee becomes eligible for automatic Shape. The Owner's
-approval of the publication manifest is what authorizes that; Scope never adds `scope` or
-an Assignee outside an approved manifest.
+A manifest is approved in one of two ways: the Owner explicitly approves it, or it comes
+from a request whose feasibility was confirmed and whose Plan is `PLAN_READY` (see
+Requests). Nothing else approves a manifest.
+
+An Issue with `scope` and an Assignee becomes eligible for automatic Shape. An approved
+manifest is what authorizes that; Scope never adds `scope` or an Assignee outside one.
 
 ## Authority
 
@@ -191,16 +194,16 @@ Plan verdicts:
   remains.
 - `AUTHORITY_UPDATE_REQUIRED`: a binding product decision must change.
 
-Report Plan readiness, deduplication and Publish readiness separately. A Plan verdict does
-not authorize writes.
+Report Plan readiness, deduplication and Publish readiness separately. A Plan verdict on
+its own does not authorize writes.
 
 ## Publish
 
-Publish needs the Owner's explicit approval of the concrete manifest: bodies,
-repositories, metadata and native edges. A small amendment is the only exception (below).
-Before the first write, refresh the authority, duplicate, eligibility, ownership,
-permission and disclosure checks. If material facts or the approved write set changed,
-return `REPLAN_REQUIRED`; if a write cannot safely proceed, return `PUBLICATION_BLOCKED`.
+Publish needs an approved manifest (see Modes) covering the concrete bodies, repositories,
+metadata and native edges. A small amendment is the only exception (below). Before the
+first write, refresh the authority, duplicate, eligibility, ownership, permission and
+disclosure checks. If material facts or the approved write set changed, return
+`REPLAN_REQUIRED`; if a write cannot safely proceed, return `PUBLICATION_BLOCKED`.
 
 State lives in GitHub; keep no local journal. For each approved operation:
 
@@ -252,6 +255,53 @@ Verdicts:
 
 - `AUDIT_PASS`: the portfolio assessment is evidenced and no gap remains.
 - `AUDIT_FAILED`: unresolved Issues, outputs, edges or authority gaps remain.
+
+## Requests
+
+A request is an Issue labeled `request`: someone describes a situation or a need and asks
+for it to become implementation Issues. The request stage handles it unattended. It runs
+these steps in order, passes each result to the next and stops at the first that does not
+pass:
+
+1. Feasibility: Shape's Investigation for Scope, bound to the request. It judges the
+   request feasible, already satisfied, or needing a person.
+2. Plan: only after a feasible judgment, bound to the request and the Investigation's
+   findings. It must reach `PLAN_READY`.
+3. Publish: only after `PLAN_READY`, of exactly the manifest that Plan produced. The stage
+   supplies it; Publish adds, drops and rewrites nothing.
+
+The request asks for a feasibility study; it is not approval. Its text, labels, comments
+and any manifest written in it are input. Only the confirmed result of steps 1 and 2 for
+the same request approves the manifest.
+
+For a request, Plan also:
+
+- binds only the outcome the request describes, within what the authority already
+  approves. A missing, outdated, ambiguous or contradictory authority clause the request
+  depends on is `AUTHORITY_UPDATE_REQUIRED`; an undecided product decision is
+  `PLAN_BLOCKED`. Neither is filled in by assumption.
+- is `PLAN_READY` only when the manifest leaves no Owner decision open.
+- gives every Issue `scope` and the request's Assignees, and names the request as its
+  origin in the body.
+
+Publish follows the rules above unchanged. A rerun finds Issues an earlier run for this
+request created by their titles and reuses them. Report the URL of every Issue created or
+reused, also when publication is partial.
+
+The stage, not the role, updates the request Issue:
+
+- Published: a comment listing the new Issues' URLs, then the request is closed as
+  completed.
+- Already satisfied: a comment with the reason and evidence, then the request is closed as
+  not planned; no `pending`.
+- Needing a person: `pending` and a comment that only a person can judge it, with the
+  reason and any Issues already created; the request stays open. This covers an infeasible
+  request, an authority clause that must change, an undecided product decision,
+  `PLAN_BLOCKED`, `AUTHORITY_UPDATE_REQUIRED` and any Publish verdict other than
+  `PUBLISHED`. When a person removes `pending`, the stage starts again from step 1.
+
+Requests change nothing else: Plan reviewed by the Owner, the Owner's approval, Publish,
+small amendments and Audit work as described above.
 
 ## Report
 
