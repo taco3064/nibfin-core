@@ -361,3 +361,27 @@ describe("runReviewStage approvals", () => {
     });
   }
 });
+
+describe("runFinishStage", () => {
+  it("asks for the review stage when the head still needs the reviewer", async () => {
+    const w = await world(() => []);
+    assert.equal(await w.finish(), 0);
+    assert.deepEqual(w.next(), { stage: "review", reason: null, progressed: false });
+    assert.deepEqual(w.agent.runs, []);
+    assert.deepEqual(w.issues.github.writes(), []);
+  });
+
+  it("merges a recorded passing review without an agent", async () => {
+    const w = await world(() => []);
+    requireApprovals(w, 1);
+    waitComment(w);
+    addReview(w, { id: 1, login: "ann", state: "APPROVED" });
+    w.mergeableState = "clean";
+    assert.equal(await w.finish(), 0);
+    assert.deepEqual(w.agent.runs, []);
+    assert.deepEqual(
+      w.mergeRequests.map((request) => request.body),
+      [{ sha: w.head, merge_method: "rebase" }],
+    );
+  });
+});

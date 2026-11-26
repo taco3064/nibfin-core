@@ -130,7 +130,7 @@ describe("routeIssue", () => {
         approvalWait(w);
         addReview(w, { id: 1, login: "ann", state: "APPROVED" });
       }),
-      route("review", null),
+      route("finish", null),
     ],
     [
       "review whose wait has changes requested on the head",
@@ -138,7 +138,7 @@ describe("routeIssue", () => {
         approvalWait(w);
         addReview(w, { id: 1, login: "ann", state: "CHANGES_REQUESTED" });
       }),
-      route("review", null),
+      route("finish", null),
     ],
     [
       "review with a stale wait",
@@ -166,7 +166,7 @@ describe("routeIssue", () => {
     ],
     ["cd-failed", () => delivery((w) => failedCd(w)), route("deliver", "cd-failure")],
     ["a CD fix branch", () => delivery(onFixBranch), route("deliver", "cd-failure")],
-    ["done", atReview((w) => mergePull(w, w.pull)), route("review", null)],
+    ["done", atReview((w) => mergePull(w, w.pull)), route("finish", null)],
     [
       "awaiting-cd",
       atReview((w) =>
@@ -212,13 +212,13 @@ describe("routeIssue", () => {
     assert.ok(!calls.some((call) => call.path.startsWith("/repos/acme/app/issues/1")));
   });
 
-  it("routes a closed Issue it delivered to the review stage's wake", async () => {
+  it("routes a closed Issue it delivered to the finish stage's wake", async () => {
     const issues = fakeIssues(
       fakeIssue({ state: "closed", labels: ["scope", "shaped", "delivered"] }),
     );
     seedComment(issues, issues.main, "<!-- nibfin:delivered -->\nDelivered.");
     const state = await readRoute(issues.github.client, repo, 1, log);
-    assert.deepEqual(state.route, route("review", null));
+    assert.deepEqual(state.route, route("finish", null));
     assert.equal(state.open, false);
     issues.main.assignees = [];
     freshReads(issues.github.client);
@@ -306,8 +306,8 @@ describe("routeIssue and the stages' next actions", () => {
     [
       "Shape rewrite at done",
       atReview((w) => mergePull(w, w.pull)),
-      r("review", null),
-      r("review", null),
+      r("finish", null),
+      r("finish", null),
     ],
     // A Deliver review fix without a new head writes review; the route asks for the
     // same fix again, which the no-progress check turns into pending.

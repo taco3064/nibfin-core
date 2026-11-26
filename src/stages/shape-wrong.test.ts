@@ -231,7 +231,7 @@ describe("shapeNextAction", () => {
     ],
     [
       { stage: "done", branch: "b", pullRequest: pull },
-      { stage: "review", reason: null },
+      { stage: "finish", reason: null },
     ],
     [
       {

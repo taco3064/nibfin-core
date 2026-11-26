@@ -70,7 +70,7 @@ export interface StageJob {
   loginSettled: boolean;
 }
 
-export function issueOf(context: JobContext): IssueRef {
+export function issueOf(context: Pick<JobContext, "repo" | "issue">): IssueRef {
   return { ...context.repo, number: context.issue };
 }
 

@@ -6,7 +6,7 @@ import {
   upsertMarkedComment,
 } from "../github/index.ts";
 import { defaultStageDeps, issueOf, type StageDeps } from "./agent.ts";
-import type { JobContext } from "./context.ts";
+import type { FinishContext, JobContext } from "./context.ts";
 import { reviewCommentKey } from "./deliver-eligibility.ts";
 
 import { StageError } from "./errors.ts";
@@ -35,9 +35,12 @@ export const defaultReviewDeps: ReviewDeps = {
   coreRepoParent: tmpdir(),
 };
 
-/** One review Job: its context, client and dependencies. */
+/**
+ * One review or finish Job: its context, client and dependencies. A finish Job's
+ * context has no agent fields, and the Job runs no agent.
+ */
 export interface ReviewScope {
-  readonly context: JobContext;
+  readonly context: JobContext | FinishContext;
   readonly client: ActingClient;
   readonly deps: ReviewDeps;
   /** Whether the run changed GitHub or found a moved head (`client` is its client). */

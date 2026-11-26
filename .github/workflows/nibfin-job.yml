@@ -1,6 +1,6 @@
 name: Nibfin · Job
 
-# Reusable: one route or stage Job in the Nibfin image
+# Reusable: one route, finish or stage Job in the Nibfin image
 # under rootless Podman. Core dispatches whatever runs next itself; these steps only
 # check out, pull the image, run the container and clean up. Called by
 # nibfin-shared-runner.yml, which owns the concurrency group.
@@ -22,7 +22,7 @@ on:
         type: string
         default: ""
       stage:
-        description: route, shape, deliver or review
+        description: route, shape, deliver, review or finish
         type: string
         required: true
       reason:
@@ -115,9 +115,70 @@ jobs:
           curl -fsS "${headers[@]}" -X POST "$api/comments" -d "{\"body\": \"$body\"}" > /dev/null
           echo "Added pending to $REPO#$ISSUE"
 
+  finish:
+    name: finish
+    if: inputs.stage == 'finish'
+    # The finish stage runs no agent (merge a recorded review, close a delivered
+    # Issue, wake downstream Issues): on a public execution repository it runs on a
+    # GitHub-hosted runner (free there), so it never waits behind an agent Job; on a
+    # private one it stays on the Assignee's runners and uses no Actions minutes.
+    runs-on: ${{ github.event.repository.private && fromJSON(format('["self-hosted","nibfin-{0}"]', inputs.assignee)) || 'ubuntu-24.04' }}
+    steps:
+      - name: Pull the image
+        id: image
+        run: |
+          podman pull "$IMAGE:main"
+          digest=$(podman image inspect --format '{{.Digest}}' "$IMAGE:main")
+          echo "Nibfin image: $IMAGE@$digest"
+          echo "ref=$IMAGE@$digest" >> "$GITHUB_OUTPUT"
+      - name: Run the finish stage
+        env:
+          NIBFIN_GITHUB_TOKEN: ${{ secrets.token }}
+          NIBFIN_RUN_REPO: ${{ github.repository }}
+          NIBFIN_RUN_ID: ${{ github.run_id }}
+          NIBFIN_NEXT_FILE: /nibfin/out/next.json
+          IMAGE_REF: ${{ steps.image.outputs.ref }}
+          REPO: ${{ inputs.repo }}
+          ISSUE: ${{ inputs.issue }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/nibfin-out"
+          # Labels let a Dashboard on this host map `podman events` to the Issue.
+          podman run --rm --userns=keep-id:uid=1000,gid=1000 \
+            --label "nibfin.repo=$REPO" --label "nibfin.issue=$ISSUE" \
+            --volume "$RUNNER_TEMP/nibfin-out:/nibfin/out:Z" \
+            --env NIBFIN_GITHUB_TOKEN --env NIBFIN_RUN_REPO --env NIBFIN_RUN_ID \
+            --env NIBFIN_NEXT_FILE \
+            "$IMAGE_REF" nibfin run --stage finish --repo "$REPO" --issue "$ISSUE"
+      - name: Clean up
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/nibfin-out"
+      - name: Ask a person to act
+        # `nibfin run` adds `pending` itself when it can; this covers an image pull or
+        # a container that never started.
+        if: failure() && inputs.issue != ''
+        env:
+          TOKEN: ${{ secrets.token }}
+          REPO: ${{ inputs.repo }}
+          ISSUE: ${{ inputs.issue }}
+          STAGE: finish
+        run: |
+          api="https://api.github.com/repos/$REPO/issues/$ISSUE"
+          headers=(-H "Authorization: Bearer $TOKEN" -H "Accept: application/vnd.github+json"
+            -H "X-GitHub-Api-Version: 2022-11-28")
+          labels=$(curl -fsS "${headers[@]}" "$api/labels?per_page=100")
+          if grep -Eq '"name": *"pending"' <<< "$labels"; then
+            echo "$REPO#$ISSUE already has pending"
+            exit 0
+          fi
+          run="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          curl -fsS "${headers[@]}" -X POST "$api/labels" -d '{"labels":["pending"]}' > /dev/null
+          body="Nibfin's $STAGE Job failed: $run. Fix the cause, then remove the \`pending\` label to continue."
+          curl -fsS "${headers[@]}" -X POST "$api/comments" -d "{\"body\": \"$body\"}" > /dev/null
+          echo "Added pending to $REPO#$ISSUE"
+
   stage:
     name: stage
-    if: inputs.stage != 'route'
+    if: inputs.stage != 'route' && inputs.stage != 'finish'
     # Any Runner of the Assignee; the provider and the model are the Runner's own
     # (NIBFIN_PROVIDER and NIBFIN_MODEL in its .env), never a repository variable
     # or an input.

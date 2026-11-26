@@ -12,7 +12,7 @@ import {
   fakeIssues,
   jobContext,
 } from "../stages/fake-job.test.ts";
-import { type JobContext, StageError } from "../stages/index.ts";
+import { type FinishContext, type JobContext, StageError } from "../stages/index.ts";
 import { capture } from "./fake-io.test.ts";
 import { defaultRunDeps, type RunDeps, usage } from "./run.ts";
 import { readVersion } from "./version.ts";
@@ -52,7 +52,7 @@ describe("run --stage", () => {
     outcome: (context: JobContext) => Promise<number>,
     issues: FakeIssues = fakeIssues(fakeIssue({ labels: ["scope", "pause"] })),
   ) {
-    const seen: { token?: string; context?: JobContext } = {};
+    const seen: { token?: string; context?: JobContext | FinishContext } = {};
     const client = issues.github.client;
     const runner = fakeRunner(issues.github);
     const stage = (context: JobContext, given: ActingClient) => {
@@ -60,13 +60,18 @@ describe("run --stage", () => {
       seen.context = context;
       return outcome(context);
     };
+    const finish = (context: FinishContext, given: ActingClient) => {
+      assert.equal(given, client);
+      seen.context = context;
+      return Promise.resolve(0);
+    };
     const deps: RunDeps = {
       env,
       connect: (token) => {
         seen.token = token;
         return Promise.resolve(client);
       },
-      stages: { shape: stage, deliver: stage, review: stage },
+      stages: { shape: stage, deliver: stage, review: stage, finish },
     };
     return { deps, seen, issues, runner };
   }
@@ -88,7 +93,7 @@ describe("run --stage", () => {
     const t = stageDeps(() => Promise.resolve(0));
     const deliver = ["run", "--stage", "deliver", ...args, "--reason", "cd-failure"];
     assert.equal((await capture(deliver, t.deps)).code, 0);
-    assert.equal(t.seen.context?.reason, "cd-failure");
+    assert.equal((t.seen.context as JobContext | undefined)?.reason, "cd-failure");
   });
 
   it("runs the review stage", async () => {
@@ -101,8 +106,29 @@ describe("run --stage", () => {
     assert.match(withReason.stderr, /--reason is only valid with --stage deliver/);
   });
 
-  it("uses the Shape, Deliver and review stages by default", async () => {
-    assert.deepEqual(Object.keys(defaultRunDeps.stages), ["shape", "deliver", "review"]);
+  it("runs the finish stage without the agent fields", async () => {
+    const t = stageDeps(() => Promise.resolve(0));
+    const finish = ["run", "--stage", "finish", "--repo", "acme/app", "--issue", "1"];
+    t.deps.env = { NIBFIN_GITHUB_TOKEN: fakeToken, NIBFIN_RUN_REPO: "acme/runner" };
+    assert.equal((await capture(finish, t.deps)).code, 0);
+    assert.deepEqual(t.seen.context, {
+      repo: { owner: "acme", repo: "app" },
+      issue: 1,
+      token: fakeToken,
+      runRepo: { owner: "acme", repo: "runner" },
+    });
+    const withProvider = await capture([...finish, "--provider", "claude"], t.deps);
+    assert.equal(withProvider.code, 1);
+    assert.match(withProvider.stderr, /--provider is not valid with --stage finish/);
+  });
+
+  it("uses the Shape, Deliver, review and finish stages by default", async () => {
+    assert.deepEqual(Object.keys(defaultRunDeps.stages), [
+      "shape",
+      "deliver",
+      "review",
+      "finish",
+    ]);
     const issues = fakeIssues(fakeIssue({ state: "closed" }));
     const lines: string[] = [];
     const write = process.stdout.write.bind(process.stdout);
@@ -119,11 +145,14 @@ describe("run --stage", () => {
       const { client } = issues.github;
       assert.equal(await defaultRunDeps.stages.deliver(context, client), 0);
       assert.equal(await defaultRunDeps.stages.review(context, client), 0);
+      const { repo, issue, token } = context;
+      assert.equal(await defaultRunDeps.stages.finish({ repo, issue, token }, client), 0);
     } finally {
       process.stdout.write = write;
     }
     assert.deepEqual(lines, [
       "acme/app#1 is not at the deliver stage: ineligible (closed) (no reason)\n",
+      "acme/app#1 is not at the review stage: ineligible (closed)\n",
       "acme/app#1 is not at the review stage: ineligible (closed)\n",
     ]);
   });

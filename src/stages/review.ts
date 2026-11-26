@@ -12,7 +12,7 @@ import {
 } from "../github/index.ts";
 import { issueOf, prepareStageJob, runStageAgent } from "./agent.ts";
 import { closedAsDelivered, closeIssue } from "./closing.ts";
-import type { JobContext } from "./context.ts";
+import { type FinishContext, isAgentContext, type JobContext } from "./context.ts";
 import { currentReview, describeStage } from "./deliver-eligibility.ts";
 import { readDeliverSources } from "./deliver-prompts.ts";
 import { checkoutReviewedHead, Git } from "./git.ts";
@@ -79,10 +79,11 @@ async function describeChangeRequest(
  */
 async function review(
   scope: ReviewScope,
+  context: JobContext,
   snapshot: IssueSnapshot,
   stage: ReviewOutcome,
 ): Promise<{ verdict: ReviewerResult; shapeVersion: string }> {
-  const { client, context, deps } = scope;
+  const { client, deps } = scope;
   const pull = stage.pullRequest;
   const head = pull.headSha;
   const requirements = await readDeliverSources(
@@ -127,7 +128,8 @@ async function review(
  * head and the current Shape version, or a passing one an `approval-wait` comment
  * records (a writer's request for changes on the head becomes the review fix; else
  * the merge is re-checked), else reviews it, re-reads GitHub and acts on
- * the verdict only for the same head.
+ * the verdict only for the same head. A finish Job never reviews: when the head
+ * still needs the reviewer it asks for the review stage instead.
  */
 async function reviewPullRequest(
   scope: ReviewScope,
@@ -164,7 +166,11 @@ async function reviewPullRequest(
     deps.log(`The Shape review of ${head} already passed; re-checking the merge`);
     return mergeReviewed(scope, pull, head, wait.shapeVersion);
   }
-  const { verdict, shapeVersion } = await review(scope, snapshot, stage);
+  if (!isAgentContext(context)) {
+    deps.log(`${pull.url} at ${head} needs the reviewer; asking for the review stage`);
+    return { stage: "review", reason: null };
+  }
+  const { verdict, shapeVersion } = await review(scope, context, snapshot, stage);
   const now = deriveStage(await readIssueSnapshot(client, context.repo, context.issue));
   const same =
     now.stage === "review" &&
@@ -227,6 +233,29 @@ export async function runReviewStage(
   context: JobContext,
   client: ActingClient,
   deps: ReviewDeps = defaultReviewDeps,
+): Promise<number> {
+  return runStage(context, client, deps);
+}
+
+/**
+ * The finish stage: the review stage's steps that run no agent, with a context that
+ * has no agent fields (#755). It merges a head whose Shape review an `approval-wait`
+ * comment records, turns a writer's request for changes into the review fix, closes
+ * a `done` Issue and wakes its downstream Issues; a head that still needs the
+ * reviewer asks for the review stage. Returns the exit code; writes the next action.
+ */
+export async function runFinishStage(
+  context: FinishContext,
+  client: ActingClient,
+  deps: ReviewDeps = defaultReviewDeps,
+): Promise<number> {
+  return runStage(context, client, deps);
+}
+
+async function runStage(
+  context: JobContext | FinishContext,
+  client: ActingClient,
+  deps: ReviewDeps,
 ): Promise<number> {
   const progress = trackProgress(client);
   const scope: ReviewScope = { context, client: progress.client, deps, progress };

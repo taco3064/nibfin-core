@@ -35,6 +35,7 @@ function routeDeps(overrides: Partial<FakeIssue> = {}) {
       shape: () => Promise.reject(new Error("no stage runs in a route run")),
       deliver: () => Promise.reject(new Error("no stage runs in a route run")),
       review: () => Promise.reject(new Error("no stage runs in a route run")),
+      finish: () => Promise.reject(new Error("no stage runs in a route run")),
     },
   };
   return { issues, runner, deps, tokens };
@@ -151,7 +152,7 @@ describe("nibfin route --issue deletes a closed Issue's branches", () => {
     assert.equal(result.code, 0);
     assert.deepEqual(t.branches.deleted, branches);
     assert.deepEqual(t.runner.dispatched, [
-      { stage: "review", repo: "acme/app", issue: "1", reason: "", assignee: "5" },
+      { stage: "finish", repo: "acme/app", issue: "1", reason: "", assignee: "5" },
     ]);
     const writes = t.issues.github.writes().map((call) => call.method);
     assert.deepEqual(writes, ["DELETE", "DELETE", "POST"]);

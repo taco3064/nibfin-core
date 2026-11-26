@@ -12,10 +12,13 @@ export interface WakeTarget {
  * What should run next for the Issue (#673, #674). `stage: null` when nothing should:
  * the stage ended ineligible or blocked, or the next step waits for CI or CD events.
  * `stage: "deliver"` with a `reason` asks for that Deliver fix run. `stage: "shape"`
- * asks for the Shape stage (#686). `wake` names other Issues that became eligible.
+ * asks for the Shape stage (#686). `stage: "finish"` asks for the review stage's steps
+ * that run no agent (merge after a recorded review, closing, waking), which run on a
+ * GitHub-hosted runner for a public execution repository. `wake` names other Issues
+ * that became eligible.
  */
 export interface NextAction {
-  stage: "shape" | "deliver" | "review" | null;
+  stage: "shape" | "deliver" | "review" | "finish" | null;
   reason: FixReason | null;
   wake?: WakeTarget[];
 }
@@ -51,7 +54,7 @@ export async function writeNextAction(
   await writeFile(context.nextFile, `${JSON.stringify(json)}\n`);
 }
 
-const stages = ["shape", "deliver", "review", null];
+const stages = ["shape", "deliver", "review", "finish", null];
 const repoPattern = /^[A-Za-z0-9-]+\/[A-Za-z0-9._-]+$/;
 
 function isWakeTarget(value: unknown): value is WakeTarget {

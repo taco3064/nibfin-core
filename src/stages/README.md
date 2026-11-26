@@ -383,6 +383,19 @@ Results:
 | `delivered` comment                 |                                           |
 | Anything else                       | Log the stage; next action none           |
 
+### Finish stage
+
+`runFinishStage(context, client, deps?)` (`nibfin run --stage finish --repo
+<owner>/<repo> --issue <n>`, #755) runs the review stage's steps that need no agent:
+the merge of a head whose passing review an `approval-wait` comment records, the
+review fix from a writer's request for changes on that head, `done` and the
+wake-only redo. `readFinishContext(args, env)` accepts no `--provider`, `--model` or
+`--reason` and reads only `NIBFIN_GITHUB_TOKEN`, `NIBFIN_RUN_REPO`, `NIBFIN_RUN_ID`
+and `NIBFIN_NEXT_FILE`, so the Job needs no login volume, workspace or tool cache and
+runs on a GitHub-hosted runner when the execution repository is public. A head that
+still needs the reviewer is never reviewed here: the run writes next
+`{ "stage": "review", "reason": null }` and the route dispatches the review stage.
+
 ### Review
 
 1. **Pin.** With a pending `shape-wrong` report the run neither reviews nor merges:

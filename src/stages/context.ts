@@ -189,3 +189,52 @@ export function readJobContext(
   };
   return { ...context, ...optionalFields(options, env, context.workspace) };
 }
+
+/**
+ * The context of a Job that runs no agent (`--stage finish`): no provider, model,
+ * login volume, workspace or tool cache, so such a Job can run on a GitHub-hosted
+ * runner.
+ */
+export type FinishContext = Pick<
+  JobContext,
+  "repo" | "issue" | "token" | "runRepo" | "runId" | "nextFile"
+>;
+
+/** Whether a context carries what an agent run needs (every stage but finish). */
+export function isAgentContext(
+  context: JobContext | FinishContext,
+): context is JobContext {
+  return "workspace" in context;
+}
+
+/**
+ * The context of `nibfin run --stage finish`: only `--stage`, `--repo` and `--issue`
+ * are accepted, and the environment's agent variables are not read. A missing or
+ * invalid field is `STAGE_INPUT_INVALID` naming the field, never its value.
+ */
+export function readFinishContext(
+  args: readonly string[],
+  env: NodeJS.ProcessEnv,
+): FinishContext {
+  const options = parseJobOptions(args);
+  for (const name of ["provider", "model", "reason"] as const) {
+    if (options[name] !== undefined) {
+      throw invalid(`--${name}`, "is not valid with --stage finish");
+    }
+  }
+  const context: FinishContext = {
+    repo: readRepo(options.repo, "--repo"),
+    issue: positiveInteger(options.issue, "--issue"),
+    token: required(env.NIBFIN_GITHUB_TOKEN, "NIBFIN_GITHUB_TOKEN"),
+  };
+  if (env.NIBFIN_RUN_REPO !== undefined) {
+    context.runRepo = readRepo(env.NIBFIN_RUN_REPO, "NIBFIN_RUN_REPO");
+  }
+  if (env.NIBFIN_RUN_ID !== undefined) {
+    context.runId = positiveInteger(env.NIBFIN_RUN_ID, "NIBFIN_RUN_ID");
+  }
+  if (env.NIBFIN_NEXT_FILE !== undefined) {
+    context.nextFile = absolutePath(env.NIBFIN_NEXT_FILE, "NIBFIN_NEXT_FILE");
+  }
+  return context;
+}
