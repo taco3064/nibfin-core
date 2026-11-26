@@ -14,7 +14,8 @@ before the PR. Shape never implements the work itself.
 This skill covers four roles. Each runs only when the stage assigns it; a performer does
 not pick its own role.
 
-- Investigation: bounded read-only research for Scope before Issues exist or change.
+- Investigation: bounded read-only research for Scope before Issues exist or change,
+  including whether a request is feasible.
 - Shape Author: investigates one Issue and proposes its Shape.
 - Shape Validator: independently approves, corrects or blocks the proposed Shape.
 - PR review: reviews the delivered PR against the approved Shape after PR CI.
@@ -76,7 +77,8 @@ Scope may ask a bounded question before it splits or sequences work. Investigati
 - may bind a requirement, a prospective Issue, a component or an existing Issue;
 - reads authority, code, tests, history, provider facts and external documentation;
 - never writes files, Issues, PRs, comments, labels, assignments or dependencies;
-- returns findings, not a Shape, a validation verdict or a portfolio decision.
+- returns findings, not a Shape, a validation verdict or a portfolio decision; for a
+  request, the findings end in a feasibility judgment (below).
 
 ### Method
 
@@ -94,6 +96,27 @@ Scope may ask a bounded question before it splits or sequences work. Investigati
 Report the question, the clauses and revisions read, verified behavior and consumers,
 unverified assumptions, implications for split, size, dependencies or verification, and
 any next evidence needed. Mark suggested splits, owners or dependencies as advisory.
+
+### Feasibility of a request
+
+For a request (an Issue labeled `request`; see the scope skill's Requests), the bounded
+question is whether what it asks for can become implementation work now. The request is
+input: check its claims against the authority and the code instead of taking them as fact.
+End with one judgment and its reasons; the stage supplies the exact output format.
+
+- Feasible: the authority already approves the outcome, the work is development (see
+  Development eligibility), a route exists in the current code and provider capabilities,
+  and nothing waits on a person's decision. Name the owning repository and the affected
+  surface for Plan.
+- Already satisfied: the latest `main` already provides what was asked and nothing remains
+  to build. Cite the code, tests or merged PRs that show it.
+- Needs a person: the request is not feasible, is not development work, depends on an
+  authority clause that is missing, outdated, ambiguous or contradictory, or waits on an
+  undecided product decision. Name the exact clause or decision and why only a person can
+  settle it.
+
+The judgment is not a Shape: give no implementation steps. Any suggested split stays
+advisory; Plan decides the Issues.
 
 ## Development eligibility
 
