@@ -54,11 +54,27 @@ jobs:
           if [ "$EVENT_NAME" != pull_request_review ]; then
             require_execution_repo
           fi
+          # Sends one gh call again up to 3 times on any error (1, 2 and 4 s apart).
+          gh_retry() {
+            local attempt arg out what=
+            for arg in "$@"; do
+              case "$arg" in */*) what=$arg && break ;; esac
+            done
+            for attempt in 1 2 3 4; do
+              if out=$(gh "$@"); then
+                [ -z "$out" ] || printf '%s\n' "$out"
+                return 0
+              fi
+              [ "$attempt" != 4 ] || return 1
+              echo "nibfin: GitHub API $1 $what failed; retry $attempt of 3" >&2
+              sleep $((1 << (attempt - 1)))
+            done
+          }
           # Ends the run unrouted unless the sender has admin or write permission.
           # A failed permission read fails the run.
           require_writer() {
             local permission
-            permission=$(gh api "repos/$REPO/collaborators/$SENDER/permission" \
+            permission=$(gh_retry api "repos/$REPO/collaborators/$SENDER/permission" \
               --jq .permission)
             case "$permission" in
               admin | write) ;;
@@ -73,7 +89,7 @@ jobs:
             for pair in "$@"; do
               inputs+=(-f "$pair")
             done
-            gh workflow run nibfin-shared-runner.yml --repo "$EXECUTION_REPO" "${inputs[@]}"
+            gh_retry workflow run nibfin-shared-runner.yml --repo "$EXECUTION_REPO" "${inputs[@]}"
             echo "Woke $REPO: $*"
           }
           case "$EVENT_NAME" in

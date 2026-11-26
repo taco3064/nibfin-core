@@ -149,13 +149,29 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           DIGEST: ${{ steps.inspect.outputs.digest }}
         run: |
+          # Sends one gh call again up to 3 times on any error (1, 2 and 4 s apart).
+          gh_retry() {
+            local attempt arg out what=
+            for arg in "$@"; do
+              case "$arg" in */*) what=$arg && break ;; esac
+            done
+            for attempt in 1 2 3 4; do
+              if out=$(gh "$@"); then
+                [ -z "$out" ] || printf '%s\n' "$out"
+                return 0
+              fi
+              [ "$attempt" != 4 ] || return 1
+              echo "nibfin: GitHub API $1 $what failed; retry $attempt of 3" >&2
+              sleep $((1 << (attempt - 1)))
+            done
+          }
           errors="$RUNNER_TEMP/inspect-main.err"
           if config=$(docker buildx imagetools inspect "$IMAGE:main" \
             --format '{{json .Image}}' 2> "$errors"); then
             revision=$(jq -er \
               '."linux/amd64".config.Labels["org.opencontainers.image.revision"]' \
               <<< "$config")
-            status=$(gh api "repos/$GITHUB_REPOSITORY/compare/$revision...$GITHUB_SHA" \
+            status=$(gh_retry api "repos/$GITHUB_REPOSITORY/compare/$revision...$GITHUB_SHA" \
               --jq .status)
             case "$status" in
               ahead | identical) ;;
