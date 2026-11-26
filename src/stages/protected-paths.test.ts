@@ -35,10 +35,10 @@ const fixed = [
   "f:docs/CODEOWNERS",
 ];
 
-function skills(paths: Partial<Record<"shape" | "deliver" | "accept", string>>) {
+function skills(paths: Record<string, string>) {
   const config: NibfinConfig = { tools: {}, skills: {} };
   for (const [role, path] of Object.entries(paths)) {
-    config.skills[role as "deliver"] = { path, mode: "extend" };
+    config.skills[role] = { path, mode: "extend" };
   }
   return config;
 }
@@ -79,6 +79,15 @@ describe("protectedPaths", () => {
     assert.deepEqual(extra(await protectedPaths(config, root)), [
       "f:docs/deliver.md",
       "f:docs/missing.md",
+    ]);
+  });
+
+  it("protects every skill the config names, scope and later skills too", async () => {
+    const root = await makeTempDir("protected-");
+    const config = skills({ scope: ".nibfin-skills/scope.md", plan: "plan.md" });
+    assert.deepEqual(extra(await protectedPaths(config, root)), [
+      "f:.nibfin-skills/scope.md",
+      "f:plan.md",
     ]);
   });
 
