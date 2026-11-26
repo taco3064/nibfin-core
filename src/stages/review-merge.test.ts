@@ -330,22 +330,28 @@ describe("mergeReviewed", () => {
     assert.equal(w.mergeRequests.length, 1);
   });
 
-  it("merges again when the base moved during the merge", async () => {
+  it("merges again each time the base moved during the merge", async () => {
     const w = await reviewWorld();
+    const bases = ["c", "d", "e", "f"].map((digit) => digit.repeat(40));
     w.mergeAnswer = () => {
-      w.mergeAnswer = undefined;
-      w.mergeable = null;
-      w.mergeableState = "unknown";
+      w.baseSha = bases.shift()!;
+      if (bases.length === 0) {
+        w.mergeAnswer = undefined;
+      }
+      // GitHub may still be computing, or already report the PR mergeable.
+      const computing = bases.length % 2 === 0;
+      w.mergeable = computing ? null : true;
+      w.mergeableState = computing ? "unknown" : "clean";
       return failure(405, "Base branch was modified. Review and try again.");
     };
     assert.deepEqual(await merge(w), noNext);
-    assert.equal(w.mergeRequests.length, 2);
+    assert.equal(w.mergeRequests.length, 5);
     assert.equal(w.pull.merged, true);
-    assert.match(w.agent.logs.join("\n"), /again \(attempt 2 of 3\)/);
+    assert.match(w.agent.logs.join("\n"), /again: `main` moved to f{40}/);
     assert.deepEqual(w.issues.marked("review-blocked"), []);
   });
 
-  it("says when GitHub is still computing after every attempt", async () => {
+  it("says GitHub is still computing when the base did not move", async () => {
     const w = await reviewWorld();
     w.mergeAnswer = () => {
       w.mergeable = null;
@@ -353,7 +359,7 @@ describe("mergeReviewed", () => {
       return failure(405, "Base branch was modified. Review and try again.");
     };
     await expectBlocked(w, /still computing whether the pull request conflicts/);
-    assert.equal(w.mergeRequests.length, 3);
+    assert.equal(w.mergeRequests.length, 1);
     assert.deepEqual(reviewComments(w), []);
   });
 
@@ -370,11 +376,11 @@ describe("mergeReviewed", () => {
     assert.match(w.agent.logs.at(-1)!, /no longer open at/);
   });
 
-  it("blocks with GitHub's message once every attempt was refused", async () => {
+  it("blocks with GitHub's message when a mergeable head is refused again", async () => {
     const w = await reviewWorld();
     w.mergeAnswer = () => failure(405, "Base branch was modified. Review and try again.");
     await expectBlocked(w, /did not merge .* Base branch was modified/);
-    assert.equal(w.mergeRequests.length, 3);
+    assert.equal(w.mergeRequests.length, 1);
     assert.deepEqual(reviewComments(w), []);
   });
 
