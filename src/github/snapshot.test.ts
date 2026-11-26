@@ -16,11 +16,7 @@ import {
   pull,
   workflowRun,
 } from "./fixtures.test.ts";
-import {
-  defaultSnapshotReaders,
-  mergeableRetryDelays,
-  readIssueSnapshot,
-} from "./snapshot.ts";
+import { readIssueSnapshot } from "./snapshot.ts";
 import { deriveStage } from "./stage.ts";
 
 const assignee = { id: 5, login: "taco" };
@@ -255,56 +251,20 @@ describe("readIssueSnapshot", () => {
     assert.equal("pullRequest" in stage && stage.pullRequest.number, 11);
   });
 
-  it("keeps the CI rules while mergeable is computed after 3 re-reads", async () => {
+  it("keeps the CI rules while GitHub computes mergeable", async () => {
     const github = scenario({
       pulls: { "nibfin/issue-1": [pull(10)] },
       checkRuns: { "head-10": [] },
     });
-    const waits: number[] = [];
-    let reads = 0;
-    const snapshot = await readIssueSnapshot(github.client, repo, 1, {
-      readPullRequest: (_client, _repo, number) => {
-        reads += 1;
-        return Promise.resolve({
-          ...snapshotPull(number),
-          mergeable: null,
-          mergeableState: "unknown",
-        });
-      },
-      wait: (ms) => {
-        waits.push(ms);
-        return Promise.resolve();
-      },
-    });
-    assert.equal(snapshot.pullRequests[0]?.mergeable, null);
-    assert.equal(deriveStage(snapshot).stage, "awaiting-ci");
-    assert.equal(reads, 4);
-    assert.deepEqual(waits, [...mergeableRetryDelays]);
-  });
-
-  it("re-reads a mergeable GitHub is still computing past the read cache", async () => {
-    const github = scenario({
-      pulls: { "nibfin/issue-1": [pull(10)] },
-      checkRuns: { "head-10": [] },
-    });
-    const answers = [null, false];
     const snapshot = await readIssueSnapshot(github.client, repo, 1, {
       readPullRequest: (_client, _repo, number) =>
         Promise.resolve({
           ...snapshotPull(number),
-          mergeable: answers.shift() ?? null,
-          mergeableState: "dirty",
+          mergeable: null,
+          mergeableState: "unknown",
         }),
-      wait: () => Promise.resolve(),
     });
-    assert.equal(snapshot.pullRequests[0]?.mergeable, false);
-    assert.equal(deriveStage(snapshot).stage, "conflict");
-    assert.deepEqual(answers, []);
-  });
-
-  it("waits between re-reads by default", async () => {
-    const started = Date.now();
-    await defaultSnapshotReaders.wait(5);
-    assert.ok(Date.now() - started >= 4);
+    assert.equal(snapshot.pullRequests[0]?.mergeable, null);
+    assert.equal(deriveStage(snapshot).stage, "awaiting-ci");
   });
 });

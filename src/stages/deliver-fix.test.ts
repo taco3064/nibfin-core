@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 import { fakeActor, fakeToken, paged, rejection } from "../github/fake-github.test.ts";
 import { checkRun } from "../github/fixtures.test.ts";
+import { conflictDelayMs, conflictReads } from "./deliver-eligibility.ts";
 import { StageError } from "./errors.ts";
 import {
   branch,
@@ -204,6 +205,7 @@ describe("runDeliverStage for conflict", () => {
     ]);
     // GitHub finds the PR conflicting until its head changes.
     Object.defineProperty(world.pulls[0], "mergeable", {
+      configurable: true,
       get: () => (world.fixture.remoteHead(branch) === head ? false : true),
     });
     return { world, head, base };
@@ -237,6 +239,41 @@ describe("runDeliverStage for conflict", () => {
       pushes(world)[0].args.includes(`--force-with-lease=refs/heads/${branch}:${head}`),
     );
     assert.deepEqual(next(world), { stage: "review", reason: null, progressed: true });
+  });
+
+  it("re-reads while GitHub computes mergeable, then fixes the conflict", async () => {
+    const rebase: AgentStep = (options) => {
+      git(options.workspace, "reset", "--quiet", "--hard", "refs/remotes/origin/main");
+      commitFile(options.workspace, "a.txt", "base\na\n", "feat: a");
+      return done;
+    };
+    const { world, head } = await conflictWorld([rebase, pass]);
+    // GitHub is still computing until Deliver has waited twice (#751).
+    Object.defineProperty(world.pulls[0], "mergeable", {
+      get: () => {
+        if (world.waits.length < 2) {
+          return null;
+        }
+        return world.fixture.remoteHead(branch) === head ? false : true;
+      },
+    });
+    assert.equal(await world.run(), 0);
+    assert.equal(world.agent.runs.length, 2);
+    assert.deepEqual(world.waits.slice(0, 2), [conflictDelayMs, conflictDelayMs]);
+  });
+
+  it("names GitHub's computing state when mergeable stays unknown", async () => {
+    const { world } = await openPullWorld({ reason: "conflict" });
+    world.pulls[0].mergeable = null;
+    assert.equal(await world.run(), 0);
+    assert.deepEqual(world.agent.logs, [
+      "acme/app#1 is not at the deliver stage: review (conflict); GitHub has not " +
+        "computed whether https://github.com/acme/app/pull/7 conflicts with its base yet",
+    ]);
+    assert.deepEqual(
+      world.waits,
+      Array.from({ length: conflictReads - 1 }, () => conflictDelayMs),
+    );
   });
 
   it("is ineligible while the pull request does not conflict", async () => {

@@ -191,7 +191,7 @@ class DeliverRun {
   /** Re-reads GitHub: the Issue must still be eligible for this reason and branch. */
   async stillEligible(): Promise<boolean> {
     freshReads(this.job.client);
-    const now = await readEligibility(this.job.client, this.context);
+    const now = await readEligibility(this.job.client, this.context, this.deps.wait);
     if (now.eligible && now.branch === this.branch) {
       return true;
     }
@@ -555,7 +555,7 @@ export async function runDeliverStage(
   const progress = trackProgress(actingClient);
   const { client } = progress;
   const scope = { client, context, log: deps.log };
-  const eligibility = await readEligibility(client, context);
+  const eligibility = await readEligibility(client, context, deps.wait);
   let redo: NextAction | undefined;
   try {
     redo = await finishShapeReport(scope, eligibility);
