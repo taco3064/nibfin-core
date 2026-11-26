@@ -102,8 +102,10 @@ any next evidence needed. Mark suggested splits, owners or dependencies as advis
 For a request (an Issue labeled `request`; see the scope skill's Requests), the bounded
 question is whether what it asks for can become implementation work now. The request is
 input: check its claims against the authority, the code and existing Issues instead of
-taking them as fact. End with one judgment and its reasons; the stage supplies the exact
-output format.
+taking them as fact. Whatever the judgment, list the Issues an earlier run created for
+this request (their body has the origin line, `Origin: ` and the request's URL) with their
+state, except those closed as not planned. End with one judgment and its reasons; the
+stage supplies the exact output format.
 
 - Feasible: the authority already approves the outcome, the work is development (see
   Development eligibility), a feasible route, new work included, exists from the current
@@ -111,9 +113,8 @@ output format.
   owning repository and the affected surface for Plan.
 - Already covered: the latest `main` already provides what was asked, or an open Issue
   with `scope` and an Assignee already owns it, and nothing new is needed. Cite the code,
-  tests, merged PRs or Issue. Issues whose body has the line `Origin: <request URL>` for
-  this request do not count; list them, except those closed as not planned, for Plan to
-  reuse.
+  tests, merged PRs or Issue. The request's own Issues do not count, and while any of them
+  is open the request is not already covered.
 - Not feasible: no route exists, even with new work, within the provider capabilities and
   the agent permission boundary. Name what is missing.
 - Needs a person: the request is not development work, conflicts with an approved

@@ -299,8 +299,9 @@ For a request, Plan also:
 
 Publish follows the rules above, with three additions for a request:
 
-- An Issue closed as not planned is never a match. An Issue with this request's origin
-  line that the manifest does not list for reuse is `REPLAN_REQUIRED`.
+- It ignores every Issue closed as not planned, whether matched by title or by origin
+  line. Any other Issue with this request's origin line that the manifest does not list
+  for reuse is `REPLAN_REQUIRED`.
 - It adds `scope` and the Assignees to the Issues only after every planned Issue and edge
   is confirmed by read-back, so no Issue becomes eligible for Shape before its edges
   exist.
