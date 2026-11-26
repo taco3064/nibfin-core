@@ -285,15 +285,16 @@ For a request, Plan also:
   them is blocked by an existing Issue. Work that would edit the body or metadata of,
   cancel, reassign or block any other existing Issue is `PLAN_BLOCKED`.
 - gives every Issue `scope`, the request's Assignees and the origin line, and every new
-  Issue a title no other Issue in its repository has. The origin line is `Origin: `
-  followed by the request's full URL, as plain text outside any code formatting, so GitHub
-  records a cross-reference on the request. A request with no Assignee, or one not
-  assignable in a target repository, is `PLAN_BLOCKED`.
+  Issue a title that exactly matches no other Issue in its repository. The origin line is
+  `Origin: ` followed by the request's full URL, as plain text outside any code
+  formatting, so GitHub records a cross-reference on the request. A request with no
+  Assignee, or one not assignable in a target repository, is `PLAN_BLOCKED`.
 - on a rerun, finds the Issues an earlier run created from the request's cross-reference
   events (the origin line creates one in any repository), keeping those whose body has
   this request's origin line and ignoring those closed as not planned. It keeps each one
   that still fits in the manifest for reuse with its body unchanged, adding only a missing
-  `scope`, the request's Assignees and its planned edges. One that no longer fits is
+  `scope`, the request's Assignees and its planned edges; one that already has `scope`
+  gets no new edge that blocks it. One that no longer fits, or would need such an edge, is
   `PLAN_BLOCKED`; a person discards it by closing it as not planned.
 - returns `PLAN_BLOCKED` with the reason if nothing is left to create or reuse.
 
