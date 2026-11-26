@@ -430,14 +430,16 @@ not configure.
    report stops it with next `{ "deliver", null }`; nothing is merged or written.
 2. Reads the PR: it must be open at `H`. `mergeable: null` or `mergeable_state:
 unknown` stops with no next action (GitHub is still computing).
-   `behind` or `dirty` writes the `review` comment "Rebase onto `<base>` and resolve
-   conflicts: …" for `H` and the reviewed Shape version, and asks for the `review`
-   fix. `blocked` waits for approvals (#725) when a ruleset `pull_request` rule of
-   the base applies and either the approvals of writers (reviewers whose collaborator
-   permission is `admin` or `write`; a 404 is no access) are below the largest
-   required count, or a writer's latest review requests changes on any head (GitHub
-   then needs that writer's approval). It upserts the marked `approval-wait` comment
-   on the PR (`Reviewed head: H`, `Reviewed Shape: <v>`, that the Shape review
+   `dirty` (a real conflict) writes the `review` comment "Rebase onto `<base>` and
+   resolve conflicts: …" for `H` and the reviewed Shape version, and asks for the
+   `review` fix. `behind` alone (no conflict) goes on to the merge; a repository
+   that requires up-to-date branches then answers 405 (step 4). `blocked` waits for
+   approvals (#725) when a ruleset `pull_request` rule of the base applies and either
+   the approvals of writers (reviewers whose collaborator permission is `admin` or
+   `write`; a 404 is no access) are below the largest required count, or a writer's
+   latest review requests changes on any head (GitHub then needs that writer's
+   approval). It upserts the marked `approval-wait` comment on the PR
+   (`Reviewed head: H`, `Reviewed Shape: <v>`, that the Shape review
    passed, the requirement and the writers' approvals, each writer whose requested
    changes stand, the requested reviewers and teams; logins in backticks without
    `@`) and ends with next action none; no `pending`. A submitted review wakes the
@@ -450,11 +452,14 @@ unknown` stops with no next action (GitHub is still computing).
    and every applying ruleset `pull_request` rule allow (no merge commit under
    `required_linear_history`). No method, or an unknown setting, is `review-blocked`.
 4. Merges with `sha: H`. `head-changed` (409, or a 405 saying the head was modified)
-   stops with no next action. A 405 saying the base moved, the PR is not mergeable,
-   out of date or conflicting goes back to Deliver as a rebase. A rejection naming the
-   workflows permission is `review-blocked` naming it; any other 405 is
-   `review-blocked` with GitHub's message, any other 4xx `GITHUB_WRITE_REJECTED`. An
-   unknown outcome re-reads the PR once and otherwise stays Pending
+   stops with no next action. A rejection naming the workflows permission is
+   `review-blocked` naming it. Any other 405 re-reads the PR: a head that moved or a
+   PR no longer open stops with no next action, `mergeable: false` or `dirty` goes
+   back to Deliver as a rebase, `behind` (the repository requires up-to-date
+   branches) is `review-blocked` explaining that setting, a mergeability GitHub is
+   still computing is `review-blocked` saying so, and anything else is
+   `review-blocked` with GitHub's message. Any other 4xx is `GITHUB_WRITE_REJECTED`.
+   An unknown outcome re-reads the PR once and otherwise stays Pending
    (`GITHUB_WRITE_UNCONFIRMED`); it is never retried blindly.
 5. After the merge the next action is none: CD events continue the Issue.
 

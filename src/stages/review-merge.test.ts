@@ -111,19 +111,29 @@ describe("mergeReviewed", () => {
     });
   }
 
-  for (const state of ["behind", "dirty"]) {
-    it(`sends a ${state} pull request back to Deliver to rebase`, async () => {
-      const w = await reviewWorld();
-      w.mergeableState = state;
-      assert.deepEqual(await merge(w), reviewFix);
-      assert.deepEqual(reviewComments(w), [
-        `<!-- nibfin:review -->\nReviewed head: ${w.head}\n` +
-          `Reviewed Shape: ${shapeVersion}\n\nRebase onto \`main\` and ` +
-          `resolve conflicts: GitHub reports \`mergeable_state: ${state}\`.`,
-      ]);
-      assert.deepEqual(w.mergeRequests, []);
-    });
-  }
+  it("sends a dirty pull request back to Deliver to rebase", async () => {
+    const w = await reviewWorld();
+    w.mergeableState = "dirty";
+    assert.deepEqual(await merge(w), reviewFix);
+    assert.deepEqual(reviewComments(w), [
+      `<!-- nibfin:review -->\nReviewed head: ${w.head}\n` +
+        `Reviewed Shape: ${shapeVersion}\n\nRebase onto \`main\` and ` +
+        "resolve conflicts: GitHub reports `mergeable_state: dirty`.",
+    ]);
+    assert.deepEqual(w.mergeRequests, []);
+  });
+
+  it("merges a pull request that is only behind the base", async () => {
+    const w = await reviewWorld();
+    w.mergeableState = "behind";
+    assert.deepEqual(await merge(w), noNext);
+    assert.deepEqual(
+      w.mergeRequests.map((request) => request.body),
+      [{ sha: w.head, merge_method: "rebase" }],
+    );
+    assert.equal(w.pull.merged, true);
+    assert.deepEqual(reviewComments(w), []);
+  });
 
   it("names other unmet ruleset requirements once writers approved", async () => {
     const w = await reviewWorld();
@@ -291,11 +301,63 @@ describe("mergeReviewed", () => {
     assert.match(w.agent.logs.at(-1)!, /no longer/);
   });
 
-  it("sends a 405 for a moved base back to Deliver", async () => {
+  for (const [mergeable, state] of [
+    [false, "dirty"],
+    [false, "unknown"],
+    [true, "dirty"],
+  ] as const) {
+    it(`sends a 405 back to Deliver when GitHub then reports ${state}`, async () => {
+      const w = await reviewWorld();
+      w.mergeAnswer = () => {
+        w.mergeable = mergeable;
+        w.mergeableState = state;
+        return failure(405, "Pull Request is not mergeable");
+      };
+      assert.deepEqual(await merge(w), reviewFix);
+      assert.match(reviewComments(w)[0], /Rebase onto `main` and resolve conflicts: /);
+    });
+  }
+
+  it("blocks a 405 that leaves the head only behind, not sending it back", async () => {
+    const w = await reviewWorld();
+    w.mergeAnswer = () => {
+      w.mergeableState = "behind";
+      return failure(405, "Pull Request is not mergeable");
+    };
+    await expectBlocked(w, /requires branches to be up to date .* not mergeable/s);
+    assert.match(blockedText(w), /does not send it back to Deliver/);
+    assert.deepEqual(reviewComments(w), []);
+  });
+
+  it("says when GitHub is still computing after a 405", async () => {
+    const w = await reviewWorld();
+    w.mergeAnswer = () => {
+      w.mergeable = null;
+      w.mergeableState = "unknown";
+      return failure(405, "Base branch was modified. Review and try again.");
+    };
+    await expectBlocked(w, /still computing whether the pull request conflicts/);
+    assert.deepEqual(reviewComments(w), []);
+  });
+
+  it("stops when the head moved before the 405 was re-read", async () => {
+    const w = await reviewWorld();
+    w.mergeAnswer = () => {
+      w.pull.sha = "f".repeat(40);
+      w.mergeable = false;
+      w.mergeableState = "dirty";
+      return failure(405, "Pull Request is not mergeable");
+    };
+    assert.deepEqual(await merge(w), noNext);
+    assert.deepEqual(reviewComments(w), []);
+    assert.match(w.agent.logs.at(-1)!, /no longer open at/);
+  });
+
+  it("blocks on a 405 for a moved base with GitHub's message", async () => {
     const w = await reviewWorld();
     w.mergeAnswer = () => failure(405, "Base branch was modified. Review and try again.");
-    assert.deepEqual(await merge(w), reviewFix);
-    assert.match(reviewComments(w)[0], /Rebase onto `main` and resolve conflicts: Base/);
+    await expectBlocked(w, /did not merge .* Base branch was modified/);
+    assert.deepEqual(reviewComments(w), []);
   });
 
   it("stops on a 405 for a moved head", async () => {
