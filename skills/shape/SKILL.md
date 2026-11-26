@@ -106,16 +106,16 @@ taking them as fact. End with one judgment and its reasons; the stage supplies t
 output format.
 
 - Feasible: the authority already approves the outcome, the work is development (see
-  Development eligibility), a route exists in the current code and provider capabilities,
-  and nothing waits on a person's decision. Name the owning repository and the affected
-  surface for Plan.
+  Development eligibility), a feasible route, new work included, exists from the current
+  code and provider capabilities, and nothing waits on a person's decision. Name the
+  owning repository and the affected surface for Plan.
 - Already covered: the latest `main` already provides what was asked, or an open Issue
   with `scope` and an Assignee already owns it, and nothing new is needed. Cite the code,
   tests, merged PRs or Issue. Issues whose body has the line `Origin: <request URL>` for
   this request do not count; list them, except those closed as not planned, for Plan to
   reuse.
-- Not feasible: no route exists within the current code, provider capabilities and the
-  agent permission boundary. Name what is missing.
+- Not feasible: no route exists, even with new work, within the provider capabilities and
+  the agent permission boundary. Name what is missing.
 - Needs a person: the request is not development work, conflicts with an approved
   authority clause, depends on one that is missing, outdated, ambiguous or contradictory,
   or waits on an undecided product decision. Name the exact clause or decision and why
