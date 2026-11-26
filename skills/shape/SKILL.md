@@ -111,11 +111,14 @@ output format.
   surface for Plan.
 - Already covered: the latest `main` already provides what was asked, or an existing Issue
   already covers it, and nothing new is needed. Cite the code, tests, merged PRs or Issue.
+  Issues whose body names this request as their origin do not count; list them for Plan to
+  reuse.
 - Not feasible: no route exists within the current code, provider capabilities and the
   agent permission boundary. Name what is missing.
-- Needs a person: the request is not development work, depends on an authority clause that
-  is missing, outdated, ambiguous or contradictory, or waits on an undecided product
-  decision. Name the exact clause or decision and why only a person can settle it.
+- Needs a person: the request is not development work, conflicts with an approved
+  authority clause, depends on one that is missing, outdated, ambiguous or contradictory,
+  or waits on an undecided product decision. Name the exact clause or decision and why
+  only a person can settle it.
 
 The judgment is not a Shape: give no implementation steps. Any suggested split stays
 advisory; Plan decides the Issues.
