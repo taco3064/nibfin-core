@@ -53,7 +53,7 @@ code currently lives; record drift instead of changing ownership silently.
   operational obligations. A slice cannot claim whole-product completeness.
 - The current Issue is the requirement for its work and may be edited lawfully. Editing an
   existing Issue goes through Publish: a small amendment with the Owner informed, any
-  other edit with the Owner's approval of that edit.
+  other edit with an approved manifest (see Modes).
 - Do not hardcode a project's repositories, Issue numbers, platforms, commands, labels,
   versions or policies in this skill; read them from the authority and the provider.
 
@@ -286,15 +286,22 @@ For a request, Plan also:
   cancel, reassign or block any other existing Issue is `PLAN_BLOCKED`.
 - gives every Issue `scope` and the request's Assignees, and the line
   `Origin: <request URL>` in its body. A request with no Assignee is `PLAN_BLOCKED`.
-- on a rerun, finds the Issues whose body has this request's origin line, in every
-  repository the manifest may target and ignoring those closed as not planned. It keeps
-  each one that still fits in the manifest for reuse with its body unchanged, adding only
-  a missing `scope`, the request's Assignees and its planned edges. One that no longer
-  fits is `PLAN_BLOCKED`; a person discards it by closing it as not planned.
+- on a rerun, finds the Issues an earlier run created from the request's cross-reference
+  events (the origin line creates one in any repository), keeping those whose body has
+  this request's origin line and ignoring those closed as not planned. It keeps each one
+  that still fits in the manifest for reuse with its body unchanged, adding only a missing
+  `scope`, the request's Assignees and its planned edges. One that no longer fits is
+  `PLAN_BLOCKED`; a person discards it by closing it as not planned.
 - returns `PLAN_BLOCKED` with the reason if nothing is left to create or reuse.
 
-Publish follows the rules above; for a request, an Issue closed as not planned is never a
-match. Report the URL of every Issue created or reused, also when publication is partial.
+Publish follows the rules above, with three additions for a request:
+
+- An Issue closed as not planned is never a match. A same-title or origin-line match the
+  manifest does not list for reuse is `REPLAN_REQUIRED`.
+- It adds `scope` and the Assignees to the Issues only after every planned Issue and edge
+  is confirmed by read-back, so no Issue becomes eligible for Shape before its edges
+  exist.
+- It reports the URL of every Issue created or reused, also when publication is partial.
 
 The stage, not the role, updates the request Issue:
 
