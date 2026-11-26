@@ -94,9 +94,12 @@ Nothing below is done by Nibfin; the Owner does it once.
 
 ### nibfin-core only
 
-- Variables: optionally `NIBFIN_MODEL`. The provider is not a variable: each runner's
-  `.env` sets `NIBFIN_PROVIDER` (`codex` or `claude`), so it is never taken from an
-  Issue, repository text, a variable or a dispatch input. Optional limits:
+- Variables: neither the provider nor the model is a variable. Each runner's `.env`
+  sets `NIBFIN_PROVIDER` (`codex` or `claude`) and may set `NIBFIN_MODEL` for that
+  runner only (without it, Core's default for the provider applies), so neither is
+  ever taken from an Issue, repository text, a variable or a dispatch input; restart
+  the runner after changing its `.env`. An old `NIBFIN_MODEL` repository variable is
+  unused. Optional limits:
   `NIBFIN_MEMORY` (default `3g`, also the memory check before the first agent run),
   `NIBFIN_MEMORY_HIGH` (default `2560m`, an integer with optional K/M/G; above it
   the kernel throttles and reclaims instead of killing), `NIBFIN_PIDS_LIMIT`
