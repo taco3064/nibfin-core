@@ -1,3 +1,4 @@
+import { readBranchRules } from "./branch-rules.ts";
 import type { GitHubClient } from "./client.ts";
 import { read, readOptional } from "./errors.ts";
 import { isNibfinWorkflow } from "./nibfin-workflows.ts";
@@ -41,13 +42,7 @@ export async function readRequiredChecks(
   branch: string,
 ): Promise<RequiredCheck[]> {
   const where = `${repo.owner}/${repo.repo}@${branch}`;
-  const rules = await read(`read rules of ${where}`, () =>
-    client.paginate("GET /repos/{owner}/{repo}/rules/branches/{branch}", {
-      ...repo,
-      branch,
-      per_page: perPage,
-    }),
-  );
+  const rules = await readBranchRules(client, repo, branch);
   const fromRules = rules.flatMap((rule) =>
     rule.type === "required_status_checks"
       ? (rule.parameters?.required_status_checks ?? []).map((check) => ({
