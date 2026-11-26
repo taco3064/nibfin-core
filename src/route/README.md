@@ -21,13 +21,11 @@ true`; a stale one falls to rule 4) → `deliver review`; `review` whose PR has 
 4. any other delivery stage → `shapeNextAction(stage, issue)` (`done` → `review`,
    `conflict` → `deliver conflict`, `awaiting-*` → `null`);
 5. closed as delivered (`closedAsDelivered`) → `review` (wake-only redo);
-6. anything else (paused, `pending`, no scope, several Assignees (`ineligible
-(multiple-assignees)`, #720), blocked, no Assignee) → `null`.
+6. anything else (paused, `pending`, no scope, blocked, no Assignee) → `null`.
 
-`assignee` is the only Assignee's user id; without exactly one the route is `null`.
-`assignees` holds all the Issue's Assignees (`{ id, login }`, GitHub's order) for the
-consent check.
-`readRoute` also gives the number of Assignees.
+`assignees` holds all the Issue's Assignees (`{ id, login }`, GitHub's order); without
+one the route is `null`. Several Assignees route like one: `dispatchStage` chooses
+among them (#739), and all are asked for consent.
 `readRoute` also says whether the Issue is open. The actor (for marked comments) is
 the token's account, read once with `GET /user`.
 
@@ -52,17 +50,22 @@ URL. A dispatch cannot be confirmed by a re-read: no response or a 5xx is
 - `dispatchRoute`: inputs `stage: route`, `repo`, `issue`. Never deduplicated, so no
   wake is lost.
 - `dispatchStage`: inputs `stage`, `repo`, `issue`, `reason` (empty for none) and
-  `assignee`. It first lists the execution repository's self-hosted runners
-  (`readRunnerLabels`, all pages; the token needs admin there) and dispatches only
-  when one has the label `runnerLabel(assignee)` = `nibfin-<user id>`, compared
-  case-insensitively and exactly (`nibfin-<id>-<provider>` does not match), whatever
-  the runner's `status` or `busy` (#720). Without one the Issue is an ordinary
-  assignment: nothing is dispatched, labelled or commented; the log names the Issue
-  and the label, never runner names. A runner gaining the label later starts nothing
-  by itself; the next Issue event routes it. Then it lists the execution repository's runs that have not started
+  `assignee`, the chosen Assignee's user id. It first lists the execution
+  repository's self-hosted runners (`readRunners`, all pages; the token needs admin
+  there) and `chooseAssignee` goes through `route.assignees` in GitHub's order
+  (#739): the first Assignee with an online runner labelled `runnerLabel(id)` =
+  `nibfin-<user id>` (a busy runner is online); otherwise the first with any such
+  runner (the Job queues until one is online). Labels compare case-insensitively and
+  exactly (`nibfin-<id>-<provider>` and `nibfin-<id>0` do not match). The log names
+  the chosen user id and whether its runner is online. Without any match the Issue is
+  an ordinary assignment: nothing more is read and nothing is dispatched, labelled or
+  commented; the log names the Issue, the Assignees' user ids and the label form,
+  never runner names. A runner gaining the label later starts nothing by itself; the
+  next Issue event routes it. Then it lists the execution repository's runs that have not started
   (`requested`, `waiting`, `pending`, `queued`; one request each) and skips when one
   other than this run is titled exactly `Nibfin · <owner>/<repo>#<n> · <stage>`: a
-  waiting run reads GitHub when it starts. `in_progress` runs never cause a skip.
+  waiting run keeps its runner label and reads GitHub when it starts, even if another
+  Assignee would now be chosen. `in_progress` runs never cause a skip.
 - Consent (#721, `askForConsent`): after those two checks and before dispatching,
   `dispatchStage` reads the execution repository's owner id (`readRepoOwnerId`).
   Every Assignee in `route.assignees` other than the owner who has no Nibfin comment
@@ -83,12 +86,7 @@ reads `NIBFIN_GITHUB_TOKEN`, `NIBFIN_RUN_REPO` and optionally `NIBFIN_RUN_ID` fr
 the environment.
 
 - `--issue`: dispatches the Issue's route result (deduplicated), or logs why nothing
-  runs. When the Issue derives `ineligible (multiple-assignees)`, it asks a person
-  through `requestPerson` with `STAGE_MULTIPLE_ASSIGNEES`: the marked `pending`
-  comment says Nibfin runs an Issue for exactly one Assignee, gives the count (no
-  logins, so no one is mentioned) and asks to leave one and remove `pending`; then
-  it exits 0. A post-stage route writes nothing for it; the `assigned` event's own
-  route run does. When the Issue is closed (any reason or label, since a closed Issue derives
+  runs. When the Issue is closed (any reason or label, since a closed Issue derives
   `closed` first), it first deletes the Issue's branches whose ref exists
   (`deleteIssueBranches`: `nibfin/issue-<n>` and every probed
   `nibfin/issue-<n>-cd-<k>`, #700). A close wakes the route through the `closed`

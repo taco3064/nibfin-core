@@ -84,16 +84,23 @@ describe("continueAfterStage", () => {
     assert.match(runner.logs.at(-1)!, /an ordinary assignment, nothing dispatched$/);
   });
 
-  it("writes nothing for several Assignees; the assigned route does", async () => {
+  it("dispatches several Assignees' route to the one with an online runner", async () => {
     const assignees = [
-      { id: 5, login: "taco" },
       { id: 6, login: "other" },
+      { id: 5, login: "taco" },
     ];
     const { issues, runner } = plainRunner({ labels: ["scope", "shaped"], assignees });
+    seedComment(issues, issues.main, "<!-- nibfin:consent-6 -->\nAsked.");
+    runner.runners = [
+      selfHostedRunner(1, ["nibfin-6"], { status: "offline" }),
+      selfHostedRunner(2, ["nibfin-5"], { busy: true }),
+    ];
     await continueAfterStage(runner.scope, finished("deliver"), record(true));
-    assert.deepEqual(runner.dispatched, []);
-    assert.deepEqual(issues.github.writes(), []);
-    assert.deepEqual(runner.logs, ["acme/app#1: nothing to run now"]);
+    assert.deepEqual(runner.dispatched, [
+      { stage: "deliver", repo: "acme/app", issue: "1", reason: "", assignee: "5" },
+    ]);
+    assert.ok(!issues.main.labels.includes("pending"));
+    assert.ok(runner.logs.includes("acme/app#1: Assignee 5 has an online runner"));
   });
 
   it("asks a collaborator assigned during the run after the stage", async () => {

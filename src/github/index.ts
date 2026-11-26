@@ -130,4 +130,4 @@ export {
   readNotStartedRuns,
   readRepoOwnerId,
 } from "./workflow-dispatch.ts";
-export { readRunnerLabels, runnerLabel } from "./runners.ts";
+export { readRunners, type RunnerLabels, runnerLabel } from "./runners.ts";

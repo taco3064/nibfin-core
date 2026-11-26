@@ -8,8 +8,7 @@ export type StageErrorCode =
   | "STAGE_PUSH_REJECTED"
   | "STAGE_PROTECTED_PATH"
   | "STAGE_HOST_MEMORY_LOW"
-  | "STAGE_NO_PROGRESS"
-  | "STAGE_MULTIPLE_ASSIGNEES";
+  | "STAGE_NO_PROGRESS";
 
 /** A stage that stopped for a named reason. `cause` keeps the original error, if any. */
 export class StageError extends Error {

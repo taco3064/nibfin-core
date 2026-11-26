@@ -12,7 +12,8 @@ const dispatchPath =
 export interface FakeSelfHostedRunner {
   id: number;
   name: string;
-  status: "online" | "offline";
+  /** GitHub types it as a string; `online` and `offline` are the known values. */
+  status: string;
   busy: boolean;
   labels: Array<{ id: number; name: string; type: "read-only" | "custom" }>;
 }

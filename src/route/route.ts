@@ -21,21 +21,23 @@ import {
   shapeNextAction,
 } from "../stages/index.ts";
 
-/** The stage to run for an Issue, on its only Assignee's runner. */
+/**
+ * The stage to run for an Issue; `dispatchStage` runs it on a runner of one of its
+ * Assignees (#739).
+ */
 export interface IssueRoute {
   stage: "shape" | "deliver" | "review";
   reason: FixReason | null;
-  /** The only Assignee's user id. */
-  assignee: number;
-  /** All the Issue's Assignees in GitHub's order, asked for consent (#721). */
+  /**
+   * All the Issue's Assignees in GitHub's order, never empty: the candidates
+   * `dispatchStage` chooses from (#739) and the ones asked for consent (#721).
+   */
   assignees: readonly Actor[];
 }
 
 /** An Issue's route, whether it is open, and its derived stage for the log. */
 export interface RouteState {
   open: boolean;
-  /** How many Assignees the Issue has. */
-  assignees: number;
   route: IssueRoute | null;
   stage: Stage;
 }
@@ -85,9 +87,8 @@ async function nextFor(
 }
 
 /**
- * Reads the Issue and derives what runs next for it (see `routeIssue`). With several
- * Assignees the stage is `ineligible (multiple-assignees)` and the route `null`, so
- * a route always names the Issue's only Assignee (#720).
+ * Reads the Issue and derives what runs next for it (see `routeIssue`). A route has
+ * at least one Assignee; with several, all are candidates (#739).
  */
 export async function readRoute(
   client: ActingClient,
@@ -100,23 +101,18 @@ export async function readRoute(
   const ref = { ...repo, number: issue };
   const next = await nextFor(client, ref, snapshot, stage, log);
   const { assignees } = snapshot.issue;
-  const assignee = assignees.at(0)?.id;
-  const state = { open: snapshot.issue.state === "open", assignees: assignees.length };
-  if (next.stage === null || assignee === undefined) {
-    return { ...state, route: null, stage };
+  const open = snapshot.issue.state === "open";
+  if (next.stage === null || assignees.length === 0) {
+    return { open, route: null, stage };
   }
-  return {
-    ...state,
-    route: { stage: next.stage, reason: next.reason, assignee, assignees },
-    stage,
-  };
+  return { open, route: { stage: next.stage, reason: next.reason, assignees }, stage };
 }
 
 /**
  * The one authority for what runs next for an Issue (#674): the stage, its reason
- * and the only Assignee's user id, or `null` when nothing should run (paused,
- * `pending`, no scope, several Assignees, blocked, no Assignee, waiting for CI or
- * CD, …).
+ * and the Issue's Assignees in GitHub's order (`dispatchStage` chooses one, #739),
+ * or `null` when nothing should run (paused, `pending`, no scope, blocked, no
+ * Assignee, waiting for CI or CD, …).
  */
 export async function routeIssue(
   client: ActingClient,

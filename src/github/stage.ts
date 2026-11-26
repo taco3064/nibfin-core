@@ -6,13 +6,7 @@ import type { RunState } from "./run-state.ts";
 import type { IssueSnapshot, PullRequestState } from "./snapshot.ts";
 
 export type IneligibleReason =
-  | "closed"
-  | "no-scope"
-  | "paused"
-  | "pending"
-  | "multiple-assignees"
-  | "blocked"
-  | "no-assignee";
+  "closed" | "no-scope" | "paused" | "pending" | "blocked" | "no-assignee";
 
 export type CiStage = "review" | "awaiting-ci" | "ci-failed";
 
@@ -70,11 +64,6 @@ export function deriveStage(snapshot: IssueSnapshot): Stage {
   }
   if (has(nibfinLabels.pending)) {
     return { stage: "ineligible", reason: "pending" };
-  }
-  // Nibfin runs an Issue for exactly one Assignee (#720). Before `blocked`, so the
-  // `assigned` event that adds a second Assignee raises `pending` at once.
-  if (issue.assignees.length > 1) {
-    return { stage: "ineligible", reason: "multiple-assignees" };
   }
   const blockers = snapshot.blockedBy.filter((dependency) => !isResolved(dependency));
   if (blockers.length > 0) {
