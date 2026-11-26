@@ -210,25 +210,48 @@ export async function mergeReviewed(
     }
     return blockReview(scope, mergeTitle, await describeBlocked(scope, pull));
   }
-  const result = await merge(scope, pull, head);
-  if (result.outcome === "head-changed") {
-    scope.progress.mark();
-    deps.log(`Not merged: the head of ${pull.url} is no longer ${head}`);
-    return noNextAction;
+  for (let attempt = 1; ; attempt += 1) {
+    const result = await merge(scope, pull, head);
+    if (result.outcome === "head-changed") {
+      scope.progress.mark();
+      deps.log(`Not merged: the head of ${pull.url} is no longer ${head}`);
+      return noNextAction;
+    }
+    if (result.outcome !== "not-mergeable") {
+      return noNextAction;
+    }
+    const canRetry = attempt < mergeAttempts;
+    const next = await notMergeable(scope, pull, head, result.message, rebase, canRetry);
+    if (next !== retryMerge) {
+      return next;
+    }
+    deps.log(
+      `Merging ${pull.url} again (attempt ${attempt + 1} of ${mergeAttempts}): ` +
+        `GitHub refused it without a conflict (${result.message})`,
+    );
   }
-  if (result.outcome === "not-mergeable") {
-    return notMergeable(scope, pull, head, result.message, rebase);
-  }
-  return noNextAction;
 }
+
+/**
+ * How many times one review merges a pull request GitHub refused without a
+ * conflict, such as when the base moved during the merge (R3.54).
+ */
+const mergeAttempts = 3;
+
+/** `notMergeable`'s answer that the same head can be merged again at once. */
+const retryMerge = "retry";
+
+/** States in which GitHub would merge the pull request now. */
+const mergeableStates = new Set(["clean", "unstable", "has_hooks"]);
 
 /**
  * A 405 from the merge. GitHub's message does not reliably say why, so the pull
  * request is read again: a head that moved or a pull request no longer open stops
  * with no next action, GitHub's own conflict signal (`mergeable: false` or `dirty`)
  * sends it back to Deliver, `behind` means an up-to-date requirement stopped a merge
- * that has no conflict, a mergeability GitHub is still computing says so, and
- * anything else is `review-blocked` with GitHub's message.
+ * that has no conflict, and a pull request GitHub reports mergeable or is still
+ * computing is merged again while `canRetry`. Otherwise it is `review-blocked`
+ * naming the state and GitHub's message.
  */
 async function notMergeable(
   scope: ReviewScope,
@@ -236,7 +259,8 @@ async function notMergeable(
   head: string,
   message: string,
   rebase: (message: string) => Promise<NextAction>,
-): Promise<NextAction> {
+  canRetry: boolean,
+): Promise<NextAction | typeof retryMerge> {
   if (isWorkflowsRejection(message)) {
     return blockReview(scope, mergeTitle, workflowsReason(message));
   }
@@ -257,7 +281,11 @@ async function notMergeable(
   if (after.mergeableState === "behind") {
     return blockReview(scope, mergeTitle, outOfDateReason(pull, head, message));
   }
-  if (after.mergeable === null || after.mergeableState === "unknown") {
+  const computing = after.mergeable === null || after.mergeableState === "unknown";
+  if (canRetry && (computing || mergeableStates.has(after.mergeableState))) {
+    return retryMerge;
+  }
+  if (computing) {
     return blockReview(scope, mergeTitle, computingReason(pull, head, message));
   }
   return blockReview(

@@ -327,9 +327,25 @@ describe("mergeReviewed", () => {
     await expectBlocked(w, /requires branches to be up to date .* not mergeable/s);
     assert.match(blockedText(w), /does not send it back to Deliver/);
     assert.deepEqual(reviewComments(w), []);
+    assert.equal(w.mergeRequests.length, 1);
   });
 
-  it("says when GitHub is still computing after a 405", async () => {
+  it("merges again when the base moved during the merge", async () => {
+    const w = await reviewWorld();
+    w.mergeAnswer = () => {
+      w.mergeAnswer = undefined;
+      w.mergeable = null;
+      w.mergeableState = "unknown";
+      return failure(405, "Base branch was modified. Review and try again.");
+    };
+    assert.deepEqual(await merge(w), noNext);
+    assert.equal(w.mergeRequests.length, 2);
+    assert.equal(w.pull.merged, true);
+    assert.match(w.agent.logs.join("\n"), /again \(attempt 2 of 3\)/);
+    assert.deepEqual(w.issues.marked("review-blocked"), []);
+  });
+
+  it("says when GitHub is still computing after every attempt", async () => {
     const w = await reviewWorld();
     w.mergeAnswer = () => {
       w.mergeable = null;
@@ -337,6 +353,7 @@ describe("mergeReviewed", () => {
       return failure(405, "Base branch was modified. Review and try again.");
     };
     await expectBlocked(w, /still computing whether the pull request conflicts/);
+    assert.equal(w.mergeRequests.length, 3);
     assert.deepEqual(reviewComments(w), []);
   });
 
@@ -353,10 +370,11 @@ describe("mergeReviewed", () => {
     assert.match(w.agent.logs.at(-1)!, /no longer open at/);
   });
 
-  it("blocks on a 405 for a moved base with GitHub's message", async () => {
+  it("blocks with GitHub's message once every attempt was refused", async () => {
     const w = await reviewWorld();
     w.mergeAnswer = () => failure(405, "Base branch was modified. Review and try again.");
     await expectBlocked(w, /did not merge .* Base branch was modified/);
+    assert.equal(w.mergeRequests.length, 3);
     assert.deepEqual(reviewComments(w), []);
   });
 
@@ -369,8 +387,12 @@ describe("mergeReviewed", () => {
 
   it("blocks on any other 405 with GitHub's message", async () => {
     const w = await reviewWorld();
-    w.mergeAnswer = () => failure(405, "At least 1 approving review is required.");
+    w.mergeAnswer = () => {
+      w.mergeableState = "blocked";
+      return failure(405, "At least 1 approving review is required.");
+    };
     await expectBlocked(w, /did not merge .* At least 1 approving review is required/);
+    assert.equal(w.mergeRequests.length, 1);
   });
 
   for (const status of [403, 405, 422]) {
