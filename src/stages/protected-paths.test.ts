@@ -244,14 +244,32 @@ describe("protectedChanges", () => {
     });
   });
 
-  it("uses GitHub's base after the Writer rebased onto a newer one", async () => {
-    const { fixture, changes } = await staleBranch();
-    // The base moves after Job start and the Writer rebases onto it (#747).
+  /** The base moves after Job start: C changes a protected path (#747). */
+  function moveBase(fixture: { other: string }) {
     write(fixture.other, ".github/workflows/ci.yml", "newer\n");
     git(fixture.other, "commit", "--quiet", "-am", "C");
     git(fixture.other, "push", "--quiet", "origin", "main");
+  }
+
+  it("uses GitHub's base once the Writer rebased onto a newer one", async () => {
+    const { fixture, changes } = await staleBranch();
+    moveBase(fixture);
     git(fixture.workspace, "fetch", "--quiet", "origin", "main");
     git(fixture.workspace, "rebase", "--quiet", "origin/main");
+    assert.deepEqual(await changes(), { changedOnBranch: [], behindBase: [] });
+  });
+
+  it("keeps the Job-start base while the branch lacks the newer one", async () => {
+    const { fixture, changes } = await staleBranch();
+    git(fixture.workspace, "rebase", "--quiet", "origin/main");
+    moveBase(fixture);
+    assert.deepEqual(await changes(), { changedOnBranch: [], behindBase: [] });
+  });
+
+  it("keeps the Job-start base when the base cannot be fetched", async () => {
+    const { fixture, changes } = await staleBranch();
+    git(fixture.workspace, "rebase", "--quiet", "origin/main");
+    git(fixture.remote, "update-ref", "-d", "refs/heads/main");
     assert.deepEqual(await changes(), { changedOnBranch: [], behindBase: [] });
   });
 

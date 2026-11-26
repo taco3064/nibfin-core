@@ -3,6 +3,7 @@ import {
   deliveryBranch,
   deriveStage,
   findMarkedComment,
+  freshReads,
   type IssueRef,
   type IssueSnapshot,
   type MarkedComment,
@@ -164,14 +165,52 @@ async function decide(
 export async function readEligibility(
   client: ActingClient,
   context: JobContext,
+  wait: (ms: number) => Promise<void>,
 ): Promise<Eligibility> {
+  let read = await readOnce(client, context);
+  for (let reads = 1; read.computing && reads < conflictReads; reads += 1) {
+    await wait(conflictDelayMs);
+    freshReads(client);
+    read = await readOnce(client, context);
+  }
+  return read.eligibility;
+}
+
+/** One read of eligibility, and whether a conflict fix waits on GitHub computing. */
+async function readOnce(
+  client: ActingClient,
+  context: JobContext,
+): Promise<{ eligibility: Eligibility; computing: boolean }> {
   const snapshot = await readIssueSnapshot(client, context.repo, context.issue);
   const stage = deriveStage(snapshot);
   const decision = await decide(client, context, snapshot, stage);
-  if (decision === undefined) {
-    const reason = context.reason ?? "no reason";
-    const description = `${describeStage(stage)} (${reason})`;
-    return { eligible: false, description, snapshot, stage };
+  if (decision !== undefined) {
+    return { eligibility: { eligible: true, snapshot, ...decision }, computing: false };
   }
-  return { eligible: true, snapshot, ...decision };
+  const computing = context.reason === "conflict" ? computingPull(snapshot) : undefined;
+  const reason = context.reason ?? "no reason";
+  const note =
+    computing === undefined
+      ? ""
+      : `; GitHub has not computed whether ${computing.url} conflicts with its base yet`;
+  const description = `${describeStage(stage)} (${reason})${note}`;
+  return {
+    eligibility: { eligible: false, description, snapshot, stage },
+    computing: computing !== undefined,
+  };
+}
+
+/**
+ * Reads of a conflict fix's eligibility while GitHub answers `mergeable: null`: the
+ * first and 3 re-reads (#751, Proposal R4.37). `null` means GitHub is still computing,
+ * not that the conflict is gone, so it must not decide the stage.
+ */
+export const conflictReads = 4;
+export const conflictDelayMs = 3000;
+
+/** The current branch's open pull request while GitHub still computes `mergeable`. */
+function computingPull(snapshot: IssueSnapshot): PullRequestState | undefined {
+  return snapshot.branches.current.pullRequests.find(
+    (pull) => pull.state === "open" && pull.mergeable === null,
+  );
 }

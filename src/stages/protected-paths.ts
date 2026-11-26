@@ -179,13 +179,35 @@ async function changedPaths(git: Git, range: string[]): Promise<Set<string>> {
   return new Set(output.split("\0").filter((path) => path !== ""));
 }
 
+/** Where Core keeps the base it read from GitHub for one comparison (#747). */
+const currentBaseRef = "refs/nibfin/current-base";
+
 /**
- * Fetches `base` from GitHub into Core's `refs/remotes/origin/<base>`, then compares
- * `head` with its tree. The fetch keeps a Writer that rebased onto a base newer than
- * the one Core fetched at Job start from having the base's own commits counted as the
- * branch's changes (#747). It is a two-dot comparison, so a head that only carries an
- * older version of a protected path differs too; the merge-base diff then tells which
- * of the differing paths the branch changed itself.
+ * The base to compare `head` with: `base` as GitHub has it now when `head` already
+ * contains it (the Writer rebased onto a base newer than Core's Job-start fetch),
+ * otherwise Core's `refs/remotes/origin/<base>` as before. Only Core's own scratch ref
+ * is written; a failed fetch keeps the Job-start base (#747).
+ */
+async function comparisonBase(git: Git, base: string, head: string): Promise<string> {
+  const startRef = `refs/remotes/origin/${base}`;
+  const fetched = await git.remote([
+    "fetch",
+    "--no-tags",
+    git.remoteUrl,
+    `+refs/heads/${base}:${currentBaseRef}`,
+  ]);
+  if (fetched.exitCode !== 0) {
+    return startRef;
+  }
+  const contained = await git.core(["merge-base", "--is-ancestor", currentBaseRef, head]);
+  return contained.exitCode === 0 ? currentBaseRef : startRef;
+}
+
+/**
+ * Compares `head` with the tree of its base (see `comparisonBase`) in Core's
+ * repository. It is a two-dot comparison, so a head that only carries an older
+ * version of a protected path differs too; the merge-base diff then tells which of
+ * the differing paths the branch changed itself.
  */
 export async function protectedChanges(
   git: Git,
@@ -193,13 +215,7 @@ export async function protectedChanges(
   head: string,
   protectedSet: ProtectedSet,
 ): Promise<ProtectedChanges> {
-  const baseRef = `refs/remotes/origin/${base}`;
-  await git.remoteRequired([
-    "fetch",
-    "--no-tags",
-    git.remoteUrl,
-    `+refs/heads/${base}:${baseRef}`,
-  ]);
+  const baseRef = await comparisonBase(git, base, head);
   const paths = [...(await changedPaths(git, [baseRef, head]))];
   const differing = matchProtected(paths, protectedSet).sort();
   if (differing.length === 0) {
