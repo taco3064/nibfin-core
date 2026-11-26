@@ -22,7 +22,7 @@ on:
         type: string
         default: ""
       stage:
-        description: route, shape, deliver, review or finish
+        description: route, scope, shape, deliver, review or finish
         type: string
         required: true
       reason:
