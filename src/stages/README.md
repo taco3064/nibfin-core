@@ -464,21 +464,28 @@ unknown` stops with no next action (GitHub is still computing).
 3. Chooses the first of rebase, squash and merge commit that the repository settings
    and every applying ruleset `pull_request` rule allow (no merge commit under
    `required_linear_history`). No method, or an unknown setting, is `review-blocked`.
-4. Merges with `sha: H`. `head-changed` (409, or a 405 saying the head was modified)
-   stops with no next action. A rejection naming the workflows permission is
-   `review-blocked` naming it. Any other 405 re-reads the PR: a head that moved or a
-   PR no longer open stops with no next action, `mergeable: false` or `dirty` goes
-   back to Deliver as a rebase, `behind` (the repository requires up-to-date
-   branches) is `review-blocked` explaining that setting, and a PR GitHub reports
-   mergeable (`clean`, `unstable`, `has_hooks`) or is still computing is merged
-   again at once when the base branch ref (`GET …/git/ref/heads/<base>`, read
-   after such a refusal) points to a commit no earlier retry was made on (the base
-   moving during the merge); each further retry needs another new base, so no
-   attempt count is set. Any other state is `review-blocked` with
-   GitHub's message; on an unmoved base a mergeability still being computed is
-   `review-blocked` saying so, and a mergeable one with GitHub's message. Any other
-   4xx is `GITHUB_WRITE_REJECTED`. An unknown outcome re-reads the PR once and
-   otherwise stays Pending (`GITHUB_WRITE_UNCONFIRMED`); it is never retried blindly.
+4. Merges with `sha: H` and the method chosen once. A failed attempt (`head-changed`
+   409, `not-mergeable` 405, any other rejection, an unknown outcome whose re-read
+   does not show the merge) is re-sent up to 3 times (#748, Proposal R4.37–R4.38).
+   Before each re-send it waits (`retryDelay`: a rate limit the time GitHub states,
+   otherwise 1, 4, 9 s), logs `Merging <url> again (retry <k> of 3): <cause>;
+waiting <s> s`, then repeats steps 1 and 2's re-check: the Issue must still derive
+   `review` on the same PR at `H` (`pause`, closing, an Issue edit, a new push or a
+   merge that landed meanwhile stops with no next action), no pending `shape-wrong`
+   report (otherwise next `{ "deliver", null }`), and the PR open at `H`. A real
+   conflict goes to Deliver at once, with no more attempts: `dirty` writes the
+   rebase `review` comment, and `mergeable: false` makes the stage `conflict`, which
+   the route sends to Deliver. Anything else (`behind`, `blocked`, still computing,
+   `clean`) is re-sent; GitHub decides. The last attempt's outcome is then routed
+   once: `head-changed` (409, or a 405 saying the head was modified) stops with no
+   next action. A rejection naming the workflows permission is `review-blocked`
+   naming it. Any other 405 re-reads the PR: a head that moved or a PR no longer
+   open stops with no next action, `mergeable: false` or `dirty` goes back to
+   Deliver as a rebase, `behind` (the repository requires up-to-date branches) is
+   `review-blocked` explaining that setting, a mergeability still being computed is
+   `review-blocked` saying so, and any other state is `review-blocked` with GitHub's
+   message. Any other error (`GITHUB_WRITE_REJECTED`, `GITHUB_WRITE_UNCONFIRMED`) is
+   thrown and leads to `pending`.
 5. After the merge the next action is none: CD events continue the Issue.
 
 ### Closing
