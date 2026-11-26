@@ -62,6 +62,7 @@ async function job(steps: Parameters<typeof fakeDeps>[0], dir = workspace) {
     jobContext(dir),
     issues.github.client,
     fake.deps,
+    [reader.skill],
   );
   return { issues, fake, job: prepared };
 }
@@ -250,14 +251,64 @@ describe("prepareStageJob", () => {
     const fake = fakeDeps([]);
     const context = { ...jobContext(workspace), memoryRequired: 64 * 1024 ** 3 };
     const error = await rejection(
-      prepareStageJob(context, issues.github.client, fake.deps),
+      prepareStageJob(context, issues.github.client, fake.deps, []),
     );
     assert.ok(error instanceof StageError);
     assert.equal(error.code, "STAGE_HOST_MEMORY_LOW");
     assert.deepEqual(fake.configReads, []);
     const enough = { ...context, memoryRequired: 1024 ** 3 };
-    await prepareStageJob(enough, issues.github.client, fake.deps);
+    await prepareStageJob(enough, issues.github.client, fake.deps, []);
     assert.deepEqual(fake.configReads, [workspace]);
+  });
+
+  it("resolves each named skill once, before any run", async () => {
+    const issues = fakeIssues(fakeIssue());
+    const fake = fakeDeps(["Done."]);
+    const context = jobContext(workspace);
+    const skills = ["shape", "accept", "shape"] as const;
+    const prepared = await prepareStageJob(
+      context,
+      issues.github.client,
+      fake.deps,
+      skills,
+    );
+    assert.deepEqual(fake.skillReads, ["shape", "accept"]);
+    assert.equal(await runStageAgent(prepared, reader, sections), "Done.");
+    assert.deepEqual(fake.skillReads, ["shape", "accept"]);
+  });
+
+  it("keeps the base checkout's extension after the workspace changes", async () => {
+    const dir = await makeCommittedWorkspace("stage-skill-base-");
+    await mkdir(join(dir, "docs"));
+    await writeFile(join(dir, "docs", "accept.md"), "BASE EXTENSION");
+    const issues = fakeIssues(fakeIssue());
+    const fake = fakeDeps(["Done."]);
+    fake.deps.resolveRoleSkill = defaultStageDeps.resolveRoleSkill;
+    fake.deps.readNibfinConfig = () =>
+      Promise.resolve({
+        tools: {},
+        skills: { accept: { mode: "extend", path: "docs/accept.md" } },
+      });
+    const context = jobContext(dir);
+    const prepared = await prepareStageJob(context, issues.github.client, fake.deps, [
+      "accept",
+    ]);
+    // Like checking out a PR head cut before the extension existed.
+    await rm(join(dir, "docs"), { recursive: true });
+    assert.equal(await runStageAgent(prepared, writer, sections), "Done.");
+    assert.match(fake.runs[0]?.prompt ?? "", /\n\nBASE EXTENSION/);
+  });
+});
+
+describe("runStageAgent without a resolved skill", () => {
+  it("refuses a role whose skill the stage did not resolve", async () => {
+    const t = await job(["unused"]);
+    const shaper: StageRole = { ...reader, skill: "shape" };
+    const error = await rejection(runStageAgent(t.job, shaper, sections));
+    assert.ok(error instanceof StageError);
+    assert.equal(error.code, "STAGE_INPUT_INVALID");
+    assert.equal(error.message, "The shape skill was not resolved for Reader");
+    assert.deepEqual(t.fake.runs, []);
   });
 });
 

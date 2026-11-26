@@ -3,6 +3,7 @@ import { AgentError, loginCommand, providerSpecs, runAgent } from "../agent/inde
 import {
   type NibfinConfig,
   prepareTools,
+  type RoleName,
   readNibfinConfig,
   resolveRoleSkill,
 } from "../config/index.ts";
@@ -60,6 +61,8 @@ export interface StageJob {
   readonly client: ActingClient;
   readonly deps: StageDeps;
   readonly config: NibfinConfig;
+  /** Each skill the stage's roles follow, resolved from the base checkout. */
+  readonly skills: ReadonlyMap<RoleName, string>;
   readonly pathEntries: readonly string[];
   /** `PLAYWRIGHT_BROWSERS_PATH` in the tool cache, so browser downloads persist. */
   readonly environment: Readonly<Record<string, string>>;
@@ -72,18 +75,26 @@ export function issueOf(context: JobContext): IssueRef {
 }
 
 /**
- * Right before a stage's first agent run: checks the host's available memory
- * (`STAGE_HOST_MEMORY_LOW`), reads `.nibfin.json` (a `ConfigError` rejects the Job as
- * is) and installs its tools once for the Job. Playwright's browser downloads go to
- * `ms-playwright` in the tool cache.
+ * Right before a stage's first agent run, while the workspace still holds the base
+ * checkout: checks the host's available memory (`STAGE_HOST_MEMORY_LOW`), reads
+ * `.nibfin.json` (a `ConfigError` rejects the Job as is), resolves the text of each
+ * of `skills` from that same checkout, and installs the tools once for the Job. A
+ * branch or PR head checked out later never supplies a role's instructions.
+ * Playwright's browser downloads go to `ms-playwright` in the tool cache.
  */
 export async function prepareStageJob(
   context: JobContext,
   client: ActingClient,
   deps: StageDeps,
+  skills: readonly RoleName[],
 ): Promise<StageJob> {
   await checkHostMemory(context.memoryRequired, deps.readMeminfo);
   const config = await deps.readNibfinConfig(context.workspace);
+  const resolved = new Map<RoleName, string>();
+  for (const skill of new Set(skills)) {
+    const options = { workspace: context.workspace };
+    resolved.set(skill, await deps.resolveRoleSkill(skill, config, options));
+  }
   const pathEntries = await deps.prepareTools(config.tools, {
     workspace: context.workspace,
     cacheDir: context.toolCache,
@@ -91,7 +102,16 @@ export async function prepareStageJob(
   const environment = {
     PLAYWRIGHT_BROWSERS_PATH: join(context.toolCache, "ms-playwright"),
   };
-  return { context, client, deps, config, pathEntries, environment, loginSettled: false };
+  return {
+    context,
+    client,
+    deps,
+    config,
+    skills: resolved,
+    pathEntries,
+    environment,
+    loginSettled: false,
+  };
 }
 
 function loginBody(job: StageJob): string {
@@ -130,9 +150,11 @@ export async function runStageAgent(
   sections: readonly PromptSection[],
 ): Promise<string> {
   const { context, deps } = job;
-  const skill = await deps.resolveRoleSkill(role.skill, job.config, {
-    workspace: context.workspace,
-  });
+  const skill = job.skills.get(role.skill);
+  if (skill === undefined) {
+    const message = `The ${role.skill} skill was not resolved for ${role.title}`;
+    throw new StageError("STAGE_INPUT_INVALID", message);
+  }
   const prompt = composePrompt({ skill, role, sections });
   // GitHub may change while the agent runs; reads before and after it go to GitHub.
   freshReads(job.client);

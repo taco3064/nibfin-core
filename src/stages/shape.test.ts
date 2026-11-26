@@ -105,7 +105,7 @@ describe("runShapeStage publication", () => {
     assert.deepEqual(t.fake.toolPreparations, [
       { tools: { node: "22.15.0" }, cacheDir: "/cache" },
     ]);
-    assert.deepEqual(t.fake.skillReads, ["shape", "shape"]);
+    assert.deepEqual(t.fake.skillReads, ["shape"]);
     assert.deepEqual(t.fake.logs.slice(0, 2), [
       "Round 1: Shape Author",
       "Round 1: Shape Validator",

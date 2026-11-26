@@ -93,7 +93,7 @@ async function review(
   if (requirements === undefined) {
     return blockReview(scope, "Review stage", "The Issue has no approved Shape comment.");
   }
-  const job = await prepareStageJob(context, client, deps);
+  const job = await prepareStageJob(context, client, deps, [reviewerRole.skill]);
   const coreRepo = await mkdtemp(join(deps.coreRepoParent, "nibfin-review-"));
   try {
     const git = new Git({
