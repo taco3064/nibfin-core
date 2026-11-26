@@ -180,10 +180,12 @@ async function changedPaths(git: Git, range: string[]): Promise<Set<string>> {
 }
 
 /**
- * Compares `head` with the current tree of `refs/remotes/origin/<base>` in Core's
- * repository. It is a two-dot comparison, so a head that only carries an older
- * version of a protected path differs too; the merge-base diff then tells which of
- * the differing paths the branch changed itself.
+ * Fetches `base` from GitHub into Core's `refs/remotes/origin/<base>`, then compares
+ * `head` with its tree. The fetch keeps a Writer that rebased onto a base newer than
+ * the one Core fetched at Job start from having the base's own commits counted as the
+ * branch's changes (#747). It is a two-dot comparison, so a head that only carries an
+ * older version of a protected path differs too; the merge-base diff then tells which
+ * of the differing paths the branch changed itself.
  */
 export async function protectedChanges(
   git: Git,
@@ -192,6 +194,12 @@ export async function protectedChanges(
   protectedSet: ProtectedSet,
 ): Promise<ProtectedChanges> {
   const baseRef = `refs/remotes/origin/${base}`;
+  await git.remoteRequired([
+    "fetch",
+    "--no-tags",
+    git.remoteUrl,
+    `+refs/heads/${base}:${baseRef}`,
+  ]);
   const paths = [...(await changedPaths(git, [baseRef, head]))];
   const differing = matchProtected(paths, protectedSet).sort();
   if (differing.length === 0) {
