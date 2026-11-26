@@ -10,6 +10,9 @@ peers: their events wake their Issues by dispatching to the execution repository
 - `nibfin-shared-runner.yml` (nibfin-core): run titles, one concurrency group per
   Issue, calls `nibfin-job.yml`.
 - `nibfin-job.yml` (nibfin-core, reusable): checkout, image, container and clean-up.
+  Its route Job runs no agent: it runs on a GitHub-hosted runner (`ubuntu-24.04`)
+  when the execution repository is public, and on the `nibfin` runners when it is
+  private.
 - `nibfin-runner-request.yml` (nibfin-core): answers a collaborator's runner request
   Issue with a registration token encrypted to their SSH key; it follows gh-nibfin's
   template of the same name.
@@ -124,7 +127,8 @@ Nothing below is done by Nibfin; the Owner does it once.
 - The VM needs only Podman, git 2.18 or later (for `actions/checkout`) and the
   GitHub Actions runner. A personal account's runner serves one repository, so the
   runners register with `taco3064/nibfin-core`.
-- Two runners. Labels: `nibfin` for route runs, and `nibfin-<user id>` for the stage
+- Two runners. Labels: `nibfin` for route runs (used only while the execution
+  repository is private), and `nibfin-<user id>` for the stage
   runs of Issues whose Assignee has that user id (`gh api users/<login> --jq .id`).
   Each runner's `.env` sets `NIBFIN_PROVIDER=<provider>`; restart the runner after
   changing it. Of one member's runners of two providers, whichever takes the Job

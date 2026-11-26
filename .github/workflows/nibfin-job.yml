@@ -1,6 +1,6 @@
 name: Nibfin · Job
 
-# Reusable: one route or stage Job on a self-hosted Linux runner, in the Nibfin image
+# Reusable: one route or stage Job in the Nibfin image
 # under rootless Podman. Core dispatches whatever runs next itself; these steps only
 # check out, pull the image, run the container and clean up. Called by
 # nibfin-shared-runner.yml, which owns the concurrency group.
@@ -53,7 +53,10 @@ jobs:
   route:
     name: route
     if: inputs.stage == 'route'
-    runs-on: [self-hosted, nibfin]
+    # The route Job runs no agent: on a public execution repository it runs on a
+    # GitHub-hosted runner (free there), so it never waits behind a stage Job; on a
+    # private one it stays on the Owner's runners and uses no Actions minutes.
+    runs-on: ${{ github.event.repository.private && fromJSON('["self-hosted","nibfin"]') || 'ubuntu-24.04' }}
     steps:
       - name: Pull the image
         id: image
