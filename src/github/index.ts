@@ -134,3 +134,15 @@ export {
   readRepoOwnerId,
 } from "./workflow-dispatch.ts";
 export { readRunners, type RunnerLabels, runnerLabel } from "./runners.ts";
+export {
+  checkAssignable,
+  type ClosedIssue,
+  hasOriginLine,
+  type InventoryIssue,
+  type OpenPullRequest,
+  type OriginIssue,
+  readOriginIssues,
+  readRepositoryInventory,
+  type RepositoryInventory,
+  type Visibility,
+} from "./request-sources.ts";
