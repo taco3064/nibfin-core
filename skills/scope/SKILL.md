@@ -146,9 +146,40 @@ affected Issues and the next step.
 
 ### Dependencies and risks
 
-- A hard `Blocked by` edge is justified only by a specific not-yet-delivered output the
-  downstream work cannot start or finish without. Priority or preference is not a reason
-  to serialize. Do not add an edge to an evidence-only tracker.
+- A hard `Blocked by` edge is justified by a specific not-yet-delivered output the
+  downstream work cannot start or finish without, or by a planned conflict (below).
+  Priority or preference is not a reason to serialize. Do not add an edge to an
+  evidence-only tracker.
+- Plan to keep future pull requests from conflicting. Compare every pair with no
+  dependency path between them, among the planned Issues and the open Issues and pull
+  requests they would overlap, and name the files and code each is likely to change. When
+  two would change the same existing logic (the same function body, component, workflow
+  step or the same part of a shared type or contract), first remove the overlap: move the
+  work so one Issue owns that surface (the size guideline still applies), merge them when
+  the result stays one coherent deliverable within it, or extract the shared change into
+  one Issue the others depend on (an output edge). Prefer extraction when several Issues
+  need the same shared change.
+- Where the overlap cannot be removed, add a conflict edge: the later one `Blocked by` the
+  earlier, naming the shared surface. Decide output edges first. Then take the planned
+  Issues in register order and compare each with the Issues before it, nearest first, then
+  with existing Issues by number, each against the graph so far. The earlier one is
+  decided by the first of these that only one of them meets: an existing Issue this Plan
+  does not reuse, a reused Issue, an Issue others depend on directly or transitively
+  through output edges; otherwise the first in the register. Skip the edge when a path
+  already orders them.
+- List the overlap instead of adding an edge that would close a cycle, block an Issue that
+  already has `scope`, block an existing Issue this Plan does not reuse, or wait on an
+  existing Issue this Plan does not reuse that is not in delivery: one that lacks `scope`
+  or an Assignee, has `pending` or `pause`, or is itself blocked by an Issue not in
+  delivery. A closed Issue, reused or not, is never compared: its work is merged or
+  dropped. Overlaps with an open pull request that closes no planned Issue or Issue in
+  delivery, and overlaps between two existing Issues, are only listed.
+- Add a conflict edge only when the code, the Investigation or the planned bootstrap
+  layout names the shared surface; otherwise list it as a possible overlap. Changes a
+  rebase settles without judgment need no edge: separate entries added to an export list,
+  a registry, a `switch` or a route table, a lockfile update, or separate sections of one
+  document. Do not serialize Issues for sharing a repository or a directory alone. Deliver
+  rebases and keeps both changes when an unplanned conflict still happens.
 - Check stable identities, external predecessors, cycles and native relationship support.
   Evaluate each suspected redundant edge on its own merits; do not bulk-delete.
 - For an empty project, show the single bootstrap root and every other Issue's path to it,
@@ -167,7 +198,10 @@ Each Issue body must be readable on its own:
   permission constraints, and what another Issue must provide first, with the code or
   provider facts behind the split and material assumptions.
 - Inputs: the upstream capabilities needed. Cite existing interfaces and confirm they fit.
-  Add `Blocked by` only when an absent output prevents meaningful implementation.
+  Add `Blocked by` only when an absent output prevents meaningful implementation, or for a
+  planned conflict. For a conflict edge, name the shared surface and say that a person may
+  remove the edge if the blocker closes without being delivered. A reused Issue keeps its
+  body; its conflict edges are named in the manifest only.
 - Expected outcome: the single maintained result, its observable behavior, constraints and
   exclusions. Accept decides verification later.
 - Estimate and disclosure: the change range or exception, specific residual risks and only
@@ -181,8 +215,10 @@ Each Issue body must be readable on its own:
 2. Issue register: planned identifiers, full proposed bodies, ownership, estimates and
    order.
 3. Producer and dependency trace, including the first broken handoff, if any.
-4. Dependency manifest: justified edges, a Mermaid DAG, the bootstrap root for empty
-   projects and independent parallel branches.
+4. Dependency manifest: justified edges, each marked as an output or a conflict edge, a
+   Mermaid DAG, the bootstrap root for empty projects, independent parallel branches, and
+   the overlaps you left without an edge (a rebase settles them, or the surface could not
+   be predicted).
 5. Publication manifest: exact bodies, metadata (including `scope` and Assignees) and
    edges to write, the disclosure check, and the risks. List the Owner decisions needed.
 
@@ -241,13 +277,15 @@ is one of:
 Publish may apply a small amendment without a manifest approval. Refresh the evidence,
 apply only that amendment, read back the body and both directions of any edge as for every
 write, then comment on the Issue what changed and why so the Owner is informed. Anything
-else, including new requirements and new or cancelled Issues, needs an approved manifest.
+else, including new requirements, new or cancelled Issues and conflict edges, needs an
+approved manifest.
 
 ## Audit
 
 Audit the same work-type, ownership and dependency rules as Plan. Compare current Issues
 with source and native relationships; identify gaps, duplicates, misrouted work and the
-next owner. Distinguish reported verification from evidence you observed directly. Audit
+next owner. Distinguish reported verification from evidence you observed directly. A
+missing conflict edge is a reported risk; it does not by itself make the Audit fail. Audit
 stays read-only; corrections go through Publish (an approved manifest, or a small
 amendment).
 
@@ -283,7 +321,9 @@ For a request, Plan also:
 - is `PLAN_READY` only when the manifest leaves no product or authority decision open.
 - only creates Issues, edges among the Issues it creates or reuses, and edges where one of
   them is blocked by an existing Issue. Work that would edit the body or metadata of,
-  cancel, reassign or block any other existing Issue is `PLAN_BLOCKED`.
+  cancel, reassign or block any other existing Issue is `PLAN_BLOCKED`; an overlap with an
+  existing Issue is handled by such an edge or listed as an overlap, never by moving work
+  into it.
 - gives every Issue `scope`, the request's Assignees and the origin line, and every new
   Issue a title that exactly matches no other Issue in its repository. The origin line is
   `Origin: ` followed by the request's full URL, as plain text outside any code
@@ -295,9 +335,9 @@ For a request, Plan also:
   (discarded). It keeps each one that still fits in the manifest for reuse with its body
   unchanged, adding only a missing `scope`, the request's Assignees and its planned edges;
   one that already has `scope` gets no new edge that blocks it. One that no longer fits,
-  or would need such an edge, is `PLAN_BLOCKED`; a person discards it by closing it as not
-  planned or as a duplicate. One closed as completed counts as delivered and stays in the
-  manifest; a manifest that only reuses Issues can be `PLAN_READY`.
+  or would need such an output edge, is `PLAN_BLOCKED`; a person discards it by closing it
+  as not planned or as a duplicate. One closed as completed counts as delivered and stays
+  in the manifest; a manifest that only reuses Issues can be `PLAN_READY`.
 - returns `PLAN_BLOCKED` with the reason if nothing is left to create or reuse.
 
 Publish follows the rules above, with these additions for a request:
