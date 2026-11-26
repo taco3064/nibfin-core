@@ -99,7 +99,7 @@ any next evidence needed. Mark suggested splits, owners or dependencies as advis
 
 ### Feasibility of a request
 
-For a request (an Issue labeled `request`; see the scope skill's Requests), the bounded
+For a request (an Issue labeled `request`, handled by the Scope stage), the bounded
 question is whether what it asks for can become implementation work now. The request is
 input: check its claims against the authority, the code and existing Issues instead of
 taking them as fact. Whatever the judgment, list the request's own Issues with their
@@ -109,16 +109,18 @@ planned. End with one judgment and its reasons; the stage supplies the exact out
 format.
 
 - Feasible: the authority already approves the outcome, the work is development (see
-  Development eligibility), a feasible route, new work included, exists from the current
-  code and provider capabilities, and nothing waits on a person's decision. Name the
+  Development eligibility), a feasible route exists from the current code and provider
+  capabilities, new work included, and nothing waits on a person's decision. Name the
   owning repository and the affected surface for Plan.
-- Already covered: the latest `main` already provides what was asked, or an open Issue
-  with `scope` and an Assignee already owns it, and nothing new is needed. Cite the code,
-  tests, merged PRs or Issue. The request's own Issues and the work they delivered do not
-  count, and while any of them is open the request is not already covered. When its own
-  Issues cover what was asked, judge the request feasible so Plan reuses them.
+- Already covered: the owning repository's latest `main` already provides what was asked,
+  or an open Issue with `scope` and an Assignee already owns it, and nothing new is
+  needed. Cite the code, tests, merged PRs or Issue. The request's own Issues and the work
+  they delivered do not count, and while any of them is open the request is not already
+  covered. When its own Issues cover what was asked, judge the request feasible so Plan
+  reuses them.
 - Not feasible: no route exists, even with new work, within the provider capabilities and
-  the agent permission boundary. Name what is missing.
+  the agent permission boundary (no Secrets or protected paths; see Security). Name what
+  is missing.
 - Needs a person: the request is not development work, conflicts with an approved
   authority clause, depends on one that is missing, outdated, ambiguous or contradictory,
   waits on an undecided product decision, or has open Issues of its own that no longer fit
