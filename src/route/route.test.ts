@@ -19,7 +19,13 @@ import {
   seedComment,
   shapeVersion,
 } from "../stages/fake-job.test.ts";
-import { addPullComment, mergePull, reviewWorld } from "../stages/fake-review.test.ts";
+import {
+  addPullComment,
+  addReview,
+  mergePull,
+  requireApprovals,
+  reviewWorld,
+} from "../stages/fake-review.test.ts";
 import { shapeWrongBody } from "../stages/shape-wrong.ts";
 import { readRoute, routeEvent, routeIssue } from "./route.ts";
 
@@ -59,6 +65,15 @@ function reviewComment(world: Awaited<ReturnType<typeof reviewWorld>>, current: 
   addPullComment(world, 7, body);
 }
 
+/** The actor's `approval-wait` comment for `head`, under a one-approval ruleset. */
+function approvalWait(world: Awaited<ReturnType<typeof reviewWorld>>, head = world.head) {
+  requireApprovals(world, 1);
+  const body =
+    `<!-- nibfin:approval-wait -->\nReviewed head: ${head}\n` +
+    `Reviewed Shape: ${shapeVersion(world.issues)}\n\nWaiting.`;
+  addPullComment(world, 7, body);
+}
+
 function onFixBranch(world: DeliveryWorld) {
   failedCd(world);
   const { fixture } = world;
@@ -87,6 +102,49 @@ describe("routeIssue", () => {
       "review with a current comment",
       atReview((w) => reviewComment(w, true)),
       route("deliver", "review"),
+    ],
+    [
+      "review waiting for a writer's approval",
+      atReview((w) => {
+        approvalWait(w);
+        addReview(w, { id: 1, login: "ann", state: "APPROVED", permission: "read" });
+      }),
+      null,
+    ],
+    [
+      "review waiting for a writer whose older changes stand",
+      atReview((w) => {
+        approvalWait(w);
+        addReview(w, { id: 1, login: "ann", state: "APPROVED" });
+        addReview(w, {
+          id: 2,
+          login: "bob",
+          state: "CHANGES_REQUESTED",
+          commitId: "abc1234",
+        });
+      }),
+      null,
+    ],
+    [
+      "review whose wait has its approvals",
+      atReview((w) => {
+        approvalWait(w);
+        addReview(w, { id: 1, login: "ann", state: "APPROVED" });
+      }),
+      route("review", null),
+    ],
+    [
+      "review whose wait has changes requested on the head",
+      atReview((w) => {
+        approvalWait(w);
+        addReview(w, { id: 1, login: "ann", state: "CHANGES_REQUESTED" });
+      }),
+      route("review", null),
+    ],
+    [
+      "review with a stale wait",
+      atReview((w) => approvalWait(w, "abcdef1")),
+      route("review", null),
     ],
     [
       "review with a stale comment",

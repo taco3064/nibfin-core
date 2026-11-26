@@ -22,6 +22,7 @@ import {
   type ReviewScope,
   sendBackToDeliver,
 } from "./review-scope.ts";
+import { missingApprovals, writeApprovalWait } from "./review-wait.ts";
 import { readPendingReport } from "./shape-wrong.ts";
 
 const mergeTitle = "Merge";
@@ -48,7 +49,7 @@ const rebaseText = (base: string, message: string) =>
  * approvals. Classic branch protection needs Administration to read, so when no
  * readable rule explains it the message says so.
  */
-async function describeBlocked(scope: ReviewScope, pull: PullRequestState) {
+export async function describeBlocked(scope: ReviewScope, pull: PullRequestState) {
   const { client, context } = scope;
   const rules = await readMergeRules(client, context.repo, pull.baseRef);
   const approvals = await readApprovalCount(client, context.repo, pull.number);
@@ -139,8 +140,10 @@ async function merge(
 /**
  * Merges a pull request the reviewer found clean at `head`, under the repository's
  * own rules: re-checks the stage (`pause` included) and the head, reads GitHub's
- * mergeability, sends out-of-date or conflicting work back to Deliver, stops on
- * unmet rules, and merges only at `head` with an allowed method. A pending report
+ * mergeability, sends out-of-date or conflicting work back to Deliver, waits (marked
+ * `approval-wait` comment, next action none) when a ruleset still lacks writers'
+ * approvals or a writer's requested changes stand, stops on other unmet rules, and
+ * merges only at `head` with an allowed method. A pending report
  * that the Shape is wrong stops it and asks Deliver to hand the Issue back to Shape.
  * Merging is not completion: CD events follow, so the next action is none.
  * `shapeVersion` is the version of the Shape the review read; rebase requests
@@ -192,6 +195,11 @@ export async function mergeReviewed(
     return rebase(`GitHub reports \`mergeable_state: ${state}\`.`);
   }
   if (state === "blocked") {
+    const missing = await missingApprovals(client, context.repo, pull);
+    if (missing !== undefined) {
+      await writeApprovalWait(scope, pull, head, shapeVersion, missing);
+      return noNextAction;
+    }
     return blockReview(scope, mergeTitle, await describeBlocked(scope, pull));
   }
   const result = await merge(scope, pull, head);

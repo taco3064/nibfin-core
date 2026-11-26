@@ -1,15 +1,26 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { GitHubError } from "./errors.ts";
-import { fakeGitHub, networkError, paged, rejection, repo } from "./fake-github.test.ts";
+import {
+  failure,
+  fakeGitHub,
+  networkError,
+  paged,
+  rejection,
+  repo,
+} from "./fake-github.test.ts";
 import { pull } from "./fixtures.test.ts";
 import {
+  hasWritePermission,
   readApprovalCount,
   readCommitPullRequests,
   readCommitsAhead,
   readForcePushedHeads,
   readPullRequest,
+  readLatestReviews,
   readPullRequestCommits,
+  readRequestedReviewers,
+  readReviewComments,
 } from "./pull-request.ts";
 
 async function expectReadFailure(promise: Promise<unknown>) {
@@ -110,6 +121,127 @@ describe("readApprovalCount", () => {
   it("fails when the reviews cannot be read", async () => {
     const github = fakeGitHub();
     await expectReadFailure(readApprovalCount(github.client, repo, 7));
+  });
+});
+
+describe("readLatestReviews", () => {
+  it("keeps each reviewer's latest submitted review, all pages", async () => {
+    const reviews = [
+      { id: 9, user: { id: 1, login: "ann" }, state: "PENDING" },
+      { id: 3, user: { id: 1, login: "ann" }, state: "COMMENTED" },
+      {
+        id: 2,
+        user: { id: 1, login: "ann" },
+        state: "CHANGES_REQUESTED",
+        commit_id: "abc",
+        html_url: "https://x/r2",
+        body: "Fix it.",
+      },
+      { id: 1, user: { id: 1, login: "ann" }, state: "APPROVED" },
+      { id: 4, user: null, state: "APPROVED" },
+      ...Array.from({ length: 100 }, (_, index) => ({
+        id: 10 + index,
+        user: { id: 2, login: "bob" },
+        state: "APPROVED",
+        commit_id: null,
+        html_url: `https://x/r${10 + index}`,
+        body: null,
+      })),
+    ];
+    const github = fakeGitHub({ "GET /repos/acme/app/pulls/7/reviews": paged(reviews) });
+    assert.deepEqual(await readLatestReviews(github.client, repo, 7), [
+      {
+        id: 2,
+        login: "ann",
+        state: "CHANGES_REQUESTED",
+        commitId: "abc",
+        url: "https://x/r2",
+        body: "Fix it.",
+      },
+      {
+        id: 109,
+        login: "bob",
+        state: "APPROVED",
+        commitId: null,
+        url: "https://x/r109",
+        body: "",
+      },
+    ]);
+  });
+});
+
+describe("readReviewComments", () => {
+  it("lists a review's inline comments, all pages", async () => {
+    const comments = Array.from({ length: 101 }, (_, index) => ({
+      path: "a.ts",
+      line: index === 0 ? null : index,
+      body: `c${index}`,
+      html_url: `https://x/c${index}`,
+    }));
+    const github = fakeGitHub({
+      "GET /repos/acme/app/pulls/7/reviews/5/comments": paged(comments),
+    });
+    const read = await readReviewComments(github.client, repo, 7, 5);
+    assert.equal(read.length, 101);
+    assert.deepEqual(read[0], {
+      path: "a.ts",
+      line: null,
+      body: "c0",
+      url: "https://x/c0",
+    });
+    assert.deepEqual(read[100], {
+      path: "a.ts",
+      line: 100,
+      body: "c100",
+      url: "https://x/c100",
+    });
+  });
+
+  it("fails when they cannot be read", async () => {
+    await expectReadFailure(readReviewComments(fakeGitHub().client, repo, 7, 5));
+  });
+});
+
+describe("readRequestedReviewers", () => {
+  it("reads the requested users and teams", async () => {
+    const github = fakeGitHub({
+      "GET /repos/acme/app/pulls/7/requested_reviewers": {
+        data: { users: [{ login: "ann" }], teams: [{ slug: "core" }] },
+      },
+    });
+    assert.deepEqual(await readRequestedReviewers(github.client, repo, 7), {
+      users: ["ann"],
+      teams: ["core"],
+    });
+  });
+
+  it("fails when they cannot be read", async () => {
+    await expectReadFailure(readRequestedReviewers(fakeGitHub().client, repo, 7));
+  });
+});
+
+describe("hasWritePermission", () => {
+  const path = "GET /repos/acme/app/collaborators/ann/permission";
+
+  for (const [permission, expected] of [
+    ["admin", true],
+    ["write", true],
+    ["read", false],
+    ["none", false],
+  ] as const) {
+    it(`reads ${permission} as ${expected ? "" : "no "}write access`, async () => {
+      const github = fakeGitHub({ [path]: { data: { permission } } });
+      assert.equal(await hasWritePermission(github.client, repo, "ann"), expected);
+    });
+  }
+
+  it("reads a non-collaborator (404) as no write access", async () => {
+    assert.equal(await hasWritePermission(fakeGitHub().client, repo, "ann"), false);
+  });
+
+  it("fails on any other failure", async () => {
+    const github = fakeGitHub({ [path]: failure(500) });
+    await expectReadFailure(hasWritePermission(github.client, repo, "ann"));
   });
 });
 

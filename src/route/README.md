@@ -13,7 +13,11 @@ from the snapshot, composing the stages' own rules:
 2. a delivery stage with a pending `shape-wrong` report (`readPendingReport`) →
    `deliver` (its start removes `shaped`);
 3. `review` whose PR has a current review comment (`currentReview(...)?.current ===
-true`; a stale one falls to rule 4) → `deliver review`;
+true`; a stale one falls to rule 4) → `deliver review`; `review` whose PR has a
+   current `approval-wait` comment that still waits (`readApprovalWait(...)?.kind
+=== "waiting"`: writers' approvals missing or a writer's older request for
+   changes standing) → `null` until a submitted review wakes the Issue (#725,
+   #726); approvals met or changes requested on the head fall to rule 4;
 4. any other delivery stage → `shapeNextAction(stage, issue)` (`done` → `review`,
    `conflict` → `deliver conflict`, `awaiting-*` → `null`);
 5. closed as delivered (`closedAsDelivered`) → `review` (wake-only redo);

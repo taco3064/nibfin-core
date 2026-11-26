@@ -37,6 +37,12 @@ export interface ReviewWorld extends DeliveryWorld {
   /** Extra rules of `main` besides its required checks. */
   rules: unknown[];
   reviews: unknown[];
+  /** Collaborator permissions by login; a login missing here is no collaborator. */
+  permissions: Map<string, string>;
+  /** The requested reviewers of every pull request. */
+  requested: { users: { login: string }[]; teams: { slug: string }[] };
+  /** Inline comments by review id. */
+  reviewComments: Map<number, unknown[]>;
   /** Commits of each pull request; its head alone when unset. */
   pullCommits: Map<number, string[]>;
   /** Versions (`userContentEdits.totalCount`) by comment id. */
@@ -129,6 +135,15 @@ function routePullDetails(world: ReviewWorld) {
     if (/^GET \/repos\/acme\/app\/pulls\/\d+\/reviews$/.test(key)) {
       return (request) => paged(world.reviews)(request);
     }
+    const inline = /^GET \/repos\/acme\/app\/pulls\/\d+\/reviews\/(\d+)\/comments$/.exec(
+      key,
+    );
+    if (inline !== null) {
+      return paged(world.reviewComments.get(Number(inline[1])) ?? []);
+    }
+    if (/^GET \/repos\/acme\/app\/pulls\/\d+\/requested_reviewers$/.test(key)) {
+      return () => ({ data: world.requested });
+    }
     if (/^PUT \/repos\/acme\/app\/pulls\/\d+\/merge$/.test(key)) {
       return (request) => {
         world.mergeRequests.push(request);
@@ -151,8 +166,20 @@ function routePullDetails(world: ReviewWorld) {
       const id = Number(/(\d+)$/.exec(key)?.[1]);
       return { data: { id, node_id: `IC_${id}` } };
     }
-    return fallback(key) ?? pullCommentWrite(world, key);
+    return permissionRead(world, key) ?? fallback(key) ?? pullCommentWrite(world, key);
   };
+}
+
+/** A collaborator's permission from `world.permissions`, unless a route answers it. */
+function permissionRead(world: ReviewWorld, key: string): FakeResponse | undefined {
+  const match = /^GET \/repos\/acme\/app\/collaborators\/(.+)\/permission$/.exec(key);
+  if (match === null || world.issues.github.routes.has(key)) {
+    return undefined;
+  }
+  const value = world.permissions.get(match[1]);
+  return value === undefined
+    ? { status: 404, data: { message: "Not Found" } }
+    : { data: { permission: value } };
 }
 
 /** Creating a comment on a pull request (any number other than the Issue's). */
@@ -279,6 +306,9 @@ export async function reviewWorld(options: WorldOptions = {}): Promise<ReviewWor
     },
     rules: [],
     reviews: [],
+    permissions: new Map(),
+    requested: { users: [], teams: [] },
+    reviewComments: new Map(),
     pullCommits: new Map(),
     edits: new Map(),
     forcePushes: new Map(),
@@ -294,4 +324,49 @@ export async function reviewWorld(options: WorldOptions = {}): Promise<ReviewWor
   routeRepository(world);
   routePullDetails(world);
   return world;
+}
+
+const userIds = new Map<string, number>();
+
+/**
+ * A submitted pull request review by `login` (one user id per login), on the head
+ * unless `commitId` says otherwise; `login` is a writer unless `permission` says so
+ * (`none`: no collaborator, a 404).
+ */
+export function addReview(
+  world: ReviewWorld,
+  review: {
+    id: number;
+    login: string;
+    state: string;
+    commitId?: string;
+    body?: string;
+    permission?: string;
+  },
+): void {
+  const { id, login, state, body = "" } = review;
+  if (!userIds.has(login)) {
+    userIds.set(login, 1000 + userIds.size);
+  }
+  world.reviews.push({
+    id,
+    user: { id: userIds.get(login), login },
+    state,
+    commit_id: review.commitId ?? world.head,
+    html_url: `https://github.com/acme/app/pull/7#pullrequestreview-${id}`,
+    body,
+  });
+  const permission = review.permission ?? "write";
+  if (permission !== "none") {
+    world.permissions.set(login, permission);
+  }
+}
+
+/** A ruleset `pull_request` rule of `main` requiring `count` approving reviews. */
+export function requireApprovals(world: ReviewWorld, count: number): void {
+  world.mergeableState = "blocked";
+  world.rules.push({
+    type: "pull_request",
+    parameters: { required_approving_review_count: count },
+  });
 }

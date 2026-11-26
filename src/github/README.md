@@ -236,8 +236,18 @@ otherwise it fails with `GITHUB_WRITE_UNCONFIRMED`.
 - `allowedMergeMethods(settings, rules)`: the methods, in the order rebase, squash,
   merge commit, that the settings and every `pull_request` rule allow; no merge
   commit under linear history. `undefined` when a setting is unknown.
+- `readLatestReviews(client, repo, n)`: each reviewer's latest submitted review
+  (`id`, `login`, `state`, `commitId`, `url`, `body`), all pages, by review
+  id; plain comments, `PENDING` reviews and reviews without a user do not count.
 - `readApprovalCount(client, repo, n)`: reviewers whose latest deciding review
-  approves (plain comments do not decide).
+  approves (plain comments do not decide), from `readLatestReviews`.
+- `readReviewComments(client, repo, n, reviewId)`: a review's inline comments
+  (`path`, `line` or `null`, `body`, `url`), all pages.
+- `readRequestedReviewers(client, repo, n)`: the logins and team slugs a pull
+  request still requests a review from (`GET …/pulls/{n}/requested_reviewers`).
+- `hasWritePermission(client, repo, login)`: whether the collaborator permission
+  (`GET …/collaborators/{login}/permission`) is `admin` or `write`; a 404 is
+  `false`, any other failure `GITHUB_READ_FAILED`.
 - `readPullRequestCommits(client, repo, n)`: the SHAs of the pull request's current
   commits (heads removed by a force push are not listed).
 - `readForcePushedHeads(client, repo, n)`: the head right before each force push,

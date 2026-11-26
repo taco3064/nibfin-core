@@ -16,6 +16,7 @@ import {
   type FixReason,
   isDeliveryStage,
   type NextAction,
+  readApprovalWait,
   readPendingReport,
   shapeNextAction,
 } from "../stages/index.ts";
@@ -45,7 +46,9 @@ const nothing: NextAction = { stage: null, reason: null };
  * The next action GitHub state asks for, composed from the stages' own rules:
  * `shape` → Shape; a delivery stage with a pending `shape-wrong` report → Deliver
  * (its start removes `shaped`); `review` with a current review comment → the Deliver
- * `review` fix; any other delivery stage → `shapeNextAction`; closed as delivered →
+ * `review` fix; `review` whose current `approval-wait` comment still waits for
+ * approvals → none (a submitted review wakes it); any other delivery stage →
+ * `shapeNextAction`; closed as delivered →
  * review (wake only); anything else → none.
  */
 async function nextFor(
@@ -66,6 +69,10 @@ async function nextFor(
       const review = await currentReview(client, issue, stage.pullRequest);
       if (review?.current === true) {
         return { stage: "deliver", reason: "review" };
+      }
+      const wait = await readApprovalWait(client, issue, stage.pullRequest);
+      if (wait?.kind === "waiting") {
+        return nothing;
       }
     }
     return shapeNextAction(stage, issue.number);

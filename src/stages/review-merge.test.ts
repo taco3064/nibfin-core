@@ -8,15 +8,26 @@ import {
   readIssueSnapshot,
 } from "../github/index.ts";
 import { StageError } from "./errors.ts";
-import { mergePull, type ReviewWorld, reviewWorld } from "./fake-review.test.ts";
+import {
+  addReview,
+  mergePull,
+  requireApprovals,
+  type ReviewWorld,
+  reviewWorld,
+} from "./fake-review.test.ts";
 import { trackProgress } from "./progress.ts";
-import { mergeReviewed } from "./review-merge.ts";
+import { describeBlocked, mergeReviewed } from "./review-merge.ts";
+
+async function pullState(w: ReviewWorld) {
+  const { client } = w.issues.github;
+  const stage = deriveStage(await readIssueSnapshot(client, w.context.repo, 1));
+  return (stage as { pullRequest: PullRequestState }).pullRequest;
+}
 
 /** Merges the world's pull request as the stage would after a clean review. */
 async function merge(w: ReviewWorld, head = w.head) {
   const { client } = w.issues.github;
-  const stage = deriveStage(await readIssueSnapshot(client, w.context.repo, 1));
-  const pull = (stage as { pullRequest: PullRequestState }).pullRequest;
+  const pull = await pullState(w);
   const progress = trackProgress(client);
   const scope = { context: w.context, client, deps: w.reviewDeps, progress };
   return mergeReviewed(scope, pull, head, shapeVersion);
@@ -114,37 +125,130 @@ describe("mergeReviewed", () => {
     });
   }
 
-  it("names unmet ruleset requirements of a blocked pull request", async () => {
+  it("names other unmet ruleset requirements once writers approved", async () => {
     const w = await reviewWorld();
     w.mergeableState = "blocked";
     w.rules.push({
       type: "pull_request",
       parameters: {
-        required_approving_review_count: 2,
+        required_approving_review_count: 1,
         require_code_owner_review: true,
         require_last_push_approval: true,
         required_review_thread_resolution: true,
         dismiss_stale_reviews_on_push: false,
       },
     });
-    w.reviews.push({ id: 1, user: { id: 3, login: "a" }, state: "APPROVED" });
-    await expectBlocked(w, /requires 2 approving review\(s\); the pull request has 1\./);
+    addReview(w, { id: 1, login: "ann", state: "APPROVED" });
+    await expectBlocked(w, /code owner/);
     const text = blockedText(w);
-    assert.match(text, /code owner/);
+    assert.doesNotMatch(text, /approving review\(s\)/);
     assert.match(text, /most recent push/);
     assert.match(text, /review thread/);
     assert.deepEqual(w.mergeRequests, []);
+    assert.deepEqual(reviewComments(w), []);
+  });
+
+  it("describes a ruleset's approvals the pull request lacks", async () => {
+    const w = await reviewWorld();
+    w.rules.push({
+      type: "pull_request",
+      parameters: { required_approving_review_count: 2 },
+    });
+    addReview(w, { id: 1, login: "ann", state: "APPROVED" });
+    const { client } = w.issues.github;
+    const progress = trackProgress(client);
+    const scope = { context: w.context, client, deps: w.reviewDeps, progress };
+    const pull = { ...(await pullState(w)), baseRef: "main" };
+    assert.match(
+      await describeBlocked(scope, pull),
+      /requires 2 approving review\(s\); the pull request has 1\./,
+    );
   });
 
   it("says when no readable rule explains a blocked pull request", async () => {
     const w = await reviewWorld();
     w.mergeableState = "blocked";
+    await expectBlocked(w, /classic branch protection/);
+    const met = await reviewWorld();
+    requireApprovals(met, 1);
+    addReview(met, { id: 1, login: "ann", state: "APPROVED", permission: "admin" });
+    await expectBlocked(met, /classic branch protection/);
+  });
+
+  it("waits for writers' approvals with one marked comment", async () => {
+    const w = await reviewWorld();
+    requireApprovals(w, 2);
     w.rules.push({
       type: "pull_request",
       parameters: { required_approving_review_count: 1 },
     });
-    w.reviews.push({ id: 1, user: { id: 3, login: "a" }, state: "APPROVED" });
-    await expectBlocked(w, /classic branch protection/);
+    addReview(w, { id: 1, login: "ann", state: "APPROVED" });
+    addReview(w, { id: 2, login: "guest", state: "APPROVED", permission: "read" });
+    addReview(w, { id: 3, login: "out", state: "APPROVED", permission: "none" });
+    addReview(w, { id: 4, login: "bob", state: "DISMISSED" });
+    w.requested = {
+      users: [{ login: "cy" }, { login: "dee" }],
+      teams: [{ slug: "core" }],
+    };
+    assert.deepEqual(await merge(w), noNext);
+    const body =
+      `<!-- nibfin:approval-wait -->\nReviewed head: ${w.head}\n` +
+      `Reviewed Shape: ${shapeVersion}\n\n` +
+      "The Shape review passed. The merge waits for approving reviews.\n\n" +
+      "A ruleset of `main` requires 2 approving review(s) from users with write " +
+      "access; the pull request has 1.\n\n" +
+      "Requested reviewers: `cy`, `dee`. Requested teams: `core`.\n\n" +
+      "The Issue continues when a review is submitted.";
+    assert.deepEqual(reviewComments(w), [body]);
+    assert.deepEqual(w.issues.marked("review-blocked"), []);
+    assert.deepEqual(w.mergeRequests, []);
+    const permissionReads = w.issues.github.calls.filter((call) =>
+      call.path.endsWith("/permission"),
+    );
+    assert.deepEqual(
+      permissionReads.map((call) => call.path.split("/").at(-2)),
+      ["ann", "guest", "out"],
+    );
+    // A rerun updates nothing.
+    const writes = w.issues.github.writes().length;
+    assert.deepEqual(await merge(w), noNext);
+    assert.equal(w.issues.github.writes().length, writes);
+    assert.equal(reviewComments(w).length, 1);
+  });
+
+  it("waits for a writer whose requested changes on an older head stand", async () => {
+    const w = await reviewWorld();
+    requireApprovals(w, 1);
+    addReview(w, { id: 1, login: "ann", state: "APPROVED" });
+    addReview(w, {
+      id: 2,
+      login: "bob",
+      state: "CHANGES_REQUESTED",
+      commitId: "abc1234",
+    });
+    addReview(w, { id: 3, login: "eve", state: "CHANGES_REQUESTED", permission: "none" });
+    assert.deepEqual(await merge(w), noNext);
+    const [body] = reviewComments(w);
+    assert.match(body, /requires 1 approving review\(s\) .*; the pull request has 1\./);
+    assert.match(
+      body,
+      /need the reviewer's approval before merging:\n- `bob`: \S+#pullrequestreview-2\n/,
+    );
+    assert.doesNotMatch(body, /eve/);
+    assert.match(body, /Requested reviewers: none\. Requested teams: none\./);
+  });
+
+  it("fails when a reviewer's permission is unreadable", async () => {
+    const w = await reviewWorld();
+    requireApprovals(w, 1);
+    addReview(w, { id: 1, login: "ann", state: "APPROVED", permission: "none" });
+    w.issues.github.routes.set(
+      "GET /repos/acme/app/collaborators/ann/permission",
+      failure(500),
+    );
+    const error = await rejection(merge(w));
+    assert.equal((error as GitHubError).code, "GITHUB_READ_FAILED");
+    assert.deepEqual(reviewComments(w), []);
   });
 
   it("uses the first method the settings and rulesets allow", async () => {

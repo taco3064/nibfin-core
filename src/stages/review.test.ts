@@ -6,7 +6,13 @@ import { checkRun } from "../github/fixtures.test.ts";
 import { StageError } from "./errors.ts";
 import { branch } from "./fake-delivery.test.ts";
 import { commitFile, fixtureGit, git } from "./fake-git.test.ts";
-import { addPullComment, type ReviewWorld, reviewWorld } from "./fake-review.test.ts";
+import {
+  addPullComment,
+  addReview,
+  requireApprovals,
+  type ReviewWorld,
+  reviewWorld,
+} from "./fake-review.test.ts";
 import { agentResult, type AgentStep, shapeVersion } from "./fake-job.test.ts";
 import { checkoutReviewedHead } from "./git.ts";
 
@@ -228,4 +234,130 @@ describe("runReviewStage mergeability", () => {
     assert.equal(await w.review(), 0);
     assert.deepEqual(w.next(), { stage: "deliver", reason: "review", progressed: true });
   });
+});
+
+/** The actor's `approval-wait` comment recording `head` and `shape`. */
+function waitComment(w: ReviewWorld, head = w.head, shape?: string) {
+  const version = shape ?? shapeVersion(w.issues);
+  const body =
+    `<!-- nibfin:approval-wait -->\nReviewed head: ${head}\n` +
+    `Reviewed Shape: ${version}\n\nThe Shape review passed.`;
+  return addPullComment(w, 7, body);
+}
+
+describe("runReviewStage approvals", () => {
+  it("waits after a clean review that lacks a writer's approval", async () => {
+    const w = await world((get) => [verdict(get, { outcome: "clean" })]);
+    requireApprovals(w, 1);
+    assert.equal(await w.review(), 0);
+    assert.deepEqual(w.next(), { stage: null, reason: null, progressed: true });
+    const [body] = prCommentBodies(w);
+    assert.match(
+      body,
+      new RegExp(
+        `^<!-- nibfin:approval-wait -->\nReviewed head: ${w.head}\n` +
+          `Reviewed Shape: ${shapeVersion(w.issues)}\n`,
+      ),
+    );
+    assert.deepEqual(w.issues.marked("review-blocked"), []);
+    assert.deepEqual(w.mergeRequests, []);
+  });
+
+  it("merges a recorded passing review once writers approved", async () => {
+    const w = await world(() => []);
+    requireApprovals(w, 1);
+    waitComment(w);
+    addReview(w, { id: 1, login: "ann", state: "APPROVED" });
+    w.mergeableState = "clean";
+    assert.equal(await w.review(), 0);
+    assert.deepEqual(w.agent.runs, []);
+    assert.deepEqual(
+      w.mergeRequests.map((request) => request.body),
+      [{ sha: w.head, merge_method: "rebase" }],
+    );
+  });
+
+  it("keeps waiting without a review or a write while approvals lack", async () => {
+    const w = await world(() => []);
+    requireApprovals(w, 2);
+    addReview(w, { id: 1, login: "ann", state: "APPROVED" });
+    waitComment(w);
+    // The first run brings the comment up to date; the second leaves it as it is.
+    assert.equal(await w.review(), 0);
+    assert.deepEqual(w.next(), { stage: null, reason: null, progressed: true });
+    assert.match(prCommentBodies(w)[0], /the pull request has 1\./);
+    const writes = w.issues.github.writes().length;
+    assert.equal(await w.review(), 0);
+    assert.deepEqual(w.next(), { stage: null, reason: null, progressed: false });
+    assert.equal(w.issues.github.writes().length, writes);
+    assert.deepEqual(w.agent.runs, []);
+    assert.deepEqual(w.mergeRequests, []);
+  });
+
+  it("turns a writer's request for changes on the head into the review fix", async () => {
+    const w = await world(() => []);
+    requireApprovals(w, 1);
+    waitComment(w);
+    addReview(w, {
+      id: 1,
+      login: "bob",
+      state: "CHANGES_REQUESTED",
+      commitId: "abc1234",
+      body: "Older.",
+    });
+    addReview(w, {
+      id: 2,
+      login: "ann",
+      state: "CHANGES_REQUESTED",
+      body: " Rename it. ",
+    });
+    addReview(w, { id: 3, login: "cy", state: "CHANGES_REQUESTED", body: "Mine." });
+    addReview(w, { id: 4, login: "eve", state: "CHANGES_REQUESTED", permission: "none" });
+    w.reviewComments.set(3, [
+      { path: "a.ts", line: 3, body: "Here.", html_url: "https://x/c1" },
+      { path: "b.ts", line: null, body: "File.", html_url: "https://x/c2" },
+    ]);
+    assert.equal(await w.review(), 0);
+    assert.deepEqual(w.next(), { stage: "deliver", reason: "review", progressed: true });
+    assert.deepEqual(w.agent.runs, []);
+    const review = prCommentBodies(w).find((body) =>
+      body.startsWith("<!-- nibfin:review"),
+    );
+    assert.equal(
+      review,
+      `<!-- nibfin:review -->\nReviewed head: ${w.head}\n` +
+        `Reviewed Shape: ${shapeVersion(w.issues)}\n\n` +
+        "`cy` requested changes on this head in a pull request review: " +
+        "https://github.com/acme/app/pull/7#pullrequestreview-3\n\nMine.\n\n" +
+        "Inline comment on `a.ts:3` (https://x/c1):\n\nHere.\n\n" +
+        "Inline comment on `b.ts` (https://x/c2):\n\nFile.",
+    );
+  });
+
+  it("names a request for changes without text", async () => {
+    const w = await world(() => []);
+    requireApprovals(w, 0);
+    waitComment(w);
+    addReview(w, { id: 1, login: "ann", state: "CHANGES_REQUESTED" });
+    assert.equal(await w.review(), 0);
+    assert.match(prCommentBodies(w)[1], /review-1\n\n\(The review has no text\.\)$/);
+  });
+
+  for (const [what, change] of [
+    ["another head", (w: ReviewWorld) => waitComment(w, "abcdef1")],
+    ["another Shape version", (w: ReviewWorld) => waitComment(w, w.head, "1.0")],
+    [
+      "no Shape version",
+      (w: ReviewWorld) =>
+        addPullComment(w, 7, `<!-- nibfin:approval-wait -->\nReviewed head: ${w.head}`),
+    ],
+  ] as const) {
+    it(`reviews again when the wait records ${what}`, async () => {
+      const w = await world((get) => [verdict(get, { outcome: "clean" })]);
+      change(w);
+      assert.equal(await w.review(), 0);
+      assert.equal(w.agent.runs.length, 1);
+      assert.equal(w.mergeRequests.length, 1);
+    });
+  }
 });
