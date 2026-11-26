@@ -109,6 +109,7 @@ export {
 } from "./stage.ts";
 export {
   closeDelivered,
+  closeIssueAs,
   commentMarker,
   type CommentTarget,
   deleteBranch,

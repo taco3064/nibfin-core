@@ -17,6 +17,7 @@ import {
 import { comment, issue, pull } from "./fixtures.test.ts";
 import {
   closeDelivered,
+  closeIssueAs,
   commentMarker,
   deleteBranch,
   ensurePullRequest,
@@ -479,6 +480,25 @@ describe("closeDelivered", () => {
       closeDelivered(forbidden.github.client, target),
       "GITHUB_WRITE_REJECTED",
     );
+  });
+});
+
+describe("closeIssueAs", () => {
+  it("closes as not planned without touching the labels", async () => {
+    const { github, model } = issueFake([], ["request"]);
+    await closeIssueAs(github.client, target, "not_planned");
+    assert.equal(model.state, "closed");
+    assert.deepEqual(model.labels, ["request"]);
+    assert.deepEqual(
+      github.writes().map((call) => call.body),
+      [{ state: "closed", state_reason: "not_planned" }],
+    );
+  });
+
+  it("writes nothing for a closed Issue", async () => {
+    const { github } = issueFake([], ["request"], "closed");
+    await closeIssueAs(github.client, target, "not_planned");
+    assert.deepEqual(github.writes(), []);
   });
 });
 

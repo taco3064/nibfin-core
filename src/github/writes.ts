@@ -293,6 +293,18 @@ export async function closeDelivered(
   issue: IssueRef,
 ): Promise<void> {
   await setLabels(client, issue, { add: [nibfinLabels.delivered] });
+  await closeIssueAs(client, issue, "completed");
+}
+
+/**
+ * Closes the Issue with `state_reason` `reason`. An Issue already closed is not written
+ * again; the close is confirmed by reading the state back.
+ */
+export async function closeIssueAs(
+  client: ActingClient,
+  issue: IssueRef,
+  reason: "completed" | "not_planned",
+): Promise<void> {
   if ((await readIssueState(client, issue)) === "closed") {
     return;
   }
@@ -305,7 +317,7 @@ export async function closeDelivered(
         repo: issue.repo,
         issue_number: issue.number,
         state: "closed",
-        state_reason: "completed",
+        state_reason: reason,
       });
       return true;
     },
