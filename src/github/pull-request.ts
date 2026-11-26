@@ -9,8 +9,6 @@ export interface PullRequestDetail extends PullRequestSummary {
   mergeable: boolean | null;
   /** Such as `clean`, `blocked`, `behind`, `dirty`, `unstable` or `unknown`. */
   mergeableState: string;
-  /** The commit the base branch pointed to when GitHub answered. */
-  baseSha: string;
 }
 
 /** One pull request by number, with `mergeable` and `mergeable_state`. */
@@ -31,7 +29,6 @@ export async function readPullRequest(
     ...summarizePullRequest(data),
     mergeable: data.mergeable,
     mergeableState: data.mergeable_state,
-    baseSha: data.base.sha,
   };
 }
 

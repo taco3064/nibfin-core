@@ -5,6 +5,7 @@ export {
   type IssueBranches,
   issueOfBranch,
   type PullRequestSummary,
+  readBranchHead,
   readPullRequests,
 } from "./branches.ts";
 export { type CdState, readCdRuns, type WorkflowRunSummary } from "./cd-runs.ts";

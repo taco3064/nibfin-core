@@ -359,7 +359,8 @@ describe("mergeReviewed", () => {
       return failure(405, "Base branch was modified. Review and try again.");
     };
     await expectBlocked(w, /still computing whether the pull request conflicts/);
-    assert.equal(w.mergeRequests.length, 1);
+    // Once on the base it found, then the base did not move again.
+    assert.equal(w.mergeRequests.length, 2);
     assert.deepEqual(reviewComments(w), []);
   });
 
@@ -380,8 +381,19 @@ describe("mergeReviewed", () => {
     const w = await reviewWorld();
     w.mergeAnswer = () => failure(405, "Base branch was modified. Review and try again.");
     await expectBlocked(w, /did not merge .* Base branch was modified/);
-    assert.equal(w.mergeRequests.length, 1);
+    assert.equal(w.mergeRequests.length, 2);
     assert.deepEqual(reviewComments(w), []);
+  });
+
+  it("does not merge again on a base an earlier attempt already saw", async () => {
+    const w = await reviewWorld();
+    const bases = ["c".repeat(40), w.baseSha, "c".repeat(40)];
+    w.mergeAnswer = () => {
+      w.baseSha = bases.shift()!;
+      return failure(405, "Base branch was modified. Review and try again.");
+    };
+    await expectBlocked(w, /did not merge .* Base branch was modified/);
+    assert.equal(w.mergeRequests.length, 3);
   });
 
   it("stops on a 405 for a moved head", async () => {

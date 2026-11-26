@@ -99,6 +99,21 @@ export function summarizePullRequest(pull: PullRequestData): PullRequestSummary 
   };
 }
 
+/** The commit branch `name` of `repo` points to now (`GET …/git/ref/heads/<name>`). */
+export async function readBranchHead(
+  client: GitHubClient,
+  repo: Repo,
+  name: string,
+): Promise<string> {
+  const { data } = await read(`read ref of ${repo.owner}/${repo.repo}:${name}`, () =>
+    client.request("GET /repos/{owner}/{repo}/git/ref/{ref}", {
+      ...repo,
+      ref: `heads/${name}`,
+    }),
+  );
+  return data.object.sha;
+}
+
 /** Whether the ref of branch `name` exists in `repo` (404 = absent). */
 export async function branchExists(
   client: GitHubClient,
