@@ -7,6 +7,7 @@ import {
   type MergeResult,
   type PullRequestState,
   readApprovalCount,
+  readBranchHead,
   readIssueSnapshot,
   readMergeRules,
   readMergeSettings,
@@ -210,7 +211,9 @@ export async function mergeReviewed(
     }
     return blockReview(scope, mergeTitle, await describeBlocked(scope, pull));
   }
-  const attemptMerge = async (baseSha: string): Promise<NextAction> => {
+  // The bases a refused attempt was retried on; each retry needs one not seen yet.
+  const seenBases = new Set<string>();
+  const attemptMerge = async (): Promise<NextAction> => {
     const result = await merge(scope, pull, head);
     if (result.outcome === "head-changed") {
       scope.progress.mark();
@@ -220,17 +223,18 @@ export async function mergeReviewed(
     if (result.outcome !== "not-mergeable") {
       return noNextAction;
     }
-    const next = await notMergeable(scope, pull, head, result.message, rebase, baseSha);
+    const next = await notMergeable(scope, pull, head, result.message, rebase, seenBases);
     if (!("retryOnBase" in next)) {
       return next;
     }
+    seenBases.add(next.retryOnBase);
     deps.log(
       `Merging ${pull.url} again: \`${pull.baseRef}\` moved to ${next.retryOnBase} ` +
         `and GitHub refused it without a conflict (${result.message})`,
     );
-    return attemptMerge(next.retryOnBase);
+    return attemptMerge();
   };
-  return attemptMerge(detail.baseSha);
+  return attemptMerge();
 }
 
 /** `notMergeable`'s answer that the same head can be merged again on a moved base. */
@@ -247,9 +251,10 @@ const mergeableStates = new Set(["clean", "unstable", "has_hooks"]);
  * with no next action, GitHub's own conflict signal (`mergeable: false` or `dirty`)
  * sends it back to Deliver, `behind` means an up-to-date requirement stopped a merge
  * that has no conflict, and a pull request GitHub reports mergeable or is still
- * computing is merged again when the base moved since `baseSha` (the base the
- * refused merge saw): each attempt needs a new base, so there is no count to pick.
- * Otherwise it is `review-blocked` naming the state and GitHub's message.
+ * computing is merged again when the base branch now points to a commit no earlier
+ * retry was made on (`seenBases`, read from the branch ref itself): each retry
+ * needs a new base, so there is no count to pick. Otherwise it is `review-blocked`
+ * naming the state and GitHub's message.
  */
 async function notMergeable(
   scope: ReviewScope,
@@ -257,7 +262,7 @@ async function notMergeable(
   head: string,
   message: string,
   rebase: (message: string) => Promise<NextAction>,
-  baseSha: string,
+  seenBases: ReadonlySet<string>,
 ): Promise<NextAction | RetryMerge> {
   if (isWorkflowsRejection(message)) {
     return blockReview(scope, mergeTitle, workflowsReason(message));
@@ -280,9 +285,11 @@ async function notMergeable(
     return blockReview(scope, mergeTitle, outOfDateReason(pull, head, message));
   }
   const computing = after.mergeable === null || after.mergeableState === "unknown";
-  const baseMoved = after.baseSha !== baseSha;
-  if (baseMoved && (computing || mergeableStates.has(after.mergeableState))) {
-    return { retryOnBase: after.baseSha };
+  if (computing || mergeableStates.has(after.mergeableState)) {
+    const base = await readBranchHead(scope.client, scope.context.repo, pull.baseRef);
+    if (!seenBases.has(base)) {
+      return { retryOnBase: base };
+    }
   }
   if (computing) {
     return blockReview(scope, mergeTitle, computingReason(pull, head, message));

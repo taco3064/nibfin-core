@@ -458,9 +458,10 @@ unknown` stops with no next action (GitHub is still computing).
    back to Deliver as a rebase, `behind` (the repository requires up-to-date
    branches) is `review-blocked` explaining that setting, and a PR GitHub reports
    mergeable (`clean`, `unstable`, `has_hooks`) or is still computing is merged
-   again at once when the base moved since the refused merge read it (the base
-   moving during the merge); each further attempt needs the base to have moved
-   again, so no attempt count is set. Any other state is `review-blocked` with
+   again at once when the base branch ref (`GET …/git/ref/heads/<base>`, read
+   after such a refusal) points to a commit no earlier retry was made on (the base
+   moving during the merge); each further retry needs another new base, so no
+   attempt count is set. Any other state is `review-blocked` with
    GitHub's message; on an unmoved base a mergeability still being computed is
    `review-blocked` saying so, and a mergeable one with GitHub's message. Any other
    4xx is `GITHUB_WRITE_REJECTED`. An unknown outcome re-reads the PR once and

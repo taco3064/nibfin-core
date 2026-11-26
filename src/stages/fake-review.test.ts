@@ -33,7 +33,7 @@ export interface ReviewWorld extends DeliveryWorld {
   head: string;
   mergeable: boolean | null;
   mergeableState: string;
-  /** The commit `base` points to in every pull request read. */
+  /** The commit `main` points to (`GET …/git/ref/heads/main`). */
   baseSha: string;
   settings: Record<string, boolean | undefined>;
   /** Extra rules of `main` besides its required checks. */
@@ -92,7 +92,7 @@ function pullDetail(world: ReviewWorld, pull: FakePull) {
     state: pull.state,
     merged_at: pull.merged ? "2026-11-23T00:00:00Z" : null,
     head: { ref: pull.head, sha: pull.sha },
-    base: { ref: pull.base ?? "main", sha: world.baseSha },
+    base: { ref: pull.base ?? "main" },
     merge_commit_sha: pull.mergeSha,
     html_url: `https://github.com/acme/app/pull/${pull.number}`,
     mergeable: world.mergeable,
@@ -324,6 +324,9 @@ export async function reviewWorld(options: WorldOptions = {}): Promise<ReviewWor
   world.review = () =>
     runReviewStage(world.context, world.issues.github.client, world.reviewDeps);
   world.next = () => JSON.parse(readFileSync(world.nextFile, "utf8")) as unknown;
+  world.issues.github.routes.set("GET /repos/acme/app/git/ref/heads/main", () => ({
+    data: { ref: "refs/heads/main", object: { sha: world.baseSha } },
+  }));
   routeRepository(world);
   routePullDetails(world);
   return world;
