@@ -92,14 +92,17 @@ removing it resumes from GitHub state.
 
 ## Harness
 
-- `prepareStageJob(context, client, deps)` runs right before a stage's first agent
-  run. It compares `MemAvailable` of `/proc/meminfo` with `NIBFIN_MEMORY_REQUIRED`
-  (below it: `STAGE_HOST_MEMORY_LOW`), reads `.nibfin.json` (a `ConfigError` rejects
-  the Job with its code and cause) and installs its tools once per Job with
-  `prepareTools`.
-- `runStageAgent(job, role, sections)` resolves the role's skill text
-  (`resolveRoleSkill`), composes the prompt (`composePrompt`: the skill, "Your role is
-  …", the titled input sections and the role's result format) and runs `runAgent`
+- `prepareStageJob(context, client, deps, skills)` runs right before a stage's first
+  agent run, while the workspace still holds the base checkout. It compares
+  `MemAvailable` of `/proc/meminfo` with `NIBFIN_MEMORY_REQUIRED` (below it:
+  `STAGE_HOST_MEMORY_LOW`), reads `.nibfin.json` (a `ConfigError` rejects the Job with
+  its code and cause), resolves the text of each skill the stage's roles follow
+  (`resolveRoleSkill`) and installs its tools once per Job with `prepareTools`. A
+  branch or PR head checked out later never supplies a role's instructions.
+- `runStageAgent(job, role, sections)` takes the role's skill text the Job resolved (a
+  skill it did not resolve is `STAGE_INPUT_INVALID`), composes the prompt
+  (`composePrompt`: the skill, "Your role is …", the titled input sections and the
+  role's result format) and runs `runAgent`
   with the tools as `pathEntries`. Each call is a separate agent run, with the CLI's
   auto memory off, so roles share nothing except what the prompt and GitHub carry.
 - **Read-only roles.** Right before the CLI starts (after rulesync has generated its
