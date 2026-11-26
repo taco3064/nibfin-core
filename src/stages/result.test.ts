@@ -37,8 +37,27 @@ describe("parseAgentResult", () => {
     });
   });
 
+  it("reads a block fenced with more than 3 backticks", () => {
+    const message = block(
+      '{"outcome": "done", "note": "```\\nx\\n```"}',
+      "````nibfin-result",
+      "````",
+    );
+    assert.deepEqual(parseAgentResult(message, outcomes), {
+      outcome: "done",
+      note: "```\nx\n```",
+    });
+  });
+
+  it("keeps a longer block open past a shorter fence line", () => {
+    const lines = ["````nibfin-result", '{"outcome": "done"}', "```", "````"];
+    // Closing at ``` would read a valid result; the block runs on to ````.
+    invalid(lines.join("\n"), "the nibfin-result block is not JSON");
+  });
+
   for (const [name, message] of [
     ["no block", "All done."],
+    ["two backticks", block('{"outcome":"done"}', "``nibfin-result", "``")],
     ["an opening line with more text", block('{"outcome":"done"}', "```nibfin-result x")],
     ["an indented opening line", block('{"outcome":"done"}', " ```nibfin-result")],
     ["another language", block('{"outcome":"done"}', "```json")],
