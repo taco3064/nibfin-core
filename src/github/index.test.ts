@@ -24,6 +24,7 @@ test("the github module exports its public API", () => {
     "hasWritePermission",
     "isNibfinWorkflow",
     "issueOfBranch",
+    "maxRetries",
     "mergeMethodOrder",
     "mergePullRequest",
     "nibfinLabels",
@@ -65,11 +66,13 @@ test("the github module exports its public API", () => {
     "readRunJobs",
     "readRunners",
     "responseMessage",
+    "retryCause",
     "runState",
     "runnerLabel",
     "setLabels",
     "shareReadCache",
     "upsertMarkedComment",
+    "waitToRetry",
   ]);
   assert.deepEqual(github.mergeMethodOrder, ["rebase", "squash", "merge"]);
 });

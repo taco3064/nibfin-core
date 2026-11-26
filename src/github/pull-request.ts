@@ -1,6 +1,6 @@
 import { type PullRequestSummary, summarizePullRequest } from "./branches.ts";
 import type { GitHubClient } from "./client.ts";
-import { GitHubError, read, readOptional } from "./errors.ts";
+import { absentProbe, GitHubError, read, readOptional } from "./errors.ts";
 import type { Repo } from "./repo.ts";
 
 /** A pull request with GitHub's view of whether it can be merged. */
@@ -184,6 +184,7 @@ export async function hasWritePermission(
       client.request("GET /repos/{owner}/{repo}/collaborators/{username}/permission", {
         ...repo,
         username: login,
+        request: absentProbe,
       }),
   );
   const permission = answer?.data.permission;
@@ -271,6 +272,7 @@ export async function readCommitsAhead(
     client.request("GET /repos/{owner}/{repo}/compare/{basehead}", {
       ...repo,
       basehead: `${base}...${head}`,
+      request: absentProbe,
     }),
   );
   return answer?.data.commits.map((commit) => commit.sha);

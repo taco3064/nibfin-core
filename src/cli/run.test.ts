@@ -179,7 +179,7 @@ describe("run --stage", () => {
       globalThis.fetch = original;
     }
     assert.deepEqual(lines, [
-      "GitHub primary rate limit on GET /user: waiting 0 s (retry 1 of 2)",
+      "GitHub GET /user (retry 1 of 3): primary rate limit; waiting 0 s",
     ]);
   });
 

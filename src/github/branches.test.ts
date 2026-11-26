@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
+  branchExists,
   cdFixBranch,
   deliveryBranch,
   issueOfBranch,
+  readBranchHead,
   readPullRequests,
 } from "./branches.ts";
 import { GitHubError } from "./errors.ts";
@@ -93,5 +95,24 @@ describe("readPullRequests", () => {
     );
     assert.ok(error instanceof GitHubError);
     assert.equal(error.code, "GITHUB_READ_FAILED");
+  });
+});
+
+describe("branch refs", () => {
+  const ref = "GET /repos/acme/app/git/ref/heads/main";
+
+  it("reads the commit a branch points to", async () => {
+    const github = fakeGitHub({ [ref]: { data: { object: { sha: "a".repeat(40) } } } });
+    assert.equal(await readBranchHead(github.client, repo, "main"), "a".repeat(40));
+  });
+
+  it("reads a missing branch as absent at once, retrying other failures", async () => {
+    const github = fakeGitHub();
+    assert.equal(await branchExists(github.client, repo, "main"), false);
+    assert.equal(github.calls.length, 1);
+    github.routes.set(ref, failure(500));
+    const error = await rejection(branchExists(github.client, repo, "main"));
+    assert.ok(error instanceof GitHubError);
+    assert.equal(github.calls.length, 5);
   });
 });

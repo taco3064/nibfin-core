@@ -21,6 +21,7 @@ export {
   readActor,
 } from "./client.ts";
 export { freshReads, shareReadCache } from "./read-cache.ts";
+export { maxRetries, retryCause, waitToRetry } from "./retry.ts";
 export { type DependencyIssue, readBlocking } from "./dependencies.ts";
 export {
   type IssueRecord,

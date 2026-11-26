@@ -1,6 +1,6 @@
 import { readBranchRules } from "./branch-rules.ts";
 import type { GitHubClient } from "./client.ts";
-import { read, readOptional } from "./errors.ts";
+import { absentProbe, read, readOptional } from "./errors.ts";
 import { isNibfinWorkflow } from "./nibfin-workflows.ts";
 import type { Repo } from "./repo.ts";
 import { commitStatusState, type RunState, runState } from "./run-state.ts";
@@ -52,7 +52,11 @@ export async function readRequiredChecks(
       : [],
   );
   const branchData = await readOptional(`read branch ${where}`, () =>
-    client.request("GET /repos/{owner}/{repo}/branches/{branch}", { ...repo, branch }),
+    client.request("GET /repos/{owner}/{repo}/branches/{branch}", {
+      ...repo,
+      branch,
+      request: absentProbe,
+    }),
   );
   const classic = branchData?.data.protection?.required_status_checks;
   const fromChecks = (classic?.checks ?? []).map((check) => ({
