@@ -6,6 +6,7 @@ test("the stages module exports its public API", () => {
   assert.deepEqual(Object.keys(stages).toSorted(), [
     "NoProgressError",
     "StageError",
+    "approvalWaitCommentKey",
     "closedAsDelivered",
     "codeOf",
     "composePrompt",
@@ -27,6 +28,7 @@ test("the stages module exports its public API", () => {
     "pendingCommentKey",
     "positiveInteger",
     "prepareStageJob",
+    "readApprovalWait",
     "readJobContext",
     "readNextAction",
     "readPendingReport",
