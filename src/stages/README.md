@@ -130,13 +130,55 @@ removing it resumes from GitHub state.
 
 ## Scope stage
 
-`runScopeStage(context, client)` (`nibfin run --stage scope ...`) runs for an open
-`request` Issue without `scope` (Proposal R3.2, R4.8; #734). Its work (the
-Investigation, the Plan and the publication) is not implemented in this version: it
-logs that, runs no agent, writes nothing to GitHub, leaves the workspace untouched
-and writes no next action (`progressed: false`). After a Scope run Core dispatches
-only its wakes, never the request's own route (see `src/route`), so the placeholder
-adds no `pending`.
+`runScopeStage(context, client, deps?)` (`nibfin run --stage scope ...`) runs for an
+open `request` Issue without `scope` (Proposal R3.2–R3.11, R4.8; #734, #735). Both
+roles are read-only and get every GitHub fact from the stage, since they hold no
+credential (`scope-sources.ts`, `src/github` "Request sources"):
+
+1. Reads the snapshot. When `deriveStage` is not `scope`, it logs the actual stage and
+   ends with no next action, before any agent or write.
+2. `prepareStageJob` resolves the `shape` and `scope` skills (built-in plus
+   `.nibfin.json` `extend`/`override`) from the request repository's base checkout.
+3. Reads the request's text and Assignees, its own Issues (`readOriginIssues`) and the
+   request repository's inventory with its visibility, then runs the Investigation
+   (`scope-investigation`, skill `shape`, "Feasibility of a request"): `feasible` (with
+   the `repositories` the work touches), `already-covered` (with `covering`, an Issue
+   URL or null), `not-feasible` or `needs-person`. No Validator checks it (R3.11).
+4. Only when feasible: reads the inventory of every named repository, checks whether
+   each Assignee can be assigned in each of them (a 404 is "not assignable", not
+   retried), and runs the Plan (`scope-plan`, skill `scope`, `## Requests`). It returns
+   `PLAN_READY` with `deduplication`, `report` and `issues` (new `{key, repository,
+title, body, blockedBy}` or reused `{key, reuse, blockedBy}`), or `PLAN_BLOCKED` /
+   `AUTHORITY_UPDATE_REQUIRED` with `reason`. The parser rejects an empty list,
+   missing or duplicated keys, a repository without an inventory, an empty title or
+   body, a body without the line `Origin: <request URL>`, a `reuse` that is not one of
+   the request's own Issues (or is reused twice), and a `blockedBy` entry that is
+   neither a key nor an Issue URL, a self-edge or a cycle (`STAGE_RESULT_INVALID`).
+5. Re-reads the snapshot and the request text: not at `scope` any more (`pause`,
+   `pending`, closed, `scope`, no Assignee) ends without writing (R4.12, R4.13); a
+   changed title or body starts again at step 3, without a limit.
+6. Acts, writing only the marked `scope-request` comment (updated in place on a redo,
+   R3.42), the `pending` label and the close:
+   - already covered: the comment with the reason and the covering Issue, a re-check
+     of step 5, then `closeIssueAs(..., "not_planned")` (R3.8);
+   - not feasible, needs a person, `PLAN_BLOCKED`, `AUTHORITY_UPDATE_REQUIRED` or
+     `PLAN_READY` with unverified deduplication: the comment says only a person can
+     decide, with the verdict, the reason (or the report), the request's own Issues
+     with their state and that removing `pending` restarts the feasibility check; then
+     `pending` (read back, else `GITHUB_WRITE_UNCONFIRMED`). The Job exits 0, so the
+     generic `pending` comment is not added (R3.9, R3.10, R4.3);
+   - a verified `PLAN_READY`: `deps.publish(scope, plan)` gets the `RequestPlan`
+     (request URL, Investigation reason, report, Issues) in memory, never from Issue
+     text (R3.7). Until publication (#736) the default, `logUnpublishedPlan`, logs the
+     plan's keys, repositories, titles and edges, writes nothing and asks for no next
+     action.
+
+Role notes bind every posted `reason` (and the report) to the request repository's
+visibility and each new Issue to its target's; `internal` counts as private. Agent,
+result and GitHub failures are thrown with their codes and end in the generic
+`pending` (`src/cli/run.ts`). After a Scope run Core dispatches only its wakes, never
+the request's own route (see `src/route`); the per-Issue concurrency group keeps two
+runs on one request apart.
 
 ## Shape stage
 

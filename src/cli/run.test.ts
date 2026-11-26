@@ -163,7 +163,7 @@ describe("run --stage", () => {
       process.stdout.write = write;
     }
     assert.deepEqual(lines, [
-      "acme/app#1: the Scope stage's work is not implemented in this version\n",
+      "acme/app#1 is not at the scope stage: ineligible (closed)\n",
       "acme/app#1 is not at the deliver stage: ineligible (closed) (no reason)\n",
       "acme/app#1 is not at the review stage: ineligible (closed)\n",
       "acme/app#1 is not at the review stage: ineligible (closed)\n",

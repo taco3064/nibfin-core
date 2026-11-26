@@ -227,6 +227,9 @@ attempt with the same `confirm`/`recover` handling and no retry.
 - `closeDelivered(client, issue)`: adds `delivered`, then closes with
   `state_reason: completed`. An open Issue with `delivered` still derives `done`, so a
   repeated call finishes the close.
+- `closeIssueAs(client, issue, reason)`: closes with `state_reason` `completed` or
+  `not_planned` (the Scope stage's already-covered request, #735). A closed Issue is
+  not written again; the close is confirmed by reading the state back.
 - `mergePullRequest(client, repo, { number, sha, method })` (#673):
   `PUT …/pulls/{n}/merge` with `sha` and `merge_method`, so GitHub merges only at that
   head and enforces the repository's own rules. Results: `merged` (with the merge
@@ -315,6 +318,28 @@ so it is re-sent on any error without a pre-read.
 
 Classic branch protection details (required approvals, allowed methods) need
 Administration, so they are not read; GitHub still enforces them on the merge.
+
+## Request sources (#735)
+
+The Scope stage's agents hold no GitHub credential, so the stage reads every GitHub
+fact they judge (`request-sources.ts`). Each list is read in full through
+`queryGraphql`, so the read retries apply; a missing node, connection or nested list
+that does not match its count is `GITHUB_READ_FAILED`.
+
+- `readOriginIssues(client, request)`: the request's own Issues (Proposal R3.4). It
+  pages through the request's `timelineItems(itemTypes: [CROSS_REFERENCED_EVENT])`,
+  keeps sources that are Issues (not pull requests) with a line that, trimmed, is
+  exactly `Origin: <request URL>` (`hasOriginLine`), drops those closed as
+  `not_planned` or `duplicate`, and keeps each URL once. Each has repository, number,
+  URL, title, body, state, state reason, labels and Assignee logins.
+- `readRepositoryInventory(client, repo)`: the repository's `visibility` (`public`,
+  `private` or `internal`; a missing or unknown value fails and is never guessed),
+  its open Issues with text, labels, Assignees and Blocked by (checked against
+  `issueDependenciesSummary.totalBlockedBy`), its closed Issues with title, state
+  reason and labels, and its open pull requests with head branch, 100 per page.
+- `checkAssignable(client, repo, login)`: `GET …/assignees/{login}` sent with
+  `absentProbe`. 204 is `true`; 404 is `false`, an answer that is not retried
+  (R4.39); any other failure is retried and then `GITHUB_READ_FAILED`.
 
 ## Permissions
 
