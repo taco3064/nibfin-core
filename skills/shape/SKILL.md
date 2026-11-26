@@ -101,19 +101,21 @@ any next evidence needed. Mark suggested splits, owners or dependencies as advis
 
 For a request (an Issue labeled `request`; see the scope skill's Requests), the bounded
 question is whether what it asks for can become implementation work now. The request is
-input: check its claims against the authority and the code instead of taking them as fact.
-End with one judgment and its reasons; the stage supplies the exact output format.
+input: check its claims against the authority, the code and existing Issues instead of
+taking them as fact. End with one judgment and its reasons; the stage supplies the exact
+output format.
 
 - Feasible: the authority already approves the outcome, the work is development (see
   Development eligibility), a route exists in the current code and provider capabilities,
   and nothing waits on a person's decision. Name the owning repository and the affected
   surface for Plan.
-- Already satisfied: the latest `main` already provides what was asked and nothing remains
-  to build. Cite the code, tests or merged PRs that show it.
-- Needs a person: the request is not feasible, is not development work, depends on an
-  authority clause that is missing, outdated, ambiguous or contradictory, or waits on an
-  undecided product decision. Name the exact clause or decision and why only a person can
-  settle it.
+- Already covered: the latest `main` already provides what was asked, or an existing Issue
+  already covers it, and nothing new is needed. Cite the code, tests, merged PRs or Issue.
+- Not feasible: no route exists within the current code, provider capabilities and the
+  agent permission boundary. Name what is missing.
+- Needs a person: the request is not development work, depends on an authority clause that
+  is missing, outdated, ambiguous or contradictory, or waits on an undecided product
+  decision. Name the exact clause or decision and why only a person can settle it.
 
 The judgment is not a Shape: give no implementation steps. Any suggested split stays
 advisory; Plan decides the Issues.

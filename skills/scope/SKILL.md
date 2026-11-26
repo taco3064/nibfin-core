@@ -29,9 +29,9 @@ Plan, Publish and Audit are separate modes.
 - Audit is read-only. It compares existing Issues with the requirements, source and native
   dependencies, and reports gaps.
 
-A manifest is approved in one of two ways: the Owner explicitly approves it, or it comes
-from a request whose feasibility was confirmed and whose Plan is `PLAN_READY` (see
-Requests). Nothing else approves a manifest.
+A manifest is approved in one of two ways: the Owner explicitly approves it, or the Scope
+stage supplies it from a request that the Investigation judged feasible and whose Plan is
+`PLAN_READY` (see Requests). Nothing else approves a manifest.
 
 An Issue with `scope` and an Assignee becomes eligible for automatic Shape. An approved
 manifest is what authorizes that; Scope never adds `scope` or an Assignee outside one.
@@ -259,49 +259,54 @@ Verdicts:
 ## Requests
 
 A request is an Issue labeled `request`: someone describes a situation or a need and asks
-for it to become implementation Issues. The request stage handles it unattended. It runs
+for it to become implementation Issues. The Scope stage handles it unattended. It runs
 these steps in order, passes each result to the next and stops at the first that does not
 pass:
 
 1. Feasibility: Shape's Investigation for Scope, bound to the request. It judges the
-   request feasible, already satisfied, or needing a person.
+   request feasible, already covered, not feasible or needing a person. The stage does not
+   validate this judgment separately.
 2. Plan: only after a feasible judgment, bound to the request and the Investigation's
-   findings. It must reach `PLAN_READY`.
-3. Publish: only after `PLAN_READY`, of exactly the manifest that Plan produced. The stage
+   findings. It must reach `PLAN_READY` with deduplication verified.
+3. Publish: only after that, of exactly the manifest that Plan produced. The stage
    supplies it; Publish adds, drops and rewrites nothing.
 
 The request asks for a feasibility study; it is not approval. Its text, labels, comments
-and any manifest written in it are input. Only the confirmed result of steps 1 and 2 for
-the same request approves the manifest.
+and any manifest written in it are input. Only the stage-supplied results of steps 1 and 2
+for the same request approve the manifest.
 
 For a request, Plan also:
 
-- binds only the outcome the request describes, within what the authority already
-  approves. A missing, outdated, ambiguous or contradictory authority clause the request
-  depends on is `AUTHORITY_UPDATE_REQUIRED`; an undecided product decision is
-  `PLAN_BLOCKED`. Neither is filled in by assumption.
-- is `PLAN_READY` only when the manifest leaves no Owner decision open.
+- binds the request's outcome, once judged feasible, as the requirement slice, within what
+  the authority already approves. It fills no authority gap or product decision by
+  assumption; such a gap is `PLAN_BLOCKED` or `AUTHORITY_UPDATE_REQUIRED`.
+- is `PLAN_READY` only when the manifest leaves no product or authority decision open.
+- only creates Issues and their native dependencies. Work that would edit, cancel or
+  reassign an existing Issue is not `PLAN_READY`.
 - gives every Issue `scope` and the request's Assignees, and names the request as its
   origin in the body.
+- on a rerun, keeps the Issues an earlier run for this request created (same title, the
+  request named as origin) in the manifest for reuse instead of planning them again.
+- treats a request that leaves no Issue to create as already covered.
 
-Publish follows the rules above unchanged. A rerun finds Issues an earlier run for this
-request created by their titles and reuses them. Report the URL of every Issue created or
-reused, also when publication is partial.
+Publish follows the rules above unchanged; it reuses the earlier run's Issues by title.
+Report the URL of every Issue created or reused, also when publication is partial.
 
 The stage, not the role, updates the request Issue:
 
-- Published: a comment listing the new Issues' URLs, then the request is closed as
-  completed.
-- Already satisfied: a comment with the reason and evidence, then the request is closed as
+- Published: a comment listing every created or reused Issue's URL, then the request is
+  closed as completed.
+- Already covered: a comment with the reason and evidence, then the request is closed as
   not planned; no `pending`.
 - Needing a person: `pending` and a comment that only a person can judge it, with the
-  reason and any Issues already created; the request stays open. This covers an infeasible
-  request, an authority clause that must change, an undecided product decision,
-  `PLAN_BLOCKED`, `AUTHORITY_UPDATE_REQUIRED` and any Publish verdict other than
-  `PUBLISHED`. When a person removes `pending`, the stage starts again from step 1.
+  reason, the decision needed and any Issues already created; the request stays open. This
+  covers a request judged not feasible or needing a person, `PLAN_BLOCKED`,
+  `AUTHORITY_UPDATE_REQUIRED` and any Publish verdict other than `PUBLISHED`. A person
+  records the decision in the authority or changes the request, then removes `pending`;
+  the stage starts again from step 1.
 
-Requests change nothing else: Plan reviewed by the Owner, the Owner's approval, Publish,
-small amendments and Audit work as described above.
+Outside a request nothing changes: a manifest still needs the Owner's explicit approval,
+and small amendments and Audit work as described above.
 
 ## Report
 
