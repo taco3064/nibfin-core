@@ -1,6 +1,5 @@
 import { GitHubError, isUnknownOutcome } from "./errors.ts";
-import { retrySettingsOf } from "./read-cache.ts";
-import { giveUpLine, maxRetries, requestName, retryCause, waitToRetry } from "./retry.ts";
+import { logGiveUp, maxRetries, requestName, retryCause, waitToRetry } from "./retry.ts";
 
 export interface WriteRecovery<T> {
   /**
@@ -79,7 +78,7 @@ export async function write<T>(
       if (confirmed !== undefined) {
         return confirmed;
       }
-      retrySettingsOf(client).log(giveUpLine(what, retryCause(error)));
+      logGiveUp(client, what, retryCause(error));
       throw new GitHubError(code, operation, error);
     }
     await waitToRetry(client, what, error, k);

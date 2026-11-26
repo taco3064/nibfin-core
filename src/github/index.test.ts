@@ -24,6 +24,7 @@ test("the github module exports its public API", () => {
     "hasWritePermission",
     "isNibfinWorkflow",
     "issueOfBranch",
+    "logGiveUp",
     "maxRetries",
     "mergeMethodOrder",
     "mergePullRequest",

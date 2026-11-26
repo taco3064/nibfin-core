@@ -469,15 +469,17 @@ unknown` stops with no next action (GitHub is still computing).
    does not show the merge) is re-sent up to 3 times (#748, Proposal R4.37–R4.38).
    Before each re-send it waits (`retryDelay`: a rate limit the time GitHub states,
    otherwise 1, 4, 9 s), logs `Merging <url> again (retry <k> of 3): <cause>;
-waiting <s> s`, then repeats steps 1 and 2's re-check: the Issue must still derive
+waiting <s> s` (`<cause>` is the kind only: `HTTP 405`, `HTTP 409`, another
+   status, a rate-limit kind or `no response`, never GitHub's message), then repeats steps 1 and 2's re-check: the Issue must still derive
    `review` on the same PR at `H` (`pause`, closing, an Issue edit, a new push or a
    merge that landed meanwhile stops with no next action), no pending `shape-wrong`
    report (otherwise next `{ "deliver", null }`), and the PR open at `H`. A real
    conflict goes to Deliver at once, with no more attempts: `dirty` writes the
    rebase `review` comment, and `mergeable: false` makes the stage `conflict`, which
    the route sends to Deliver. Anything else (`behind`, `blocked`, still computing,
-   `clean`) is re-sent; GitHub decides. The last attempt's outcome is then routed
-   once: `head-changed` (409, or a 405 saying the head was modified) stops with no
+   `clean`) is re-sent; GitHub decides. When the third retry fails too, it logs
+   `Merging <url>: <cause>; not retrying after 3 retries`, and the last attempt's
+   outcome is then routed once: `head-changed` (409, or a 405 saying the head was modified) stops with no
    next action. A rejection naming the workflows permission is `review-blocked`
    naming it. Any other 405 re-reads the PR: a head that moved or a PR no longer
    open stops with no next action, `mergeable: false` or `dirty` goes back to
