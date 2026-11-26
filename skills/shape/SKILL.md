@@ -109,10 +109,10 @@ output format.
   Development eligibility), a route exists in the current code and provider capabilities,
   and nothing waits on a person's decision. Name the owning repository and the affected
   surface for Plan.
-- Already covered: the latest `main` already provides what was asked, or an existing Issue
-  already covers it, and nothing new is needed. Cite the code, tests, merged PRs or Issue.
-  Issues whose body names this request as their origin do not count; list them for Plan to
-  reuse.
+- Already covered: the latest `main` already provides what was asked, or an open Issue
+  with `scope` and an Assignee already owns it, and nothing new is needed. Cite the code,
+  tests, merged PRs or Issue. Issues whose body has the line `Origin: <request URL>` for
+  this request do not count; list them for Plan to reuse.
 - Not feasible: no route exists within the current code, provider capabilities and the
   agent permission boundary. Name what is missing.
 - Needs a person: the request is not development work, conflicts with an approved
