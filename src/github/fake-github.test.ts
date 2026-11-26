@@ -40,8 +40,10 @@ export type Route = Handler | FakeResponse;
 
 export interface FakeGitHub {
   client: NibfinOctokit & ActingClient;
-  /** The lines the client wrote to the Job log (rate-limit waits). */
+  /** The lines the client wrote to the Job log (retries). */
   log: string[];
+  /** The seconds each retry waited (instantly). */
+  waits: number[];
   calls: FakeRequest[];
   /** Calls other than GET and GraphQL queries (Nibfin sends no mutations). */
   writes: () => FakeRequest[];
@@ -153,15 +155,17 @@ export function fakeGitHub(routes: Record<string, Route> = {}): FakeGitHub {
     return answer;
   };
   const log: string[] = [];
+  const waits: number[] = [];
   const client = createClient(
     fakeToken,
     fakeActor,
-    testClientOptions(fetch),
+    testClientOptions(fetch, waits),
     (line) => void log.push(line),
   );
   return {
     client,
     log,
+    waits,
     calls,
     writes: () =>
       calls.filter((call) => call.method !== "GET" && call.path !== "/graphql"),
@@ -181,20 +185,22 @@ const immediate = {
 };
 
 /**
- * Client options for tests: requests go to `fetch`, retries and rate-limit waits take
- * no time, and writes are not spaced out.
+ * Client options for tests: requests go to `fetch`, retry waits take no time (their
+ * seconds go to `waits`), and writes are not spaced out.
  */
-export function testClientOptions(fetch: FetchLike): ClientOptions {
+export function testClientOptions(fetch: FetchLike, waits: number[] = []): ClientOptions {
   return {
     request: { fetch },
     log: { debug() {}, info() {}, warn() {}, error() {} },
     throttle: {
-      retryAfterBaseValue: 0,
       write: immediate,
       search: immediate,
       notifications: immediate,
     } as unknown as ClientOptions["throttle"],
-    retry: { retryAfterBaseValue: 0 },
+    wait: (seconds) => {
+      waits.push(seconds);
+      return Promise.resolve();
+    },
   };
 }
 
