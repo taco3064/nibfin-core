@@ -104,8 +104,22 @@ describe("dispatchStage", () => {
       const error = await rejection(dispatchStage(runner.scope, repo, 1, deliver));
       assert.ok(error instanceof GitHubError);
       assert.equal(error.code, code);
+      // Re-sent without a pre-read up to three times: a repeated wake is harmless.
+      assert.equal(github.writes().length, 4);
     });
   }
+
+  it("dispatches on a retry after any error", async () => {
+    const github = fakeGitHub();
+    const runner = fakeRunner(github);
+    let sent = 0;
+    github.routes.set(`POST ${dispatchPath}`, () =>
+      ++sent < 3 ? failure(422, "Unexpected inputs") : { status: 204 },
+    );
+    assert.equal(await dispatchStage(runner.scope, repo, 1, deliver), true);
+    assert.equal(sent, 3);
+    assert.deepEqual(github.waits, [1, 4]);
+  });
 
   it("dispatches whatever case, state or busyness the matching runner has", async () => {
     for (const runners of [

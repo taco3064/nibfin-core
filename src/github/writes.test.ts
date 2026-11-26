@@ -550,3 +550,154 @@ describe("deleteBranch", () => {
     assert.equal(lost.model.exists, true);
   });
 });
+
+describe("retries of writes", () => {
+  const closePath = "/repos/acme/app/issues/1";
+  const closeLine = (k: number, cause: string, seconds: number) =>
+    `GitHub PATCH ${closePath} (retry ${k} of 3): ${cause}; waiting ${seconds} s`;
+
+  /** An Issue with `delivered` whose close answers `answers` in turn, then applies. */
+  function closing(...answers: Outcome[]) {
+    const { github, model } = issueFake([], ["delivered"]);
+    github.routes.set(`PATCH ${closePath}`, () =>
+      answer(answers.shift() ?? "ok", () => {
+        model.state = "closed";
+        return { data: issue(1) };
+      }),
+    );
+    return { github, model };
+  }
+
+  it("re-sends a write after any 4xx and succeeds on the third retry", async () => {
+    const { github, model } = closing(422, 403, "lost");
+    await closeDelivered(github.client, target);
+    assert.equal(model.state, "closed");
+    assert.equal(github.writes().length, 4);
+    assert.deepEqual(github.waits, [1, 4, 9]);
+    assert.deepEqual(github.log, [
+      closeLine(1, "HTTP 422", 1),
+      closeLine(2, "HTTP 403", 4),
+      closeLine(3, "no response", 9),
+    ]);
+  });
+
+  it("fails as before after the third retry", async () => {
+    const rejected = closing(422, 422, 422, 422);
+    await expectCode(
+      closeDelivered(rejected.github.client, target),
+      "GITHUB_WRITE_REJECTED",
+    );
+    assert.equal(rejected.github.writes().length, 4);
+    assert.equal(
+      rejected.github.log.at(-1),
+      `GitHub PATCH ${closePath}: HTTP 422; not retrying after 3 retries`,
+    );
+    const lost = closing("lost", "lost", "lost", "lost");
+    await expectCode(
+      closeDelivered(lost.github.client, target),
+      "GITHUB_WRITE_UNCONFIRMED",
+    );
+    assert.equal(lost.github.writes().length, 4);
+    assert.equal(lost.model.state, "open");
+  });
+
+  it("does not re-send a write whose unknown outcome took effect", async () => {
+    const { github, model } = issueFake([]);
+    const create = "POST /repos/acme/app/issues/1/comments";
+    const post = github.routes.get(create) as (call: FakeRequest) => FakeResponse;
+    let sent = 0;
+    github.routes.set(create, (call) => {
+      sent += 1;
+      // The first attempt is applied but answers 502; GitHub must not get a second.
+      post(call);
+      return failure(502);
+    });
+    const written = await upsertMarkedComment(github.client, target, "shape", "new");
+    assert.equal(written.body, marked("new"));
+    assert.equal(sent, 1);
+    assert.equal(model.comments.length, 1);
+    assert.deepEqual(github.waits, [1]);
+  });
+
+  it("re-reads before each re-send and skips it once the write is in place", async () => {
+    const { github, model } = issueFake([]);
+    const add = "POST /repos/acme/app/issues/1/labels";
+    let sent = 0;
+    github.routes.set(add, () => {
+      sent += 1;
+      if (sent === 2) {
+        // Applied by GitHub after the second answer was lost.
+        model.labels.push("scope");
+        throw new TypeError("fetch failed");
+      }
+      return failure(500);
+    });
+    assert.deepEqual(await setLabels(github.client, target, { add: ["scope"] }), [
+      "scope",
+    ]);
+    assert.equal(sent, 2);
+  });
+
+  it("does not re-send when the pre-read fails", async () => {
+    for (const [status, code] of [
+      [503, "GITHUB_WRITE_UNCONFIRMED"],
+      [403, "GITHUB_WRITE_REJECTED"],
+    ] as const) {
+      let reads = 0;
+      const github = fakeGitHub({
+        "GET /repos/acme/app/pulls": () => (++reads === 1 ? { data: [] } : failure(500)),
+        "POST /repos/acme/app/pulls": failure(status),
+      });
+      const request = { branch, base: "main", title: "T", body: "B" };
+      const error = await expectCode(
+        ensurePullRequest(github.client, repo, request),
+        code,
+      );
+      assert.equal((error.cause as { status: number }).status, status);
+      assert.equal(github.writes().length, 1);
+    }
+  });
+
+  it("does not retry a 4xx that already means success", async () => {
+    const { github, model } = issueFake([], ["scope"]);
+    github.routes.set("DELETE /repos/acme/app/issues/1/labels/scope", () => {
+      model.labels = [];
+      return failure(404);
+    });
+    await setLabels(github.client, target, { remove: ["scope"] });
+    assert.equal(github.writes().length, 1);
+    assert.deepEqual(github.waits, []);
+  });
+});
+
+describe("the last retry of a write", () => {
+  it("re-reads an unknown outcome once more before it is unconfirmed", async () => {
+    const issueFakeClose = (...answers: Outcome[]) => {
+      const { github, model } = issueFake([], ["delivered"]);
+      github.routes.set("PATCH /repos/acme/app/issues/1", () =>
+        answer(answers.shift() ?? "ok", () => {
+          model.state = "closed";
+          return { data: issue(1) };
+        }),
+      );
+      return { github, model };
+    };
+    const landed = issueFakeClose("lost", "lost", "lost", "applied-then-502");
+    await closeDelivered(landed.github.client, target);
+    assert.equal(landed.model.state, "closed");
+    assert.equal(landed.github.writes().length, 4);
+    assert.deepEqual(landed.github.log.slice(3), []);
+    let reads = 0;
+    const unreadable = fakeGitHub({
+      // The first read and the three pre-reads find no PR; the last re-read fails.
+      "GET /repos/acme/app/pulls": () => (++reads <= 4 ? { data: [] } : failure(500)),
+      "POST /repos/acme/app/pulls": networkError(),
+    });
+    const request = { branch, base: "main", title: "T", body: "B" };
+    await expectCode(
+      ensurePullRequest(unreadable.client, repo, request),
+      "GITHUB_WRITE_UNCONFIRMED",
+    );
+    assert.equal(unreadable.writes().length, 4);
+  });
+});
