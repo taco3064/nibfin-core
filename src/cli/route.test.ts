@@ -51,7 +51,9 @@ describe("nibfin route --issue", () => {
     assert.deepEqual(t.runner.dispatched, [
       { stage: "shape", repo: "acme/app", issue: "1", reason: "", assignee: "5" },
     ]);
-    assert.match(result.stdout, /^Dispatched Nibfin · acme\/app#1 · shape: https:/);
+    const [chosen, dispatched] = result.stdout.split("\n");
+    assert.equal(chosen, "acme/app#1: Assignee 5 has an online runner");
+    assert.match(dispatched, /^Dispatched Nibfin · acme\/app#1 · shape: https:/);
     assert.ok(!result.stdout.includes(fakeToken));
   });
 
@@ -72,73 +74,34 @@ describe("nibfin route --issue", () => {
     assert.deepEqual(t.issues.github.writes(), []);
     assert.equal(
       result.stdout,
-      "acme/app#1: no runner of the execution repository has the label nibfin-5; " +
-        "an ordinary assignment, nothing dispatched\n",
+      "acme/app#1: no runner of the execution repository has the label " +
+        "nibfin-<id> of any Assignee (5); an ordinary assignment, nothing dispatched\n",
     );
   });
 
-  it("asks for exactly one Assignee with pending, and exits 0", async () => {
+  it("dispatches to the second of two Assignees with the online runner", async () => {
     const assignees = [
-      { id: 5, login: "taco" },
       { id: 6, login: "other" },
-      { id: 7, login: "third" },
+      { id: 5, login: "taco" },
     ];
     const t = routeDeps({ labels: ["scope", "shaped"], assignees });
-    const result = await capture([...route, "--issue", "1"], t.deps);
-    assert.deepEqual(result, {
-      code: 0,
-      stdout: "acme/app#1: 3 Assignees; added pending to ask for exactly one\n",
-      stderr: "",
-    });
-    assert.deepEqual(t.runner.dispatched, []);
-    assert.ok(t.issues.main.labels.includes("pending"));
-    const [comment, ...more] = t.issues.marked("pending");
-    assert.deepEqual(more, []);
-    assert.match(comment.body, /Code: `STAGE_MULTIPLE_ASSIGNEES`/);
-    assert.match(comment.body, /exactly one Assignee, and this Issue has 3\./);
-    assert.match(comment.body, /Leave exactly one Assignee, then remove the `pending`/);
-    assert.match(comment.body, /acme\/runner\/actions\/runs\/900/);
-    assert.doesNotMatch(comment.body, /@|taco|other|third/);
-    assert.doesNotMatch(comment.body, /looks temporary/);
-  });
-
-  it("repeats the request for one Assignee safely", async () => {
-    const assignees = [
-      { id: 5, login: "taco" },
-      { id: 6, login: "other" },
+    seedComment(t.issues, t.issues.main, "<!-- nibfin:consent-6 -->\nAsked.");
+    t.runner.runners = [
+      selfHostedRunner(1, ["nibfin-6"], { status: "offline" }),
+      selfHostedRunner(2, ["nibfin-5"]),
     ];
-    const t = routeDeps({ labels: ["scope"], assignees });
-    await capture([...route, "--issue", "1"], t.deps);
-    // While pending is present, the route writes nothing more. Each route run is a
-    // new process, so none sees another's cached reads.
-    const writes = t.issues.github.writes().length;
-    freshReads(t.issues.github.client);
-    const held = await capture([...route, "--issue", "1"], t.deps);
-    assert.equal(held.stdout, "acme/app#1: nothing to run (ineligible (pending))\n");
-    assert.equal(t.issues.github.writes().length, writes);
-    // A person removed pending with two Assignees left, or the label never landed.
-    t.issues.main.labels = ["scope"];
-    freshReads(t.issues.github.client);
-    const again = await capture([...route, "--issue", "1"], t.deps);
-    assert.equal(again.code, 0);
-    assert.ok(t.issues.main.labels.includes("pending"));
-    assert.equal(t.issues.marked("pending").length, 1);
-    assert.deepEqual(t.runner.dispatched, []);
-  });
-
-  it("fails with the failure's note when asking for one Assignee fails", async () => {
-    const assignees = [
-      { id: 5, login: "taco" },
-      { id: 6, login: "other" },
-    ];
-    const t = routeDeps({ labels: ["scope"], assignees });
-    const path = "POST /repos/acme/app/issues/1/labels";
-    t.issues.github.routes.set(path, failure(502));
     const result = await capture([...route, "--issue", "1"], t.deps);
-    assert.equal(result.code, 1);
-    assert.match(result.stderr, /^nibfin: GITHUB_WRITE_UNCONFIRMED/);
-    const [comment] = t.issues.marked("pending");
-    assert.match(comment.body, /Code: `GITHUB_WRITE_UNCONFIRMED`/);
+    assert.equal(result.code, 0);
+    assert.deepEqual(t.runner.dispatched, [
+      { stage: "deliver", repo: "acme/app", issue: "1", reason: "", assignee: "5" },
+    ]);
+    assert.match(result.stdout, /^acme\/app#1: Assignee 5 has an online runner\n/);
+    assert.ok(!t.issues.main.labels.includes("pending"));
+    assert.deepEqual(t.issues.marked("pending"), []);
+    assert.deepEqual(
+      t.issues.github.writes().map((call) => call.method),
+      ["POST"],
+    );
   });
 
   it("adds pending when the route fails", async () => {

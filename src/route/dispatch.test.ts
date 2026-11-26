@@ -6,9 +6,19 @@ import {
   networkError,
   rejection,
 } from "../github/fake-github.test.ts";
-import { freshReads, GitHubError, notStartedStatuses } from "../github/index.ts";
-import { fakeIssue, fakeIssues } from "../stages/fake-job.test.ts";
-import { dispatchRoute, dispatchStage, sharedRunnerWorkflow } from "./dispatch.ts";
+import {
+  type Actor,
+  freshReads,
+  GitHubError,
+  notStartedStatuses,
+} from "../github/index.ts";
+import { fakeIssue, fakeIssues, seedComment } from "../stages/fake-job.test.ts";
+import {
+  chooseAssignee,
+  dispatchRoute,
+  dispatchStage,
+  sharedRunnerWorkflow,
+} from "./dispatch.ts";
 import { dispatchPath, fakeRunner, selfHostedRunner } from "./fake-runner.test.ts";
 
 const repo = { owner: "acme", repo: "app" };
@@ -16,10 +26,10 @@ const taco = { id: 5, login: "taco" };
 const deliver = {
   stage: "deliver" as const,
   reason: "ci-failure" as const,
-  assignee: 5,
   assignees: [taco],
 };
 const title = "Nibfin · acme/app#1 · deliver";
+const online5 = "acme/app#1: Assignee 5 has an online runner";
 
 describe("dispatchStage", () => {
   it("dispatches the stage on the default branch with its inputs", async () => {
@@ -38,6 +48,7 @@ describe("dispatchStage", () => {
       return_run_details: true,
     });
     assert.deepEqual(runner.logs, [
+      online5,
       `Dispatched ${title}: https://github.com/acme/runner/actions/runs/1001`,
     ]);
   });
@@ -55,6 +66,7 @@ describe("dispatchStage", () => {
       assert.equal(await dispatchStage(runner.scope, repo, 1, deliver), false);
       assert.deepEqual(runner.dispatched, []);
       assert.deepEqual(runner.logs, [
+        online5,
         `Not dispatching ${title}: run 7 is waiting to start`,
       ]);
     });
@@ -77,7 +89,7 @@ describe("dispatchStage", () => {
     const runner = fakeRunner(github);
     github.routes.set(`POST ${dispatchPath}`, { status: 204 });
     await dispatchStage(runner.scope, repo, 1, deliver);
-    assert.deepEqual(runner.logs, [`Dispatched ${title}`]);
+    assert.deepEqual(runner.logs, [online5, `Dispatched ${title}`]);
   });
 
   for (const [name, answer, code] of [
@@ -142,8 +154,8 @@ describe("dispatchStage", () => {
       assert.deepEqual(github.writes(), []);
       assert.ok(!github.calls.some((call) => call.path.endsWith("/actions/runs")));
       assert.deepEqual(runner.logs, [
-        "acme/app#1: no runner of the execution repository has the label nibfin-5; " +
-          "an ordinary assignment, nothing dispatched",
+        "acme/app#1: no runner of the execution repository has the label " +
+          "nibfin-<id> of any Assignee (5); an ordinary assignment, nothing dispatched",
       ]);
     });
   }
@@ -172,7 +184,7 @@ describe("dispatchStage", () => {
 
 describe("dispatchStage asks for consent (#721)", () => {
   const ann = { id: 7, login: "ann" };
-  const forAnn = { ...deliver, assignee: 7, assignees: [ann] };
+  const forAnn = { ...deliver, assignees: [ann] };
 
   function annWorld() {
     const issues = fakeIssues(
@@ -190,6 +202,7 @@ describe("dispatchStage asks for consent (#721)", () => {
     assert.ok(issues.main.labels.includes("pause"));
     assert.equal(issues.marked("consent-7").length, 1);
     assert.deepEqual(runner.logs, [
+      "acme/app#1: Assignee 7 has an online runner",
       "acme/app#1: added pause for the consent of Assignee(s) 7; nothing dispatched",
     ]);
   });
@@ -218,6 +231,178 @@ describe("dispatchStage asks for consent (#721)", () => {
     assert.equal(await dispatchStage(runner.scope, repo, 1, forAnn), false);
     assert.deepEqual(issues.github.writes(), []);
     assert.ok(!issues.github.calls.some((call) => call.path === "/repos/acme/runner"));
+  });
+});
+
+describe("chooseAssignee (#739)", () => {
+  const runner = (online: boolean, ...labels: string[]) => ({
+    online,
+    labels: new Set(labels),
+  });
+
+  it("prefers an online runner over an earlier Assignee's offline ones", () => {
+    const runners = [runner(false, "nibfin-5"), runner(true, "nibfin-7")];
+    assert.deepEqual(chooseAssignee([5, 7], runners), { assignee: 7, online: true });
+  });
+
+  it("takes the first Assignee with any runner when all are offline", () => {
+    const runners = [runner(false, "nibfin-7"), runner(false, "nibfin-9")];
+    assert.deepEqual(chooseAssignee([5, 9, 7], runners), {
+      assignee: 9,
+      online: false,
+    });
+  });
+
+  it("counts an Assignee as online when any of its runners is", () => {
+    const runners = [
+      runner(false, "nibfin-5"),
+      runner(true, "linux", "nibfin-5"),
+      runner(true, "nibfin-7"),
+    ];
+    assert.deepEqual(chooseAssignee([5, 7], runners), { assignee: 5, online: true });
+  });
+
+  it("breaks ties by Assignee order", () => {
+    const runners = [runner(true, "nibfin-7"), runner(true, "nibfin-5")];
+    assert.deepEqual(chooseAssignee([5, 7], runners), { assignee: 5, online: true });
+    assert.deepEqual(chooseAssignee([7, 5], runners), { assignee: 7, online: true });
+  });
+
+  it("chooses nobody without a matching label", () => {
+    assert.equal(chooseAssignee([5, 7], []), undefined);
+    assert.equal(chooseAssignee([], [runner(true, "nibfin-5")]), undefined);
+    const near = [runner(true, "nibfin-5-claude", "nibfin-50", "nibfin-7x")];
+    assert.equal(chooseAssignee([5, 7], near), undefined);
+  });
+});
+
+describe("dispatchStage with several Assignees (#739)", () => {
+  const ann = { id: 7, login: "ann" };
+  const bob = { id: 9, login: "bob" };
+
+  /**
+   * acme/app#1 with `assignees` on a fake GitHub whose execution repository is
+   * owned by taco (5); `asked` already have Nibfin's consent comment.
+   */
+  function severalWorld(assignees: Actor[], asked: Actor[] = assignees) {
+    const issues = fakeIssues(fakeIssue({ assignees, labels: ["scope", "shaped"] }));
+    for (const assignee of asked) {
+      seedComment(issues, issues.main, `<!-- nibfin:consent-${assignee.id} -->\n\nAsked`);
+    }
+    const runner = fakeRunner(issues.github);
+    return { issues, runner, route: { ...deliver, assignees } };
+  }
+
+  it("dispatches to the chosen Assignee with the other inputs unchanged", async () => {
+    const { runner, route } = severalWorld([taco, bob]);
+    runner.runners = [
+      selfHostedRunner(1, ["nibfin-5"], { status: "offline" }),
+      selfHostedRunner(2, ["nibfin-9"], { busy: true }),
+    ];
+    assert.equal(await dispatchStage(runner.scope, repo, 1, route), true);
+    assert.deepEqual(runner.dispatched, [
+      {
+        stage: "deliver",
+        repo: "acme/app",
+        issue: "1",
+        reason: "ci-failure",
+        assignee: "9",
+      },
+    ]);
+    assert.deepEqual(runner.logs, [
+      "acme/app#1: Assignee 9 has an online runner",
+      `Dispatched ${title}: https://github.com/acme/runner/actions/runs/1001`,
+    ]);
+  });
+
+  it("queues on the first Assignee with a runner when all are offline", async () => {
+    const { runner, route } = severalWorld([ann, bob, taco]);
+    runner.runners = [
+      selfHostedRunner(1, ["nibfin-5"], { status: "offline" }),
+      selfHostedRunner(2, ["nibfin-9"], { status: "offline" }),
+    ];
+    assert.equal(await dispatchStage(runner.scope, repo, 1, route), true);
+    assert.equal(runner.dispatched[0].assignee, "9");
+    assert.equal(
+      runner.logs[0],
+      "acme/app#1: Assignee 9 has only offline runners; " +
+        "the Job queues until one is online",
+    );
+  });
+
+  for (const [status, online] of [
+    ["ONLINE", true],
+    ["Offline", false],
+    ["idle", false],
+  ] as const) {
+    const as = online ? "online" : "offline";
+    it(`reads a runner status of ${status} as ${as}`, async () => {
+      const { runner, route } = severalWorld([taco, bob]);
+      runner.runners = [
+        selfHostedRunner(1, ["nibfin-5"], { status: "offline" }),
+        selfHostedRunner(2, ["NIBFIN-9"], { status }),
+      ];
+      assert.equal(await dispatchStage(runner.scope, repo, 1, route), true);
+      assert.equal(runner.dispatched[0].assignee, online ? "9" : "5");
+    });
+  }
+
+  it("dispatches, reads and writes nothing when no Assignee has a runner", async () => {
+    const { issues, runner, route } = severalWorld([ann, bob], []);
+    runner.runners = [selfHostedRunner(1, ["nibfin-5", "nibfin-90", "nibfin-7-codex"])];
+    assert.equal(await dispatchStage(runner.scope, repo, 1, route), false);
+    assert.deepEqual(runner.dispatched, []);
+    assert.deepEqual(issues.github.writes(), []);
+    const read = (path: string) => issues.github.calls.some((call) => call.path === path);
+    assert.ok(!read("/repos/acme/runner/actions/runs"));
+    assert.ok(!read("/repos/acme/runner"));
+    assert.deepEqual(runner.logs, [
+      "acme/app#1: no runner of the execution repository has the label " +
+        "nibfin-<id> of any Assignee (7, 9); an ordinary assignment, nothing dispatched",
+    ]);
+  });
+
+  it("chooses from runners on a later page", async () => {
+    const { issues, runner, route } = severalWorld([taco, bob]);
+    const others = Array.from({ length: 100 }, (_, id) =>
+      selfHostedRunner(id, ["nibfin-5"], { status: "offline" }),
+    );
+    runner.runners = [...others, selfHostedRunner(100, ["nibfin-9"])];
+    assert.equal(await dispatchStage(runner.scope, repo, 1, route), true);
+    assert.equal(runner.dispatched[0].assignee, "9");
+    const listed = issues.github.calls.filter((call) => call.path.endsWith("/runners"));
+    assert.equal(listed.length, 2);
+  });
+
+  it("skips for a waiting run even if another Assignee would be chosen", async () => {
+    const { issues, runner, route } = severalWorld([taco, bob]);
+    runner.runners = [selfHostedRunner(1, ["nibfin-9"])];
+    runner.runs.push({ id: 3, status: "queued", display_title: title });
+    assert.equal(await dispatchStage(runner.scope, repo, 1, route), false);
+    assert.deepEqual(runner.dispatched, []);
+    assert.deepEqual(issues.github.writes(), []);
+    assert.deepEqual(runner.logs, [
+      "acme/app#1: Assignee 9 has an online runner",
+      `Not dispatching ${title}: run 3 is waiting to start`,
+    ]);
+  });
+
+  it("asks every non-owner Assignee for consent, not only the chosen one", async () => {
+    const { issues, runner, route } = severalWorld([ann, taco, bob], []);
+    runner.runners = [selfHostedRunner(1, ["nibfin-5"])];
+    assert.equal(await dispatchStage(runner.scope, repo, 1, route), false);
+    assert.equal(runner.dispatched.length, 0);
+    assert.ok(issues.main.labels.includes("pause"));
+    assert.equal(issues.marked("consent-7").length, 1);
+    assert.equal(issues.marked("consent-9").length, 1);
+    assert.equal(issues.marked("consent-5").length, 0);
+    issues.main.labels.splice(issues.main.labels.indexOf("pause"), 1);
+    freshReads(issues.github.client);
+    assert.equal(await dispatchStage(runner.scope, repo, 1, route), true);
+    assert.deepEqual(
+      runner.dispatched.map((inputs) => inputs.assignee),
+      ["5"],
+    );
   });
 });
 

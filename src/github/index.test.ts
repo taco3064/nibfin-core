@@ -62,7 +62,7 @@ test("the github module exports its public API", () => {
     "readRequiredChecks",
     "readReviewComments",
     "readRunJobs",
-    "readRunnerLabels",
+    "readRunners",
     "responseMessage",
     "runState",
     "runnerLabel",

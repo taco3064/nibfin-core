@@ -82,10 +82,9 @@ function onFixBranch(world: DeliveryWorld) {
   git(fixture.other, "push", "--quiet", "origin", `${branch}-cd-1`);
 }
 
-const assignee = 5;
 const assignees = [{ id: 5, login: "taco" }];
 const route = (stage: NextAction["stage"], reason: NextAction["reason"]) =>
-  stage === null ? null : { stage, reason, assignee, assignees };
+  stage === null ? null : { stage, reason, assignees };
 
 describe("routeIssue", () => {
   const table: Array<[string, Build, ReturnType<typeof route>]> = [
@@ -234,23 +233,14 @@ describe("routeIssue", () => {
     assert.equal(await routeIssue(issues.github.client, repo, 1, log), null);
   });
 
-  it("routes to the only Assignee", async () => {
-    const assignees = [{ id: 9, login: "only" }];
-    const state = await readRoute(await plain({ assignees })(), repo, 1, log);
-    assert.equal(state.route?.assignee, 9);
-    assert.deepEqual(state.route?.assignees, assignees);
-    assert.equal(state.assignees, 1);
-  });
-
-  it("routes nothing for several Assignees, with their count", async () => {
+  it("routes with every Assignee in GitHub's order", async () => {
     const assignees = [
       { id: 9, login: "first" },
       { id: 5, login: "second" },
     ];
     const state = await readRoute(await plain({ assignees })(), repo, 1, log);
-    assert.equal(state.route, null);
-    assert.equal(state.assignees, 2);
-    assert.deepEqual(state.stage, { stage: "ineligible", reason: "multiple-assignees" });
+    assert.deepEqual(state.route, { stage: "shape", reason: null, assignees });
+    assert.deepEqual(state.stage, { stage: "shape" });
   });
 });
 
