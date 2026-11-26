@@ -50,6 +50,11 @@ export {
 export { parseAgentResult } from "./result.ts";
 export { runReviewStage } from "./review.ts";
 export {
+  type ApprovalWait,
+  approvalWaitCommentKey,
+  readApprovalWait,
+} from "./review-wait.ts";
+export {
   defaultReviewDeps,
   deliveredCommentKey,
   reviewBlockedCommentKey,

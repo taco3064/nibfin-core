@@ -4,13 +4,18 @@ import { rejection } from "../github/fake-github.test.ts";
 import { NoProgressError, type NextActionRecord } from "../stages/index.ts";
 import { deliveryWorld } from "../stages/fake-delivery.test.ts";
 import {
+  agentResult,
   fakeIssue,
   type FakeIssue,
   fakeIssues,
   seedComment,
   shapeVersion,
 } from "../stages/fake-job.test.ts";
-import { addPullComment, reviewWorld } from "../stages/fake-review.test.ts";
+import {
+  addPullComment,
+  requireApprovals,
+  reviewWorld,
+} from "../stages/fake-review.test.ts";
 import { continueAfterStage, type FinishedStage } from "./after-stage.ts";
 import { fakeRunner, selfHostedRunner } from "./fake-runner.test.ts";
 
@@ -130,6 +135,26 @@ describe("continueAfterStage", () => {
     assert.equal(error.temporary, false);
     assert.deepEqual(runner.dispatched, []);
   });
+
+  for (const progressed of [true, false]) {
+    it(`dispatches nothing after a waiting review (${progressed})`, async () => {
+      const world = await reviewWorld({
+        steps: [() => agentResult({ outcome: "clean", reviewedHead: world.head })],
+      });
+      requireApprovals(world, 1);
+      assert.equal(await world.review(), 0);
+      // A rerun (a wake) finds the wait current and changes nothing.
+      if (!progressed) {
+        assert.equal(await world.review(), 0);
+      }
+      const next = world.next() as NextActionRecord;
+      assert.deepEqual(next, record(progressed));
+      const runner = fakeRunner(world.issues.github);
+      await continueAfterStage(runner.scope, finished("review"), next);
+      assert.deepEqual(runner.dispatched, []);
+      assert.deepEqual(runner.logs, ["acme/app#1: nothing to run now"]);
+    });
+  }
 
   it("stops a review that could not merge yet, marked temporary", async () => {
     const world = await reviewWorld();

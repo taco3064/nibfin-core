@@ -50,15 +50,28 @@ export async function readPullRequestCommits(
   return commits.map((commit) => commit.sha);
 }
 
+/** A reviewer's latest submitted review that approved, dismissed or requested changes. */
+export interface LatestReview {
+  id: number;
+  login: string;
+  /** Such as `APPROVED`, `CHANGES_REQUESTED` or `DISMISSED`. */
+  state: string;
+  /** The head the review was submitted on; `null` when GitHub has none. */
+  commitId: string | null;
+  url: string;
+  /** The review's text; empty when it has none. */
+  body: string;
+}
+
 /**
- * How many reviewers approved: each reviewer's latest approving, dismissed or
- * change-requesting review counts, plain comments do not.
+ * Each reviewer's latest review (all pages, ordered by id), one per user id: plain
+ * comments, unsubmitted (`PENDING`) reviews and reviews without a user do not count.
  */
-export async function readApprovalCount(
+export async function readLatestReviews(
   client: GitHubClient,
   repo: Repo,
   number: number,
-): Promise<number> {
+): Promise<LatestReview[]> {
   const reviews = await read(
     `list reviews of pull request ${repo.owner}/${repo.repo}#${number}`,
     () =>
@@ -68,13 +81,113 @@ export async function readApprovalCount(
         per_page: 100,
       }),
   );
-  const latest = new Map<number, string>();
+  const latest = new Map<number, LatestReview>();
   for (const review of reviews.toSorted((a, b) => a.id - b.id)) {
-    if (review.user && review.state !== "COMMENTED") {
-      latest.set(review.user.id, review.state);
+    const { user, state } = review;
+    if (user && state !== "COMMENTED" && state !== "PENDING") {
+      latest.set(user.id, {
+        id: review.id,
+        login: user.login,
+        state,
+        commitId: review.commit_id ?? null,
+        url: review.html_url,
+        body: review.body ?? "",
+      });
     }
   }
-  return [...latest.values()].filter((state) => state === "APPROVED").length;
+  return [...latest.values()];
+}
+
+/**
+ * How many reviewers approved: each reviewer's latest approving, dismissed or
+ * change-requesting review counts, plain comments do not.
+ */
+export async function readApprovalCount(
+  client: GitHubClient,
+  repo: Repo,
+  number: number,
+): Promise<number> {
+  const reviews = await readLatestReviews(client, repo, number);
+  return reviews.filter((review) => review.state === "APPROVED").length;
+}
+
+/** An inline comment of a review. */
+export interface ReviewComment {
+  path: string;
+  /** `null` for a comment on a whole file or an outdated line. */
+  line: number | null;
+  body: string;
+  url: string;
+}
+
+/** The inline comments of one review of a pull request (all pages). */
+export async function readReviewComments(
+  client: GitHubClient,
+  repo: Repo,
+  number: number,
+  reviewId: number,
+): Promise<ReviewComment[]> {
+  const where = `${repo.owner}/${repo.repo}#${number}`;
+  const comments = await read(`list comments of review ${reviewId} of ${where}`, () =>
+    client.paginate(
+      "GET /repos/{owner}/{repo}/pulls/{pull_number}/reviews/{review_id}/comments",
+      { ...repo, pull_number: number, review_id: reviewId, per_page: 100 },
+    ),
+  );
+  return comments.map((comment) => ({
+    path: comment.path,
+    line: comment.line ?? null,
+    body: comment.body,
+    url: comment.html_url,
+  }));
+}
+
+/** The users (logins) and teams (slugs) a pull request still asks for a review. */
+export interface RequestedReviewers {
+  users: string[];
+  teams: string[];
+}
+
+/** A pull request's requested reviewers; a submitted review removes its reviewer. */
+export async function readRequestedReviewers(
+  client: GitHubClient,
+  repo: Repo,
+  number: number,
+): Promise<RequestedReviewers> {
+  const { data } = await read(
+    `read requested reviewers of ${repo.owner}/${repo.repo}#${number}`,
+    () =>
+      client.request(
+        "GET /repos/{owner}/{repo}/pulls/{pull_number}/requested_reviewers",
+        { ...repo, pull_number: number },
+      ),
+  );
+  return {
+    users: data.users.map((user) => user.login),
+    teams: data.teams.map((team) => team.slug),
+  };
+}
+
+/**
+ * Whether `login` has write access to the repository: its collaborator permission is
+ * `admin` or `write` (`maintain` reads as `write`). A 404 (not a collaborator) is no
+ * access; any other failure is `GITHUB_READ_FAILED`.
+ */
+export async function hasWritePermission(
+  client: GitHubClient,
+  repo: Repo,
+  login: string,
+): Promise<boolean> {
+  const answer = await readOptional(
+    `read the permission of ${login} on ${repo.owner}/${repo.repo}`,
+    () =>
+      client.request("GET /repos/{owner}/{repo}/collaborators/{username}/permission", {
+        ...repo,
+        username: login,
+      }),
+  );
+  const permission = answer?.data.permission;
+  return permission === "admin" || permission === "write";
 }
 
 const forcePushQuery = `query(
