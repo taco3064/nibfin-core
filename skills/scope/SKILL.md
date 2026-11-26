@@ -281,19 +281,20 @@ For a request, Plan also:
   the authority already approves. It fills no authority gap or product decision by
   assumption; such a gap is `PLAN_BLOCKED` or `AUTHORITY_UPDATE_REQUIRED`.
 - is `PLAN_READY` only when the manifest leaves no product or authority decision open.
-- only creates Issues, edges between them and edges where a new Issue is blocked by an
-  existing one. Work that would edit the body or metadata of, cancel, reassign or block an
-  existing Issue is `PLAN_BLOCKED`.
+- only creates Issues, edges among the Issues it creates or reuses, and edges where one of
+  them is blocked by an existing Issue. Work that would edit the body or metadata of,
+  cancel, reassign or block any other existing Issue is `PLAN_BLOCKED`.
 - gives every Issue `scope` and the request's Assignees, and the line
-  `Origin: <request URL>` in its body.
-- on a rerun, finds the Issues whose body has this request's origin line, ignoring those
-  closed as not planned, and keeps each one that still fits in the manifest for reuse,
-  with its body and metadata unchanged. One that no longer fits is `PLAN_BLOCKED`; a
-  person discards it by closing it as not planned.
+  `Origin: <request URL>` in its body. A request with no Assignee is `PLAN_BLOCKED`.
+- on a rerun, finds the Issues whose body has this request's origin line, in every
+  repository the manifest may target and ignoring those closed as not planned. It keeps
+  each one that still fits in the manifest for reuse with its body unchanged, adding only
+  a missing `scope`, the request's Assignees and its planned edges. One that no longer
+  fits is `PLAN_BLOCKED`; a person discards it by closing it as not planned.
 - returns `PLAN_BLOCKED` with the reason if nothing is left to create or reuse.
 
-Publish follows the rules above. Report the URL of every Issue created or reused, also
-when publication is partial.
+Publish follows the rules above; for a request, an Issue closed as not planned is never a
+match. Report the URL of every Issue created or reused, also when publication is partial.
 
 The stage, not the role, updates the request Issue:
 

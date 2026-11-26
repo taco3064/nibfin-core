@@ -112,7 +112,8 @@ output format.
 - Already covered: the latest `main` already provides what was asked, or an open Issue
   with `scope` and an Assignee already owns it, and nothing new is needed. Cite the code,
   tests, merged PRs or Issue. Issues whose body has the line `Origin: <request URL>` for
-  this request do not count; list them for Plan to reuse.
+  this request do not count; list them, except those closed as not planned, for Plan to
+  reuse.
 - Not feasible: no route exists within the current code, provider capabilities and the
   agent permission boundary. Name what is missing.
 - Needs a person: the request is not development work, conflicts with an approved
