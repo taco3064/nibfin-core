@@ -185,7 +185,8 @@ const currentBaseRef = "refs/nibfin/current-base";
 /**
  * The base to compare `head` with: `base` as GitHub has it now when `head` already
  * contains it (the Writer rebased onto a base newer than Core's Job-start fetch),
- * otherwise Core's `refs/remotes/origin/<base>` as before. Only Core's own scratch ref
+ * else the newest base commit `head` contains when that is newer than Core's
+ * `refs/remotes/origin/<base>`, otherwise that Job-start ref. Only Core's own scratch ref
  * is written; a failed fetch keeps the Job-start base (#747).
  */
 async function comparisonBase(git: Git, base: string, head: string): Promise<string> {
@@ -200,7 +201,16 @@ async function comparisonBase(git: Git, base: string, head: string): Promise<str
     return startRef;
   }
   const contained = await git.core(["merge-base", "--is-ancestor", currentBaseRef, head]);
-  return contained.exitCode === 0 ? currentBaseRef : startRef;
+  if (contained.exitCode === 0) {
+    return currentBaseRef;
+  }
+  // The base may have moved again after the Writer rebased: use the newest base
+  // commit `head` contains, while it is no older than the Job-start base.
+  const shared = await git.core(["merge-base", currentBaseRef, head]);
+  const commit = shared.stdout.trim();
+  // No shared commit leaves `commit` empty, which git rejects below.
+  const newer = await git.core(["merge-base", "--is-ancestor", startRef, commit]);
+  return newer.exitCode === 0 ? commit : startRef;
 }
 
 /**

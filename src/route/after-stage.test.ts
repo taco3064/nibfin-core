@@ -163,6 +163,20 @@ describe("continueAfterStage", () => {
     });
   }
 
+  it("stops a conflict fix without progress, marked temporary", async () => {
+    const world = await reviewWorld();
+    world.pull.mergeable = false;
+    world.mergeable = false;
+    const runner = fakeRunner(world.issues.github);
+    const error = await rejection(
+      continueAfterStage(runner.scope, finished("deliver", "conflict"), record(false)),
+    );
+    assert.ok(error instanceof NoProgressError);
+    assert.equal(error.temporary, true);
+    assert.match(error.message, /deliver \(conflict\).*computing mergeability/);
+    assert.deepEqual(runner.dispatched, []);
+  });
+
   it("stops a review that could not merge yet, marked temporary", async () => {
     const world = await reviewWorld();
     const runner = fakeRunner(world.issues.github);

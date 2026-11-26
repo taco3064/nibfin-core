@@ -22,7 +22,8 @@ function parseRepo(name: string): Repo {
 
 function noProgress(finished: FinishedStage): NoProgressError {
   const what = `${finished.stage} (${finished.reason ?? "no reason"})`;
-  const review = finished.stage === "review";
+  // A conflict GitHub has not finished computing reads like the same conflict.
+  const review = finished.stage === "review" || finished.reason === "conflict";
   const message =
     `The ${what} run changed nothing on GitHub, and GitHub state still asks for ` +
     `the same run${review ? "; GitHub may still be computing mergeability" : ""}.`;

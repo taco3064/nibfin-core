@@ -266,6 +266,27 @@ describe("protectedChanges", () => {
     assert.deepEqual(await changes(), { changedOnBranch: [], behindBase: [] });
   });
 
+  it("uses the newest base the branch has when the base moved again", async () => {
+    const { fixture, changes } = await staleBranch();
+    moveBase(fixture);
+    git(fixture.workspace, "fetch", "--quiet", "origin", "main");
+    git(fixture.workspace, "rebase", "--quiet", "origin/main");
+    write(fixture.other, "docs/later.md", "D\n");
+    git(fixture.other, "add", ".");
+    git(fixture.other, "commit", "--quiet", "-m", "D");
+    git(fixture.other, "push", "--quiet", "origin", "main");
+    assert.deepEqual(await changes(), { changedOnBranch: [], behindBase: [] });
+  });
+
+  it("keeps the Job-start base for a stale branch when the base moved", async () => {
+    const { fixture, changes } = await staleBranch();
+    moveBase(fixture);
+    assert.deepEqual(await changes(), {
+      changedOnBranch: [],
+      behindBase: [".github/workflows/ci.yml", ".rulesync/rules.md", "docs/deliver.md"],
+    });
+  });
+
   it("keeps the Job-start base when the base cannot be fetched", async () => {
     const { fixture, changes } = await staleBranch();
     git(fixture.workspace, "rebase", "--quiet", "origin/main");
