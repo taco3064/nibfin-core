@@ -31,7 +31,7 @@ Plan, Publish and Audit are separate modes.
 
 A manifest is approved in one of two ways: the Owner explicitly approves it, or the Scope
 stage supplies it from a request that the Investigation judged feasible and whose Plan is
-`PLAN_READY` (see Requests). Nothing else approves a manifest.
+`PLAN_READY` with deduplication verified (see Requests). Nothing else approves a manifest.
 
 An Issue with `scope` and an Assignee becomes eligible for automatic Shape. An approved
 manifest is what authorizes that; Scope never adds `scope` or an Assignee outside one.
@@ -320,9 +320,9 @@ The stage, not the role, updates the request Issue:
 - Needing a person: `pending` and a comment that only a person can judge it, with the
   reason, the decision needed and any Issues already created; the request stays open. This
   covers a request judged not feasible or needing a person, `PLAN_BLOCKED`,
-  `AUTHORITY_UPDATE_REQUIRED` and any Publish verdict other than `PUBLISHED`. A person
-  records the decision in the authority or changes the request, then removes `pending`;
-  the stage starts again from step 1.
+  `AUTHORITY_UPDATE_REQUIRED`, a Plan without verified deduplication and any Publish
+  verdict other than `PUBLISHED`. A person records the decision in the authority or
+  changes the request, then removes `pending`; the stage starts again from step 1.
 
 ## Report
 
