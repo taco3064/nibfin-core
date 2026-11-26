@@ -1,6 +1,7 @@
 import type { GitHubClient } from "./client.ts";
-import { GitHubError, isUnknownOutcome, read } from "./errors.ts";
+import { read } from "./errors.ts";
 import type { Repo } from "./repo.ts";
+import { write } from "./write.ts";
 
 /** The run statuses of a workflow run that has not started (#674). */
 export const notStartedStatuses = ["requested", "waiting", "pending", "queued"] as const;
@@ -54,9 +55,10 @@ export async function readRepoOwnerId(client: GitHubClient, repo: Repo): Promise
 
 /**
  * Dispatches `workflow` of `repo` on its default branch with `inputs` and returns
- * the new run's URL when GitHub reports it. A dispatch cannot be confirmed by a
- * re-read: no response or a 5xx is `GITHUB_WRITE_UNCONFIRMED`, any other failure
- * `GITHUB_WRITE_REJECTED`.
+ * the new run's URL when GitHub reports it. A dispatch only wakes an Issue, so a
+ * repeated one is harmless (R4.35), and it cannot be confirmed by a re-read: any
+ * failure is re-sent without a pre-read up to `maxRetries` times. Then no response
+ * or a 5xx is `GITHUB_WRITE_UNCONFIRMED`, any other failure `GITHUB_WRITE_REJECTED`.
  */
 export async function dispatchWorkflow(
   client: GitHubClient,
@@ -65,17 +67,16 @@ export async function dispatchWorkflow(
   inputs: Readonly<Record<string, string>>,
 ): Promise<string | undefined> {
   const ref = await readDefaultBranch(client, repo);
-  const operation = `dispatch ${workflow} of ${repo.owner}/${repo.repo}`;
-  try {
-    const { data } = await client.request(
-      "POST /repos/{owner}/{repo}/actions/workflows/{workflow_id}/dispatches",
-      { ...repo, workflow_id: workflow, ref, inputs, return_run_details: true },
-    );
-    return (data as { html_url?: string } | undefined)?.html_url;
-  } catch (error) {
-    const code = isUnknownOutcome(error)
-      ? "GITHUB_WRITE_UNCONFIRMED"
-      : "GITHUB_WRITE_REJECTED";
-    throw new GitHubError(code, operation, error);
-  }
+  return write(
+    client,
+    `dispatch ${workflow} of ${repo.owner}/${repo.repo}`,
+    async () => {
+      const { data } = await client.request(
+        "POST /repos/{owner}/{repo}/actions/workflows/{workflow_id}/dispatches",
+        { ...repo, workflow_id: workflow, ref, inputs, return_run_details: true },
+      );
+      return (data as { html_url?: string } | undefined)?.html_url;
+    },
+    { confirm: () => Promise.resolve(undefined) },
+  );
 }
