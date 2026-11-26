@@ -4,6 +4,7 @@ import type { Actor, GitHubClient } from "./client.ts";
 import type { DependencyIssue } from "./dependencies.ts";
 import { readIssueRecord } from "./issue-query.ts";
 import { readPullRequest } from "./pull-request.ts";
+import { freshReads } from "./read-cache.ts";
 import type { IssueRef, Repo } from "./repo.ts";
 import { type CiState, readCi } from "./required-checks.ts";
 
@@ -48,13 +49,22 @@ export interface SnapshotReaders {
   readCi: typeof readCi;
   readCdRuns: typeof readCdRuns;
   readPullRequest: typeof readPullRequest;
+  /** Waits `ms` milliseconds before `mergeable` is read again. */
+  wait: (ms: number) => Promise<void>;
 }
 
 export const defaultSnapshotReaders: SnapshotReaders = {
   readCi,
   readCdRuns,
   readPullRequest,
+  wait: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
 };
+
+/**
+ * The waits before each re-read of a `mergeable` GitHub answered `null` (still
+ * computing): 3 re-reads (#751, Proposal R4.37).
+ */
+export const mergeableRetryDelays: readonly number[] = [2000, 4000, 8000];
 
 /**
  * Everything the stage rules need about Issue `issueNumber`, read from GitHub: the Issue,
@@ -132,13 +142,35 @@ async function pullRequestState(
 ): Promise<PullRequestState> {
   const open = pull.state === "open";
   const mergeable =
-    open && current
-      ? (await readers.readPullRequest(client, repo, pull.number)).mergeable
-      : null;
+    open && current ? await readMergeable(client, repo, pull, readers) : null;
   const ci = open ? await readers.readCi(client, repo, pull.baseRef, pull.headSha) : null;
   const cd =
     pull.merged && pull.mergeCommitSha !== null
       ? await readers.readCdRuns(client, repo, pull.baseRef, pull.mergeCommitSha)
       : null;
   return { ...pull, ci, cd, mergeable };
+}
+
+/**
+ * GitHub's `mergeable` for an open pull request. `null` means GitHub is still
+ * computing it (often right after the base moved), not that there is no conflict, so it
+ * is read again past the per-Job read cache, up to 3 times (#751). It stays `null`
+ * only when GitHub still has not computed it.
+ */
+async function readMergeable(
+  client: GitHubClient,
+  repo: Repo,
+  pull: PullRequestSummary,
+  readers: SnapshotReaders,
+): Promise<boolean | null> {
+  let { mergeable } = await readers.readPullRequest(client, repo, pull.number);
+  for (const delay of mergeableRetryDelays) {
+    if (mergeable !== null) {
+      break;
+    }
+    await readers.wait(delay);
+    freshReads(client);
+    ({ mergeable } = await readers.readPullRequest(client, repo, pull.number));
+  }
+  return mergeable;
 }

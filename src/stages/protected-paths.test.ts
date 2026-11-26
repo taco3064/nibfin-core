@@ -244,6 +244,17 @@ describe("protectedChanges", () => {
     });
   });
 
+  it("uses GitHub's base after the Writer rebased onto a newer one", async () => {
+    const { fixture, changes } = await staleBranch();
+    // The base moves after Job start and the Writer rebases onto it (#747).
+    write(fixture.other, ".github/workflows/ci.yml", "newer\n");
+    git(fixture.other, "commit", "--quiet", "-am", "C");
+    git(fixture.other, "push", "--quiet", "origin", "main");
+    git(fixture.workspace, "fetch", "--quiet", "origin", "main");
+    git(fixture.workspace, "rebase", "--quiet", "origin/main");
+    assert.deepEqual(await changes(), { changedOnBranch: [], behindBase: [] });
+  });
+
   it("lists both sides of a rename", async () => {
     const { fixture, changes } = await staleBranch();
     git(fixture.workspace, "rebase", "--quiet", "origin/main");
