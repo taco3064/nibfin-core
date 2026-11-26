@@ -172,7 +172,11 @@ describe("runDeliverStage for review", () => {
     [
       "an older head",
       (head: string) => [
-        { id: 9, userId: fakeActor.id, body: reviewBody(`0${head.slice(1)}`) },
+        {
+          id: 9,
+          userId: fakeActor.id,
+          body: reviewBody(`${head[0] === "0" ? "1" : "0"}${head.slice(1)}`),
+        },
       ],
     ],
     [
