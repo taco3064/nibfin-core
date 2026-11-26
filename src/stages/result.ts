@@ -2,7 +2,6 @@ import { isRecord, type JsonRecord } from "../agent/json.ts";
 import { StageError } from "./errors.ts";
 
 export const resultFence = "```nibfin-result";
-const closingFence = "```";
 
 /** The result instructions of a role: the block, its JSON objects, then a note. */
 export function resultFormat(objects: readonly string[], note: string): string {
@@ -25,14 +24,27 @@ export function resultFormat(objects: readonly string[], note: string): string {
 export const blockedObject =
   '{"outcome": "blocked", "reason": "<the underlying cause and evidence>"}';
 
-/** The text of the last fenced `nibfin-result` block, if any block is complete. */
+/** An opening line: 3 or more backticks, then exactly `nibfin-result`. */
+const openingLine = /^(`{3,})nibfin-result$/;
+
+/**
+ * The text of the last fenced `nibfin-result` block, if any block is complete. As in
+ * Markdown, the fence may be longer than 3 backticks (an agent may wrap a body that
+ * contains ```), and the block closes at a line of only backticks at least as long as
+ * its opening fence.
+ */
 function lastResultBlock(finalMessage: string): string | undefined {
   let block: string[] | undefined;
+  let fence = "";
   let last: string | undefined;
   for (const line of finalMessage.split(/\r?\n/)) {
     if (block === undefined) {
-      block = line === resultFence ? [] : undefined;
-    } else if (line === closingFence) {
+      const open = openingLine.exec(line);
+      if (open !== null) {
+        block = [];
+        fence = open[1];
+      }
+    } else if (/^`+$/.test(line) && line.length >= fence.length) {
       last = block.join("\n");
       block = undefined;
     } else {
