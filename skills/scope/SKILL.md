@@ -291,19 +291,20 @@ For a request, Plan also:
   Assignee, or one not assignable in a target repository, is `PLAN_BLOCKED`.
 - on a rerun, finds the Issues an earlier run created from the request's cross-reference
   events (the origin line creates one in any repository), keeping those whose body has
-  this request's origin line and ignoring those closed as not planned. It keeps each one
-  that still fits in the manifest for reuse with its body unchanged, adding only a missing
-  `scope`, the request's Assignees and its planned edges; one that already has `scope`
-  gets no new edge that blocks it. One that no longer fits, or would need such an edge, is
-  `PLAN_BLOCKED`; a person discards it by closing it as not planned. One closed as
-  completed still fits, and a manifest that only reuses Issues can be `PLAN_READY`.
+  this request's origin line and ignoring those closed as not planned or as a duplicate
+  (discarded). It keeps each one that still fits in the manifest for reuse with its body
+  unchanged, adding only a missing `scope`, the request's Assignees and its planned edges;
+  one that already has `scope` gets no new edge that blocks it. One that no longer fits,
+  or would need such an edge, is `PLAN_BLOCKED`; a person discards it by closing it as not
+  planned or as a duplicate. One closed as completed counts as delivered and stays in the
+  manifest; a manifest that only reuses Issues can be `PLAN_READY`.
 - returns `PLAN_BLOCKED` with the reason if nothing is left to create or reuse.
 
 Publish follows the rules above, with these additions for a request:
 
-- It ignores every Issue closed as not planned, whether matched by title or by origin
-  line. Any other Issue with this request's origin line that the manifest does not list
-  for reuse is `REPLAN_REQUIRED`.
+- It ignores every discarded Issue, whether matched by title or by origin line. Any other
+  Issue with this request's origin line that the manifest does not list for reuse is
+  `REPLAN_REQUIRED`.
 - It adds `scope` and the Assignees to the Issues only after every planned Issue and edge
   is confirmed by read-back, so no Issue becomes eligible for Shape before its edges
   exist.

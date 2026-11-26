@@ -105,8 +105,8 @@ input: check its claims against the authority, the code and existing Issues inst
 taking them as fact. Whatever the judgment, list the request's own Issues with their
 state: those an earlier run created, whose body has the line `Origin: ` followed by the
 request's URL, found from the request's cross-reference events, except those closed as not
-planned. End with one judgment and its reasons; the stage supplies the exact output
-format.
+planned or as a duplicate. End with one judgment and its reasons; the stage supplies the
+exact output format.
 
 - Feasible: the authority already approves the outcome, the work is development (see
   Development eligibility), a feasible route exists from the current code and provider
@@ -116,8 +116,8 @@ format.
   or an open Issue with `scope` and an Assignee already owns it, and nothing new is
   needed. Cite the code, tests, merged PRs or Issue. The request's own Issues and the work
   they delivered do not count, and while any of them is open the request is not already
-  covered. When its own Issues cover what was asked, judge the request feasible so Plan
-  reuses them.
+  covered. When its own Issues still fit and cover what was asked, judge the request
+  feasible so Plan reuses them.
 - Not feasible: no route exists, even with new work, within the provider capabilities and
   the agent permission boundary (no Secrets or protected paths; see Security). Name what
   is missing.
