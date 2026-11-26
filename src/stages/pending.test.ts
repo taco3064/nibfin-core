@@ -143,7 +143,11 @@ describe("requestPerson", () => {
     const route = "POST /repos/acme/app/issues/1/comments";
     issues.github.routes.set(
       route,
-      sequence(failure(422), issues.github.routes.get(route)!),
+      // GitHub rejects the long body on every retry of the write.
+      sequence(
+        ...Array.from({ length: 4 }, () => failure(422)),
+        issues.github.routes.get(route)!,
+      ),
     );
     const error = new StageError("STAGE_GIT_FAILED", "a very long message");
     assert.equal(await requestPerson(issues.github.client, issue, error, url), true);
@@ -157,7 +161,7 @@ describe("requestPerson", () => {
     assert.match(comment.body, temporaryNote);
     assert.ok(issues.main.labels.includes("pending"));
     const posts = issues.github.writes().filter((call) => route.endsWith(call.path));
-    assert.equal(posts.length, 2);
+    assert.equal(posts.length, 5);
   });
 
   it("fails when GitHub rejects the comment without the message too", async () => {
@@ -168,7 +172,8 @@ describe("requestPerson", () => {
     );
     assert.ok(error instanceof GitHubError);
     assert.equal(error.code, "GITHUB_WRITE_REJECTED");
-    assert.equal(issues.github.writes().length, 2);
+    // Each of the two comments is sent once and retried three times.
+    assert.equal(issues.github.writes().length, 8);
     assert.ok(!issues.main.labels.includes("pending"));
   });
 

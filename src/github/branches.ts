@@ -1,5 +1,5 @@
 import type { GitHubClient } from "./client.ts";
-import { read, readOptional } from "./errors.ts";
+import { absentProbe, read, readOptional } from "./errors.ts";
 import type { Repo } from "./repo.ts";
 
 /** The branch that delivers Issue `n`. */
@@ -124,6 +124,7 @@ export async function branchExists(
     client.request("GET /repos/{owner}/{repo}/git/ref/{ref}", {
       ...repo,
       ref: `heads/${name}`,
+      request: absentProbe,
     }),
   );
   return ref !== undefined;

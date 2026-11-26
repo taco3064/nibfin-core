@@ -43,12 +43,16 @@ export type DeliveryOutcome =
 export type Stage =
   | { stage: "ineligible"; reason: Exclude<IneligibleReason, "blocked"> }
   | { stage: "ineligible"; reason: "blocked"; blockers: DependencyIssue[] }
+  /** An open `request` without `scope`: the Scope stage (Proposal R4.8). */
+  | { stage: "scope" }
   | { stage: "shape" }
   | DeliveryOutcome;
 
 /**
- * The stage of an Issue: the ineligible checks first, then the `shaped` rule, then the
- * delivery outcome.
+ * The stage of an Issue: the ineligible checks first (an Issue with neither `scope`
+ * nor `request` is `no-scope`), then a `request` without `scope` is `scope`, then the
+ * `shaped` rule, then the delivery outcome. An Issue with `scope` takes the same path
+ * whether it has `request` or not.
  */
 export function deriveStage(snapshot: IssueSnapshot): Stage {
   const { issue } = snapshot;
@@ -56,7 +60,7 @@ export function deriveStage(snapshot: IssueSnapshot): Stage {
   if (issue.state === "closed") {
     return { stage: "ineligible", reason: "closed" };
   }
-  if (!has(nibfinLabels.scope)) {
+  if (!has(nibfinLabels.scope) && !has(nibfinLabels.request)) {
     return { stage: "ineligible", reason: "no-scope" };
   }
   if (has(nibfinLabels.pause)) {
@@ -71,6 +75,9 @@ export function deriveStage(snapshot: IssueSnapshot): Stage {
   }
   if (issue.assignees.length === 0) {
     return { stage: "ineligible", reason: "no-assignee" };
+  }
+  if (!has(nibfinLabels.scope)) {
+    return { stage: "scope" };
   }
   if (!has(nibfinLabels.shaped)) {
     return { stage: "shape" };

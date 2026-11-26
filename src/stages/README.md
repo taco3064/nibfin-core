@@ -128,6 +128,16 @@ removing it resumes from GitHub state.
   is `STAGE_RESULT_INVALID` with the agent's final message. Each stage checks the
   other fields of its roles' results.
 
+## Scope stage
+
+`runScopeStage(context, client)` (`nibfin run --stage scope ...`) runs for an open
+`request` Issue without `scope` (Proposal R3.2, R4.8; #734). Its work (the
+Investigation, the Plan and the publication) is not implemented in this version: it
+logs that, runs no agent, writes nothing to GitHub, leaves the workspace untouched
+and writes no next action (`progressed: false`). After a Scope run Core dispatches
+only its wakes, never the request's own route (see `src/route`), so the placeholder
+adds no `pending`.
+
 ## Shape stage
 
 `runShapeStage(context, client, deps?)`:
@@ -464,21 +474,30 @@ unknown` stops with no next action (GitHub is still computing).
 3. Chooses the first of rebase, squash and merge commit that the repository settings
    and every applying ruleset `pull_request` rule allow (no merge commit under
    `required_linear_history`). No method, or an unknown setting, is `review-blocked`.
-4. Merges with `sha: H`. `head-changed` (409, or a 405 saying the head was modified)
-   stops with no next action. A rejection naming the workflows permission is
-   `review-blocked` naming it. Any other 405 re-reads the PR: a head that moved or a
-   PR no longer open stops with no next action, `mergeable: false` or `dirty` goes
-   back to Deliver as a rebase, `behind` (the repository requires up-to-date
-   branches) is `review-blocked` explaining that setting, and a PR GitHub reports
-   mergeable (`clean`, `unstable`, `has_hooks`) or is still computing is merged
-   again at once when the base branch ref (`GET …/git/ref/heads/<base>`, read
-   after such a refusal) points to a commit no earlier retry was made on (the base
-   moving during the merge); each further retry needs another new base, so no
-   attempt count is set. Any other state is `review-blocked` with
-   GitHub's message; on an unmoved base a mergeability still being computed is
-   `review-blocked` saying so, and a mergeable one with GitHub's message. Any other
-   4xx is `GITHUB_WRITE_REJECTED`. An unknown outcome re-reads the PR once and
-   otherwise stays Pending (`GITHUB_WRITE_UNCONFIRMED`); it is never retried blindly.
+4. Merges with `sha: H` and the method chosen once. A failed attempt (`head-changed`
+   409, `not-mergeable` 405, any other rejection, an unknown outcome whose re-read
+   does not show the merge) is re-sent up to 3 times (#748, Proposal R4.37–R4.38).
+   Before each re-send it waits (`retryDelay`: a rate limit the time GitHub states,
+   otherwise 1, 4, 9 s), logs `Merging <url> again (retry <k> of 3): <cause>;
+waiting <s> s` (`<cause>` is the kind only: `HTTP 405`, `HTTP 409`, another
+   status, a rate-limit kind or `no response`, never GitHub's message), then repeats steps 1 and 2's re-check: the Issue must still derive
+   `review` on the same PR at `H` (`pause`, closing, an Issue edit, a new push or a
+   merge that landed meanwhile stops with no next action), no pending `shape-wrong`
+   report (otherwise next `{ "deliver", null }`), and the PR open at `H`. A real
+   conflict goes to Deliver at once, with no more attempts: `dirty` writes the
+   rebase `review` comment, and `mergeable: false` makes the stage `conflict`, which
+   the route sends to Deliver. Anything else (`behind`, `blocked`, still computing,
+   `clean`) is re-sent; GitHub decides. When the third retry fails too, it logs
+   `Merging <url>: <cause>; not retrying after 3 retries`, and the last attempt's
+   outcome is then routed once: `head-changed` (409, or a 405 saying the head was modified) stops with no
+   next action. A rejection naming the workflows permission is `review-blocked`
+   naming it. Any other 405 re-reads the PR: a head that moved or a PR no longer
+   open stops with no next action, `mergeable: false` or `dirty` goes back to
+   Deliver as a rebase, `behind` (the repository requires up-to-date branches) is
+   `review-blocked` explaining that setting, a mergeability still being computed is
+   `review-blocked` saying so, and any other state is `review-blocked` with GitHub's
+   message. Any other error (`GITHUB_WRITE_REJECTED`, `GITHUB_WRITE_UNCONFIRMED`) is
+   thrown and leads to `pending`.
 5. After the merge the next action is none: CD events continue the Issue.
 
 ### Closing
@@ -504,7 +523,7 @@ with no next action and the next run rewrites the comment. `closeDelivered` adds
 ### Wake
 
 The stage reads the Issues this Issue blocks (any repository). Each one whose
-snapshot derives `shape` or a delivery stage goes into `wake`; every other one is
+snapshot derives `scope`, `shape` or a delivery stage goes into `wake`; every other one is
 logged with its reason (`blocked by <remaining blockers>`, `no-assignee`, `paused`,
 `closed`, or unreadable with the read error) and is never woken. Reading a
 downstream snapshot needs the same reads as the Issue's own (see Job context); a

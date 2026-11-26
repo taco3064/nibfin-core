@@ -301,24 +301,92 @@ describe("mergeReviewed", () => {
     assert.match(w.agent.logs.at(-1)!, /no longer/);
   });
 
-  for (const [mergeable, state] of [
-    [false, "dirty"],
-    [false, "unknown"],
-    [true, "dirty"],
-  ] as const) {
-    it(`sends a 405 back to Deliver when GitHub then reports ${state}`, async () => {
+  it("sends a 405 back to Deliver at once when GitHub then reports dirty", async () => {
+    const w = await reviewWorld();
+    w.mergeAnswer = () => {
+      w.mergeableState = "dirty";
+      return failure(405, "Pull Request is not mergeable");
+    };
+    assert.deepEqual(await merge(w), reviewFix);
+    assert.match(
+      reviewComments(w)[0],
+      /Rebase onto `main` and resolve conflicts: GitHub reports `mergeable_state: dirty`/,
+    );
+    assert.equal(w.mergeRequests.length, 1);
+    assert.match(
+      w.issues.github.log.join("\n"),
+      /again \(retry 1 of 3\): HTTP 405; waiting 1 s/,
+    );
+  });
+
+  for (const state of ["dirty", "unknown"] as const) {
+    it(`stops retrying a PR GitHub then finds not mergeable (${state})`, async () => {
       const w = await reviewWorld();
       w.mergeAnswer = () => {
-        w.mergeable = mergeable;
+        w.mergeable = false;
         w.mergeableState = state;
         return failure(405, "Pull Request is not mergeable");
       };
-      assert.deepEqual(await merge(w), reviewFix);
-      assert.match(reviewComments(w)[0], /Rebase onto `main` and resolve conflicts: /);
+      // The Issue is now `conflict`: the route sends it to Deliver, no merge again.
+      assert.deepEqual(await merge(w), noNext);
+      assert.equal(w.mergeRequests.length, 1);
+      assert.match(w.agent.logs.at(-1)!, /Not merging: the Issue is now conflict/);
     });
   }
 
-  it("blocks a 405 that leaves the head only behind, not sending it back", async () => {
+  it("merges on a retry after a refusal without a conflict", async () => {
+    const w = await reviewWorld();
+    let refusals = 2;
+    w.mergeAnswer = () => {
+      if (refusals-- > 0) {
+        return failure(405, "Base branch was modified. Review and try again.");
+      }
+      mergePull(w, w.pull);
+      return { data: { sha: w.pull.mergeSha, merged: true, message: "Merged" } };
+    };
+    assert.deepEqual(await merge(w), noNext);
+    assert.equal(w.mergeRequests.length, 3);
+    assert.equal(w.pull.merged, true);
+    assert.deepEqual(w.issues.github.waits, [1, 4]);
+    const logs = w.issues.github.log.join("\n");
+    assert.match(logs, /Merging \S+ again \(retry 2 of 3\): HTTP 405; waiting 4 s/);
+    assert.deepEqual(w.issues.marked("review-blocked"), []);
+  });
+
+  it("retries a 405 three times with the same method and head, then blocks", async () => {
+    const w = await reviewWorld();
+    w.mergeAnswer = () => failure(405, "Base branch was modified. Review and try again.");
+    await expectBlocked(w, /did not merge .* Base branch was modified/);
+    assert.deepEqual(
+      w.mergeRequests.map((request) => request.body),
+      Array(4).fill({ sha: w.head, merge_method: "rebase" }),
+    );
+    assert.deepEqual(w.issues.github.waits, [1, 4, 9]);
+    assert.deepEqual(reviewComments(w), []);
+    const url = "https://github.com/acme/app/pull/7";
+    const retryLines = w.issues.github.log.filter((line) => line.startsWith("Merging "));
+    assert.deepEqual(retryLines, [
+      `Merging ${url} again (retry 1 of 3): HTTP 405; waiting 1 s`,
+      `Merging ${url} again (retry 2 of 3): HTTP 405; waiting 4 s`,
+      `Merging ${url} again (retry 3 of 3): HTTP 405; waiting 9 s`,
+      `Merging ${url}: HTTP 405; not retrying after 3 retries`,
+    ]);
+    // The Job log carries the kind only, never GitHub's message.
+    assert.ok(!w.issues.github.log.some((line) => /Base branch was modified/.test(line)));
+  });
+
+  it("logs a 409 as its status and gives up after 3 retries", async () => {
+    const w = await reviewWorld();
+    w.mergeAnswer = () => failure(409, "Head branch was modified.");
+    assert.deepEqual(await merge(w), noNext);
+    assert.equal(w.mergeRequests.length, 4);
+    const logs = w.issues.github.log.join("\n");
+    assert.match(logs, /again \(retry 3 of 3\): HTTP 409; waiting 9 s/);
+    assert.match(logs, /Merging \S+: HTTP 409; not retrying after 3 retries/);
+    assert.doesNotMatch(logs, /Head branch was modified/);
+  });
+
+  it("re-sends a head that is only behind, then blocks it without Deliver", async () => {
     const w = await reviewWorld();
     w.mergeAnswer = () => {
       w.mergeableState = "behind";
@@ -327,31 +395,10 @@ describe("mergeReviewed", () => {
     await expectBlocked(w, /requires branches to be up to date .* not mergeable/s);
     assert.match(blockedText(w), /does not send it back to Deliver/);
     assert.deepEqual(reviewComments(w), []);
-    assert.equal(w.mergeRequests.length, 1);
+    assert.equal(w.mergeRequests.length, 4);
   });
 
-  it("merges again each time the base moved during the merge", async () => {
-    const w = await reviewWorld();
-    const bases = ["c", "d", "e", "f"].map((digit) => digit.repeat(40));
-    w.mergeAnswer = () => {
-      w.baseSha = bases.shift()!;
-      if (bases.length === 0) {
-        w.mergeAnswer = undefined;
-      }
-      // GitHub may still be computing, or already report the PR mergeable.
-      const computing = bases.length % 2 === 0;
-      w.mergeable = computing ? null : true;
-      w.mergeableState = computing ? "unknown" : "clean";
-      return failure(405, "Base branch was modified. Review and try again.");
-    };
-    assert.deepEqual(await merge(w), noNext);
-    assert.equal(w.mergeRequests.length, 5);
-    assert.equal(w.pull.merged, true);
-    assert.match(w.agent.logs.join("\n"), /again: `main` moved to f{40}/);
-    assert.deepEqual(w.issues.marked("review-blocked"), []);
-  });
-
-  it("says GitHub is still computing when the base did not move", async () => {
+  it("says GitHub is still computing after the last retry", async () => {
     const w = await reviewWorld();
     w.mergeAnswer = () => {
       w.mergeable = null;
@@ -359,41 +406,56 @@ describe("mergeReviewed", () => {
       return failure(405, "Base branch was modified. Review and try again.");
     };
     await expectBlocked(w, /still computing whether the pull request conflicts/);
-    // Once on the base it found, then the base did not move again.
-    assert.equal(w.mergeRequests.length, 2);
+    assert.equal(w.mergeRequests.length, 4);
     assert.deepEqual(reviewComments(w), []);
   });
 
-  it("stops when the head moved before the 405 was re-read", async () => {
+  it("does not merge again when the Issue was paused during the wait", async () => {
+    const w = await reviewWorld();
+    w.mergeAnswer = () => {
+      w.issues.main.labels.push("pause");
+      return failure(405, "Base branch was modified. Review and try again.");
+    };
+    assert.deepEqual(await merge(w), noNext);
+    assert.equal(w.mergeRequests.length, 1);
+    assert.match(w.agent.logs.at(-1)!, /ineligible \(paused\)/);
+  });
+
+  it("stops when the head moved before a re-send", async () => {
     const w = await reviewWorld();
     w.mergeAnswer = () => {
       w.pull.sha = "f".repeat(40);
-      w.mergeable = false;
-      w.mergeableState = "dirty";
       return failure(405, "Pull Request is not mergeable");
     };
     assert.deepEqual(await merge(w), noNext);
     assert.deepEqual(reviewComments(w), []);
-    assert.match(w.agent.logs.at(-1)!, /no longer open at/);
+    assert.equal(w.mergeRequests.length, 1);
+    assert.match(w.agent.logs.at(-1)!, /Not merging/);
   });
 
-  it("blocks with GitHub's message when a mergeable head is refused again", async () => {
+  it("routes the last refusal after a moved head or a found conflict", async () => {
     const w = await reviewWorld();
-    w.mergeAnswer = () => failure(405, "Base branch was modified. Review and try again.");
-    await expectBlocked(w, /did not merge .* Base branch was modified/);
-    assert.equal(w.mergeRequests.length, 2);
-    assert.deepEqual(reviewComments(w), []);
-  });
-
-  it("does not merge again on a base an earlier attempt already saw", async () => {
-    const w = await reviewWorld();
-    const bases = ["c".repeat(40), w.baseSha, "c".repeat(40)];
+    let attempts = 0;
     w.mergeAnswer = () => {
-      w.baseSha = bases.shift()!;
-      return failure(405, "Base branch was modified. Review and try again.");
+      attempts += 1;
+      if (attempts === 4) {
+        w.pull.sha = "f".repeat(40);
+      }
+      return failure(405, "Pull Request is not mergeable");
     };
-    await expectBlocked(w, /did not merge .* Base branch was modified/);
-    assert.equal(w.mergeRequests.length, 3);
+    assert.deepEqual(await merge(w), noNext);
+    assert.match(w.agent.logs.at(-1)!, /no longer open at/);
+    const dirty = await reviewWorld();
+    let tries = 0;
+    dirty.mergeAnswer = () => {
+      tries += 1;
+      if (tries === 4) {
+        dirty.mergeable = false;
+      }
+      return failure(405, "Pull Request is not mergeable");
+    };
+    assert.deepEqual(await merge(dirty), reviewFix);
+    assert.match(reviewComments(dirty)[0], /resolve conflicts: Pull Request is not/);
   });
 
   it("stops on a 405 for a moved head", async () => {
@@ -401,6 +463,7 @@ describe("mergeReviewed", () => {
     w.mergeAnswer = () => failure(405, "Head branch was modified. Review and try again.");
     assert.deepEqual(await merge(w), noNext);
     assert.deepEqual(reviewComments(w), []);
+    assert.equal(w.mergeRequests.length, 4);
   });
 
   it("blocks on any other 405 with GitHub's message", async () => {
@@ -410,7 +473,7 @@ describe("mergeReviewed", () => {
       return failure(405, "At least 1 approving review is required.");
     };
     await expectBlocked(w, /did not merge .* At least 1 approving review is required/);
-    assert.equal(w.mergeRequests.length, 1);
+    assert.equal(w.mergeRequests.length, 4);
   });
 
   for (const status of [403, 405, 422]) {
@@ -421,21 +484,42 @@ describe("mergeReviewed", () => {
         "`.github/workflows/ci.yml` without `workflows` permission";
       w.mergeAnswer = () => failure(status, message);
       await expectBlocked(w, /lacks the workflows permission/);
+      assert.equal(w.mergeRequests.length, 4);
     });
   }
 
-  it("rethrows other rejections", async () => {
+  it("rethrows other rejections after the retries", async () => {
     const w = await reviewWorld();
     w.mergeAnswer = () => failure(403, "Resource not accessible by integration");
     const error = await rejection(merge(w));
     assert.equal((error as GitHubError).code, "GITHUB_WRITE_REJECTED");
+    assert.equal(w.mergeRequests.length, 4);
+    assert.match(
+      w.issues.github.log.join("\n"),
+      /again \(retry 3 of 3\): HTTP 403; waiting 9 s/,
+    );
     const silent = await reviewWorld();
     silent.mergeAnswer = () => ({ status: 422, data: {} });
     const other = await rejection(merge(silent));
     assert.equal((other as GitHubError).code, "GITHUB_WRITE_REJECTED");
   });
 
-  it("confirms an unknown outcome by re-reading, never retrying", async () => {
+  it("waits out a rate limit on the merge, then merges", async () => {
+    const w = await reviewWorld();
+    w.mergeAnswer = () => {
+      w.mergeAnswer = undefined;
+      return {
+        status: 403,
+        data: { message: "You have exceeded a secondary rate limit." },
+        headers: { "retry-after": "7" },
+      };
+    };
+    assert.deepEqual(await merge(w), noNext);
+    assert.equal(w.pull.merged, true);
+    assert.deepEqual(w.issues.github.waits, [7]);
+  });
+
+  it("confirms an unknown outcome by re-reading, then retries it", async () => {
     const merged = await reviewWorld();
     merged.mergeAnswer = () => {
       mergePull(merged, merged.pull);
@@ -444,10 +528,26 @@ describe("mergeReviewed", () => {
     };
     assert.deepEqual(await merge(merged), noNext);
     assert.ok(merged.agent.logs.some((line) => line.endsWith("as (unknown)")));
+    assert.equal(merged.mergeRequests.length, 1);
     const lost = await reviewWorld();
     lost.mergeAnswer = networkError() as never;
     const error = await rejection(merge(lost));
     assert.equal((error as GitHubError).code, "GITHUB_WRITE_UNCONFIRMED");
-    assert.equal(lost.mergeRequests.length, 1);
+    assert.equal(lost.mergeRequests.length, 4);
+    assert.match(
+      lost.issues.github.log.join("\n"),
+      /again \(retry 1 of 3\): no response/,
+    );
+  });
+
+  it("does not re-send a merge that landed during the wait", async () => {
+    const w = await reviewWorld();
+    w.mergeAnswer = () => {
+      mergePull(w, w.pull);
+      return failure(405, "Base branch was modified. Review and try again.");
+    };
+    assert.deepEqual(await merge(w), noNext);
+    assert.equal(w.mergeRequests.length, 1);
+    assert.match(w.agent.logs.at(-1)!, /Not merging: the Issue is now/);
   });
 });

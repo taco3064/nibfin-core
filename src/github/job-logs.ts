@@ -1,5 +1,5 @@
 import type { GitHubClient } from "./client.ts";
-import { read, readOptional } from "./errors.ts";
+import { absentProbe, read, readOptional } from "./errors.ts";
 import type { Repo } from "./repo.ts";
 import { type RunState, runState } from "./run-state.ts";
 
@@ -49,6 +49,7 @@ export async function readJobLog(
     client.request("GET /repos/{owner}/{repo}/actions/jobs/{job_id}/logs", {
       ...repo,
       job_id: jobId,
+      request: absentProbe,
     }),
   );
   if (response === undefined) {

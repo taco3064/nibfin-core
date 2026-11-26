@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { lstat, readdir, readFile, readlink, realpath } from "node:fs/promises";
 import { isAbsolute, join, posix, relative, resolve, sep } from "node:path";
 import { isWithin } from "../config/paths.ts";
-import { type NibfinConfig, roleNames } from "../config/schema.ts";
+import type { NibfinConfig } from "../config/schema.ts";
 import { StageError } from "./errors.ts";
 import type { Git } from "./git.ts";
 
@@ -115,8 +115,8 @@ export async function protectedPaths(
     ...protectedDirectories.map((path) => ({ path, directory: true })),
     ...protectedFiles.map((path) => ({ path, directory: false })),
   ];
-  for (const role of roleNames) {
-    const setting = config.skills[role];
+  // Every skill the base config names: its keys are built-in skills (#734).
+  for (const setting of Object.values(config.skills)) {
     if (setting !== undefined) {
       named.push({ path: setting.path, directory: false });
     }

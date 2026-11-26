@@ -5,53 +5,13 @@ import {
   summarizePullRequest,
 } from "./branches.ts";
 import type { ActingClient } from "./client.ts";
-import {
-  GitHubError,
-  isUnknownOutcome,
-  read,
-  responseMessage,
-  statusOf,
-} from "./errors.ts";
+import { GitHubError, read, responseMessage, statusOf } from "./errors.ts";
 import { nibfinLabels } from "./labels.ts";
 import type { MergeMethod } from "./merge-methods.ts";
 import { readPullRequest } from "./pull-request.ts";
 import { type RecordComment, readIssueRecord } from "./issue-query.ts";
 import { formatIssue, type IssueRef, type Repo } from "./repo.ts";
-
-interface WriteRecovery<T> {
-  /** Re-reads GitHub after an unknown outcome; a value means the write took effect. */
-  confirm: () => Promise<T | undefined>;
-  /** Handles a 4xx answer that may still mean success; `undefined` = rejected. */
-  recover?: (error: unknown) => Promise<T | undefined>;
-}
-
-/**
- * Runs one write. An unknown outcome (no response, or 5xx) is re-read before anything
- * else: a confirmed result is reused, otherwise `GITHUB_WRITE_UNCONFIRMED`. Any other
- * failure is `GITHUB_WRITE_REJECTED` unless `recover` shows the intended state.
- */
-async function write<T>(
-  operation: string,
-  run: () => Promise<T>,
-  recovery: WriteRecovery<T>,
-): Promise<T> {
-  try {
-    return await run();
-  } catch (error) {
-    if (isUnknownOutcome(error)) {
-      const confirmed = await recovery.confirm().catch(() => undefined);
-      if (confirmed !== undefined) {
-        return confirmed;
-      }
-      throw new GitHubError("GITHUB_WRITE_UNCONFIRMED", operation, error);
-    }
-    const recovered = await recovery.recover?.(error);
-    if (recovered !== undefined) {
-      return recovered;
-    }
-    throw new GitHubError("GITHUB_WRITE_REJECTED", operation, error);
-  }
-}
+import { write, writeOnce } from "./write.ts";
 
 export interface PullRequestRequest {
   branch: string;
@@ -73,6 +33,7 @@ export async function ensurePullRequest(
     return existing;
   }
   return write(
+    client,
     `create pull request ${repo.owner}/${repo.repo}:${request.branch}`,
     async () => {
       const { data } = await client.request("POST /repos/{owner}/{repo}/pulls", {
@@ -208,6 +169,7 @@ export async function upsertMarkedComment(
   };
   const operation = `write ${key} comment on ${formatIssue(target)}`;
   await write(
+    client,
     operation,
     async () => {
       if (existing) {
@@ -272,6 +234,7 @@ export async function setLabels(
   const where = formatIssue(issue);
   if (toAdd.length > 0) {
     await write(
+      client,
       `add labels to ${where}`,
       async () => {
         await client.request("POST /repos/{owner}/{repo}/issues/{issue_number}/labels", {
@@ -294,6 +257,7 @@ export async function setLabels(
     const absent = async () =>
       (await readLabels(client, issue)).includes(label) ? undefined : true;
     await write(
+      client,
       `remove label ${label} from ${where}`,
       async () => {
         await client.request(
@@ -333,6 +297,7 @@ export async function closeDelivered(
     return;
   }
   await write(
+    client,
     `close ${formatIssue(issue)}`,
     async () => {
       await client.request("PATCH /repos/{owner}/{repo}/issues/{issue_number}", {
@@ -364,6 +329,7 @@ export async function deleteBranch(
   const absent = async () =>
     (await branchExists(client, repo, name)) ? undefined : true;
   await write(
+    client,
     `delete branch ${repo.owner}/${repo.repo}:${name}`,
     async () => {
       await client.request("DELETE /repos/{owner}/{repo}/git/refs/{ref}", {
@@ -390,7 +356,9 @@ export type MergeResult =
   | { outcome: "not-mergeable"; message: string };
 
 /**
- * Merges pull request `number` only at head `sha` with `method`. 409 is
+ * Merges pull request `number` only at head `sha` with `method`, in one attempt: its
+ * retries re-check the Issue's stage first, so they live in the review stage
+ * (`mergeReviewed`). 409 is
  * `head-changed`, 405 `not-mergeable` with GitHub's message; any other 4xx (403, 422,
  * …) is `GITHUB_WRITE_REJECTED`. An unknown outcome re-reads the pull request: merged
  * at `sha` is the merge, otherwise `GITHUB_WRITE_UNCONFIRMED`.
@@ -401,7 +369,7 @@ export async function mergePullRequest(
   request: MergeRequest,
 ): Promise<MergeResult> {
   const where = `${repo.owner}/${repo.repo}#${request.number}`;
-  return write<MergeResult>(
+  return writeOnce<MergeResult>(
     `merge pull request ${where} at ${request.sha}`,
     async () => {
       const { data } = await client.request(

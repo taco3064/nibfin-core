@@ -116,10 +116,20 @@ describe("the per-Job read cache", () => {
 
   it("does not keep failed reads", async () => {
     const github = fakeGitHub({
-      "GET /repos/acme/app": sequence(failure(404), { data: { ok: true } }),
+      "GET /repos/acme/app": sequence(...Array.from({ length: 4 }, () => failure(404)), {
+        data: { ok: true },
+      }),
     });
     await rejection(github.client.request(route, repo));
     assert.deepEqual((await github.client.request(route, repo)).data, { ok: true });
+  });
+
+  it("keeps an absent probe and a plain read of the same URL apart", async () => {
+    const github = counting();
+    await github.client.request(route, { ...repo, request: { absent404: true } });
+    assert.equal(await readCount(github), 2);
+    await github.client.request(route, { ...repo, request: { absent404: true } });
+    assert.equal(github.calls.length, 2);
   });
 
   it("keys GraphQL queries by their body and treats mutations as writes", async () => {

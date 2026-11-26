@@ -32,6 +32,7 @@ function routeDeps(overrides: Partial<FakeIssue> = {}) {
       return Promise.resolve(issues.github.client);
     },
     stages: {
+      scope: () => Promise.reject(new Error("no stage runs in a route run")),
       shape: () => Promise.reject(new Error("no stage runs in a route run")),
       deliver: () => Promise.reject(new Error("no stage runs in a route run")),
       review: () => Promise.reject(new Error("no stage runs in a route run")),
@@ -56,6 +57,24 @@ describe("nibfin route --issue", () => {
     assert.equal(chosen, "acme/app#1: Assignee 5 has an online runner");
     assert.match(dispatched, /^Dispatched Nibfin · acme\/app#1 · shape: https:/);
     assert.ok(!result.stdout.includes(fakeToken));
+  });
+
+  it("dispatches the Scope stage for a request", async () => {
+    const t = routeDeps({ labels: ["request"] });
+    const result = await capture([...route, "--issue", "1"], t.deps);
+    assert.equal(result.code, 0);
+    assert.deepEqual(t.runner.dispatched, [
+      { stage: "scope", repo: "acme/app", issue: "1", reason: "", assignee: "5" },
+    ]);
+    assert.match(result.stdout, /Dispatched Nibfin · acme\/app#1 · scope: https:/);
+  });
+
+  it("dispatches nothing for a request that waits for a person", async () => {
+    const t = routeDeps({ labels: ["request", "pending"] });
+    const result = await capture([...route, "--issue", "1"], t.deps);
+    assert.equal(result.code, 0);
+    assert.equal(result.stdout, "acme/app#1: nothing to run (ineligible (pending))\n");
+    assert.deepEqual(t.runner.dispatched, []);
   });
 
   it("dispatches nothing for an Issue that waits for a person", async () => {

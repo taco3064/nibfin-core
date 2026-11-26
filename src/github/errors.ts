@@ -105,7 +105,17 @@ export async function read<T>(operation: string, run: () => Promise<T>): Promise
   }
 }
 
-/** Runs a read where a 404 means "absent"; any other failure is `GITHUB_READ_FAILED`. */
+/**
+ * The request option of a read whose 404 means "absent" (pass it as `request`): that
+ * 404 is an answer, so the client does not retry it (Proposal R4.39). Octokit does not
+ * send it.
+ */
+export const absentProbe = Object.freeze({ absent404: true });
+
+/**
+ * Runs a read where a 404 means "absent"; any other failure is `GITHUB_READ_FAILED`.
+ * Its request carries `request: absentProbe`, so that 404 is not retried.
+ */
 export async function readOptional<T>(
   operation: string,
   run: () => Promise<T>,

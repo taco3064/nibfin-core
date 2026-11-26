@@ -75,6 +75,7 @@ describe("Nibfin workflows", () => {
 
   it("names the labels Nibfin uses", () => {
     assert.deepEqual(nibfinLabels, {
+      request: "request",
       scope: "scope",
       shaped: "shaped",
       delivered: "delivered",

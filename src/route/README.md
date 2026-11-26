@@ -9,7 +9,8 @@ authority for "what runs next".
 `routeIssue(client, repo, issue, log)` derives `{ stage, reason, assignee, assignees } | null`
 from the snapshot, composing the stages' own rules:
 
-1. derived `shape` → `shape`;
+1. derived `scope` (an open `request` without `scope`, #734) → `scope`; derived
+   `shape` → `shape`;
 2. a delivery stage with a pending `shape-wrong` report (`readPendingReport`) →
    `deliver` (its start removes `shaped`);
 3. `review` whose PR has a current review comment (`currentReview(...)?.current ===
@@ -21,7 +22,8 @@ true`; a stale one falls to rule 4) → `deliver review`; `review` whose PR has 
 4. any other delivery stage → `shapeNextAction(stage, issue)` (`done` → `finish`,
    `conflict` → `deliver conflict`, `awaiting-*` → `null`);
 5. closed as delivered (`closedAsDelivered`) → `finish` (wake-only redo);
-6. anything else (paused, `pending`, no scope, blocked, no Assignee) → `null`.
+6. anything else (paused, `pending`, neither `scope` nor `request`, blocked, no
+   Assignee) → `null`.
 
 `assignees` holds all the Issue's Assignees (`{ id, login }`, GitHub's order); without
 one the route is `null`. Several Assignees route like one: `dispatchStage` chooses
@@ -104,7 +106,10 @@ stage wrote `progressed: false` and the route asks for the same stage and reason
 it stops
 with `STAGE_NO_PROGRESS` instead (marked temporary after a review run: GitHub may
 still be computing mergeability). A closed Issue's own route is never dispatched
-after a stage, so closing cannot loop. Without `NIBFIN_NEXT_FILE` nothing is
+after a stage, so closing cannot loop. After a Scope run only its wakes are
+dispatched, never the request's own route: a Scope run ends by closing the request or
+adding `pending` (Proposal R3.6, R3.8, R3.9), and the Issues it publishes continue
+through `wake` (#734). Without `NIBFIN_NEXT_FILE` nothing is
 dispatched.
 
 ## Failures

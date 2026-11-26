@@ -68,6 +68,20 @@ describe("continueAfterStage", () => {
     assert.deepEqual(runner.logs.at(-1), "acme/app#1 is closed; nothing more to route");
   });
 
+  it("never re-routes the request after a Scope run, but dispatches wakes", async () => {
+    const { issues, runner } = plainRunner({ labels: ["request"] });
+    const wake = [{ repo: "acme/app", issue: 4 }];
+    await continueAfterStage(runner.scope, finished("scope"), record(false, { wake }));
+    assert.deepEqual(runner.dispatched, [
+      { stage: "route", repo: "acme/app", issue: "4" },
+    ]);
+    assert.deepEqual(
+      runner.logs.at(-1),
+      "acme/app#1: a Scope run never re-routes its own request",
+    );
+    assert.ok(!issues.main.labels.includes("pending"));
+  });
+
   it("dispatches nothing when nothing should run", async () => {
     const { runner } = plainRunner({ labels: ["scope", "shaped", "pending"] });
     await continueAfterStage(runner.scope, finished("shape"), record(true));

@@ -9,7 +9,7 @@ answer or a `GitHubError`, and every write is safe to repeat after an interrupti
 ## Client
 
 `createClient(token, actor, options?, log?)` returns an `@octokit/rest` instance with
-the official `@octokit/plugin-throttling` and `@octokit/plugin-retry`, carrying
+the official `@octokit/plugin-throttling`, carrying
 `actor` (`{ id, login }`), the account Nibfin writes as. `connectClient(token,
 options?, log?)` reads that actor once with `GET /user` (`readActor`) through the same
 instance and returns the client (#674): Nibfin's token is a user's gh login token, for
@@ -18,30 +18,50 @@ token is used only here; Octokit sends it as the `authorization` header and reda
 from request errors. No timeout is added. The other modules take
 `Pick<Octokit, "request" | "paginate">`.
 
-Rate limits (#689), handled by the throttling plugin only:
+Retries (#748, Proposal R4.37–R4.39): every GitHub API call is retried on any error up
+to 3 times (`maxRetries`) after its first attempt, whatever the error is: no
+response, a 5xx, any 4xx, a rate limit, a GraphQL `errors` answer or a merge
+refusal. Every retry counts toward the same 3. Only after the third retry fails does
+the caller get today's failure (`GITHUB_READ_FAILED`, `GITHUB_WRITE_UNCONFIRMED`,
+`GITHUB_WRITE_REJECTED`, a merge's `not-mergeable`), so `pending` handling is
+unchanged.
 
-- A primary rate limit (REST 403/429 with `x-ratelimit-remaining: 0`, or a GraphQL
-  `RATE_LIMITED` error in a 200 answer) waits until `x-ratelimit-reset` + 1 s and
-  retries, at most 2 times.
-- A secondary rate limit (GitHub's message names it) waits `retry-after`, or the
-  plugin's GitHub-documented 60 s fallback, and retries, at most 4 times.
-- Each wait writes `GitHub <primary|secondary> rate limit on <METHOD> <path>: waiting
-<s> s (retry <k> of <n>)` to `log` (the Job log); giving up writes `… not retrying
-after <n> retries`. The line carries the URL path only, never the query string, the
-  body or a header.
-- A rate-limited write is retried too: GitHub rejected it, so it did not happen. The
-  plugin also spaces writes and GraphQL queries at least 1 s apart, as GitHub
-  recommends.
+- Reads (GET, HEAD, GraphQL queries) are retried by one `hook.wrap("request")` loop
+  inside the read cache, so identical reads still share one answer. A GraphQL answer
+  with `errors` counts as a failure; after the last retry it is returned as it is and
+  its caller fails as before.
+- A 404 that the caller reads as "absent" is an answer and is not retried: the read
+  passes `request: absentProbe` (`{ absent404: true }`, which Octokit does not
+  send). The five `readOptional` reads do: `branchExists`, the base branch of
+  `readRequiredChecks`, `hasWritePermission`, `readCommitsAhead` and `readJobLog`.
+  Any other failure of these reads is retried.
+- Writes are retried by `write()` (see Writes), merges by `mergeReviewed`
+  (`src/stages`).
+- `retryDelay(error, k)` is the wait before retry `k`: a secondary rate limit
+  (GitHub's message names it) waits `retry-after`, or 60 s without it; a primary
+  rate limit (REST 403/429 with `x-ratelimit-remaining: 0`, or a GraphQL
+  `RATE_LIMITED` error in a 200 answer) waits until `x-ratelimit-reset` + 1 s, or
+  60 s without it; anything else waits `k²` seconds (1, 4, 9). Every wait happens
+  inside the running call; no timer, cron or later wake.
+- Each retry writes `<what> (retry <k> of 3): <cause>; waiting <s> s` to `log` (the
+  Job log), where `<what>` is `GitHub <METHOD> <path>` and `<cause>` is `HTTP
+<status>`, `no response`, `GraphQL error` or `primary`/`secondary rate limit`.
+  Giving up writes `<what>: <cause>; not retrying after 3 retries`. The line carries
+  the URL path only, never the query string, the body, a header or GitHub's message.
+- The throttling plugin no longer retries by itself (both handlers return false); it
+  spaces writes and GraphQL queries at least 1 s apart, as GitHub recommends, and
+  reports a GraphQL rate limit as an error.
 
-The retry plugin retries reads (GET, HEAD, GraphQL queries) on a 5xx or no response,
-3 times with a growing delay. Writes are never re-sent (`retries: 0`): their unknown
-outcome is re-read instead (see Writes). 429 is left to the throttling plugin.
-Caller `throttle` and `retry` options are merged; the handlers stay Nibfin's.
+Caller `throttle` options are merged; the handlers stay Nibfin's. `wait` replaces the
+wait before a retry (tests make it instant). The client's `log` and `wait` are kept
+with its read cache (`retrySettingsOf`), so `write()` and the merge loop reach them
+through any client built over it; a client without them logs nothing and waits for
+real.
 
 ### Per-Job read cache
 
 Every client keeps the answers of its reads (each GET page and each GraphQL query,
-keyed by method, full URL and body) for the rest of the Job, so a Job reads each piece
+keyed by method, full URL, the `absent404` option and body) for the rest of the Job, so a Job reads each piece
 of GitHub data once. Identical reads share one answer, also while it is in flight;
 every caller gets its own copy; failed answers are not kept. It is cleared:
 
@@ -58,18 +78,21 @@ A client built over another (`trackProgress`) shares its cache through
 ## Errors
 
 `GitHubError { code, operation, cause }`. The message names only the operation and the
-HTTP status; `cause` keeps the original error. A rate limit that outlasted its retries
+HTTP status; `cause` keeps the original error (the last attempt's). A rate limit that outlasted its retries
 is named: `(HTTP 403, rate limited (secondary))`, or `(GraphQL, rate limited
 (primary))` for a GraphQL one. `rateLimitOf(cause)` gives `primary`, `secondary` or
 `undefined`; the `pending` comment marks a rate limit temporary whatever its code.
 
 - `GITHUB_READ_FAILED`: any failed read, including a failed page of a list. A list is
-  never returned partially. Only the 404s that mean "absent" are not failures: a branch
-  ref probe and a missing base branch.
-- `GITHUB_WRITE_UNCONFIRMED`: the write got no response or a 5xx, and a re-read did not
-  show its effect. The outcome is Pending; repeat the operation later.
-- `GITHUB_WRITE_REJECTED`: any other 4xx, except the cases under Writes that mean
-  success.
+  never returned partially, and fails only after its retries. Only the 404s that mean
+  "absent" are not failures (and are not retried): a branch ref probe, a missing base
+  branch, not a collaborator, a compare head GitHub no longer has and a missing job
+  log.
+- `GITHUB_WRITE_UNCONFIRMED`: the write's last attempt got no response or a 5xx, and
+  a re-read did not show its effect. The outcome is Pending; repeat the operation
+  later.
+- `GITHUB_WRITE_REJECTED`: the last attempt got any other 4xx, except the cases under
+  Writes that mean success.
 
 ## Snapshot and stage
 
@@ -169,6 +192,25 @@ from one GraphQL query (`IssueBlocking`), checked against
 
 ## Writes
 
+Every write goes through `write(client, operation, run, { confirm, recover })`
+(`write.ts`), which retries it on any error up to 3 times:
+
+1. A 4xx that `recover` shows as the intended state is success, with no retry: the
+   422 "already exists" of `ensurePullRequest`, the removal 404 of `setLabels`, and
+   any 4xx of `deleteBranch` that re-reads as absent.
+2. Otherwise, while retries are left, the call waits `retryDelay`, logs the retry,
+   then re-reads GitHub (`confirm`) right before the re-send. If the write already
+   took effect (also during the wait), the confirmed result is used and nothing is
+   sent again, so no comment, label, close, branch delete or merge happens twice.
+   A failing pre-read ends the write without a re-send, with the code below.
+3. After the third retry an unknown outcome is re-read once more (R1.13) and is
+   `GITHUB_WRITE_UNCONFIRMED`; anything else is `GITHUB_WRITE_REJECTED`.
+
+A 5xx can come back while GitHub still completes the first write; if it lands only
+after the pre-read, a new marked comment can appear twice. Nibfin reads the oldest
+copy and never deletes the others, so the effect is cosmetic. `writeOnce` is one
+attempt with the same `confirm`/`recover` handling and no retry.
+
 - `ensurePullRequest(client, repo, { branch, base, title, body })`: the branch's open
   pull request, created when there is none. A 422 "already exists" re-reads and reuses.
 - `findMarkedComment(client, target, key, on?)` and
@@ -191,16 +233,18 @@ from one GraphQL query (`IssueBlocking`), checked against
   commit), `head-changed` (409) or `not-mergeable` (405, with GitHub's message). Any
   other 4xx (403, 422, …) is `GITHUB_WRITE_REJECTED`; `responseMessage(error.cause)`
   gives GitHub's message. An unknown outcome re-reads the pull request: merged at
-  `sha` confirms the merge, anything else is `GITHUB_WRITE_UNCONFIRMED`, never a
-  retry.
+  `sha` confirms the merge, anything else is `GITHUB_WRITE_UNCONFIRMED`. It makes
+  one attempt (`writeOnce`): a re-sent merge must first re-check the Issue's stage,
+  so `mergeReviewed` (`src/stages`) retries it.
 - `deleteBranch(client, repo, name)` (#700): `DELETE …/git/refs/heads/<name>`. GitHub
   documents no answer for a missing ref, so an unknown outcome or any 4xx re-reads
   `GET …/git/ref/heads/<name>` (`branchExists`): a 404 there is success, otherwise
   `GITHUB_WRITE_UNCONFIRMED` or `GITHUB_WRITE_REJECTED`. Deleting a branch closes its
   open pull request.
 
-After an unknown outcome each write re-reads GitHub: a confirmed effect is reused,
-otherwise it fails with `GITHUB_WRITE_UNCONFIRMED`.
+`dispatchWorkflow` (Workflow runs) goes through `write()` with a `confirm` that never
+confirms: a dispatch has no run to re-read, and a repeated wake is harmless (R4.35),
+so it is re-sent on any error without a pre-read.
 
 ## Workflow runs (#674)
 
@@ -217,7 +261,8 @@ otherwise it fails with `GITHUB_WRITE_UNCONFIRMED`.
   `nibfin-<user id>`.
 - `dispatchWorkflow(client, repo, workflow, inputs)`: dispatches `workflow` on the
   repository's default branch (`readDefaultBranch`) with `return_run_details` and
-  returns the run URL when GitHub reports it. No response or a 5xx is
+  returns the run URL when GitHub reports it. Any failure is re-sent up to 3 times
+  without a pre-read (see Writes); then no response or a 5xx is
   `GITHUB_WRITE_UNCONFIRMED` (a dispatch cannot be confirmed by a re-read), any
   other failure `GITHUB_WRITE_REJECTED`.
 - `readRepoOwnerId(client, repo)` (#721): the repository's `owner.id` (an
