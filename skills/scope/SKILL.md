@@ -281,18 +281,19 @@ For a request, Plan also:
   the authority already approves. It fills no authority gap or product decision by
   assumption; such a gap is `PLAN_BLOCKED` or `AUTHORITY_UPDATE_REQUIRED`.
 - is `PLAN_READY` only when the manifest leaves no product or authority decision open.
-- only creates Issues and native dependencies between them or onto existing Issues. Work
-  that would edit the body or metadata of, cancel or reassign an existing Issue is
-  `PLAN_BLOCKED`.
-- gives every Issue `scope` and the request's Assignees, and names the request as its
-  origin in the body.
-- on a rerun, finds the Issues whose body names this request as origin and keeps each one
-  that still fits in the manifest, unchanged, for reuse. One that no longer fits is
-  `PLAN_BLOCKED`.
+- only creates Issues, edges between them and edges where a new Issue is blocked by an
+  existing one. Work that would edit the body or metadata of, cancel, reassign or block an
+  existing Issue is `PLAN_BLOCKED`.
+- gives every Issue `scope` and the request's Assignees, and the line
+  `Origin: <request URL>` in its body.
+- on a rerun, finds the Issues whose body has this request's origin line, ignoring those
+  closed as not planned, and keeps each one that still fits in the manifest for reuse,
+  with its body and metadata unchanged. One that no longer fits is `PLAN_BLOCKED`; a
+  person discards it by closing it as not planned.
 - returns `PLAN_BLOCKED` with the reason if nothing is left to create or reuse.
 
-Publish follows the rules above unchanged. Report the URL of every Issue created or
-reused, also when publication is partial.
+Publish follows the rules above. Report the URL of every Issue created or reused, also
+when publication is partial.
 
 The stage, not the role, updates the request Issue:
 
@@ -306,9 +307,6 @@ The stage, not the role, updates the request Issue:
   `AUTHORITY_UPDATE_REQUIRED` and any Publish verdict other than `PUBLISHED`. A person
   records the decision in the authority or changes the request, then removes `pending`;
   the stage starts again from step 1.
-
-Outside a request nothing changes: a manifest still needs the Owner's explicit approval,
-and small amendments and Audit work as described above.
 
 ## Report
 
