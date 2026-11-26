@@ -78,8 +78,8 @@ jobs:
           }
           case "$EVENT_NAME" in
             issues)
-              if ! jq -e 'index("scope") != null' <<<"$ISSUE_LABELS" >/dev/null; then
-                echo "#$ISSUE has no scope label; not routed"
+              if ! jq -e 'index("scope") != null or index("request") != null' <<<"$ISSUE_LABELS" >/dev/null; then
+                echo "#$ISSUE has no scope or request label; not routed"
                 exit 0
               fi
               case "$ACTION:$LABEL" in
