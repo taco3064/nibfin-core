@@ -6,6 +6,9 @@ import { ConfigError } from "./errors.ts";
 import { makeTempDir } from "./fixtures.test.ts";
 import { parseNibfinConfig, readNibfinConfig } from "./schema.ts";
 
+/** The built-in skills of Core's own `skills/` today. */
+const skillNames = ["accept", "deliver", "scope", "shape"];
+
 let root: string;
 before(async () => {
   root = await makeTempDir("config-schema-");
@@ -14,7 +17,7 @@ after(() => rm(root, { recursive: true, force: true }));
 
 function problemsOf(value: unknown): string[] {
   try {
-    parseNibfinConfig(JSON.stringify(value));
+    parseNibfinConfig(JSON.stringify(value), skillNames);
   } catch (error) {
     assert.ok(error instanceof ConfigError);
     assert.equal(error.code, "CONFIG_INVALID");
@@ -35,7 +38,7 @@ describe("parseNibfinConfig", () => {
         accept: { mode: "extend", path: "accept.md" },
       },
     });
-    assert.deepEqual(parseNibfinConfig(text), {
+    assert.deepEqual(parseNibfinConfig(text, skillNames), {
       tools: { node: "22.15.0", python: "3.13.7", go: "1.24.2" },
       skills: {
         shape: { mode: "extend", path: "docs/shape.md" },
@@ -46,19 +49,22 @@ describe("parseNibfinConfig", () => {
   });
 
   it("gives the defaults for an empty object and empty sections", () => {
-    assert.deepEqual(parseNibfinConfig("{}"), { tools: {}, skills: {} });
+    assert.deepEqual(parseNibfinConfig("{}", skillNames), { tools: {}, skills: {} });
     const empty = JSON.stringify({ tools: {}, skills: {} });
-    assert.deepEqual(parseNibfinConfig(empty), { tools: {}, skills: {} });
+    assert.deepEqual(parseNibfinConfig(empty, skillNames), { tools: {}, skills: {} });
   });
 
   it("accepts a Go minor version and versions with zeros", () => {
     const text = JSON.stringify({ tools: { go: "1.20", node: "0.10.0" } });
-    assert.deepEqual(parseNibfinConfig(text).tools, { go: "1.20", node: "0.10.0" });
+    assert.deepEqual(parseNibfinConfig(text, skillNames).tools, {
+      go: "1.20",
+      node: "0.10.0",
+    });
   });
 
   it("rejects malformed JSON and keeps the parser error", () => {
     assert.throws(
-      () => parseNibfinConfig("{ tools: "),
+      () => parseNibfinConfig("{ tools: ", skillNames),
       (error: unknown) =>
         error instanceof ConfigError &&
         error.code === "CONFIG_INVALID" &&
@@ -116,14 +122,28 @@ describe("parseNibfinConfig", () => {
     ]);
   });
 
-  it("rejects skills that are not an object or not a role", () => {
+  it("rejects skills that are not an object or not a built-in skill", () => {
     assert.deepEqual(problemsOf({ skills: "x" }), [
       "$.skills: expected an object, got a string",
     ]);
     const skill = { mode: "extend", path: "a.md" };
-    assert.deepEqual(problemsOf({ skills: { scope: skill } }), [
-      "$.skills.scope: unknown key",
+    assert.deepEqual(problemsOf({ skills: { plan: skill, "a-b": skill } }), [
+      "$.skills.plan: unknown skill; the skills are accept, deliver, scope, shape",
+      '$.skills["a-b"]: unknown skill; the skills are accept, deliver, scope, shape',
     ]);
+  });
+
+  it("accepts exactly the skill names it is given (#734)", () => {
+    const skill = { mode: "extend", path: "a.md" };
+    const text = JSON.stringify({ skills: { scope: skill, plan: skill } });
+    assert.deepEqual(parseNibfinConfig(text, ["plan", "scope"]).skills, {
+      plan: skill,
+      scope: skill,
+    });
+    assert.throws(
+      () => parseNibfinConfig(text, ["scope"]),
+      /\$\.skills\.plan: unknown skill; the skills are scope/,
+    );
   });
 
   it("rejects malformed skill entries with nested paths", () => {
@@ -139,11 +159,11 @@ describe("parseNibfinConfig", () => {
         },
       }),
       [
-        "$.skills.shape.writerBackend: unknown key",
-        '$.skills.shape.mode: expected "extend" or "override"',
+        "$.skills.accept.path: expected a string",
         '$.skills.deliver.mode: expected "extend" or "override"',
         "$.skills.deliver.path: expected a string",
-        "$.skills.accept.path: expected a string",
+        "$.skills.shape.writerBackend: unknown key",
+        '$.skills.shape.mode: expected "extend" or "override"',
       ],
     );
   });
@@ -188,6 +208,39 @@ describe("readNibfinConfig", () => {
     });
     await writeFile(join(dir, ".nibfin.json"), '{"writerBackend":"codex"}');
     assert.equal((await rejection(dir)).code, "CONFIG_INVALID");
+  });
+
+  it("accepts the skills of Core's own skills directory, scope included", async () => {
+    const dir = await workspace();
+    const skill = { mode: "extend", path: "scope.md" };
+    await writeFile(
+      join(dir, ".nibfin.json"),
+      JSON.stringify({ skills: { scope: skill } }),
+    );
+    assert.deepEqual((await readNibfinConfig(dir)).skills, { scope: skill });
+    const plan = JSON.stringify({ skills: { plan: skill } });
+    await writeFile(join(dir, ".nibfin.json"), plan);
+    const error = await rejection(dir);
+    assert.equal(error.code, "CONFIG_INVALID");
+    assert.match(
+      error.message,
+      /\$\.skills\.plan: unknown skill; the skills are accept, deliver, scope, shape/,
+    );
+  });
+
+  it("discovers the skill names from the given built-in directory", async () => {
+    const dir = await workspace();
+    const builtInDir = join(root, `built-in-${Date.now()}`);
+    await mkdir(join(builtInDir, "plan"), { recursive: true });
+    await writeFile(join(builtInDir, "plan", "SKILL.md"), "# Plan\n");
+    const skill = { mode: "override", path: "plan.md" };
+    await writeFile(
+      join(dir, ".nibfin.json"),
+      JSON.stringify({ skills: { plan: skill } }),
+    );
+    assert.deepEqual((await readNibfinConfig(dir, { builtInDir })).skills, {
+      plan: skill,
+    });
   });
 
   it("follows a symlink that stays inside the workspace", async () => {

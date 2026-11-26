@@ -5,7 +5,7 @@ import { after, before, describe, it } from "node:test";
 import { ConfigError } from "./errors.ts";
 import { makeJobDirs, makeTempDir, writeTree } from "./fixtures.test.ts";
 import type { NibfinConfig, RoleName, SkillMode } from "./schema.ts";
-import { defaultBuiltInDir, resolveRoleSkill } from "./skills.ts";
+import { defaultBuiltInDir, readBuiltInSkillNames, resolveRoleSkill } from "./skills.ts";
 
 let root: string;
 let workspace: string;
@@ -58,7 +58,53 @@ async function rejection(mode: SkillMode, path: string): Promise<ConfigError> {
   assert.fail(`expected ${path} to be rejected`);
 }
 
+describe("readBuiltInSkillNames", () => {
+  it("lists the directories holding a regular-file SKILL.md, sorted", async () => {
+    const dir = join(root, "discovery");
+    await writeTree(dir, {
+      "zeta/SKILL.md": "# Zeta\n",
+      "alpha/SKILL.md": "# Alpha\n",
+      "notes/README.md": "no skill here",
+      "odd/SKILL.md/inner.md": "a directory named SKILL.md",
+      "README.md": "a file, not a skill",
+    });
+    assert.deepEqual(await readBuiltInSkillNames(dir), ["alpha", "zeta"]);
+  });
+
+  it("discovers Core's own skills by default", async () => {
+    assert.deepEqual(await readBuiltInSkillNames(), [
+      "accept",
+      "deliver",
+      "scope",
+      "shape",
+    ]);
+  });
+
+  it("keeps the original error when the directory cannot be read", async () => {
+    await assert.rejects(readBuiltInSkillNames(join(root, "missing")), {
+      code: "ENOENT",
+    });
+  });
+});
+
 describe("resolveRoleSkill", () => {
+  it("rejects a role that is not a built-in skill, naming the skills", async () => {
+    const config: NibfinConfig = { tools: {}, skills: {} };
+    await assert.rejects(
+      resolveRoleSkill("plan", config, { workspace, builtInDir }),
+      (error: unknown) =>
+        error instanceof ConfigError &&
+        error.code === "CONFIG_INVALID" &&
+        error.message === '"plan" is not a skill; the skills are accept, deliver',
+    );
+  });
+
+  it("resolves the built-in scope skill (#734)", async () => {
+    const config: NibfinConfig = { tools: {}, skills: {} };
+    const expected = await readFile(join(defaultBuiltInDir, "scope", "SKILL.md"), "utf8");
+    assert.equal(await resolveRoleSkill("scope", config, { workspace }), expected);
+  });
+
   it("uses the built-in skill when the role has no setting", async () => {
     const config: NibfinConfig = { tools: {}, skills: {} };
     const text = await resolveRoleSkill("accept", config, { workspace, builtInDir });

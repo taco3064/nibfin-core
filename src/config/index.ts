@@ -6,7 +6,6 @@ export {
   parseNibfinConfig,
   readNibfinConfig,
   type RoleName,
-  roleNames,
   type SkillMode,
   type SkillSetting,
   type ToolName,
@@ -15,6 +14,7 @@ export {
 } from "./schema.ts";
 export {
   defaultBuiltInDir,
+  readBuiltInSkillNames,
   resolveRoleSkill,
   type ResolveRoleSkillOptions,
 } from "./skills.ts";

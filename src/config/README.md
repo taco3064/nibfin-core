@@ -16,9 +16,10 @@ declared tools. Owned by #669.
 
 ## Schema
 
-`readNibfinConfig(workspace)` reads `<workspace>/.nibfin.json`; `parseNibfinConfig(text)`
-validates text. A missing file gives `{ tools: {}, skills: {} }`: no tools and the
-built-in skills. A symlink is followed only when it stays inside the real workspace; a
+`readNibfinConfig(workspace, { builtInDir? })` reads `<workspace>/.nibfin.json`;
+`parseNibfinConfig(text, skillNames)` validates text against the given skill names,
+which `readNibfinConfig` discovers from `builtInDir` (see Role skills). A missing
+file gives `{ tools: {}, skills: {} }`: no tools and the built-in skills. A symlink is followed only when it stays inside the real workspace; a
 dangling one is invalid, not missing.
 
 ```json
@@ -32,8 +33,10 @@ dangling one is invalid, not missing.
 - `tools`: only `node`, `python` and `go`, each an exact `x.y.z` string. Go also takes
   `x.y`, which must name a release called exactly `go<x.y>`: first releases up to Go
   1.20 have names like `go1.20`, without `.0`.
-- `skills`: only `shape`, `deliver` and `accept`, each exactly `{ mode, path }` with
-  `mode` `extend` or `override` and `path` a string.
+- `skills`: only the built-in skills (today `accept`, `deliver`, `scope` and `shape`;
+  Proposal R7.5), each exactly `{ mode, path }` with `mode` `extend` or `override`
+  and `path` a string. Any other name is rejected as an unknown skill, with the list
+  of the built-in skills.
 - Any other key at any level is invalid, including the removed `allowedDomains` and
   `writerBackend`.
 
@@ -42,6 +45,13 @@ dangling one is invalid, not missing.
 `resolveRoleSkill(role, config, { workspace, builtInDir? })` returns the skill text.
 The built-in skill is `<builtInDir>/<role>/SKILL.md`; `builtInDir` defaults to Core's
 own `skills/` beside `src/` and `dist/` (`defaultBuiltInDir`).
+
+The built-in skills are discovered, not listed in code:
+`readBuiltInSkillNames(builtInDir?)` returns the sorted names of the directories of `builtInDir` that hold a regular-file
+`SKILL.md`, so a skill added to `skills/` is adjustable with no code change (#734).
+A failure to read `builtInDir` itself keeps its original error. The names come only
+from Core's own directory, never from the workspace. `resolveRoleSkill` rejects a
+role that is not one of them with `CONFIG_INVALID`, naming the skills that exist.
 
 - No setting: the built-in text.
 - `extend`: the built-in text, a blank line, then the repository file.

@@ -10,14 +10,13 @@ test("the config module exports its public API", () => {
     "defaultToolExecutables",
     "parseNibfinConfig",
     "prepareTools",
+    "readBuiltInSkillNames",
     "readNibfinConfig",
     "resolveRoleSkill",
-    "roleNames",
     "toolNames",
   ]);
   assert.equal(config.configFileName, ".nibfin.json");
   assert.deepEqual(config.toolNames, ["node", "python", "go"]);
-  assert.deepEqual(config.roleNames, ["shape", "deliver", "accept"]);
   assert.deepEqual(config.defaultToolExecutables, {
     tar: { command: "tar", args: [] },
     uv: { command: "uv", args: [] },

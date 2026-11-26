@@ -2,14 +2,18 @@ import { readFile, realpath } from "node:fs/promises";
 import { isRecord } from "../agent/json.ts";
 import { ConfigError, messageOf } from "./errors.ts";
 import { resolveWorkspaceFile } from "./paths.ts";
+import { readBuiltInSkillNames } from "./skills.ts";
 
 export const configFileName = ".nibfin.json";
 export const toolNames = ["node", "python", "go"] as const;
-export const roleNames = ["shape", "deliver", "accept"] as const;
 export const skillModes = ["extend", "override"] as const;
 
 export type ToolName = (typeof toolNames)[number];
-export type RoleName = (typeof roleNames)[number];
+/**
+ * The name of a built-in skill: a directory of Core's own `skills/` that holds a
+ * `SKILL.md` (`readBuiltInSkillNames`, Proposal R7.5).
+ */
+export type RoleName = string;
 export type SkillMode = (typeof skillModes)[number];
 export type ToolVersions = Partial<Record<ToolName, string>>;
 
@@ -21,6 +25,7 @@ export interface SkillSetting {
 
 export interface NibfinConfig {
   tools: ToolVersions;
+  /** Only built-in skill names, as validated against `readBuiltInSkillNames`. */
   skills: Partial<Record<RoleName, SkillSetting>>;
 }
 
@@ -114,14 +119,23 @@ function readSkill(value: unknown, path: string, problems: Problems) {
   return { mode: validMode, path: file };
 }
 
-function readSkills(value: unknown, problems: Problems): NibfinConfig["skills"] {
+function readSkills(
+  value: unknown,
+  skillNames: readonly string[],
+  problems: Problems,
+): NibfinConfig["skills"] {
   const skills: NibfinConfig["skills"] = {};
   const object = objectAt(value, "$.skills", problems);
   if (object === undefined) {
     return skills;
   }
-  checkKeys(object, "$.skills", roleNames, problems);
-  for (const role of roleNames.filter((name) => Object.hasOwn(object, name))) {
+  for (const key of Object.keys(object).filter((key) => !skillNames.includes(key))) {
+    const known = skillNames.join(", ");
+    problems.push(
+      `${childPath("$.skills", key)}: unknown skill; the skills are ${known}`,
+    );
+  }
+  for (const role of skillNames.filter((name) => Object.hasOwn(object, name))) {
     const skill = readSkill(object[role], `$.skills.${role}`, problems);
     if (skill !== undefined) {
       skills[role] = skill;
@@ -130,8 +144,14 @@ function readSkills(value: unknown, problems: Problems): NibfinConfig["skills"] 
   return skills;
 }
 
-/** Validates `.nibfin.json` text; every problem is listed with its JSON path. */
-export function parseNibfinConfig(text: string): NibfinConfig {
+/**
+ * Validates `.nibfin.json` text; every problem is listed with its JSON path. The
+ * `skills` keys must be among `skillNames`, the built-in skills.
+ */
+export function parseNibfinConfig(
+  text: string,
+  skillNames: readonly string[],
+): NibfinConfig {
   let value: unknown;
   try {
     value = JSON.parse(text);
@@ -148,7 +168,7 @@ export function parseNibfinConfig(text: string): NibfinConfig {
       config.tools = readTools(root.tools, problems);
     }
     if (Object.hasOwn(root, "skills")) {
-      config.skills = readSkills(root.skills, problems);
+      config.skills = readSkills(root.skills, skillNames, problems);
     }
   }
   if (problems.length > 0) {
@@ -161,9 +181,13 @@ export function parseNibfinConfig(text: string): NibfinConfig {
 /**
  * Reads the workspace's `.nibfin.json`. A missing file gives the defaults: no tools
  * and the built-in skills. The file must resolve to a regular file inside the
- * workspace.
+ * workspace. The skill names it accepts are discovered from `options.builtInDir`
+ * (Core's own `skills/` by default).
  */
-export async function readNibfinConfig(workspace: string): Promise<NibfinConfig> {
+export async function readNibfinConfig(
+  workspace: string,
+  options: { builtInDir?: string } = {},
+): Promise<NibfinConfig> {
   const root = await realpath(workspace);
   const found = await resolveWorkspaceFile(root, configFileName);
   if (found === undefined) {
@@ -173,5 +197,6 @@ export async function readNibfinConfig(workspace: string): Promise<NibfinConfig>
     const message = `${configFileName} ${found.reason}`;
     throw new ConfigError("CONFIG_INVALID", message, found.cause);
   }
-  return parseNibfinConfig(await readFile(found.path, "utf8"));
+  const text = await readFile(found.path, "utf8");
+  return parseNibfinConfig(text, await readBuiltInSkillNames(options.builtInDir));
 }
