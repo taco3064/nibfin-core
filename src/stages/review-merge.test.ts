@@ -315,7 +315,7 @@ describe("mergeReviewed", () => {
     assert.equal(w.mergeRequests.length, 1);
     assert.match(
       w.issues.github.log.join("\n"),
-      /again \(retry 1 of 3\): Pull Request is not/,
+      /again \(retry 1 of 3\): HTTP 405; waiting 1 s/,
     );
   });
 
@@ -349,10 +349,7 @@ describe("mergeReviewed", () => {
     assert.equal(w.pull.merged, true);
     assert.deepEqual(w.issues.github.waits, [1, 4]);
     const logs = w.issues.github.log.join("\n");
-    assert.match(
-      logs,
-      /Merging \S+ again \(retry 2 of 3\): Base branch was modified\. .*; waiting 4 s/,
-    );
+    assert.match(logs, /Merging \S+ again \(retry 2 of 3\): HTTP 405; waiting 4 s/);
     assert.deepEqual(w.issues.marked("review-blocked"), []);
   });
 
@@ -366,6 +363,27 @@ describe("mergeReviewed", () => {
     );
     assert.deepEqual(w.issues.github.waits, [1, 4, 9]);
     assert.deepEqual(reviewComments(w), []);
+    const url = "https://github.com/acme/app/pull/7";
+    const retryLines = w.issues.github.log.filter((line) => line.startsWith("Merging "));
+    assert.deepEqual(retryLines, [
+      `Merging ${url} again (retry 1 of 3): HTTP 405; waiting 1 s`,
+      `Merging ${url} again (retry 2 of 3): HTTP 405; waiting 4 s`,
+      `Merging ${url} again (retry 3 of 3): HTTP 405; waiting 9 s`,
+      `Merging ${url}: HTTP 405; not retrying after 3 retries`,
+    ]);
+    // The Job log carries the kind only, never GitHub's message.
+    assert.ok(!w.issues.github.log.some((line) => /Base branch was modified/.test(line)));
+  });
+
+  it("logs a 409 as its status and gives up after 3 retries", async () => {
+    const w = await reviewWorld();
+    w.mergeAnswer = () => failure(409, "Head branch was modified.");
+    assert.deepEqual(await merge(w), noNext);
+    assert.equal(w.mergeRequests.length, 4);
+    const logs = w.issues.github.log.join("\n");
+    assert.match(logs, /again \(retry 3 of 3\): HTTP 409; waiting 9 s/);
+    assert.match(logs, /Merging \S+: HTTP 409; not retrying after 3 retries/);
+    assert.doesNotMatch(logs, /Head branch was modified/);
   });
 
   it("re-sends a head that is only behind, then blocks it without Deliver", async () => {

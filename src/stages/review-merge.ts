@@ -3,6 +3,7 @@ import {
   deriveStage,
   freshReads,
   GitHubError,
+  logGiveUp,
   maxRetries,
   type MergeMethod,
   mergePullRequest,
@@ -145,13 +146,16 @@ async function attemptMerge(
   }
 }
 
-/** Why an attempt failed, for the retry's Job-log line. */
+/**
+ * Why an attempt failed, for the retry's Job-log line: the kind only (HTTP status,
+ * rate-limit kind, `no response`), never GitHub's message.
+ */
 function attemptCause(attempt: Exclude<Attempt, { outcome: "merged" }>): string {
   switch (attempt.outcome) {
     case "head-changed":
-      return "GitHub reports the head changed";
+      return "HTTP 409";
     case "not-mergeable":
-      return attempt.message;
+      return "HTTP 405";
     case "error":
       return retryCause(attempt.error);
   }
@@ -256,10 +260,15 @@ export async function mergeReviewed(
     return blockReview(scope, mergeTitle, await describeBlocked(scope, pull));
   }
   const method = await chooseMethod(scope, pull.baseRef);
+  const what = `Merging ${pull.url}`;
   let last = await attemptMerge(scope, pull, head, method);
-  for (let k = 1; last.outcome !== "merged" && k <= maxRetries; k += 1) {
+  for (let k = 1; last.outcome !== "merged"; k += 1) {
+    if (k > maxRetries) {
+      logGiveUp(client, what, attemptCause(last));
+      break;
+    }
     const error = last.outcome === "error" ? last.error : undefined;
-    await waitToRetry(client, `Merging ${pull.url} again`, error, k, attemptCause(last));
+    await waitToRetry(client, `${what} again`, error, k, attemptCause(last));
     const again = await recheckMerge(scope, pull, head);
     if ("next" in again) {
       return again.next;

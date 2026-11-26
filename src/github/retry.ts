@@ -87,6 +87,14 @@ export function giveUpLine(what: string, cause: string): string {
   return `${what}: ${cause}; not retrying after ${maxRetries} retries`;
 }
 
+/**
+ * Logs that `what` gives up with `cause` after the last retry, with the client's log
+ * (a client without one logs nothing).
+ */
+export function logGiveUp(client: object, what: string, cause: string): void {
+  retrySettingsOf(client).log(giveUpLine(what, cause));
+}
+
 async function announceAndWait(
   settings: { log: LogLine; wait: Wait },
   what: string,
