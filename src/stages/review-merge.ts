@@ -210,7 +210,7 @@ export async function mergeReviewed(
     }
     return blockReview(scope, mergeTitle, await describeBlocked(scope, pull));
   }
-  for (let attempt = 1; ; attempt += 1) {
+  const attemptMerge = async (attempt: number): Promise<NextAction> => {
     const result = await merge(scope, pull, head);
     if (result.outcome === "head-changed") {
       scope.progress.mark();
@@ -229,7 +229,9 @@ export async function mergeReviewed(
       `Merging ${pull.url} again (attempt ${attempt + 1} of ${mergeAttempts}): ` +
         `GitHub refused it without a conflict (${result.message})`,
     );
-  }
+    return attemptMerge(attempt + 1);
+  };
+  return attemptMerge(1);
 }
 
 /**
