@@ -295,10 +295,11 @@ For a request, Plan also:
   that still fits in the manifest for reuse with its body unchanged, adding only a missing
   `scope`, the request's Assignees and its planned edges; one that already has `scope`
   gets no new edge that blocks it. One that no longer fits, or would need such an edge, is
-  `PLAN_BLOCKED`; a person discards it by closing it as not planned.
+  `PLAN_BLOCKED`; a person discards it by closing it as not planned. One closed as
+  completed still fits, and a manifest that only reuses Issues can be `PLAN_READY`.
 - returns `PLAN_BLOCKED` with the reason if nothing is left to create or reuse.
 
-Publish follows the rules above, with three additions for a request:
+Publish follows the rules above, with these additions for a request:
 
 - It ignores every Issue closed as not planned, whether matched by title or by origin
   line. Any other Issue with this request's origin line that the manifest does not list
@@ -306,6 +307,8 @@ Publish follows the rules above, with three additions for a request:
 - It adds `scope` and the Assignees to the Issues only after every planned Issue and edge
   is confirmed by read-back, so no Issue becomes eligible for Shape before its edges
   exist.
+- To learn whether an unknown create happened, it reads the request's cross-reference
+  events or lists the repository's Issues; search results can lag and prove no absence.
 - It reports the URL of every Issue created or reused, also when publication is partial.
 
 The stage, not the role, updates the request Issue:
