@@ -128,6 +128,16 @@ removing it resumes from GitHub state.
   is `STAGE_RESULT_INVALID` with the agent's final message. Each stage checks the
   other fields of its roles' results.
 
+## Scope stage
+
+`runScopeStage(context, client)` (`nibfin run --stage scope ...`) runs for an open
+`request` Issue without `scope` (Proposal R3.2, R4.8; #734). Its work (the
+Investigation, the Plan and the publication) is not implemented in this version: it
+logs that, runs no agent, writes nothing to GitHub, leaves the workspace untouched
+and writes no next action (`progressed: false`). After a Scope run Core dispatches
+only its wakes, never the request's own route (see `src/route`), so the placeholder
+adds no `pending`.
+
 ## Shape stage
 
 `runShapeStage(context, client, deps?)`:
@@ -513,7 +523,7 @@ with no next action and the next run rewrites the comment. `closeDelivered` adds
 ### Wake
 
 The stage reads the Issues this Issue blocks (any repository). Each one whose
-snapshot derives `shape` or a delivery stage goes into `wake`; every other one is
+snapshot derives `scope`, `shape` or a delivery stage goes into `wake`; every other one is
 logged with its reason (`blocked by <remaining blockers>`, `no-assignee`, `paused`,
 `closed`, or unreadable with the read error) and is never woken. Reading a
 downstream snapshot needs the same reads as the Issue's own (see Job context); a

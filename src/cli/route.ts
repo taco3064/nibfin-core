@@ -169,7 +169,7 @@ export async function routeAfterStage(
     JobContext,
     "repo" | "issue" | "reason" | "runRepo" | "runId" | "nextFile"
   >,
-  stage: "shape" | "deliver" | "review" | "finish",
+  stage: "scope" | "shape" | "deliver" | "review" | "finish",
 ): Promise<void> {
   if (context.nextFile === undefined) {
     io.stdout.write("NIBFIN_NEXT_FILE is not set; nothing is dispatched\n");

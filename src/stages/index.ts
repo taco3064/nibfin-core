@@ -63,6 +63,7 @@ export {
   reviewBlockedCommentKey,
   type ReviewDeps,
 } from "./review-scope.ts";
+export { runScopeStage } from "./scope.ts";
 export { runShapeStage, shapeBlockedCommentKey, shapeCommentKey } from "./shape.ts";
 export {
   isDeliveryStage,

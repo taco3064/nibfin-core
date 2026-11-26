@@ -58,11 +58,16 @@ describe("runReviewStage closing", () => {
     const other = fakeIssue({ number: 9, state: "open" });
     addDownstream(w, { number: 5 }, { blockers: [w.issues.main, other] });
     addDownstream(w, { owner: "other", repo: "lib", number: 6 }, { readable: false });
+    // A blocked request is woken to its Scope stage (#734).
+    addDownstream(w, { number: 10, labels: ["request"] });
     shape.labels.push("shaped");
     assert.equal(await w.review(), 0);
     assert.deepEqual(w.next(), {
       ...noNext,
-      wake: [{ repo: "acme/app", issue: 2 }],
+      wake: [
+        { repo: "acme/app", issue: 2 },
+        { repo: "acme/app", issue: 10 },
+      ],
       progressed: true,
     });
     const url = "https://github.com/acme/app";
@@ -105,6 +110,7 @@ describe("runReviewStage closing", () => {
     assert.match(logs, /Not waking acme\/app#4: paused/);
     assert.match(logs, /Not waking acme\/app#5: blocked by .*issues\/9/);
     assert.match(logs, /Not waking other\/lib#6: it cannot be read/);
+    assert.match(logs, /Waking acme\/app#10 \(scope\)/);
   });
 
   it("lists open and unmerged pull requests and runs without checks", async () => {
