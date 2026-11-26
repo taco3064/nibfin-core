@@ -113,7 +113,9 @@ are read once through the read cache.
 
 CI is the base branch's required checks: rulesets (`GET …/rules/branches/{branch}`) plus
 classic protection as `GET …/branches/{branch}` shows it, matched by context and app
-(`null` = any source). A result is the newest matching check run, else, for an
+(`null` = any source). A private repository whose plan has no rulesets answers the
+rules endpoint with 403 "Upgrade to GitHub Pro or make this repository public"; that
+reads as no rules, for the required checks and the merge rules alike. A result is the newest matching check run, else, for an
 any-source check, the newest commit status of that context (statuses carry no app id).
 Check runs of Nibfin's own workflow runs (name prefix `Nibfin ·`, matched through their
 check suite) never count.

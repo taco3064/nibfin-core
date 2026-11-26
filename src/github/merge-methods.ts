@@ -1,3 +1,4 @@
+import { readBranchRules } from "./branch-rules.ts";
 import type { GitHubClient } from "./client.ts";
 import { read } from "./errors.ts";
 import type { Repo } from "./repo.ts";
@@ -53,14 +54,7 @@ export async function readMergeRules(
   repo: Repo,
   branch: string,
 ): Promise<MergeRules> {
-  const where = `${repo.owner}/${repo.repo}@${branch}`;
-  const rules = await read(`read rules of ${where}`, () =>
-    client.paginate("GET /repos/{owner}/{repo}/rules/branches/{branch}", {
-      ...repo,
-      branch,
-      per_page: 100,
-    }),
-  );
+  const rules = await readBranchRules(client, repo, branch);
   const pullRequest = rules.flatMap((rule) =>
     rule.type === "pull_request"
       ? [
