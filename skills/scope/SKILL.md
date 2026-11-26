@@ -284,8 +284,11 @@ For a request, Plan also:
 - only creates Issues, edges among the Issues it creates or reuses, and edges where one of
   them is blocked by an existing Issue. Work that would edit the body or metadata of,
   cancel, reassign or block any other existing Issue is `PLAN_BLOCKED`.
-- gives every Issue `scope` and the request's Assignees, and the line
-  `Origin: <request URL>` in its body. A request with no Assignee is `PLAN_BLOCKED`.
+- gives every Issue `scope`, the request's Assignees and the origin line, and every new
+  Issue a title no other Issue in its repository has. The origin line is `Origin: `
+  followed by the request's full URL, as plain text outside any code formatting, so GitHub
+  records a cross-reference on the request. A request with no Assignee, or one not
+  assignable in a target repository, is `PLAN_BLOCKED`.
 - on a rerun, finds the Issues an earlier run created from the request's cross-reference
   events (the origin line creates one in any repository), keeping those whose body has
   this request's origin line and ignoring those closed as not planned. It keeps each one
@@ -296,8 +299,8 @@ For a request, Plan also:
 
 Publish follows the rules above, with three additions for a request:
 
-- An Issue closed as not planned is never a match. A same-title or origin-line match the
-  manifest does not list for reuse is `REPLAN_REQUIRED`.
+- An Issue closed as not planned is never a match. An Issue with this request's origin
+  line that the manifest does not list for reuse is `REPLAN_REQUIRED`.
 - It adds `scope` and the Assignees to the Issues only after every planned Issue and edge
   is confirmed by read-back, so no Issue becomes eligible for Shape before its edges
   exist.
