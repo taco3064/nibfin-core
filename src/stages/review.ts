@@ -5,8 +5,10 @@ import {
   type DeliveryOutcome,
   deriveStage,
   type IssueSnapshot,
+  type PullRequestState,
   readIssueSnapshot,
   readPullRequest,
+  readReviewComments,
 } from "../github/index.ts";
 import { issueOf, prepareStageJob, runStageAgent } from "./agent.ts";
 import { closedAsDelivered, closeIssue } from "./closing.ts";
@@ -33,6 +35,7 @@ import {
   sendBackToDeliver,
 } from "./review-scope.ts";
 import { reviewSections } from "./review-sources.ts";
+import { type ChangeRequest, readApprovalWait } from "./review-wait.ts";
 import { readPendingReport } from "./shape-wrong.ts";
 import { wakeDownstream } from "./wake.ts";
 
@@ -42,6 +45,31 @@ type ReviewOutcome = Extract<DeliveryOutcome, { requiredChecks: unknown }>;
 function listProblems(problems: readonly string[]): string {
   const items = problems.map((problem) => `- ${problem}`).join("\n");
   return `Problems found in the review:\n\n${items}`;
+}
+
+/**
+ * The review feedback of a writer's request for changes on the head, as the marked
+ * `review` comment gives it to Deliver: its author (backticks, no `@`), URL, text
+ * and inline comments.
+ */
+async function describeChangeRequest(
+  scope: ReviewScope,
+  pull: PullRequestState,
+  change: ChangeRequest,
+): Promise<string> {
+  const { client, context } = scope;
+  const inline = await readReviewComments(client, context.repo, pull.number, change.id);
+  const parts = [
+    `\`${change.login}\` requested changes on this head in a pull request review: ` +
+      change.url,
+    change.body.trim() === "" ? "(The review has no text.)" : change.body.trim(),
+  ];
+  for (const comment of inline) {
+    const { path, line } = comment;
+    const where = line === null ? path : `${path}:${line}`;
+    parts.push(`Inline comment on \`${where}\` (${comment.url}):\n\n${comment.body}`);
+  }
+  return parts.join("\n\n");
 }
 
 /**
@@ -96,7 +124,9 @@ async function review(
 /**
  * At `review`: a pending report that the Shape is wrong stops it (no review, no
  * merge). Otherwise it pins the PR head, reuses a review already recorded for that
- * head and the current Shape version, else reviews it, re-reads GitHub and acts on
+ * head and the current Shape version, or a passing one an `approval-wait` comment
+ * records (a writer's request for changes on the head becomes the review fix; else
+ * the merge is re-checked), else reviews it, re-reads GitHub and acts on
  * the verdict only for the same head.
  */
 async function reviewPullRequest(
@@ -123,6 +153,16 @@ async function reviewPullRequest(
   }
   if (existing !== undefined) {
     deps.log(`${existing.comment.url} was written for another Shape version`);
+  }
+  const wait = await readApprovalWait(client, issue, pull);
+  if (wait?.kind === "changes-requested") {
+    deps.log(`${wait.review.url} requests changes on ${head}; requesting a review fix`);
+    const text = await describeChangeRequest(scope, pull, wait.review);
+    return sendBackToDeliver(scope, pull.number, head, wait.shapeVersion, text);
+  }
+  if (wait !== undefined) {
+    deps.log(`The Shape review of ${head} already passed; re-checking the merge`);
+    return mergeReviewed(scope, pull, head, wait.shapeVersion);
   }
   const { verdict, shapeVersion } = await review(scope, snapshot, stage);
   const now = deriveStage(await readIssueSnapshot(client, context.repo, context.issue));

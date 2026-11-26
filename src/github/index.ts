@@ -64,13 +64,20 @@ export {
 } from "./merge-methods.ts";
 export {
   type CommitPullRequest,
+  hasWritePermission,
+  type LatestReview,
   type PullRequestDetail,
   readApprovalCount,
   readCommitPullRequests,
   readCommitsAhead,
   readForcePushedHeads,
+  readLatestReviews,
   readPullRequest,
   readPullRequestCommits,
+  readRequestedReviewers,
+  readReviewComments,
+  type RequestedReviewers,
+  type ReviewComment,
 } from "./pull-request.ts";
 export type { IssueRef, Repo } from "./repo.ts";
 export {

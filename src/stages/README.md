@@ -390,7 +390,14 @@ Results:
    already records `H` (`Reviewed head: H`) and the current Shape version
    (`Reviewed Shape: <v>`, read here), the run asks for the `review` fix again
    without reviewing; a comment without a current `Reviewed Shape` line is stale and
-   the head is reviewed again.
+   the head is reviewed again. Otherwise, when the actor's marked `approval-wait`
+   comment on the PR records `H` and the current Shape version (a passing review,
+   see Merge step 2), the head is not reviewed again: a writer's `CHANGES_REQUESTED`
+   review on `H` (the newest) becomes the marked `review` comment for `H` and that
+   Shape version (the review's author in backticks without `@`, its URL, its text and
+   its inline comments as `path:line`, URL and body) and asks for the `review` fix;
+   anything else goes straight to the merge, which re-checks everything. A wait
+   comment for another head or Shape version is stale.
 2. **Checkout.** Core fetches `H` (by SHA) and the base into its own bare repository
    outside the workspace, with the token in that one child's environment as for
    Deliver's pushes, brings both into the workspace and checks `H` out detached.
@@ -407,6 +414,7 @@ Results:
    `review` fix. Its body changes whenever the version does.
    `blocked` writes the marked `review-blocked` comment on the Issue and stops with
    `STAGE_BLOCKED`. `clean` goes to the merge. A clean result never writes a `review`
+   comment; a merge that waits for approvals records it in the `approval-wait`
    comment.
 
 ### Merge
@@ -421,10 +429,20 @@ not configure.
 unknown` stops with no next action (GitHub is still computing).
    `behind` or `dirty` writes the `review` comment "Rebase onto `<base>` and resolve
    conflicts: …" for `H` and the reviewed Shape version, and asks for the `review`
-   fix. `blocked` writes
-   `review-blocked` naming the readable unmet ruleset requirements (approvals against
-   the current count, code owner review, last push approval, resolved threads), or
-   saying that classic protection is not readable.
+   fix. `blocked` waits for approvals (#725) when a ruleset `pull_request` rule of
+   the base applies and either the approvals of writers (reviewers whose collaborator
+   permission is `admin` or `write`; a 404 is no access) are below the largest
+   required count, or a writer's latest review requests changes on any head (GitHub
+   then needs that writer's approval). It upserts the marked `approval-wait` comment
+   on the PR (`Reviewed head: H`, `Reviewed Shape: <v>`, that the Shape review
+   passed, the requirement and the writers' approvals, each writer whose requested
+   changes stand, the requested reviewers and teams; logins in backticks without
+   `@`) and ends with next action none; no `pending`. A submitted review wakes the
+   Issue (#726). Any other `blocked` writes `review-blocked` naming the readable
+   unmet ruleset requirements (approvals against the current count, code owner
+   review, last push approval, resolved threads), or saying that classic protection
+   is not readable. Unreadable rules, reviews or permissions fail
+   (`GITHUB_READ_FAILED`).
 3. Chooses the first of rebase, squash and merge commit that the repository settings
    and every applying ruleset `pull_request` rule allow (no merge commit under
    `required_linear_history`). No method, or an unknown setting, is `review-blocked`.
@@ -472,10 +490,12 @@ downstream repository the token does not cover is logged as unreadable.
 "<owner>/<repo>", "issue": <n> }] }`: `{ "deliver", "review" }` after problems or a
 rebase request (also instead of reusing a review comment whose `Reviewed Shape` is
 not current: the head is reviewed again first), `{ "deliver", null }` at `review`
-with a pending `shape-wrong` report (instead of reviewing or merging),
+with a pending `shape-wrong` report (instead of reviewing or merging), `{
+"deliver", "review" }` for a writer's request for changes on a head whose
+`approval-wait` comment is current,
 `{ "deliver", "cd-failure" }` at `cd-failed`, `{ "deliver", "conflict" }` at
 `conflict`, `wake` after the close (also on the redo), and `null` otherwise,
-including every failure. `"progressed": true` also when the re-read before writing
+including a wait for approvals and every failure. `"progressed": true` also when the re-read before writing
 or merging finds another stage, PR or head than the one pinned.
 
 Result: `{ outcome: "clean" | "problems" | "blocked", reviewedHead, problems?,
