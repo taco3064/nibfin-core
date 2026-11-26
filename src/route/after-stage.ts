@@ -11,7 +11,7 @@ import { readRoute } from "./route.ts";
 export interface FinishedStage {
   repo: Repo;
   issue: number;
-  stage: "shape" | "deliver" | "review";
+  stage: "shape" | "deliver" | "review" | "finish";
   reason: FixReason | null;
 }
 
@@ -23,7 +23,10 @@ function parseRepo(name: string): Repo {
 function noProgress(finished: FinishedStage): NoProgressError {
   const what = `${finished.stage} (${finished.reason ?? "no reason"})`;
   // A conflict GitHub has not finished computing reads like the same conflict.
-  const review = finished.stage === "review" || finished.reason === "conflict";
+  const review =
+    finished.stage === "review" ||
+    finished.stage === "finish" ||
+    finished.reason === "conflict";
   const message =
     `The ${what} run changed nothing on GitHub, and GitHub state still asks for ` +
     `the same run${review ? "; GitHub may still be computing mergeability" : ""}.`;

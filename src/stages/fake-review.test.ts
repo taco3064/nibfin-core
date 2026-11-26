@@ -24,7 +24,7 @@ import {
   type FakeIssue,
   routeIssue,
 } from "./fake-job.test.ts";
-import { runReviewStage } from "./review.ts";
+import { runFinishStage, runReviewStage } from "./review.ts";
 import type { ReviewDeps } from "./review-scope.ts";
 
 export interface ReviewWorld extends DeliveryWorld {
@@ -60,6 +60,8 @@ export interface ReviewWorld extends DeliveryWorld {
   mergeRequests: FakeRequest[];
   reviewDeps: ReviewDeps;
   review(): Promise<number>;
+  /** Runs the finish stage with a context that has no agent fields. */
+  finish(): Promise<number>;
   next(): unknown;
 }
 
@@ -323,6 +325,11 @@ export async function reviewWorld(options: WorldOptions = {}): Promise<ReviewWor
   world.reviewDeps = { ...base.deps };
   world.review = () =>
     runReviewStage(world.context, world.issues.github.client, world.reviewDeps);
+  world.finish = () => {
+    const { repo, issue, token, runRepo, runId, nextFile } = world.context;
+    const context = { repo, issue, token, runRepo, runId, nextFile };
+    return runFinishStage(context, world.issues.github.client, world.reviewDeps);
+  };
   world.next = () => JSON.parse(readFileSync(world.nextFile, "utf8")) as unknown;
   world.issues.github.routes.set("GET /repos/acme/app/git/ref/heads/main", () => ({
     data: { ref: "refs/heads/main", object: { sha: world.baseSha } },

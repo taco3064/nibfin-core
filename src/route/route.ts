@@ -26,7 +26,7 @@ import {
  * Assignees (#739).
  */
 export interface IssueRoute {
-  stage: "shape" | "deliver" | "review";
+  stage: "shape" | "deliver" | "review" | "finish";
   reason: FixReason | null;
   /**
    * All the Issue's Assignees in GitHub's order, never empty: the candidates
@@ -49,9 +49,11 @@ const nothing: NextAction = { stage: null, reason: null };
  * `shape` → Shape; a delivery stage with a pending `shape-wrong` report → Deliver
  * (its start removes `shaped`); `review` with a current review comment → the Deliver
  * `review` fix; `review` whose current `approval-wait` comment still waits for
- * approvals → none (a submitted review wakes it); any other delivery stage →
- * `shapeNextAction`; closed as delivered →
- * review (wake only); anything else → none.
+ * approvals → none (a submitted review wakes it); `review` whose current
+ * `approval-wait` comment has its approvals or a writer's request for changes on the
+ * head → finish (the Shape review already passed, so no agent runs); any other
+ * delivery stage → `shapeNextAction` (`done` → finish); closed as delivered →
+ * finish (wake only); anything else → none.
  */
 async function nextFor(
   client: ActingClient,
@@ -76,12 +78,15 @@ async function nextFor(
       if (wait?.kind === "waiting") {
         return nothing;
       }
+      if (wait !== undefined) {
+        return { stage: "finish", reason: null };
+      }
     }
     return shapeNextAction(stage, issue.number);
   }
   const closed = stage.stage === "ineligible" && stage.reason === "closed";
   if (closed && (await closedAsDelivered(client, issue, snapshot))) {
-    return { stage: "review", reason: null };
+    return { stage: "finish", reason: null };
   }
   return nothing;
 }

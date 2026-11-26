@@ -8,12 +8,15 @@ export {
 } from "./agent.ts";
 export { closedAsDelivered } from "./closing.ts";
 export {
+  type FinishContext,
   type FixReason,
   fixReasons,
+  isAgentContext,
   type JobContext,
   jobOptions,
   parseJobOptions,
   positiveInteger,
+  readFinishContext,
   readJobContext,
   readRepo,
   required,
@@ -48,7 +51,7 @@ export {
   type StageRole,
 } from "./prompt.ts";
 export { parseAgentResult } from "./result.ts";
-export { runReviewStage } from "./review.ts";
+export { runFinishStage, runReviewStage } from "./review.ts";
 export {
   type ApprovalWait,
   approvalWaitCommentKey,

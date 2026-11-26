@@ -10,9 +10,11 @@ peers: their events wake their Issues by dispatching to the execution repository
 - `nibfin-shared-runner.yml` (nibfin-core): run titles, one concurrency group per
   Issue, calls `nibfin-job.yml`.
 - `nibfin-job.yml` (nibfin-core, reusable): checkout, image, container and clean-up.
-  Its route Job runs no agent: it runs on a GitHub-hosted runner (`ubuntu-24.04`)
-  when the execution repository is public, and on the `nibfin` runners when it is
-  private.
+  Its route Job and its finish Job (merge a recorded review, close a delivered
+  Issue, wake downstream Issues; #755) run no agent: they run on a GitHub-hosted
+  runner (`ubuntu-24.04`) when the execution repository is public, and when it is
+  private on the `nibfin` runners (route) or the Assignee's `nibfin-<user id>`
+  runners (finish).
 - `nibfin-runner-request.yml` (nibfin-core): answers a collaborator's runner request
   Issue with a registration token encrypted to their SSH key; it follows gh-nibfin's
   template of the same name.

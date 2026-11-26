@@ -165,8 +165,11 @@ export async function runRoute(
 export async function routeAfterStage(
   io: CliIo,
   client: ActingClient,
-  context: JobContext,
-  stage: "shape" | "deliver" | "review",
+  context: Pick<
+    JobContext,
+    "repo" | "issue" | "reason" | "runRepo" | "runId" | "nextFile"
+  >,
+  stage: "shape" | "deliver" | "review" | "finish",
 ): Promise<void> {
   if (context.nextFile === undefined) {
     io.stdout.write("NIBFIN_NEXT_FILE is not set; nothing is dispatched\n");

@@ -17,10 +17,10 @@ true`; a stale one falls to rule 4) → `deliver review`; `review` whose PR has 
    current `approval-wait` comment that still waits (`readApprovalWait(...)?.kind
 === "waiting"`: writers' approvals missing or a writer's older request for
    changes standing) → `null` until a submitted review wakes the Issue (#725,
-   #726); approvals met or changes requested on the head fall to rule 4;
-4. any other delivery stage → `shapeNextAction(stage, issue)` (`done` → `review`,
+   #726); approvals met or changes requested on the head → `finish` (#755);
+4. any other delivery stage → `shapeNextAction(stage, issue)` (`done` → `finish`,
    `conflict` → `deliver conflict`, `awaiting-*` → `null`);
-5. closed as delivered (`closedAsDelivered`) → `review` (wake-only redo);
+5. closed as delivered (`closedAsDelivered`) → `finish` (wake-only redo);
 6. anything else (paused, `pending`, no scope, blocked, no Assignee) → `null`.
 
 `assignees` holds all the Issue's Assignees (`{ id, login }`, GitHub's order); without

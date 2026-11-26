@@ -1,9 +1,12 @@
 import { type ActingClient, connectClient } from "../github/index.ts";
 import {
+  type FinishContext,
   isWait,
   type JobContext,
+  readFinishContext,
   readJobContext,
   runDeliverStage,
+  runFinishStage,
   runReviewStage,
   runShapeStage,
   runUrl,
@@ -21,6 +24,7 @@ export const usage = `Usage: nibfin <option>
                   [--model <model>] [--reason ci-failure|review|cd-failure|conflict]
        nibfin run --stage review --repo <owner>/<repo> --issue <n> --provider <p>
                   [--model <model>]
+       nibfin run --stage finish --repo <owner>/<repo> --issue <n>
        nibfin route --repo <owner>/<repo> (--issue <n> | --sha <sha> | --branch <b>)
 
 Options:
@@ -31,14 +35,22 @@ The run and route commands read the rest of their context from the environment;
 see src/stages/README.md and src/route/README.md.
 `;
 
-type StageName = "shape" | "deliver" | "review";
+type StageName = "shape" | "deliver" | "review" | "finish";
 type StageRunner = (context: JobContext, client: ActingClient) => Promise<number>;
+/** The finish stage runs no agent, so its context has no agent fields (#755). */
+type FinishRunner = (context: FinishContext, client: ActingClient) => Promise<number>;
+interface StageRunners {
+  shape: StageRunner;
+  deliver: StageRunner;
+  review: StageRunner;
+  finish: FinishRunner;
+}
 
 /** What `nibfin run` and `nibfin route` use; tests replace them. */
 export interface RunDeps {
   env: NodeJS.ProcessEnv;
   connect: Connect;
-  stages: Readonly<Record<StageName, StageRunner>>;
+  stages: Readonly<StageRunners>;
 }
 
 export const defaultRunDeps: RunDeps = {
@@ -48,6 +60,7 @@ export const defaultRunDeps: RunDeps = {
     shape: runShapeStage,
     deliver: (context, client) => runDeliverStage(context, client),
     review: (context, client) => runReviewStage(context, client),
+    finish: (context, client) => runFinishStage(context, client),
   },
 };
 
@@ -75,17 +88,26 @@ async function runStage(
     io.stderr.write(usage);
     return 1;
   }
-  let context: JobContext;
+  let context: FinishContext;
+  let runner: (client: ActingClient) => Promise<number>;
   let client: ActingClient;
   try {
-    context = readJobContext(args, deps.env);
+    if (stage === "finish") {
+      const finish = readFinishContext(args, deps.env);
+      context = finish;
+      runner = (acting) => deps.stages.finish(finish, acting);
+    } else {
+      const job = readJobContext(args, deps.env);
+      context = job;
+      runner = (acting) => deps.stages[stage](job, acting);
+    }
     client = await deps.connect(context.token, lineLog(io));
   } catch (error) {
     printFailure(io, error);
     return 1;
   }
   try {
-    const code = await deps.stages[stage](context, client);
+    const code = await runner(client);
     if (code === 0) {
       await routeAfterStage(io, client, context, stage);
     }

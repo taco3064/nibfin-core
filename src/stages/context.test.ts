@@ -2,7 +2,12 @@ import assert from "node:assert/strict";
 import { join, resolve } from "node:path";
 import { describe, it } from "node:test";
 import { fakeToken } from "../github/fake-github.test.ts";
-import { parseJobOptions, readJobContext } from "./context.ts";
+import {
+  isAgentContext,
+  parseJobOptions,
+  readFinishContext,
+  readJobContext,
+} from "./context.ts";
 import { StageError } from "./errors.ts";
 
 const workspace = resolve("/jobs/workspace");
@@ -183,6 +188,53 @@ describe("readJobContext", () => {
       inputError(() => readJobContext(withProvider, { ...env, ...change }), message);
     });
   }
+});
+
+describe("readFinishContext", () => {
+  const finish = ["--stage", "finish", "--repo", "acme/app", "--issue", "7"];
+
+  it("reads only the repository, Issue, token and run fields", () => {
+    const context = readFinishContext(finish, env);
+    assert.deepEqual(context, {
+      repo: { owner: "acme", repo: "app" },
+      issue: 7,
+      token: fakeToken,
+    });
+    assert.equal(isAgentContext(context), false);
+    assert.equal(isAgentContext(readJobContext(withProvider, env)), true);
+    const next = resolve("/out/next.json");
+    const runEnv = {
+      NIBFIN_GITHUB_TOKEN: fakeToken,
+      NIBFIN_RUN_REPO: "acme/runner",
+      NIBFIN_RUN_ID: "900",
+      NIBFIN_NEXT_FILE: next,
+    };
+    assert.deepEqual(readFinishContext(finish, runEnv), {
+      repo: { owner: "acme", repo: "app" },
+      issue: 7,
+      token: fakeToken,
+      runRepo: { owner: "acme", repo: "runner" },
+      runId: 900,
+      nextFile: next,
+    });
+  });
+
+  for (const name of ["provider", "model", "reason"]) {
+    it(`rejects --${name}`, () => {
+      inputError(
+        () => readFinishContext([...finish, `--${name}`, "x"], env),
+        `--${name} is not valid with --stage finish`,
+      );
+    });
+  }
+
+  it("rejects a missing token and a relative next file", () => {
+    inputError(() => readFinishContext(finish, {}), "NIBFIN_GITHUB_TOKEN is missing");
+    inputError(
+      () => readFinishContext(finish, { ...env, NIBFIN_NEXT_FILE: "next.json" }),
+      "NIBFIN_NEXT_FILE must be an absolute path",
+    );
+  });
 });
 
 describe("parseJobOptions", () => {
