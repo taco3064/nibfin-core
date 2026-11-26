@@ -128,11 +128,14 @@ Nothing below is done by Nibfin; the Owner does it once.
   runs of Issues whose Assignee has that user id (`gh api users/<login> --jq .id`).
   Each runner's `.env` sets `NIBFIN_PROVIDER=<provider>`; restart the runner after
   changing it. Of one member's runners of two providers, whichever takes the Job
-  first runs it. Route dispatches a stage only when some runner of
-  the execution repository has the label `nibfin-<user id>` of the Issue's only
-  Assignee (compared case-insensitively, online or offline, busy or idle); without one
-  the Issue is an ordinary assignment and nothing is dispatched, labelled or commented.
-  An Issue with several Assignees gets `pending` with a comment asking for exactly one.
+  first runs it. An Issue may have several Assignees. For each stage, route goes
+  through them in GitHub's order and dispatches to the first whose label
+  `nibfin-<user id>` (compared case-insensitively) is on an online runner of the
+  execution repository (a busy runner counts as online); otherwise to the first with
+  any such runner, where the Job queues until one comes online (#739). When no
+  Assignee has one, the Issue is an ordinary assignment and nothing is dispatched,
+  labelled or commented. A run already queued or running keeps its runner; a
+  reassignment takes effect at the next dispatch.
   An Issue assigned to a collaborator (anyone but the execution repository's owner)
   first gets `pause` and a comment asking them to read it and remove `pause`, once per
   collaborator (#721); removing `pause` starts the stage.
