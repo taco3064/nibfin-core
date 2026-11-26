@@ -36,13 +36,20 @@ const workflowsReason = (message: string) =>
   "GitHub rejected the merge: the pull request changes `.github/workflows/` and " +
   `Nibfin's token lacks the workflows permission.\n\n${message}`;
 
-/** A 405 that a rebase onto the base and resolved conflicts would fix. */
-function needsRebase(message: string): boolean {
-  return /base branch was modified|not mergeable|out of date|conflict/i.test(message);
-}
-
 const rebaseText = (base: string, message: string) =>
   `Rebase onto \`${base}\` and resolve conflicts: ${message}`;
+
+const outOfDateReason = (pull: PullRequestState, head: string, message: string) =>
+  `GitHub did not merge ${pull.url} at ${head} because the head is behind ` +
+  `\`${pull.baseRef}\` and the repository requires branches to be up to date ` +
+  `before merging: ${message}\n\nThe pull request has no conflict, so Nibfin does ` +
+  'not send it back to Deliver. Turn off "Require branches to be up to date before ' +
+  'merging", or update the branch yourself, then remove `pending`.';
+
+const computingReason = (pull: PullRequestState, head: string, message: string) =>
+  `GitHub did not merge ${pull.url} at ${head}: ${message}\n\nGitHub was still ` +
+  "computing whether the pull request conflicts with the base. Remove `pending` " +
+  "to check again.";
 
 /**
  * The ruleset requirements that can keep a pull request `blocked`, with the current
@@ -140,7 +147,8 @@ async function merge(
 /**
  * Merges a pull request the reviewer found clean at `head`, under the repository's
  * own rules: re-checks the stage (`pause` included) and the head, reads GitHub's
- * mergeability, sends out-of-date or conflicting work back to Deliver, waits (marked
+ * mergeability, sends only conflicting work back to Deliver (a head that is merely
+ * behind the base is merged as it is; GitHub's merge applies it), waits (marked
  * `approval-wait` comment, next action none) when a ruleset still lacks writers'
  * approvals or a writer's requested changes stand, stops on other unmet rules, and
  * merges only at `head` with an allowed method. A pending report
@@ -191,8 +199,8 @@ export async function mergeReviewed(
     deps.log(`Not merging: GitHub is still computing the mergeability of ${pull.url}`);
     return noNextAction;
   }
-  if (state === "behind" || state === "dirty") {
-    return rebase(`GitHub reports \`mergeable_state: ${state}\`.`);
+  if (state === "dirty") {
+    return rebase("GitHub reports `mergeable_state: dirty`.");
   }
   if (state === "blocked") {
     const missing = await missingApprovals(client, context.repo, pull);
@@ -214,6 +222,14 @@ export async function mergeReviewed(
   return noNextAction;
 }
 
+/**
+ * A 405 from the merge. GitHub's message does not reliably say why, so the pull
+ * request is read again: a head that moved or a pull request no longer open stops
+ * with no next action, GitHub's own conflict signal (`mergeable: false` or `dirty`)
+ * sends it back to Deliver, `behind` means an up-to-date requirement stopped a merge
+ * that has no conflict, a mergeability GitHub is still computing says so, and
+ * anything else is `review-blocked` with GitHub's message.
+ */
 async function notMergeable(
   scope: ReviewScope,
   pull: PullRequestState,
@@ -229,8 +245,20 @@ async function notMergeable(
     scope.deps.log(`Not merged: the head of ${pull.url} moved (${message})`);
     return noNextAction;
   }
-  if (needsRebase(message)) {
+  const after = await readPullRequest(scope.client, scope.context.repo, pull.number);
+  if (after.headSha !== head || after.state !== "open") {
+    scope.progress.mark();
+    scope.deps.log(`Not merged: ${pull.url} is no longer open at ${head}`);
+    return noNextAction;
+  }
+  if (after.mergeable === false || after.mergeableState === "dirty") {
     return rebase(message);
+  }
+  if (after.mergeableState === "behind") {
+    return blockReview(scope, mergeTitle, outOfDateReason(pull, head, message));
+  }
+  if (after.mergeable === null || after.mergeableState === "unknown") {
+    return blockReview(scope, mergeTitle, computingReason(pull, head, message));
   }
   return blockReview(
     scope,
