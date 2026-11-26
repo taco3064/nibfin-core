@@ -33,6 +33,8 @@ export interface ReviewWorld extends DeliveryWorld {
   head: string;
   mergeable: boolean | null;
   mergeableState: string;
+  /** The commit `base` points to in every pull request read. */
+  baseSha: string;
   settings: Record<string, boolean | undefined>;
   /** Extra rules of `main` besides its required checks. */
   rules: unknown[];
@@ -90,7 +92,7 @@ function pullDetail(world: ReviewWorld, pull: FakePull) {
     state: pull.state,
     merged_at: pull.merged ? "2026-11-23T00:00:00Z" : null,
     head: { ref: pull.head, sha: pull.sha },
-    base: { ref: pull.base ?? "main" },
+    base: { ref: pull.base ?? "main", sha: world.baseSha },
     merge_commit_sha: pull.mergeSha,
     html_url: `https://github.com/acme/app/pull/${pull.number}`,
     mergeable: world.mergeable,
@@ -299,6 +301,7 @@ export async function reviewWorld(options: WorldOptions = {}): Promise<ReviewWor
     head,
     mergeable: true,
     mergeableState: "clean",
+    baseSha: "b".repeat(40),
     settings: {
       allow_rebase_merge: true,
       allow_squash_merge: true,

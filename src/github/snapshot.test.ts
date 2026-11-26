@@ -262,6 +262,7 @@ describe("readIssueSnapshot", () => {
           ...snapshotPull(number),
           mergeable: null,
           mergeableState: "unknown",
+          baseSha: "b".repeat(40),
         }),
     });
     assert.equal(snapshot.pullRequests[0]?.mergeable, null);

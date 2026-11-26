@@ -210,7 +210,7 @@ export async function mergeReviewed(
     }
     return blockReview(scope, mergeTitle, await describeBlocked(scope, pull));
   }
-  const attemptMerge = async (attempt: number): Promise<NextAction> => {
+  const attemptMerge = async (baseSha: string): Promise<NextAction> => {
     const result = await merge(scope, pull, head);
     if (result.outcome === "head-changed") {
       scope.progress.mark();
@@ -220,28 +220,23 @@ export async function mergeReviewed(
     if (result.outcome !== "not-mergeable") {
       return noNextAction;
     }
-    const canRetry = attempt < mergeAttempts;
-    const next = await notMergeable(scope, pull, head, result.message, rebase, canRetry);
-    if (next !== retryMerge) {
+    const next = await notMergeable(scope, pull, head, result.message, rebase, baseSha);
+    if (!("retryOnBase" in next)) {
       return next;
     }
     deps.log(
-      `Merging ${pull.url} again (attempt ${attempt + 1} of ${mergeAttempts}): ` +
-        `GitHub refused it without a conflict (${result.message})`,
+      `Merging ${pull.url} again: \`${pull.baseRef}\` moved to ${next.retryOnBase} ` +
+        `and GitHub refused it without a conflict (${result.message})`,
     );
-    return attemptMerge(attempt + 1);
+    return attemptMerge(next.retryOnBase);
   };
-  return attemptMerge(1);
+  return attemptMerge(detail.baseSha);
 }
 
-/**
- * How many times one review merges a pull request GitHub refused without a
- * conflict, such as when the base moved during the merge (R3.54).
- */
-const mergeAttempts = 3;
-
-/** `notMergeable`'s answer that the same head can be merged again at once. */
-const retryMerge = "retry";
+/** `notMergeable`'s answer that the same head can be merged again on a moved base. */
+interface RetryMerge {
+  retryOnBase: string;
+}
 
 /** States in which GitHub would merge the pull request now. */
 const mergeableStates = new Set(["clean", "unstable", "has_hooks"]);
@@ -252,8 +247,9 @@ const mergeableStates = new Set(["clean", "unstable", "has_hooks"]);
  * with no next action, GitHub's own conflict signal (`mergeable: false` or `dirty`)
  * sends it back to Deliver, `behind` means an up-to-date requirement stopped a merge
  * that has no conflict, and a pull request GitHub reports mergeable or is still
- * computing is merged again while `canRetry`. Otherwise it is `review-blocked`
- * naming the state and GitHub's message.
+ * computing is merged again when the base moved since `baseSha` (the base the
+ * refused merge saw): each attempt needs a new base, so there is no count to pick.
+ * Otherwise it is `review-blocked` naming the state and GitHub's message.
  */
 async function notMergeable(
   scope: ReviewScope,
@@ -261,8 +257,8 @@ async function notMergeable(
   head: string,
   message: string,
   rebase: (message: string) => Promise<NextAction>,
-  canRetry: boolean,
-): Promise<NextAction | typeof retryMerge> {
+  baseSha: string,
+): Promise<NextAction | RetryMerge> {
   if (isWorkflowsRejection(message)) {
     return blockReview(scope, mergeTitle, workflowsReason(message));
   }
@@ -284,8 +280,9 @@ async function notMergeable(
     return blockReview(scope, mergeTitle, outOfDateReason(pull, head, message));
   }
   const computing = after.mergeable === null || after.mergeableState === "unknown";
-  if (canRetry && (computing || mergeableStates.has(after.mergeableState))) {
-    return retryMerge;
+  const baseMoved = after.baseSha !== baseSha;
+  if (baseMoved && (computing || mergeableStates.has(after.mergeableState))) {
+    return { retryOnBase: after.baseSha };
   }
   if (computing) {
     return blockReview(scope, mergeTitle, computingReason(pull, head, message));
