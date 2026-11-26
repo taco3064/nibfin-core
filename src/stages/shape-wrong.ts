@@ -192,9 +192,14 @@ export async function removeShaped(client: ActingClient, issue: IssueRef) {
   }
 }
 
-/** A stage of a shaped Issue: the delivery outcome of its branches, PRs, CI and CD. */
+/**
+ * A stage of a shaped Issue: the delivery outcome of its branches, PRs, CI and CD
+ * (not `ineligible`, `scope` or `shape`).
+ */
 export function isDeliveryStage(stage: Stage): boolean {
-  return stage.stage !== "ineligible" && stage.stage !== "shape";
+  return (
+    stage.stage !== "ineligible" && stage.stage !== "scope" && stage.stage !== "shape"
+  );
 }
 
 /**

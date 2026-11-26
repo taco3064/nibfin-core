@@ -89,6 +89,11 @@ const route = (stage: NextAction["stage"], reason: NextAction["reason"]) =>
 describe("routeIssue", () => {
   const table: Array<[string, Build, ReturnType<typeof route>]> = [
     ["shape", plain({ labels: ["scope"] }), route("shape", null)],
+    ["a request", plain({ labels: ["request"] }), route("scope", null)],
+    ["a shaped request", plain({ labels: ["request", "shaped"] }), route("scope", null)],
+    ["a scoped request", plain({ labels: ["request", "scope"] }), route("shape", null)],
+    ["a paused request", plain({ labels: ["request", "pause"] }), null],
+    ["a pending request", plain({ labels: ["request", "pending"] }), null],
     ["deliver", () => delivery(), route("deliver", null)],
     ["a pending shape-wrong report", () => delivery(reportWrong), route("deliver", null)],
     [
@@ -185,6 +190,15 @@ describe("routeIssue", () => {
       assert.deepEqual(await routeIssue(await build(), repo, 1, log), expected);
     });
   }
+
+  it("routes a request to scope again once its pending is removed", async () => {
+    const issues = fakeIssues(fakeIssue({ labels: ["request", "pending"] }));
+    const { client } = issues.github;
+    assert.equal(await routeIssue(client, repo, 1, log), null);
+    issues.main.labels = ["request"];
+    freshReads(client);
+    assert.deepEqual(await routeIssue(client, repo, 1, log), route("scope", null));
+  });
 
   it("routes a shape Issue from one Issue-record query", async () => {
     const issues = fakeIssues(fakeIssue({ labels: ["scope"] }));

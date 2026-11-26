@@ -71,7 +71,7 @@ describe("run --stage", () => {
         seen.token = token;
         return Promise.resolve(client);
       },
-      stages: { shape: stage, deliver: stage, review: stage, finish },
+      stages: { scope: stage, shape: stage, deliver: stage, review: stage, finish },
     };
     return { deps, seen, issues, runner };
   }
@@ -87,6 +87,16 @@ describe("run --stage", () => {
     assert.equal(t.seen.token, fakeToken);
     assert.deepEqual(t.seen.context?.repo, { owner: "acme", repo: "app" });
     assert.equal(t.seen.context?.issue, 1);
+  });
+
+  it("runs the Scope stage with the Job context", async () => {
+    const t = stageDeps(() => Promise.resolve(0));
+    const scope = ["run", "--stage", "scope", ...args];
+    assert.equal((await capture(scope, t.deps)).code, 0);
+    assert.equal(t.seen.context?.issue, 1);
+    const withReason = await capture([...scope, "--reason", "review"], t.deps);
+    assert.equal(withReason.code, 1);
+    assert.match(withReason.stderr, /--reason is only valid with --stage deliver/);
   });
 
   it("runs the Deliver stage with its reason", async () => {
@@ -122,8 +132,9 @@ describe("run --stage", () => {
     assert.match(withProvider.stderr, /--provider is not valid with --stage finish/);
   });
 
-  it("uses the Shape, Deliver, review and finish stages by default", async () => {
+  it("uses the Scope, Shape, Deliver, review and finish stages by default", async () => {
     assert.deepEqual(Object.keys(defaultRunDeps.stages), [
+      "scope",
       "shape",
       "deliver",
       "review",
@@ -143,6 +154,7 @@ describe("run --stage", () => {
     try {
       const context = jobContext("/nibfin-test-workspace");
       const { client } = issues.github;
+      assert.equal(await defaultRunDeps.stages.scope(context, client), 0);
       assert.equal(await defaultRunDeps.stages.deliver(context, client), 0);
       assert.equal(await defaultRunDeps.stages.review(context, client), 0);
       const { repo, issue, token } = context;
@@ -151,6 +163,7 @@ describe("run --stage", () => {
       process.stdout.write = write;
     }
     assert.deepEqual(lines, [
+      "acme/app#1: the Scope stage's work is not implemented in this version\n",
       "acme/app#1 is not at the deliver stage: ineligible (closed) (no reason)\n",
       "acme/app#1 is not at the review stage: ineligible (closed)\n",
       "acme/app#1 is not at the review stage: ineligible (closed)\n",
@@ -326,6 +339,23 @@ describe("run --stage", () => {
     assert.equal(result.code, 1);
     assert.match(result.stderr, /^nibfin: GITHUB_WRITE_REJECTED: dispatch /);
     assert.ok(t.issues.main.labels.includes("pending"));
+  });
+
+  it("never re-routes a request after the Scope stage", async () => {
+    const t = stageDeps(
+      () => Promise.resolve(0),
+      fakeIssues(fakeIssue({ labels: ["request"] })),
+    );
+    const nextFile = await withNextFile({ stage: null, reason: null, progressed: false });
+    t.deps.env = { ...env, NIBFIN_NEXT_FILE: nextFile };
+    const result = await capture(["run", "--stage", "scope", ...args], t.deps);
+    assert.deepEqual(result, {
+      code: 0,
+      stdout: "acme/app#1: a Scope run never re-routes its own request\n",
+      stderr: "",
+    });
+    assert.ok(!t.issues.main.labels.includes("pending"));
+    assert.deepEqual(t.runner.dispatched, []);
   });
 
   it("needs the execution repository to continue the Issue", async () => {

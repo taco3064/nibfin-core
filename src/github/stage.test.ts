@@ -198,6 +198,46 @@ describe("deriveStage: eligibility", () => {
   });
 });
 
+describe("deriveStage: request Issues (#734)", () => {
+  it("applies pause, pending, blockers and Assignees to a request, in order", () => {
+    const open = { labels: ["request", "pause", "pending"], assignees: 0 };
+    const blockedBy = [dependency("open")];
+    const paused = snapshot({ ...open, blockedBy });
+    assert.deepEqual(stageOf(deriveStage(paused)), ["ineligible", "paused"]);
+    const waiting = snapshot({ ...open, labels: ["request", "pending"], blockedBy });
+    assert.deepEqual(stageOf(deriveStage(waiting)), ["ineligible", "pending"]);
+    const blocked = snapshot({ ...open, labels: ["request"], blockedBy });
+    assert.deepEqual(stageOf(deriveStage(blocked)), ["ineligible", "blocked"]);
+    const free = snapshot({ ...open, labels: ["request"] });
+    assert.deepEqual(stageOf(deriveStage(free)), ["ineligible", "no-assignee"]);
+  });
+
+  it("derives scope for an open request without scope", () => {
+    for (const labels of [["request"], ["request", "shaped"]]) {
+      assert.deepEqual(deriveStage(snapshot({ labels })), { stage: "scope" });
+    }
+    const resolved = dependency("closed", ["delivered"]);
+    const unblocked = snapshot({ labels: ["request"], blockedBy: [resolved] });
+    assert.deepEqual(deriveStage(unblocked), { stage: "scope" });
+  });
+
+  it("keeps today's lifecycle for an Issue with scope, with or without request", () => {
+    for (const extra of [[], ["request"]]) {
+      const shape = snapshot({ labels: ["scope", ...extra] });
+      assert.deepEqual(deriveStage(shape), { stage: "shape" });
+      const shaped = snapshot({ labels: ["scope", "shaped", ...extra] });
+      assert.equal(deriveStage(shaped).stage, "deliver");
+    }
+  });
+
+  it("is closed or no-scope without the labels that make it a request", () => {
+    const closed = snapshot({ state: "closed", labels: ["request"] });
+    assert.deepEqual(stageOf(deriveStage(closed)), ["ineligible", "closed"]);
+    const plain = snapshot({ labels: ["shaped", "pending"] });
+    assert.deepEqual(stageOf(deriveStage(plain)), ["ineligible", "no-scope"]);
+  });
+});
+
 describe("deliveryOutcome: pull requests and CI", () => {
   it("delivers on the branch when there is no PR or only closed-unmerged ones", () => {
     assert.deepEqual(deliveryOutcome(snapshot()), { stage: "deliver", branch: delivery });

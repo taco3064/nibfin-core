@@ -8,6 +8,7 @@ import {
   runDeliverStage,
   runFinishStage,
   runReviewStage,
+  runScopeStage,
   runShapeStage,
   runUrl,
 } from "../stages/index.ts";
@@ -18,6 +19,8 @@ import { readVersion } from "./version.ts";
 export type { CliIo, OutputStream } from "./failure.ts";
 
 export const usage = `Usage: nibfin <option>
+       nibfin run --stage scope --repo <owner>/<repo> --issue <n> --provider <p>
+                  [--model <model>]
        nibfin run --stage shape --repo <owner>/<repo> --issue <n> --provider <p>
                   [--model <model>]
        nibfin run --stage deliver --repo <owner>/<repo> --issue <n> --provider <p>
@@ -35,11 +38,12 @@ The run and route commands read the rest of their context from the environment;
 see src/stages/README.md and src/route/README.md.
 `;
 
-type StageName = "shape" | "deliver" | "review" | "finish";
+type StageName = "scope" | "shape" | "deliver" | "review" | "finish";
 type StageRunner = (context: JobContext, client: ActingClient) => Promise<number>;
 /** The finish stage runs no agent, so its context has no agent fields (#755). */
 type FinishRunner = (context: FinishContext, client: ActingClient) => Promise<number>;
 interface StageRunners {
+  scope: StageRunner;
   shape: StageRunner;
   deliver: StageRunner;
   review: StageRunner;
@@ -57,6 +61,7 @@ export const defaultRunDeps: RunDeps = {
   env: process.env,
   connect: (token, log) => connectClient(token, {}, log),
   stages: {
+    scope: runScopeStage,
     shape: runShapeStage,
     deliver: (context, client) => runDeliverStage(context, client),
     review: (context, client) => runReviewStage(context, client),

@@ -26,7 +26,7 @@ import {
  * Assignees (#739).
  */
 export interface IssueRoute {
-  stage: "shape" | "deliver" | "review" | "finish";
+  stage: "scope" | "shape" | "deliver" | "review" | "finish";
   reason: FixReason | null;
   /**
    * All the Issue's Assignees in GitHub's order, never empty: the candidates
@@ -46,10 +46,11 @@ const nothing: NextAction = { stage: null, reason: null };
 
 /**
  * The next action GitHub state asks for, composed from the stages' own rules:
- * `shape` → Shape; a delivery stage with a pending `shape-wrong` report → Deliver
- * (its start removes `shaped`); `review` with a current review comment → the Deliver
- * `review` fix; `review` whose current `approval-wait` comment still waits for
- * approvals → none (a submitted review wakes it); `review` whose current
+ * `scope` → Scope (#734); `shape` → Shape; a delivery stage with a pending
+ * `shape-wrong` report → Deliver (its start removes `shaped`); `review` with a
+ * current review comment → the Deliver `review` fix; `review` whose current
+ * `approval-wait` comment still waits for approvals → none (a submitted review wakes
+ * it); `review` whose current
  * `approval-wait` comment has its approvals or a writer's request for changes on the
  * head → finish (the Shape review already passed, so no agent runs); any other
  * delivery stage → `shapeNextAction` (`done` → finish); closed as delivered →
@@ -62,6 +63,9 @@ async function nextFor(
   stage: Stage,
   log: (line: string) => void,
 ): Promise<NextAction> {
+  if (stage.stage === "scope") {
+    return { stage: "scope", reason: null };
+  }
   if (stage.stage === "shape") {
     return { stage: "shape", reason: null };
   }

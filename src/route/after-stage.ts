@@ -11,7 +11,7 @@ import { readRoute } from "./route.ts";
 export interface FinishedStage {
   repo: Repo;
   issue: number;
-  stage: "shape" | "deliver" | "review" | "finish";
+  stage: "scope" | "shape" | "deliver" | "review" | "finish";
   reason: FixReason | null;
 }
 
@@ -38,7 +38,9 @@ function noProgress(finished: FinishedStage): NoProgressError {
  * then, only while the Issue is open, its route result, deduplicated. When the run
  * made no progress and the route asks for the same stage and reason again, it stops
  * with `STAGE_NO_PROGRESS` instead (a person gets `pending`). A closed Issue's own
- * route is never dispatched here, so closing cannot loop.
+ * route is never dispatched here, so closing cannot loop. A Scope run never re-routes
+ * its own request: it ends by closing the request or adding `pending` (Proposal
+ * R3.6, R3.8, R3.9), and the Issues it publishes continue through `wake` (#734).
  */
 export async function continueAfterStage(
   scope: DispatchScope,
@@ -51,6 +53,11 @@ export async function continueAfterStage(
     await dispatchRoute(scope, parseRepo(target.repo), target.issue);
   }
   const { repo, issue } = finished;
+  if (finished.stage === "scope") {
+    const name = `${repo.owner}/${repo.repo}#${issue}`;
+    scope.log(`${name}: a Scope run never re-routes its own request`);
+    return;
+  }
   const state = await readRoute(scope.client, repo, issue, scope.log);
   if (!state.open) {
     scope.log(`${repo.owner}/${repo.repo}#${issue} is closed; nothing more to route`);
