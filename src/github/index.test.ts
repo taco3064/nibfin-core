@@ -32,6 +32,7 @@ test("the github module exports its public API", () => {
     "isNibfinWorkflow",
     "issueOfBranch",
     "issueOfCommit",
+    "issuesOfCommit",
     "logGiveUp",
     "maxRetries",
     "mergeMethodOrder",
