@@ -64,7 +64,7 @@ describe("createIssue", () => {
     assert.deepEqual(post.body, text);
   });
 
-  it("finds an Issue whose create had no response in the listing, not search", async () => {
+  it("finds an Issue whose create went unanswered in the listing", async () => {
     const world = fakeWorld();
     world.add({ repo: "lib", number: 1 });
     let lost = false;

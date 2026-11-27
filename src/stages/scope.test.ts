@@ -16,10 +16,10 @@ import {
   makeCommittedWorkspace,
   seedComment,
 } from "./fake-job.test.ts";
-import { noNextAction } from "./next.ts";
+import { publishRequestPlan } from "./scope-publish.ts";
 import {
   defaultScopeDeps,
-  logUnpublishedPlan,
+  type PublishOutcome,
   type PublishScope,
   type RequestPlan,
   runScopeStage,
@@ -187,15 +187,23 @@ function setup(
   }
   const fake = fakeDeps(steps);
   const published: Array<{ scope: PublishScope; plan: RequestPlan }> = [];
+  /** What the stubbed publication does; it records its call and stops by default. */
+  const outcomes: Array<(scope: PublishScope) => Promise<PublishOutcome>> = [];
   const deps: ScopeDeps = {
     ...fake.deps,
     publish: (scope, plan) => {
       published.push({ scope, plan });
-      return Promise.resolve(noNextAction);
+      const next = outcomes.shift();
+      return next === undefined ? Promise.resolve({ kind: "stopped" }) : next(scope);
     },
   };
-  const run = () => runScopeStage(jobContext(workspace), github.client, deps);
-  return { issues, main, world, fake, deps, published, run };
+  const context = {
+    ...jobContext(workspace),
+    runRepo: { owner: "acme", repo: "runner" },
+    runId: 900,
+  };
+  const run = () => runScopeStage(context, github.client, deps);
+  return { issues, main, world, fake, deps, published, outcomes, run };
 }
 
 const roleOf = (prompt: string) => /Your role is ([^.]+)\./.exec(prompt)?.[1];
@@ -241,7 +249,7 @@ describe("runScopeStage eligibility", () => {
   }
 
   it("uses the default publication when no deps are given", () => {
-    assert.equal(defaultScopeDeps.publish, logUnpublishedPlan);
+    assert.equal(defaultScopeDeps.publish, publishRequestPlan);
   });
 });
 
@@ -499,39 +507,150 @@ describe("runScopeStage Plan", () => {
   });
 });
 
-describe("logUnpublishedPlan", () => {
-  it("logs the plan and that publication is not implemented", async () => {
-    const logs: string[] = [];
-    const t = setup([]);
-    const next = await logUnpublishedPlan(
-      {
-        client: t.issues.github.client,
-        issue: { owner: "acme", repo: "app", number: 1 },
-        log: (line) => logs.push(line),
-      },
-      {
-        request: requestUrl,
-        investigation: "ok",
-        report: "r",
-        issues: [
-          newIssue,
-          {
-            key: "reuse",
-            reuse: ownUrl,
-            blockedBy: ["parser", "https://github.com/acme/app/issues/3"],
-          },
-        ],
-      },
-    );
-    assert.deepEqual(next, noNextAction);
-    assert.deepEqual(logs, [
-      `PLAN_READY for ${requestUrl}:\n` +
-        '- parser: acme/lib "Add the X parser"\n' +
-        `- reuse: reuse ${ownUrl}, blocked by parser, ` +
-        "https://github.com/acme/app/issues/3",
-      "Publishing a request's plan is not implemented in this version; " +
-        "nothing was written",
+describe("runScopeStage publication", () => {
+  const runUrl = "https://github.com/acme/runner/actions/runs/900";
+  const createdUrl = "https://github.com/acme/lib/issues/60";
+  const published = [{ key: "parser", url: createdUrl }];
+  const unconfirmed = new GitHubError(
+    "GITHUB_WRITE_UNCONFIRMED",
+    "add scope to " + createdUrl,
+    new Error("The read-back labels lack scope"),
+  );
+
+  it("hands publication the request, its Assignees and a re-check", async () => {
+    const t = setup([feasible, planReady()]);
+    const checks: string[] = [];
+    t.outcomes.push(async (scope) => {
+      checks.push(await scope.recheck());
+      t.main.labels.push("pause");
+      checks.push(await scope.recheck());
+      return { kind: "stopped" };
+    });
+    assert.equal(await t.run(), 0);
+    const [{ scope }] = t.published;
+    assert.deepEqual(scope.issue, { owner: "acme", repo: "app", number: 1 });
+    assert.deepEqual(scope.assignees, ["taco"]);
+    assert.deepEqual(checks, ["scope", "stopped"]);
+    assert.deepEqual(t.issues.github.writes(), []);
+  });
+
+  it("ends without further writes when published", async () => {
+    const t = setup([feasible, planReady()]);
+    t.outcomes.push(() => Promise.resolve({ kind: "published", published }));
+    assert.equal(await t.run(), 0);
+    assert.deepEqual(t.issues.github.writes(), []);
+    assert.deepEqual(t.issues.marked("pending"), []);
+  });
+
+  it("investigates again when the request is edited during publication", async () => {
+    const t = setup([
+      feasible,
+      planReady(),
+      agentResult({ outcome: "needs-person", reason: "Y needs a decision" }),
     ]);
-    assert.deepEqual(t.issues.github.calls, []);
+    t.outcomes.push(async (scope) => {
+      t.main.body = "Now asks for Y.";
+      return { kind: await scope.recheck() } as PublishOutcome;
+    });
+    assert.equal(await t.run(), 0);
+    assert.equal(t.fake.runs.length, 3);
+    assert.equal(roleOf(t.fake.runs[2].prompt), "Investigation");
+    assert.match(t.fake.runs[2].prompt, /Now asks for Y\./);
+    assert.ok(t.fake.logs.includes("Round 1: the request changed; investigating again"));
+    assert.match(t.issues.marked("scope-request")[0].body, /Y needs a decision/);
+  });
+
+  it("adds pending with the verdict and the Issues for a replan", async () => {
+    const t = setup([feasible, planReady()], {}, { origin: "open" });
+    t.outcomes.push(() =>
+      Promise.resolve({
+        kind: "person",
+        verdict: "REPLAN_REQUIRED",
+        reason: "An Issue is not in the plan.",
+        published,
+      }),
+    );
+    assert.equal(await t.run(), 0);
+    const [comment] = t.issues.marked("scope-request");
+    assert.ok(comment.body.includes("Judgment: REPLAN_REQUIRED"));
+    assert.ok(comment.body.includes("An Issue is not in the plan."));
+    assert.ok(comment.body.includes("Issues published so far:\n- parser: " + createdUrl));
+    assert.ok(comment.body.includes("- " + ownUrl + " (open)"));
+    assert.doesNotMatch(comment.body, /Code:/);
+    assert.ok(t.main.labels.includes("pending"));
+    assert.deepEqual(t.issues.marked("pending"), []);
+  });
+
+  it("logs the failure, comments once, adds pending and exits 1", async () => {
+    const t = setup([feasible, planReady()]);
+    t.outcomes.push(() =>
+      Promise.resolve({
+        kind: "person",
+        verdict: "PARTIAL_PUBLICATION",
+        reason: unconfirmed.message,
+        published,
+        error: unconfirmed,
+      }),
+    );
+    assert.equal(await t.run(), 1);
+    assert.ok(
+      t.fake.logs.includes("nibfin: GITHUB_WRITE_UNCONFIRMED: " + unconfirmed.message),
+    );
+    const comments = t.issues.marked("scope-request");
+    assert.equal(comments.length, 1);
+    const { body } = comments[0];
+    assert.ok(body.includes("Judgment: PARTIAL_PUBLICATION"));
+    assert.ok(body.includes("Issues published so far:\n- parser: " + createdUrl));
+    assert.ok(body.includes("- Code: `GITHUB_WRITE_UNCONFIRMED`"));
+    assert.ok(body.includes("- Run: " + runUrl));
+    assert.ok(body.includes("```text\n" + unconfirmed.message + "\n```"));
+    assert.match(body, /This looks temporary .*removing the label retries it/s);
+    assert.ok(t.main.labels.includes("pending"));
+    assert.deepEqual(t.issues.marked("pending"), []);
+  });
+
+  it("writes a rejected failure comment again without the message", async () => {
+    const t = setup([feasible, planReady()]);
+    t.outcomes.push(() =>
+      Promise.resolve({
+        kind: "person",
+        verdict: "PUBLICATION_BLOCKED",
+        reason: "r",
+        published: [],
+        error: unconfirmed,
+      }),
+    );
+    const route = "POST /repos/acme/app/issues/1/comments";
+    const post = t.issues.github.routes.get(route) as (r: FakeRequest) => unknown;
+    t.issues.github.routes.set(route, (request) =>
+      (request.body as { body: string }).body.includes("```text")
+        ? failure(422, "Body is too long")
+        : (post(request) as never),
+    );
+    assert.equal(await t.run(), 1);
+    const [comment] = t.issues.marked("scope-request");
+    assert.ok(comment.body.includes("The full message is in the run log."));
+    assert.ok(comment.body.includes("Issues published so far:\nNone."));
+    assert.ok(t.main.labels.includes("pending"));
+  });
+
+  it("throws the original failure when its comment cannot be written", async () => {
+    const t = setup([feasible, planReady()]);
+    t.outcomes.push(() =>
+      Promise.resolve({
+        kind: "person",
+        verdict: "PARTIAL_PUBLICATION",
+        reason: "r",
+        published,
+        error: unconfirmed,
+      }),
+    );
+    t.issues.github.routes.set("POST /repos/acme/app/issues/1/comments", failure(500));
+    const error = await rejection(t.run());
+    assert.equal(error, unconfirmed);
+    assert.ok(
+      t.fake.logs.some((line) => line.startsWith("nibfin: could not ask a person: ")),
+    );
+    assert.ok(!t.main.labels.includes("pending"));
   });
 });

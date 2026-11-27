@@ -245,6 +245,29 @@ attempt with the same `confirm`/`recover` handling and no retry.
   `GITHUB_WRITE_UNCONFIRMED` or `GITHUB_WRITE_REJECTED`. Deleting a branch closes its
   open pull request.
 
+The Scope stage publishes a request's plan with these (`issue-writes.ts`, #736):
+
+- `readIssueId(client, issue)`: `GET …/issues/{n}`, the Issue's handle (address,
+  GitHub's URL and REST `id`, which a dependency's `issue_id` names). A pull request
+  is `GITHUB_READ_FAILED`.
+- `createIssue(client, repo, { title, body })`: `POST …/issues` with title and body
+  only, so the Issue has no labels or Assignees yet. An unknown outcome is checked with
+  `findCreatedIssue(client, repo, title, body)`: the first page (100) of
+  `GET …/issues?state=all&creator=<actor>&sort=created&direction=desc`, skipping pull
+  requests, for the Issue with exactly that title and body. It lists the repository,
+  never search. If the listing lags behind a create that took effect, the re-send can
+  create a second Issue; the Scope stage's next run then finds an Issue with the
+  request's origin line that its plan does not list (`REPLAN_REQUIRED`).
+- `addBlockedBy(client, blocked, blocker)`: `POST …/issues/{n}/dependencies/blocked_by`
+  with the blocker's `issue_id`. An edge already in the Blocked by list is not written
+  again; a 4xx is recovered by reading the edge back. Afterwards both directions must
+  read back (the blocked Issue's Blocked by and the blocker's blocking, compared by
+  URL without case), else `GITHUB_WRITE_UNCONFIRMED`.
+- `addAssignees(client, issue, logins)`: `POST …/issues/{n}/assignees` with only the
+  logins that are not yet Assignees (compared without case); others stay. GitHub
+  silently ignores an Assignee it cannot add, so every login must read back, else
+  `GITHUB_WRITE_UNCONFIRMED`.
+
 `dispatchWorkflow` (Workflow runs) goes through `write()` with a `confirm` that never
 confirms: a dispatch has no run to re-read, and a repeated wake is harmless (R4.35),
 so it is re-sent on any error without a pre-read.
