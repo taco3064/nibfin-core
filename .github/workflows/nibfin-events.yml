@@ -59,7 +59,7 @@ jobs:
           # secondary limit). The last error is kept for the pending comment.
           last_error="$RUNNER_TEMP/nibfin-gh-error"
           gh_retry() {
-            local attempt arg out what= delay
+            local attempt arg out what='' delay
             for arg in "$@"; do
               case "$arg" in */*) what=$arg && break ;; esac
             done
@@ -124,6 +124,8 @@ jobs:
               return
             fi
             mine=$(gh_retry api user --jq .id) || mine=
+            # The backticks are Markdown, not command substitution.
+            # shellcheck disable=SC2016
             body=$(
               printf '<!-- nibfin:pending -->\nNibfin stopped and needs a person.\n\n'
               printf -- '- Code: `WAKE_FAILED`\n- Run: %s\n\n' "$url"
@@ -148,7 +150,12 @@ jobs:
               fi
             done
           }
-          trap 'status=$?; [ "$status" = 0 ] || flag_targets; exit "$status"' EXIT
+          on_exit() {
+            local status=$?
+            [ "$status" = 0 ] || flag_targets
+            exit "$status"
+          }
+          trap on_exit EXIT
           # Ends the run unrouted unless the sender has admin or write permission.
           # A failed permission read fails the run.
           require_writer() {
