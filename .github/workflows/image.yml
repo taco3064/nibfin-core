@@ -12,6 +12,7 @@ on:
       - tsconfig*.json
       - src/**
       - skills/**
+      - templates/**
       - .github/workflows/image.yml
       - .github/scripts/smoke-image.sh
   workflow_dispatch:
