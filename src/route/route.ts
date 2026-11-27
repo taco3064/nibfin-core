@@ -7,6 +7,7 @@ import {
   type IssueSnapshot,
   issueOfBranch,
   readIssueSnapshot,
+  readPullRequestsMergedAt,
   type Repo,
   type Stage,
 } from "../github/index.ts";
@@ -136,21 +137,24 @@ export async function routeIssue(
 export type RouteTarget = { issue: number } | { sha: string } | { branch: string };
 
 /**
- * The Issue of an event target: the Issue itself; the Issue of a
- * `nibfin/issue-<n>[-cd-<k>]` branch; or for a commit, the Issue of the first open or
- * merged pull request of `GET /commits/{sha}/pulls` whose head is such a branch.
- * `undefined` when the target belongs to no Issue.
+ * The Issues of an event target, without repeats: the Issue itself; the Issue of a
+ * `nibfin/issue-<n>[-cd-<k>]` branch; or for a commit, the Issues of every open or
+ * merged pull request of `GET /commits/{sha}/pulls` whose head is such a branch,
+ * then those of every merged pull request whose `merge_commit_sha` is the commit
+ * (a pull request that merged without moving the base is not associated with it,
+ * #771). Empty when the target belongs to no Issue.
  */
 export async function routeEvent(
   client: ActingClient,
   repo: Repo,
   target: RouteTarget,
-): Promise<number | undefined> {
+): Promise<number[]> {
   if ("issue" in target) {
-    return target.issue;
+    return [target.issue];
   }
   if ("branch" in target) {
-    return issueOfBranch(target.branch);
+    const issue = issueOfBranch(target.branch);
+    return issue === undefined ? [] : [issue];
   }
   const operation = `list pull requests of ${repo.owner}/${repo.repo}@${target.sha}`;
   let pulls;
@@ -166,12 +170,12 @@ export async function routeEvent(
   } catch (error) {
     throw new GitHubError("GITHUB_READ_FAILED", operation, error);
   }
-  for (const pull of pulls) {
-    const issue = issueOfBranch(pull.head.ref);
-    const live = pull.state === "open" || pull.merged_at !== null;
-    if (live && issue !== undefined) {
-      return issue;
-    }
+  const heads = pulls
+    .filter((pull) => pull.state === "open" || pull.merged_at !== null)
+    .map((pull) => pull.head.ref);
+  for (const pull of await readPullRequestsMergedAt(client, repo, target.sha)) {
+    heads.push(pull.headRef);
   }
-  return undefined;
+  const issues = heads.map(issueOfBranch).filter((issue) => issue !== undefined);
+  return [...new Set(issues)];
 }

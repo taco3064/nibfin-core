@@ -37,10 +37,17 @@ the same run, except two cases that end the same way: a Deliver `review` fix wit
 new head, and a Shape rewrite with unchanged text and head (the route gives
 `deliver review` where the stage wrote `review`). `route.test.ts` holds that table.
 
-`routeEvent(client, repo, target)` maps an event to its Issue: `{ issue }` as is,
-`{ branch }` through `issueOfBranch` (`nibfin/issue-<n>[-cd-<k>]`), and `{ sha }`
-through the first open or merged pull request of `GET /commits/{sha}/pulls` whose
-head is such a branch. Anything else belongs to no Issue.
+`routeEvent(client, repo, target)` maps an event to its Issues, without repeats:
+`{ issue }` as is, `{ branch }` through `issueOfBranch`
+(`nibfin/issue-<n>[-cd-<k>]`), and `{ sha }` through every open or merged pull
+request of `GET /commits/{sha}/pulls` whose head is such a branch, then every merged
+pull request whose `merge_commit_sha` is the commit (`readPullRequestsMergedAt`).
+GitHub associates a commit only with the pull request that introduced it, so a
+second pull request that merged to the same commit without moving the base is found
+only the second way (#771): `GET …/git/commits/{sha}` gives the commit's committer
+date, and `GET …/pulls?state=closed&sort=updated&direction=desc&per_page=100` is
+read page by page up to the first page holding a pull request updated before that
+date. Anything else belongs to no Issue.
 
 ## Dispatch
 
@@ -94,9 +101,12 @@ the environment.
   `nibfin/issue-<n>-cd-<k>`, #700). A close wakes the route through the `closed`
   Issue event; a delete failure sets `pending` and nothing is dispatched in that run.
   A merged pull request keeps its branch while the Issue is open.
-- `--sha` / `--branch`: dispatches one route run for the mapped Issue, so every stage
-  decision for an Issue happens inside that Issue's concurrency group. Nothing for an
-  unrelated commit or branch.
+- `--sha` / `--branch`: dispatches one route run for each mapped Issue in turn, so
+  every stage decision for an Issue happens inside that Issue's concurrency group. A
+  failed dispatch sets `pending` on that Issue only; the other Issues are still
+  dispatched and the command exits 1. Nothing for an unrelated commit or branch; a
+  failed read while mapping fails the run before any Issue is known, without
+  `pending`.
 
 After `nibfin run` exits 0 (`continueAfterStage`), Core reads the stage's next-action
 file and dispatches a route for each `wake` target first. Its reads go to GitHub

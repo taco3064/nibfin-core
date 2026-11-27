@@ -68,6 +68,7 @@ test("the github module exports its public API", () => {
     "readPullRequest",
     "readPullRequestCommits",
     "readPullRequests",
+    "readPullRequestsMergedAt",
     "readRepoOwnerId",
     "readRepositoryInventory",
     "readRequestedReviewers",

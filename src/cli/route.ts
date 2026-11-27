@@ -105,9 +105,11 @@ export const lineLog = (io: CliIo) => (line: string) => void io.stdout.write(`${
 /**
  * `nibfin route`: for `--issue`, derives the Issue's route, deletes a closed Issue's
  * branches (#700), then dispatches its stage (deduplicated); for `--sha` or
- * `--branch`, maps the event to its Issue and dispatches that Issue's route run, so
- * every stage decision happens inside the Issue's own concurrency group. A failure
- * once the Issue is known sets `pending`.
+ * `--branch`, maps the event to its Issues (a commit can belong to several, #771)
+ * and dispatches one route run per Issue in turn, so every stage decision happens
+ * inside the Issue's own concurrency group. A failure once an Issue is known sets
+ * `pending` on that Issue only; the other Issues are still dispatched, and the
+ * command exits 1 when any failed.
  */
 export async function runRoute(
   args: readonly string[],
@@ -117,9 +119,11 @@ export async function runRoute(
 ): Promise<number> {
   let input: RouteInput;
   let client: ActingClient;
+  let issues: number[];
   try {
     input = readRouteInput(args, env);
     client = await connect(input.token, lineLog(io));
+    issues = await routeEvent(client, input.repo, input.target);
   } catch (error) {
     printFailure(io, error);
     return 1;
@@ -127,34 +131,35 @@ export async function runRoute(
   const { repo, target } = input;
   const log = lineLog(io);
   const scope = { client, runRepo: input.runRepo, runId: input.runId, log };
-  let issue: number | undefined;
-  try {
-    issue = await routeEvent(client, repo, target);
-    const name = `${repo.owner}/${repo.repo}`;
-    if (issue === undefined) {
-      log(`${name}: ${JSON.stringify(target)} belongs to no Issue; nothing to route`);
-    } else if ("issue" in target) {
-      const state = await readRoute(client, repo, issue, log);
-      if (!state.open) {
-        await deleteIssueBranches(client, repo, issue, log);
-      }
-      if (state.route === null) {
-        log(`${name}#${issue}: nothing to run (${describeStage(state.stage)})`);
-      } else {
-        await dispatchStage(scope, repo, issue, state.route);
-      }
-    } else {
-      await dispatchRoute(scope, repo, issue);
-    }
+  const name = `${repo.owner}/${repo.repo}`;
+  if (issues.length === 0) {
+    log(`${name}: ${JSON.stringify(target)} belongs to no Issue; nothing to route`);
     return 0;
-  } catch (error) {
-    printFailure(io, error);
-    if (issue !== undefined) {
+  }
+  let code = 0;
+  for (const issue of issues) {
+    try {
+      if ("issue" in target) {
+        const state = await readRoute(client, repo, issue, log);
+        if (!state.open) {
+          await deleteIssueBranches(client, repo, issue, log);
+        }
+        if (state.route === null) {
+          log(`${name}#${issue}: nothing to run (${describeStage(state.stage)})`);
+        } else {
+          await dispatchStage(scope, repo, issue, state.route);
+        }
+      } else {
+        await dispatchRoute(scope, repo, issue);
+      }
+    } catch (error) {
+      printFailure(io, error);
       const url = runUrl(input.runRepo, input.runId);
       await askPerson(io, client, { ...repo, number: issue }, error, url);
+      code = 1;
     }
-    return 1;
   }
+  return code;
 }
 
 /**

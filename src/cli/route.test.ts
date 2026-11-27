@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { failure, fakeToken, paged } from "../github/fake-github.test.ts";
+import { failure, fakeToken, type Handler, paged } from "../github/fake-github.test.ts";
 import { pull } from "../github/fixtures.test.ts";
 import { freshReads, GitHubError } from "../github/index.ts";
 import { fakeBranches } from "../route/fake-branches.test.ts";
@@ -218,14 +218,69 @@ describe("nibfin route --sha and --branch", () => {
     ]);
   });
 
+  /**
+   * Commit abcdef1: GitHub associates `associated` with it; `merged` also merged to
+   * it (the base did not move).
+   */
+  function commitOf(t: ReturnType<typeof routeDeps>, associated: number, merged = 0) {
+    const { routes } = t.issues.github;
+    const pulls = [pull(9, { head: `nibfin/issue-${associated}`, merged: true })];
+    routes.set("GET /repos/acme/app/commits/abcdef1/pulls", paged(pulls));
+    routes.set("GET /repos/acme/app/git/commits/abcdef1", {
+      data: { sha: "abcdef1", committer: { date: "2026-11-26T19:34:27Z" } },
+    });
+    const listed = [10, 9].map((number) => {
+      const issue = number === 9 ? associated : merged;
+      const options = {
+        head: `nibfin/issue-${issue}`,
+        merged: true,
+        mergeSha: "abcdef1",
+      };
+      return { ...pull(number, options), updated_at: "2026-11-26T19:35:00Z" };
+    });
+    routes.set(
+      "GET /repos/acme/app/pulls",
+      paged(merged === 0 ? listed.slice(1) : listed),
+    );
+  }
+
   it("dispatches the route run of a commit's Issue", async () => {
     const t = routeDeps();
-    const pulls = [pull(9, { head: "nibfin/issue-1", merged: true })];
-    t.issues.github.routes.set("GET /repos/acme/app/commits/abcdef1/pulls", paged(pulls));
+    commitOf(t, 1);
     const result = await capture([...route, "--sha", "abcdef1"], t.deps);
     assert.equal(result.code, 0);
     assert.deepEqual(t.runner.dispatched, [
       { stage: "route", repo: "acme/app", issue: "1" },
+    ]);
+  });
+
+  it("dispatches one route run per Issue merged to the commit", async () => {
+    const t = routeDeps();
+    commitOf(t, 1, 2);
+    const result = await capture([...route, "--sha", "abcdef1"], t.deps);
+    assert.equal(result.code, 0);
+    assert.deepEqual(t.runner.dispatched, [
+      { stage: "route", repo: "acme/app", issue: "1" },
+      { stage: "route", repo: "acme/app", issue: "2" },
+    ]);
+  });
+
+  it("still dispatches the other Issues when one dispatch fails", async () => {
+    const t = routeDeps();
+    commitOf(t, 1, 2);
+    const path =
+      "/repos/acme/runner/actions/workflows/nibfin-shared-runner.yml/dispatches";
+    const dispatch = t.issues.github.routes.get(`POST ${path}`) as Handler;
+    t.issues.github.routes.set(`POST ${path}`, (request) => {
+      const { inputs } = request.body as { inputs: Record<string, string> };
+      return inputs.issue === "1" ? failure(502) : dispatch(request);
+    });
+    const result = await capture([...route, "--sha", "abcdef1"], t.deps);
+    assert.equal(result.code, 1);
+    assert.match(result.stderr, /GITHUB_WRITE_UNCONFIRMED/);
+    assert.ok(t.issues.main.labels.includes("pending"));
+    assert.deepEqual(t.runner.dispatched, [
+      { stage: "route", repo: "acme/app", issue: "2" },
     ]);
   });
 
