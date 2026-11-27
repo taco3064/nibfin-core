@@ -40,10 +40,14 @@ export {
   codeOf,
   describeFailure,
   isWait,
+  type PendingCause,
   pendingCommentKey,
+  type PendingStage,
+  readPendingCause,
   requestPerson,
   runUrl,
   temporaryCodes,
+  temporarySentence,
 } from "./pending.ts";
 export {
   composePrompt,
@@ -52,6 +56,32 @@ export {
   type StageRole,
 } from "./prompt.ts";
 export { parseAgentResult } from "./result.ts";
+export {
+  jobLimitMinutes,
+  type PendingComment,
+  type RepairClock,
+  type RepairNeed,
+  type RepairOutcome,
+  readRepairNeed,
+  runRepair,
+  systemClock,
+} from "./repair.ts";
+export {
+  formatDecision,
+  formatRepairRecord,
+  isPendingCurrent,
+  parseDecision,
+  parseRepairRecord,
+  pendingDigest,
+  type RepairAction,
+  recordApplies,
+  repairCommentKey,
+  type RepairState,
+  type RepairStatus,
+  repairStatus,
+  type RepairStatusInput,
+  type RepairText,
+} from "./repair-record.ts";
 export { runFinishStage, runReviewStage } from "./review.ts";
 export {
   type ApprovalWait,

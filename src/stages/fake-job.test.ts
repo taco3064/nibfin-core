@@ -25,6 +25,26 @@ export interface FakeComment {
   body: string;
   /** Body versions: 1 until an update changes the body (GitHub's edit history). */
   versions?: number;
+  /** REST `updated_at`: set from `fakeTime()` on every create and update. */
+  updatedAt?: string;
+}
+
+/** An Issue event as REST lists it, e.g. `unlabeled` for `pending`. */
+export interface FakeEvent {
+  event: string;
+  created_at: string;
+  label?: { name: string };
+}
+
+let fakeSeconds = 0;
+
+/**
+ * The fake's clock: each call is one second after the previous one, so writes and
+ * events made in order have increasing times.
+ */
+export function fakeTime(): string {
+  fakeSeconds += 1;
+  return new Date(Date.UTC(2026, 10, 27) + fakeSeconds * 1000).toISOString();
 }
 
 export interface FakeIssue {
@@ -37,6 +57,8 @@ export interface FakeIssue {
   title: string;
   body: string | null;
   comments: FakeComment[];
+  /** Its events, oldest first; removing a label adds an `unlabeled` event. */
+  events?: FakeEvent[];
 }
 
 export function fakeIssue(overrides: Partial<FakeIssue> = {}): FakeIssue {
@@ -95,17 +117,28 @@ let nextCommentId = 1000;
 
 /** Adds a comment to `issue` and the route that updates it in place. */
 function addComment(github: FakeGitHub, issue: FakeIssue, userId: number, body: string) {
-  const comment = { id: nextCommentId++, userId, body, versions: 1 };
+  const comment: FakeComment & { versions: number } = {
+    id: nextCommentId++,
+    userId,
+    body,
+    versions: 1,
+    updatedAt: fakeTime(),
+  };
   issue.comments.push(comment);
   const path = `/repos/${issue.owner}/${issue.repo}/issues/comments/${comment.id}`;
   github.routes.set(`PATCH ${path}`, (request: FakeRequest) => {
     const next = (request.body as { body: string }).body;
     comment.versions += next === comment.body ? 0 : 1;
     comment.body = next;
+    comment.updatedAt = fakeTime();
     return { data: commentJson(issue, comment) };
   });
   github.routes.set(`GET ${path}`, () => ({
-    data: { id: comment.id, node_id: `IC_${comment.id}` },
+    data: {
+      ...commentJson(issue, comment),
+      node_id: `IC_${comment.id}`,
+      updated_at: comment.updatedAt,
+    },
   }));
   return comment;
 }
@@ -152,15 +185,29 @@ export function routeIssue(github: FakeGitHub, issue: FakeIssue, blockers: FakeI
     issue.labels.push(...labels.filter((label) => !issue.labels.includes(label)));
     return { data: labelsJson() };
   });
-  for (const name of ["scope", "shaped", "delivered", "pause"]) {
+  for (const name of ["scope", "shaped", "delivered", "pause", "pending"]) {
     github.routes.set(`DELETE ${base}/labels/${name}`, () => {
       if (!issue.labels.includes(name)) {
         return { status: 404, data: { message: "Label does not exist" } };
       }
       issue.labels.splice(issue.labels.indexOf(name), 1);
+      unlabel(issue, name);
       return { data: labelsJson() };
     });
   }
+  github.routes.set(`GET ${base}/events`, (request) =>
+    paged(issue.events ?? [])(request),
+  );
+}
+
+/** Records that `label` was removed from `issue` now, as GitHub's events do. */
+export function unlabel(issue: FakeIssue, label: string): void {
+  issue.events ??= [];
+  issue.events.push({
+    event: "unlabeled",
+    created_at: fakeTime(),
+    label: { name: label },
+  });
 }
 
 /** A fake GitHub holding `main` (acme/app#1) and the Issues it is blocked by. */

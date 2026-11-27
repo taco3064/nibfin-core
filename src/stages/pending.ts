@@ -33,7 +33,7 @@ const waitCode = "STAGE_WRITER_ACTIVE";
 const rejectedCode = "GITHUB_WRITE_REJECTED";
 
 /** The provider's usage limit stopped the agent; it is not over before the reset. */
-const usageLimitCode = "AGENT_USAGE_LIMIT";
+export const usageLimitCode = "AGENT_USAGE_LIMIT";
 
 /** The code of a failure, if it carries one. */
 export function codeOf(error: unknown): string | undefined {
@@ -64,14 +64,74 @@ export function runUrl(repo: Repo | undefined, id: number | undefined) {
     : `https://github.com/${repo.owner}/${repo.repo}/actions/runs/${id}`;
 }
 
+/**
+ * The sentence a `pending` comment carries for a failure that looks temporary. The wake
+ * failure of `nibfin-events.yml` writes it word for word; the repair stage reads it.
+ */
+export const temporarySentence =
+  "This looks temporary (network, GitHub or a single agent run); removing the " +
+  "label retries it.";
+
+/** The start of the usage-limit note; `it resets at` follows when the CLI said so. */
+export const usageLimitLead = "The provider's usage limit was reached;";
+
 /** When to remove `pending` after a usage-limit stop, outside the fenced message. */
 function usageLimitNote(error: unknown): string {
   const reset = error instanceof AgentError ? error.usageLimitReset : undefined;
   return reset === undefined
-    ? "The provider's usage limit was reached; the CLI did not report when it " +
+    ? `${usageLimitLead} the CLI did not report when it ` +
         "resets. Remove the `pending` label after the limit resets to continue."
-    : `The provider's usage limit was reached; it resets at \`${reset}\`. Remove ` +
+    : `${usageLimitLead} it resets at \`${reset}\`. Remove ` +
         "the `pending` label after that time to continue.";
+}
+
+/** The stage a `pending` comment names on its `- Stage:` line (only the repair stage). */
+export type PendingStage = "repair";
+
+/** What Core's own lines of a `pending` comment say (see `readPendingCause`). */
+export interface PendingCause {
+  /** The `- Code:` value; absent for `none` or when there is no such line. */
+  code: string | undefined;
+  /** The `- Run:` URL of the run that stopped. */
+  run: string | undefined;
+  /** Whether the trailer carries `temporarySentence`. */
+  temporary: boolean;
+  /** The usage-limit reset as the CLI reported it, from the trailer. */
+  reset: string | undefined;
+  /** Whether the header says the repair stage itself failed (`- Stage: \`repair\``). */
+  fromRepair: boolean;
+}
+
+/**
+ * Reads a `pending` comment body. Only Core's own lines count: the header before the
+ * first ```` ```text ```` line and the trailer after the last ```` ``` ```` line (the
+ * whole body when there is no fence), so a failure message inside the fence cannot
+ * fake a code, the temporary sentence or a reset time.
+ */
+export function readPendingCause(body: string): PendingCause {
+  const lines = body.split("\n");
+  const open = lines.indexOf("```text");
+  const close = lines.lastIndexOf("```");
+  const fenced = open !== -1 && close > open;
+  const header = fenced ? lines.slice(0, open) : lines;
+  const trailer = fenced ? lines.slice(close + 1) : lines;
+  const code = header
+    .map((line) => /^- Code: `([A-Z0-9_]+)`$/.exec(line)?.[1])
+    .find((value) => value !== undefined);
+  const reset = trailer
+    .filter((line) => line.startsWith(usageLimitLead))
+    .map((line) => /it resets at `([^`]+)`/.exec(line)?.[1])
+    .find((value) => value !== undefined);
+  const run = header
+    .map((line) => /^- Run: (https:\/\/\S+)$/.exec(line)?.[1])
+    .find((value) => value !== undefined);
+  return {
+    code,
+    run,
+    temporary: trailer.includes(temporarySentence),
+    reset,
+    fromRepair: header.includes("- Stage: `repair`"),
+  };
 }
 
 function isTemporary(error: unknown, code: string | undefined): boolean {
@@ -92,6 +152,7 @@ export function pendingBody(
   error: unknown,
   url: string | undefined,
   withMessage = true,
+  stage?: PendingStage,
 ): string {
   const code = codeOf(error);
   const message = error instanceof Error ? error.message : String(error);
@@ -100,6 +161,7 @@ export function pendingBody(
     "",
     `- Code: \`${code ?? "none"}\``,
     `- Run: ${url ?? "unknown"}`,
+    ...(stage === undefined ? [] : [`- Stage: \`${stage}\``]),
     "",
     ...(withMessage
       ? ["```text", message, "```"]
@@ -110,11 +172,7 @@ export function pendingBody(
     lines.push(usageLimitNote(error), "");
   }
   if (isTemporary(error, code)) {
-    lines.push(
-      "This looks temporary (network, GitHub or a single agent run); removing the " +
-        "label retries it.",
-      "",
-    );
+    lines.push(temporarySentence, "");
   }
   lines.push("Remove the `pending` label to continue.");
   return lines.join("\n");
@@ -148,7 +206,9 @@ export async function upsertPersonComment(
  * the Issue while `pending` is present; removing it is the go-ahead. A
  * `STAGE_WRITER_ACTIVE` error is a wait, not a failure, and writes nothing. When
  * GitHub rejects the comment (`GITHUB_WRITE_REJECTED`, e.g. a very long message), it
- * writes it once more without the message, then adds the label as usual.
+ * writes it once more without the message, then adds the label as usual. With
+ * `stage` the comment names the stage that failed (`- Stage:`); the repair stage
+ * passes `repair`, so it does not start again for that stop (Proposal R4.50).
  * Returns whether it wrote.
  */
 export async function requestPerson(
@@ -156,12 +216,13 @@ export async function requestPerson(
   issue: IssueRef,
   error: unknown,
   url: string | undefined,
+  stage?: PendingStage,
 ): Promise<boolean> {
   if (isWait(error)) {
     return false;
   }
   await upsertPersonComment(client, issue, pendingCommentKey, (withMessage) =>
-    pendingBody(error, url, withMessage),
+    pendingBody(error, url, withMessage, stage),
   );
   const labels = await setLabels(client, issue, { add: [nibfinLabels.pending] });
   if (!labels.includes(nibfinLabels.pending)) {

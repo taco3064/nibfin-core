@@ -32,6 +32,11 @@ export {
   readIssueId,
 } from "./issue-writes.ts";
 export {
+  type IssueComment,
+  readIssueComment,
+  readLastUnlabeled,
+} from "./issue-events.ts";
+export {
   type IssueRecord,
   queryGraphql,
   readIssueRecord,

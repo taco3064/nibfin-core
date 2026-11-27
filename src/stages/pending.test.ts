@@ -11,9 +11,11 @@ import {
   describeFailure,
   pendingBody,
   pendingCommentKey,
+  readPendingCause,
   requestPerson,
   runUrl,
   temporaryCodes,
+  temporarySentence,
 } from "./pending.ts";
 
 const issue = { owner: "acme", repo: "app", number: 1 };
@@ -244,5 +246,88 @@ describe("describeFailure", () => {
     );
     assert.equal(describeFailure(new Error("plain")), "plain");
     assert.equal(describeFailure("text"), "text");
+  });
+});
+
+describe("readPendingCause", () => {
+  const limit = (reset?: string) =>
+    new AgentError(
+      "AGENT_USAGE_LIMIT",
+      "limit",
+      reset === undefined ? {} : { usageLimitReset: reset },
+    );
+
+  it("reads the code, run, temporary sentence and reset of Core's own lines", () => {
+    const temporary = new StageError("STAGE_GIT_FAILED", "git failed");
+    assert.deepEqual(readPendingCause(pendingBody(temporary, url)), {
+      code: "STAGE_GIT_FAILED",
+      run: url,
+      temporary: true,
+      reset: undefined,
+      fromRepair: false,
+    });
+    const reset = "2026-11-27T18:00:00Z";
+    assert.deepEqual(readPendingCause(pendingBody(limit(reset), url, false)), {
+      code: "AGENT_USAGE_LIMIT",
+      run: url,
+      temporary: false,
+      reset,
+      fromRepair: false,
+    });
+    assert.equal(readPendingCause(pendingBody(limit(), url)).reset, undefined);
+    assert.deepEqual(readPendingCause(pendingBody(new Error("x"), undefined)), {
+      code: undefined,
+      run: undefined,
+      temporary: false,
+      reset: undefined,
+      fromRepair: false,
+    });
+  });
+
+  it("ignores lines inside the fenced failure message", () => {
+    const fake = [
+      "```",
+      "- Code: `AGENT_USAGE_LIMIT`",
+      "- Stage: `repair`",
+      "```text",
+      temporarySentence,
+      "The provider's usage limit was reached; it resets at `2026-11-27T18:00:00Z`.",
+    ].join("\n");
+    const cause = readPendingCause(
+      pendingBody(new StageError("STAGE_BLOCKED", fake), url),
+    );
+    assert.deepEqual(cause, {
+      code: "STAGE_BLOCKED",
+      run: url,
+      temporary: false,
+      reset: undefined,
+      fromRepair: false,
+    });
+  });
+
+  it("reads the wake failure the events workflow writes", () => {
+    const body =
+      "<!-- nibfin:pending -->\nNibfin stopped and needs a person.\n\n" +
+      "- Code: `WAKE_FAILED`\n- Run: https://github.com/acme/app/actions/runs/1\n\n" +
+      "```text\nHTTP 502\n```\n\n" +
+      "This looks temporary (network, GitHub or a single agent run); " +
+      "removing the label retries it.\n\nRemove the `pending` label to continue.";
+    const cause = readPendingCause(body);
+    assert.equal(cause.code, "WAKE_FAILED");
+    assert.equal(cause.temporary, true);
+  });
+
+  it("names the repair stage only when asked", async () => {
+    const error = new StageError("STAGE_GIT_FAILED", "x");
+    const plain = pendingBody(error, url);
+    assert.ok(!plain.includes("- Stage:"));
+    assert.equal(readPendingCause(plain).fromRepair, false);
+    const repair = pendingBody(error, url, true, "repair");
+    assert.ok(repair.includes(`- Run: ${url}\n- Stage: \`repair\`\n`));
+    assert.equal(readPendingCause(repair).fromRepair, true);
+    const issues = fakeIssues(fakeIssue());
+    await requestPerson(issues.github.client, issue, error, url, "repair");
+    const [comment] = issues.marked(pendingCommentKey);
+    assert.equal(readPendingCause(comment.body).fromRepair, true);
   });
 });
