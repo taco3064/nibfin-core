@@ -565,7 +565,9 @@ unknown` stops with no next action (GitHub is still computing).
 3. Chooses the first of rebase, squash and merge commit that the repository settings
    and every applying ruleset `pull_request` rule allow (no merge commit under
    `required_linear_history`). No method, or an unknown setting, is `review-blocked`.
-4. Merges with `sha: H` and the method chosen once. A failed attempt (`head-changed`
+4. Right before each attempt it reads the base head (`GET …/git/ref/heads/<base>`,
+   fresh); a failed read leads to `pending` with nothing merged. Merges with
+   `sha: H` and the method chosen once. A failed attempt (`head-changed`
    409, `not-mergeable` 405, any other rejection, an unknown outcome whose re-read
    does not show the merge) is re-sent up to 3 times (#748, Proposal R4.37–R4.38).
    Before each re-send it waits (`retryDelay`: a rate limit the time GitHub states,
@@ -589,7 +591,15 @@ waiting <s> s` (`<cause>` is the kind only: `HTTP 405`, `HTTP 409`, another
    `review-blocked` saying so, and any other state is `review-blocked` with GitHub's
    message. Any other error (`GITHUB_WRITE_REJECTED`, `GITHUB_WRITE_UNCONFIRMED`) is
    thrown and leads to `pending`.
-5. After the merge the next action is none: CD events continue the Issue.
+5. After the merge the next action is none: CD events continue the Issue. When
+   GitHub answers with a merge commit equal to the base head read right before the
+   attempt, the base did not move (a same-content PR merged first, #771): no push,
+   so no CD event, follows. The run logs it and goes on at once with a fresh
+   snapshot (`continueMerged`): `awaiting-cd` waits (the CD completion wakes the
+   Issue through route by SHA), `cd-failed` asks for `{ "deliver", "cd-failure" }`,
+   `done` closes the Issue (below), and any other stage (`pause`, a manual close)
+   stops with no next action. The review stage's own `awaiting-cd`, `cd-failed` and
+   `done` cases use the same rule (`settleMerged`).
 
 ### Closing
 

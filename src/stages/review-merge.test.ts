@@ -551,3 +551,98 @@ describe("mergeReviewed", () => {
     assert.match(w.agent.logs.at(-1)!, /Not merging: the Issue is now/);
   });
 });
+
+describe("mergeReviewed when the merge leaves the base where it was (#771)", () => {
+  /**
+   * The base already points to the commit the merge answers with (a same-content
+   * pull request merged first), and CD of that commit ended with `conclusion`.
+   */
+  async function unmoved(conclusion: string | null, status = "completed") {
+    const w = await reviewWorld();
+    w.baseSha = "merge-7";
+    w.mergeAnswer = () => {
+      mergePull(w, w.pull, conclusion as string);
+      const cd = w.pushRuns.at(-1) as { status: string };
+      cd.status = status;
+      return { data: { sha: w.pull.mergeSha, merged: true, message: "Merged" } };
+    };
+    return w;
+  }
+
+  it("closes the Issue as delivered in the same run when CD is green", async () => {
+    const w = await unmoved("success");
+    assert.deepEqual(await merge(w), { ...noNext, wake: [] });
+    assert.equal(w.issues.main.state, "closed");
+    assert.ok(w.issues.main.labels.includes("delivered"));
+    assert.equal(w.issues.marked("delivered").length, 1);
+    const logs = w.agent.logs.join("\n");
+    assert.match(logs, /`main` did not move \(still merge-7\)/);
+    assert.match(logs, /Closed acme\/app#1 as delivered/);
+  });
+
+  it("asks for the CD-failure fix in the same run when CD failed", async () => {
+    const w = await unmoved("failure");
+    assert.deepEqual(await merge(w), { stage: "deliver", reason: "cd-failure" });
+    assert.equal(w.issues.main.state, "open");
+  });
+
+  it("waits for the CD completion when CD is still running", async () => {
+    const w = await unmoved(null, "in_progress");
+    assert.deepEqual(await merge(w), noNext);
+    assert.equal(w.issues.main.state, "open");
+    assert.match(w.agent.logs.at(-1)!, /is waiting for CD/);
+  });
+
+  it("stops when the Issue was paused right after the merge", async () => {
+    const w = await unmoved("success");
+    const answer = w.mergeAnswer!;
+    w.mergeAnswer = (request) => {
+      w.issues.main.labels.push("pause");
+      return answer(request);
+    };
+    assert.deepEqual(await merge(w), noNext);
+    assert.equal(w.issues.main.state, "open");
+    assert.match(w.agent.logs.at(-1)!, /ineligible \(paused\) after the merge/);
+  });
+
+  it("returns no next action when the merge moved the base", async () => {
+    const w = await reviewWorld();
+    assert.deepEqual(await merge(w), noNext);
+    assert.equal(w.pull.merged, true);
+    assert.equal(w.issues.main.state, "open");
+    assert.ok(!w.agent.logs.some((line) => line.includes("did not move")));
+  });
+
+  it("returns no next action when GitHub names no merge commit", async () => {
+    const w = await reviewWorld();
+    w.baseSha = "merge-7";
+    w.mergeAnswer = () => {
+      mergePull(w, w.pull);
+      return { data: { sha: null, merged: true, message: "Merged" } };
+    };
+    assert.deepEqual(await merge(w), noNext);
+    assert.equal(w.issues.main.state, "open");
+  });
+
+  it("reads the base right before each attempt", async () => {
+    const w = await unmoved("success");
+    const answer = w.mergeAnswer!;
+    w.baseSha = "c".repeat(40);
+    w.mergeAnswer = () => {
+      w.mergeAnswer = answer;
+      w.baseSha = "merge-7";
+      return failure(405, "Base branch was modified. Review and try again.");
+    };
+    assert.deepEqual(await merge(w), { ...noNext, wake: [] });
+    assert.equal(w.mergeRequests.length, 2);
+    assert.equal(w.issues.main.state, "closed");
+  });
+
+  it("fails as a read, without merging, when the base cannot be read", async () => {
+    const w = await reviewWorld();
+    w.issues.github.routes.set("GET /repos/acme/app/git/ref/heads/main", failure(500));
+    const error = await rejection(merge(w));
+    assert.equal((error as GitHubError).code, "GITHUB_READ_FAILED");
+    assert.deepEqual(w.mergeRequests, []);
+  });
+});

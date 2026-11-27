@@ -11,6 +11,7 @@ import {
   type PullRequestDetail,
   type PullRequestState,
   readApprovalCount,
+  readBranchHead,
   readIssueSnapshot,
   readMergeRules,
   readMergeSettings,
@@ -20,6 +21,7 @@ import {
   waitToRetry,
 } from "../github/index.ts";
 import { issueOf } from "./agent.ts";
+import { continueMerged } from "./closing.ts";
 import { describeStage } from "./deliver-eligibility.ts";
 import { type NextAction, noNextAction } from "./next.ts";
 import {
@@ -124,23 +126,37 @@ async function chooseMethod(scope: ReviewScope, base: string) {
   return method;
 }
 
-/** One merge attempt: GitHub's answer, or the `GitHubError` it failed with. */
-type Attempt = MergeResult | { outcome: "error"; error: unknown };
+/**
+ * One merge attempt: GitHub's answer (a merge also carries the commit the base
+ * pointed to right before it), or the `GitHubError` it failed with.
+ */
+type Attempt =
+  | Exclude<MergeResult, { outcome: "merged" }>
+  | (Extract<MergeResult, { outcome: "merged" }> & { baseBefore: string })
+  | { outcome: "error"; error: unknown };
 
+/**
+ * Reads the base head, freshly, then sends the merge. A failed base read is not a
+ * merge attempt: it goes to the review stage's failure path (`pending`).
+ */
 async function attemptMerge(
   scope: ReviewScope,
   pull: PullRequestState,
   head: string,
   method: MergeMethod,
 ): Promise<Attempt> {
+  const { client, context } = scope;
+  freshReads(client);
+  const baseBefore = await readBranchHead(client, context.repo, pull.baseRef);
   const request = { number: pull.number, sha: head, method };
   try {
-    const result = await mergePullRequest(scope.client, scope.context.repo, request);
-    if (result.outcome === "merged") {
-      const commit = result.mergeCommitSha ?? "(unknown)";
-      scope.deps.log(`Merged ${pull.url} at ${head} (${method}) as ${commit}`);
+    const result = await mergePullRequest(client, context.repo, request);
+    if (result.outcome !== "merged") {
+      return result;
     }
-    return result;
+    const commit = result.mergeCommitSha ?? "(unknown)";
+    scope.deps.log(`Merged ${pull.url} at ${head} (${method}) as ${commit}`);
+    return { ...result, baseBefore };
   } catch (error) {
     return { outcome: "error", error };
   }
@@ -220,7 +236,11 @@ async function recheckMerge(
  * with no more attempts; anything else (behind, blocked, computing) is re-sent. The
  * outcome of the last attempt is then routed once (`notMergeable`; a rejection
  * naming the workflows permission is `review-blocked`, any other error is thrown).
- * Merging is not completion: CD events follow, so the next action is none.
+ * Merging is not completion: CD events follow, so the next action is none. A merge
+ * whose commit is the base head read right before the attempt left the base where it
+ * was, so no push and no CD event follow; the run then goes on at once with the Issue
+ * as GitHub shows it (`continueMerged`: CD green closes it, failed asks for the
+ * CD-failure fix, pending waits for the CD completion; #771).
  * `shapeVersion` is the version of the Shape the review read; rebase requests
  * record it.
  */
@@ -291,7 +311,14 @@ async function routeLastAttempt(
 ): Promise<NextAction> {
   switch (last.outcome) {
     case "merged":
-      return noNextAction;
+      if (last.mergeCommitSha === null || last.mergeCommitSha !== last.baseBefore) {
+        return noNextAction;
+      }
+      scope.deps.log(
+        `\`${pull.baseRef}\` did not move (still ${last.baseBefore}): no push follows, ` +
+          "so this run goes on to the CD of that commit",
+      );
+      return continueMerged(scope);
     case "head-changed":
       scope.progress.mark();
       scope.deps.log(`Not merged: the head of ${pull.url} is no longer ${head}`);
