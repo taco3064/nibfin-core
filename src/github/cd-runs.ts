@@ -24,6 +24,32 @@ export interface CdState {
   nibfinRunPresent: boolean;
   /** The CD set: the newest run per workflow `path`, excluding Nibfin's workflows. */
   runs: WorkflowRunSummary[];
+  /**
+   * The `workflow_id` of Nibfin's push workflow on this push: the one at
+   * `nibfinPushWorkflowPath` when several Nibfin workflows ran, else the lowest id.
+   * Absent while no Nibfin run exists.
+   */
+  nibfinWorkflowId?: number;
+}
+
+/** Nibfin's workflow that runs on every push to the base branch (R3.35, R5.2). */
+export const nibfinPushWorkflowPath = ".github/workflows/nibfin-issue.yml";
+
+/**
+ * The workflow id of Nibfin's push workflow among Nibfin's own `runs`; a run without
+ * a numeric `workflow_id` is not counted.
+ */
+function nibfinWorkflowIdOf(
+  runs: ReadonlyArray<{ path: string; workflow_id?: unknown }>,
+): number | undefined {
+  const known = runs.flatMap((run) =>
+    typeof run.workflow_id === "number" ? [{ path: run.path, id: run.workflow_id }] : [],
+  );
+  const push = known.find((run) => run.path === nibfinPushWorkflowPath);
+  if (push !== undefined) {
+    return push.id;
+  }
+  return known.length === 0 ? undefined : Math.min(...known.map((run) => run.id));
 }
 
 /** All push runs of `mergeCommitSha` on `baseRef`, split into Nibfin's and the CD set. */
@@ -53,9 +79,12 @@ export async function readCdRuns(
       newest.set(run.path, run);
     }
   }
+  const nibfinRuns = pushRuns.filter((run) => isNibfinWorkflow(run.name));
+  const nibfinWorkflowId = nibfinWorkflowIdOf(nibfinRuns);
   return {
     mergeCommitSha,
-    nibfinRunPresent: pushRuns.some((run) => isNibfinWorkflow(run.name)),
+    nibfinRunPresent: nibfinRuns.length > 0,
+    ...(nibfinWorkflowId === undefined ? {} : { nibfinWorkflowId }),
     runs: [...newest.values()].map((run) => ({
       id: run.id,
       name: run.name ?? "",

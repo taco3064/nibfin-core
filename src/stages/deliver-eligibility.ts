@@ -26,8 +26,12 @@ export type FixPointer =
   | { reason: "conflict"; pullRequest: PullRequestState }
   | {
       reason: "cd-failure";
-      /** The newest merged PR whose CD failed, and its failed runs. */
-      pullRequest: PullRequestState | undefined;
+      /**
+       * The merge commit whose failed runs decided the fix and its pull request:
+       * the Issue's own merge, or another Issue's fix on a newer base head (#772).
+       * Both are absent when no merged pull request with a failed CD run is found.
+       */
+      failedOn: { mergeCommitSha: string; pullRequestUrl: string } | undefined;
       failed: WorkflowRunSummary[];
     };
 
@@ -95,15 +99,34 @@ export async function currentReview(
   return { comment, current: recorded !== undefined && recorded === shape?.version };
 }
 
+const failedRuns = (runs: WorkflowRunSummary[]) =>
+  runs.filter((run) => run.state === "failed");
+
 /** The newest merged pull request of the Issue whose CD failed, with the failed runs. */
 function failedCd(snapshot: IssueSnapshot) {
   for (const pull of snapshot.pullRequests) {
-    const failed = (pull.cd?.runs ?? []).filter((run) => run.state === "failed");
+    const failed = failedRuns(pull.cd?.runs ?? []);
     if (failed.length > 0) {
-      return { pullRequest: pull, failed };
+      // Failed runs come from a read CD, so the pull request has one.
+      const failedOn = {
+        mergeCommitSha: pull.cd!.mergeCommitSha,
+        pullRequestUrl: pull.url,
+      };
+      return { failedOn, failed };
     }
   }
-  return { pullRequest: undefined, failed: [] };
+  return { failedOn: undefined, failed: [] };
+}
+
+/** At `cd-failed`: the runs the stage rule chose and the merge they belong to. */
+function stageCd(stage: Extract<Stage, { stage: "cd-failed" }>) {
+  const { pullRequest } = stage;
+  // `cd-failed` is derived from the merged pull request's read CD.
+  const failedOn = stage.failedOn ?? {
+    mergeCommitSha: pullRequest.cd!.mergeCommitSha,
+    pullRequestUrl: pullRequest.url,
+  };
+  return { failedOn, failed: failedRuns(stage.runs) };
 }
 
 type Decision = Omit<Extract<Eligibility, { eligible: true }>, "eligible" | "snapshot">;
@@ -144,11 +167,12 @@ async function decide(
     };
   }
   if (reason === "cd-failure") {
-    const fix = { reason, ...failedCd(snapshot) };
     if (stage.stage === "cd-failed") {
+      const fix = { reason, ...stageCd(stage) };
       return { branch: stage.nextFixBranch, openPull: undefined, fix };
     }
     if (stage.stage === "deliver" && stage.branch !== deliveryBranch(context.issue)) {
+      const fix = { reason, ...failedCd(snapshot) };
       return { branch: stage.branch, openPull: undefined, fix };
     }
   }

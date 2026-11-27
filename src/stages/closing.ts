@@ -1,5 +1,6 @@
 import {
   type ActingClient,
+  type CdState,
   closeDelivered,
   deriveStage,
   findMarkedComment,
@@ -113,6 +114,27 @@ function cdLines(pull: PullRequestState): string[] {
   );
 }
 
+/** The CD of a newer base head that passed for the Issue's red merge (#772). */
+function passedOn(snapshot: IssueSnapshot): CdState | undefined {
+  const stage = deriveStage(snapshot);
+  return stage.stage === "done" ? stage.passedOn : undefined;
+}
+
+function passedOnLines(snapshot: IssueSnapshot): string[] {
+  const head = passedOn(snapshot);
+  if (head === undefined) {
+    return [];
+  }
+  const base = snapshot.branches.current.pullRequests.find((pull) => pull.merged)!;
+  return [
+    `- CD passed on newer \`${base.baseRef}\` \`${head.mergeCommitSha}\`:`,
+    ...head.runs.map(
+      (run) =>
+        `  - ${run.name} (\`${run.path}\`): ${String(run.conclusion)} (${run.url})`,
+    ),
+  ];
+}
+
 /**
  * Every commit a pull request has carried: its current commits and head, and the
  * commits of each head it had right before a force push (a rebase). A head GitHub no
@@ -168,7 +190,8 @@ async function reviewRounds(scope: ReviewScope, pulls: PullRequestState[]) {
 /**
  * The closing comment, built only from GitHub data: every pull request of the
  * Issue's branches with its merge commit, the required checks of each merged head,
- * the CD runs of each merge, and the fix and review counts.
+ * the CD runs of each merge (and of the newer base head that passed for a red merge,
+ * #772), and the fix and review counts.
  */
 export async function closingComment(
   scope: ReviewScope,
@@ -201,6 +224,7 @@ export async function closingComment(
     "### CD",
     "",
     ...merged.flatMap(cdLines),
+    ...passedOnLines(snapshot),
     "",
     "### Counts",
     "",
@@ -208,12 +232,20 @@ export async function closingComment(
   ].join("\n");
 }
 
-/** The CD runs of every merged pull request, with their conclusions. */
+/**
+ * The CD runs of every merged pull request, and of the newer base head the Issue
+ * passed on, with their conclusions.
+ */
 function cdRecord(snapshot: IssueSnapshot): string {
   const runs = snapshot.pullRequests.flatMap((pull) =>
     (pull.cd?.runs ?? []).map((run) => `${pull.number}:${run.id}:${run.conclusion}`),
   );
-  return runs.toSorted().join(",");
+  const head = passedOn(snapshot);
+  const newer =
+    head === undefined
+      ? []
+      : head.runs.map((run) => `${head.mergeCommitSha}:${run.id}:${run.conclusion}`);
+  return [...runs, ...newer].toSorted().join(",");
 }
 
 /**
@@ -244,6 +276,13 @@ export async function closeIssue(
   return { ...noNextAction, wake: await wakeDownstream(scope) };
 }
 
+/** An `awaiting-cd` reason, with the Issue it waits on when known (#772). */
+function waitReason(stage: Extract<Stage, { stage: "awaiting-cd" }>): string {
+  return stage.waitingOn === undefined
+    ? stage.reason
+    : `${stage.reason}, waiting on #${stage.waitingOn}`;
+}
+
 /** The stages of an Issue whose pull request merged. */
 export type MergedStage = Extract<Stage, { stage: "awaiting-cd" | "cd-failed" | "done" }>;
 
@@ -260,7 +299,7 @@ export async function settleMerged(
 ): Promise<NextAction> {
   switch (stage.stage) {
     case "awaiting-cd":
-      scope.deps.log(`${issueName(scope)} is waiting for CD (${stage.reason})`);
+      scope.deps.log(`${issueName(scope)} is waiting for CD (${waitReason(stage)})`);
       return noNextAction;
     case "cd-failed":
       scope.deps.log(`${issueName(scope)}: CD failed; requesting a CD-failure fix`);
