@@ -1,0 +1,35 @@
+name: Nibfin · e2e notify
+
+# Asks the e2e gate to retest the Proposal rules a delivered Issue touched
+# (taco3064/nibfin-e2e, repository_dispatch type issue-delivered).
+run-name: ${{ format('Nibfin · {0}#{1} · e2e notify', github.repository, github.event.issue.number) }}
+
+on:
+  issues:
+    types: [closed]
+
+permissions: {}
+
+jobs:
+  notify:
+    if: contains(github.event.issue.labels.*.name, 'delivered')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Dispatch to nibfin-e2e
+        env:
+          GH_TOKEN: ${{ secrets.NIBFIN_GITHUB_TOKEN }}
+          REPOSITORY: ${{ github.repository }}
+          ISSUE: ${{ github.event.issue.number }}
+        run: |
+          for attempt in 1 2 3; do
+            if gh api -X POST repos/taco3064/nibfin-e2e/dispatches \
+              -f event_type=issue-delivered \
+              -f "client_payload[repository]=$REPOSITORY" \
+              -F "client_payload[issue]=$ISSUE"; then
+              exit 0
+            fi
+            echo "dispatch attempt $attempt failed"
+            sleep $((attempt * 10))
+          done
+          exit 1
