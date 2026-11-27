@@ -84,6 +84,7 @@ export {
   readLatestReviews,
   readPullRequest,
   readPullRequestCommits,
+  readPullRequestsMergedAt,
   readRequestedReviewers,
   readReviewComments,
   type RequestedReviewers,

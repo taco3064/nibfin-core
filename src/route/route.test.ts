@@ -358,23 +358,44 @@ function reportedShaped(world: DeliveryWorld) {
 }
 
 describe("routeEvent", () => {
-  function commitPulls(pulls: unknown[]) {
+  const committed = "2026-11-26T19:34:27Z";
+
+  /** A closed pull request of the listing, updated at `updated`. */
+  function closed(
+    number: number,
+    head: string,
+    mergeSha: string | null,
+    updated: string,
+  ) {
+    const merged = mergeSha !== null;
+    return { ...pullJson(number, { head, merged, mergeSha }), updated_at: updated };
+  }
+
+  function commitPulls(pulls: unknown[], closedPulls: unknown[] = []) {
     const issues = fakeIssues(fakeIssue());
-    issues.github.routes.set("GET /repos/acme/app/commits/abc1234/pulls", paged(pulls));
-    return issues.github.client;
+    const { routes } = issues.github;
+    routes.set("GET /repos/acme/app/commits/abc1234/pulls", paged(pulls));
+    routes.set("GET /repos/acme/app/git/commits/abc1234", {
+      data: { sha: "abc1234", committer: { date: committed } },
+    });
+    routes.set("GET /repos/acme/app/pulls", paged(closedPulls));
+    return issues;
   }
 
   it("names the Issue of an Issue event", async () => {
     const client = fakeIssues(fakeIssue()).github.client;
-    assert.equal(await routeEvent(client, repo, { issue: 3 }), 3);
+    assert.deepEqual(await routeEvent(client, repo, { issue: 3 }), [3]);
   });
 
   it("maps delivery and CD fix branches, and nothing else", async () => {
     const client = fakeIssues(fakeIssue()).github.client;
-    assert.equal(await routeEvent(client, repo, { branch: "nibfin/issue-12" }), 12);
-    assert.equal(await routeEvent(client, repo, { branch: "nibfin/issue-12-cd-2" }), 12);
+    assert.deepEqual(await routeEvent(client, repo, { branch: "nibfin/issue-12" }), [12]);
+    assert.deepEqual(
+      await routeEvent(client, repo, { branch: "nibfin/issue-12-cd-2" }),
+      [12],
+    );
     for (const other of ["main", "nibfin/issue-0", "nibfin/issue-1-x", "feature"]) {
-      assert.equal(await routeEvent(client, repo, { branch: other }), undefined);
+      assert.deepEqual(await routeEvent(client, repo, { branch: other }), []);
     }
   });
 
@@ -383,12 +404,14 @@ describe("routeEvent", () => {
       pullJson(3, { head: "feature", merged: true }),
       pullJson(4, { head: "nibfin/issue-8", merged: true }),
     ];
-    assert.equal(await routeEvent(commitPulls(pulls), repo, { sha: "abc1234" }), 8);
+    const { client } = commitPulls(pulls).github;
+    assert.deepEqual(await routeEvent(client, repo, { sha: "abc1234" }), [8]);
   });
 
   it("maps an open pull request's head commit", async () => {
     const pulls = [pullJson(4, { head: "nibfin/issue-8-cd-1" })];
-    assert.equal(await routeEvent(commitPulls(pulls), repo, { sha: "abc1234" }), 8);
+    const { client } = commitPulls(pulls).github;
+    assert.deepEqual(await routeEvent(client, repo, { sha: "abc1234" }), [8]);
   });
 
   it("maps an unrelated commit to nothing", async () => {
@@ -396,19 +419,107 @@ describe("routeEvent", () => {
       pullJson(3, { head: "feature" }),
       pullJson(4, { head: "nibfin/issue-8", state: "closed" }),
     ];
-    assert.equal(
-      await routeEvent(commitPulls(pulls), repo, { sha: "abc1234" }),
-      undefined,
-    );
+    const { client } = commitPulls(pulls).github;
+    assert.deepEqual(await routeEvent(client, repo, { sha: "abc1234" }), []);
   });
 
-  it("fails as a read when GitHub fails", async () => {
-    const issues = fakeIssues(fakeIssue());
-    issues.github.routes.set("GET /repos/acme/app/commits/abc1234/pulls", failure(500));
-    const error = await rejection(
-      routeEvent(issues.github.client, repo, { sha: "abc1234" }),
+  it("adds every Nibfin pull request merged to the commit, once each", async () => {
+    // gh-nibfin #450 and #452: the second merged to the same commit without moving
+    // main, and GitHub associates only the first with it.
+    const associated = [pullJson(450, { head: "nibfin/issue-363", merged: true })];
+    const listed = [
+      closed(452, "nibfin/issue-412-cd-1", "abc1234", "2026-11-26T19:35:56Z"),
+      closed(451, "feature", "abc1234", "2026-11-26T19:35:00Z"),
+      closed(450, "nibfin/issue-363", "abc1234", "2026-11-26T19:34:28Z"),
+      closed(449, "nibfin/issue-9", "other00", "2026-11-26T19:34:27Z"),
+      closed(448, "nibfin/issue-10", null, "2026-11-26T19:30:00Z"),
+    ];
+    const issues = commitPulls(associated, listed);
+    const result = await routeEvent(issues.github.client, repo, { sha: "abc1234" });
+    assert.deepEqual(result, [363, 412]);
+    const list = issues.github.calls.find(
+      (call) => call.path === "/repos/acme/app/pulls",
     );
-    assert.ok(error instanceof GitHubError);
-    assert.equal(error.code, "GITHUB_READ_FAILED");
+    assert.deepEqual(Object.fromEntries(list!.query), {
+      state: "closed",
+      sort: "updated",
+      direction: "desc",
+      per_page: "100",
+    });
   });
+
+  it("stops listing after the page that reaches the commit's date", async () => {
+    const recent = (number: number) =>
+      closed(number, "nibfin/issue-5", "abc1234", "2026-11-27T00:00:00Z");
+    const listed = [
+      ...Array.from({ length: 99 }, (_, k) => recent(400 - k)),
+      closed(301, "nibfin/issue-6", "abc1234", "2026-11-25T00:00:00Z"),
+      closed(300, "nibfin/issue-7", "abc1234", "2026-11-27T00:00:00Z"),
+    ];
+    const issues = commitPulls([], listed);
+    const result = await routeEvent(issues.github.client, repo, { sha: "abc1234" });
+    assert.deepEqual(result, [5, 6]);
+    const pages = issues.github.calls.filter(
+      (call) => call.path === "/repos/acme/app/pulls",
+    );
+    assert.equal(pages.length, 1);
+  });
+
+  it("reads every page while no pull request predates the commit", async () => {
+    const listed = Array.from({ length: 101 }, (_, k) =>
+      closed(500 - k, `nibfin/issue-${k + 1}`, k === 100 ? "abc1234" : null, committed),
+    );
+    const issues = commitPulls([], listed);
+    const result = await routeEvent(issues.github.client, repo, { sha: "abc1234" });
+    assert.deepEqual(result, [101]);
+  });
+
+  for (const path of [
+    "/repos/acme/app/commits/abc1234/pulls",
+    "/repos/acme/app/git/commits/abc1234",
+    "/repos/acme/app/pulls",
+  ]) {
+    it(`fails as a read when GitHub fails GET ${path}`, async () => {
+      const issues = commitPulls([]);
+      issues.github.routes.set(`GET ${path}`, failure(500));
+      const error = await rejection(
+        routeEvent(issues.github.client, repo, { sha: "abc1234" }),
+      );
+      assert.ok(error instanceof GitHubError);
+      assert.equal(error.code, "GITHUB_READ_FAILED");
+    });
+  }
+});
+
+describe("a commit two Nibfin pull requests merged to (#771)", () => {
+  // gh-nibfin #450 (Issue #363) merged as the commit; #452 (Issue #412) merged to the
+  // same commit without moving main, and GitHub associates only #450 with it. Each
+  // world holds one of the two Issues as acme/app#1, the other as acme/app#2.
+  for (const associated of [true, false]) {
+    const which = associated ? "associates with" : "does not associate with";
+    it(`finishes the Issue whose pull request GitHub ${which} it`, async () => {
+      const world = await reviewWorld();
+      mergePull(world, world.pull);
+      const sha = world.pull.mergeSha!;
+      world.pulls.push({
+        number: 6,
+        state: "closed",
+        merged: true,
+        head: "nibfin/issue-2",
+        sha: "c".repeat(40),
+        mergeSha: sha,
+      });
+      const first = associated ? world.pull : world.pulls.at(-1)!;
+      const json = pullJson(first.number, { head: first.head, merged: true });
+      world.commitPulls.set(sha, [json]);
+      const { client } = world.issues.github;
+      const issues = await routeEvent(client, repo, { sha });
+      assert.deepEqual(issues, associated ? [1, 2] : [2, 1]);
+      assert.deepEqual(await routeIssue(client, repo, 1, log), route("finish", null));
+      assert.equal(await world.finish(), 0);
+      assert.equal(world.issues.main.state, "closed");
+      assert.ok(world.issues.main.labels.includes("delivered"));
+      assert.equal(world.issues.marked("delivered").length, 1);
+    });
+  }
 });

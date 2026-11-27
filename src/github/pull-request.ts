@@ -335,3 +335,47 @@ export async function readCommitPullRequests(
     body: pull.body ?? "",
   }));
 }
+
+/**
+ * The merged pull requests whose `merge_commit_sha` is `sha` (#771). GitHub's
+ * `GET …/commits/{sha}/pulls` names only the pull request that introduced a commit,
+ * so a second pull request merged to the same commit (main did not move) is found
+ * here: the closed pull requests, most recently updated first, page by page, up to
+ * the first page that reaches one updated before the commit's committer date (any
+ * pull request merged to `sha` was merged, so updated, after the commit existed).
+ */
+export async function readPullRequestsMergedAt(
+  client: GitHubClient,
+  repo: Repo,
+  sha: string,
+): Promise<PullRequestSummary[]> {
+  const name = `${repo.owner}/${repo.repo}`;
+  const { data: commit } = await read(`read commit ${name}@${sha}`, () =>
+    client.request("GET /repos/{owner}/{repo}/git/commits/{commit_sha}", {
+      ...repo,
+      commit_sha: sha,
+    }),
+  );
+  const since = Date.parse(commit.committer.date);
+  const pulls = await read(`list closed pull requests of ${name}`, () =>
+    client.paginate(
+      "GET /repos/{owner}/{repo}/pulls",
+      {
+        ...repo,
+        state: "closed",
+        sort: "updated",
+        direction: "desc",
+        per_page: 100,
+      },
+      (response, done) => {
+        if (response.data.some((pull) => Date.parse(pull.updated_at) < since)) {
+          done();
+        }
+        return response.data;
+      },
+    ),
+  );
+  return pulls
+    .filter((pull) => pull.merged_at !== null && pull.merge_commit_sha === sha)
+    .map(summarizePullRequest);
+}

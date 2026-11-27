@@ -76,6 +76,7 @@ function pullJson(pull: FakePull) {
     head: { ref: pull.head, sha: pull.sha },
     base: { ref: pull.base ?? "main" },
     merge_commit_sha: pull.mergeSha,
+    updated_at: "2026-11-23T00:00:00Z",
     html_url: `https://github.com/acme/app/pull/${pull.number}`,
     title: pull.title ?? "",
     body: pull.body ?? "",
@@ -87,9 +88,12 @@ function routePulls(world: DeliveryWorld) {
   routes.set("GET /repos/acme/app/pulls", (request) => {
     const head = request.query.get("head")?.replace(/^acme:/, "");
     const state = request.query.get("state");
+    // Without `head`, the repository's pull requests (most recently updated first,
+    // which here is newest first).
     const items = world.pulls
-      .filter((pull) => pull.head === head)
-      .filter((pull) => state !== "open" || pull.state === "open")
+      .filter((pull) => head === undefined || pull.head === head)
+      .filter((pull) => state === null || state === "all" || pull.state === state)
+      .toSorted((a, b) => b.number - a.number)
       .map(pullJson);
     return paged(items)(request);
   });
@@ -138,6 +142,10 @@ function dynamicRoute(world: DeliveryWorld, request: FakeRequest) {
   if (found) {
     const mergeable = found.mergeable === undefined ? true : found.mergeable;
     return { data: { ...pullJson(found), mergeable, mergeable_state: "clean" } };
+  }
+  const commit = /^\/repos\/acme\/app\/git\/commits\/([^/]+)$/.exec(request.path);
+  if (commit) {
+    return { data: { sha: commit[1], committer: { date: "2026-11-23T00:00:00Z" } } };
   }
   const commitPulls = /^\/repos\/acme\/app\/commits\/([^/]+)\/pulls$/.exec(request.path);
   if (commitPulls) {

@@ -346,6 +346,11 @@ so it is re-sent on any error without a pre-read.
   from GraphQL `HeadRefForcePushedEvent.beforeCommit`, all pages.
 - `readCommitPullRequests(client, repo, sha)`: number, title, URL and description
   of the pull requests GitHub associates with a commit (`GET …/commits/{sha}/pulls`).
+- `readPullRequestsMergedAt(client, repo, sha)`: the merged pull requests whose
+  `merge_commit_sha` is `sha`, including those GitHub does not associate with it (a
+  merge that left the base where it was, #771). It reads the commit's committer date
+  (`GET …/git/commits/{sha}`), then the closed pull requests most recently updated
+  first, up to the first page that reaches one updated before that date.
 - `readIssueTitle(client, issue)`: an Issue's title and URL (`GET …/issues/{n}`).
 - `readCommitsAhead(client, repo, base, head)`: the commits of `head` that `base`
   lacks (`GET …/compare/{base}...{head}`, at most the 250 GitHub returns);
