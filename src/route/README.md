@@ -25,6 +25,15 @@ true`; a stale one falls to rule 4) → `deliver review`; `review` whose PR has 
 6. anything else (paused, `pending`, neither `scope` nor `request`, blocked, no
    Assignee) → `null`.
 
+`readRoute` also gives `repair`: for an Issue that derives `ineligible (pending)`,
+its repair need (`readRepairNeed`, see "Repair stage" in `src/stages`), else `null`.
+`continueAfterStage` ignores it. `nibfin route --issue` runs `runRepair` when the
+route is `null` and `repair` is not; when it removes `pending`, the command reads the
+route again and dispatches it through `dispatchStage` (the one re-dispatch, R4.42). A
+failure inside the repair stage sets `pending` with ``- Stage: `repair` `` (R4.50);
+any other failure takes the usual path. `--sha` and `--branch` are unchanged: their
+route run per Issue does the repair.
+
 `assignees` holds all the Issue's Assignees (`{ id, login }`, GitHub's order); without
 one the route is `null`. Several Assignees route like one: `dispatchStage` chooses
 among them (#739), and all are asked for consent.

@@ -21,7 +21,10 @@ peers: their events wake their Issues by dispatching to the execution repository
 
 Events only wake an Issue. Core reads GitHub, decides what runs (`src/route`) and
 dispatches it. When a person is needed, Core adds the `pending` label with a comment;
-removing `pending` is the go-ahead.
+removing `pending` is the go-ahead. On the next wake of an Issue with `pending`, the
+route Job's repair stage clears what needs no person (a temporary failure, a usage
+limit that resets within the Job) and leaves a marked repair record (see "Repair
+stage" in `src/stages/README.md`).
 
 ## The peer caller
 

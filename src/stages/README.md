@@ -87,8 +87,131 @@ whatever the code, except `STAGE_WRITER_ACTIVE` (a wait: another Writer runs and
 own post-stage route continues the Issue; `nibfin run` exits 0 for it). The no-progress
 stop (`STAGE_NO_PROGRESS`, see `src/route`) takes the same path. The stage-specific
 comments stay as they are.
-While `pending` is present the Issue derives `ineligible (pending)` and nothing runs;
-removing it resumes from GitHub state.
+While `pending` is present the Issue derives `ineligible (pending)` and no stage is
+dispatched; the repair stage (below) runs in the route Job, and removing `pending`
+resumes from GitHub state. `requestPerson(..., stage)` and `askPerson(..., stage)`
+add the header line ``- Stage: `repair` `` after `- Run:` when the repair stage
+itself failed; without `stage` the body is unchanged.
+
+## Repair stage
+
+**Parsed by gh-nibfin.** The record and decision formats and the reader rule below are
+a contract (`repair-record.ts`); change them only together with gh-nibfin.
+
+The deterministic part of the repair stage (#777, Proposal R4.40–R4.52). It runs
+inside `nibfin route --issue` (no agent, R5.70–R5.71) when the Issue derives
+`ineligible (pending)` (so never for a closed, unscoped or paused Issue) and nothing
+else is routed. The repair agent, applying a chosen option and the `labeled:pending`
+wake are separate work; until that wake exists, any other routed wake of the Issue
+reaches the stage.
+
+### Reading the `pending` comment
+
+`readPendingCause(body)` reads only Core's own lines of Nibfin's marked `pending`
+comment: the header before the first ` ```text ` line and the trailer after
+the last ` ``` ` line (the whole body without a fence). It gives `code` (the
+first ``- Code: `X` ``; `none` is no code), `run` (the `- Run:` URL),
+`temporary` (the trailer has the temporary sentence, `temporarySentence`, which the
+wake failure of `nibfin-events.yml` writes word for word), `reset` (``it resets at
+`<reset>` `` in the usage-limit note) and `fromRepair` (``- Stage: `repair` ``).
+Text inside the fenced failure message never counts.
+
+### What decides (`readRepairNeed`, `runRepair`)
+
+`readRepairNeed` reads Nibfin's marked `pending` comment (its id from the Issue
+record, then `GET …/issues/comments/{id}` for `body` and `updated_at`), the latest
+`unlabeled` event for `pending`, and Nibfin's marked `repair` comment. The `pending`
+comment is **current** when its `updated_at` is later than that event (or there is
+none). Then:
+
+- the current comment has ``- Stage: `repair` `` (the stage failed for this stop,
+  R4.50) → nothing;
+- the record applies (see Reader rule) and is `repairing` → **resume**; applies with
+  any other status → nothing;
+- otherwise → **new**.
+
+A new stop is decided in this order:
+
+1. no current comment, or no code → `not classified`, advice;
+2. the code is in the record's `handled` list → the category it had the first time,
+   advice: the second stop for that code (R4.47);
+3. `AGENT_USAGE_LIMIT` → when the reset is ISO 8601 UTC (`YYYY-MM-DDThh:mm:ss[.s]Z`)
+   and reset + 1 minute is at most `jobLimitMinutes` (330) after the Job's process
+   started: `wait`, category `external temporary problem (provider usage limit)`;
+   otherwise advice with the reset as reported, or that none was reported (R4.43,
+   R4.46). Codex's free-text resets are not exact times and get advice;
+4. the temporary sentence → `retry`, category `external temporary problem` (R4.42);
+5. anything else → `not classified`, advice: read the latest Nibfin comment, fix
+   what it names, then remove `pending`.
+
+Writes: W1 upserts the record. `advice` ends there (`pending` stays). `retry` then
+removes `pending` (W2, confirmed by the read-back labels, else
+`GITHUB_WRITE_UNCONFIRMED`). `wait` sleeps until reset + 1 minute, drops the read
+cache, and continues to W2 only while the Issue still derives `ineligible (pending)`
+and `readRepairNeed` still says resume for the same `pending` digest; a person
+removing `pending`, `pause`, closing, or a new stop ends it without a write. Resume
+skips W1 and goes to the step its action names (a wait sleeps for the time left).
+After W2 the route reads the Issue again and dispatches what it calls for once.
+Every write is idempotent (R4.35): a crash after W1 resumes, a crash after W2 is an
+Issue without `pending`. The wait holds the route Job and the Issue's concurrency
+group; it is not a timer for dispatch (R1.15). `jobLimitMinutes` is GitHub's
+360-minute job limit less a margin.
+
+A failure inside `runRepair` goes through `askPerson(..., "repair")`: the `pending`
+comment gets ``- Stage: `repair` ``, `pending` stays, and the stage does not start
+again for that stop (R4.50).
+
+### Repair record
+
+Nibfin's marked comment `<!-- nibfin:repair -->` (one per Issue, updated in place).
+Its next line is the state line:
+
+```text
+<!-- nibfin:repair-state for=<digest> status=<status> action=<action> handled=<CODES>[ reset=<ISO>] -->
+```
+
+- `for`: `pendingDigest(body)`, the first 16 hex characters of the SHA-256 of the
+  exact `pending` comment body (UTF-8, as the API's `body`, marker line included)
+  the record covers. Without a current comment it is the digest of `""`.
+- `status`: `repairing`, `needs-person`, or `waiting-for-choice` (reserved for the
+  repair agent's options; this stage never writes it).
+- `action`: `retry`, `wait` (with `reset`) or `advice`.
+- `handled`: comma-separated codes already handled automatically on this Issue,
+  carried over from the previous record (possibly empty).
+
+No value contains `--`. Then the visible lines (R4.49): `- Category:`, `- Reason:`
+(one line), `- Evidence:` (the code, a link to the `pending` comment and its run),
+`- Done:` and `- Advice:`. It never quotes the failure message.
+`formatRepairRecord(state, text)` writes it and `parseRepairRecord(body)` reads the
+state; a missing or unparseable state line, or `wait` without `reset`, is no record.
+
+### Reader rule
+
+`repairStatus({ hasPendingLabel, pendingComment, lastUnlabeledPendingAt, record })`
+is what the Dashboard shows for a `pending` Issue (R9.52):
+
+1. no `pending` label → `null`;
+2. the `pending` comment is current only if it exists and its `updated_at` is later
+   than the latest `unlabeled` event for `pending` (or there is none);
+3. the record applies only if the comment is current and `for` equals the digest of
+   its body;
+4. the record applies → its `status`; otherwise `needs-person`.
+
+Inputs: Nibfin's marked `pending` comment's `body` and `updated_at`, the latest
+`unlabeled` event for the label `pending` from `GET …/issues/{n}/events`, and
+Nibfin's marked `repair` comment (both comments by Nibfin's account only). A record
+not tied to the current `pending` comment means `needs-person`, never `repairing`;
+only `repairing` is left out of R9.1's count of Issues that need a person.
+
+### Decision comment
+
+`formatDecision(n)` is `<!-- nibfin:decision option=n -->` (n ≥ 1), what the
+Dashboard writes for option n (R4.51). `parseDecision(body)` gives n when that marker
+is the first line, or when the trimmed body is only a number; anything else is no
+decision. Checking the author is a Collaborator and applying the option belong to the
+Shape stage (separate Issue). Removing `pending` without a decision is one more run
+(R4.52): the route continues as usual, and the removal makes that `pending` comment
+stale, so it is not repaired later.
 
 ## Harness
 
