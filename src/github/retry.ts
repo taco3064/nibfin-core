@@ -1,7 +1,14 @@
 import { setTimeout as sleep } from "node:timers/promises";
 import type { Octokit } from "@octokit/core";
-import { GitHubError, hasResponse, rateLimitOf, statusOf } from "./errors.ts";
-import { isReadRequest, retrySettingsOf, sentRequest } from "./read-cache.ts";
+import {
+  GitHubError,
+  hasResponse,
+  IncompleteAnswer,
+  isIncompleteRead,
+  rateLimitOf,
+  statusOf,
+} from "./errors.ts";
+import { freshReads, isReadRequest, retrySettingsOf, sentRequest } from "./read-cache.ts";
 
 /**
  * Retries of one GitHub API call after its first attempt (Proposal R4.37): the same
@@ -52,12 +59,17 @@ export function retryDelay(error: unknown, k: number, now = Date.now()): number 
   return k * k;
 }
 
+const incompleteCause = "incomplete answer";
+
 /**
- * What failed, for the Job log: the rate-limit kind, `no response`, `GraphQL error`
- * or the HTTP status. Never a message, header or body.
+ * What failed, for the Job log: `incomplete answer`, the rate-limit kind,
+ * `no response`, `GraphQL error` or the HTTP status. Never a message, header or body.
  */
 export function retryCause(error: unknown): string {
   const cause = causeOf(error);
+  if (cause instanceof IncompleteAnswer) {
+    return incompleteCause;
+  }
   const limit = rateLimitOf(cause);
   if (limit !== undefined) {
     return `${limit} rate limit`;
@@ -124,6 +136,49 @@ export async function waitToRetry(
   return settings.log;
 }
 
+/** Incomplete-answer errors a `retryIncomplete` already gave up on. */
+const exhausted = new WeakSet<object>();
+
+/**
+ * Runs the read `run` and retries it when its answer arrived but was incomplete
+ * (`GITHUB_READ_FAILED` caused by an `IncompleteAnswer`), up to `maxRetries` times
+ * (Proposal R4.37). Each retry is logged as `GitHub <operation> (retry k of 3):
+ * incomplete answer; waiting s s`, waits `retryDelay` and drops the client's kept
+ * reads (`freshReads`), so the next attempt reaches GitHub. After the last retry it
+ * logs the give-up line and throws the last error unchanged. Any other error (a
+ * request error the request hook already retried, a GraphQL `errors` answer, a
+ * definite answer such as "is a pull request") is thrown at once, so retries never
+ * multiply; so is an incomplete answer a nested `retryIncomplete` already gave up on.
+ */
+export async function retryIncomplete<T>(
+  client: object,
+  operation: string,
+  run: () => Promise<T>,
+): Promise<T> {
+  const what = `GitHub ${operation}`;
+  const retriable = (error: unknown) => isIncompleteRead(error) && !exhausted.has(error);
+  for (let k = 1; k <= maxRetries; k += 1) {
+    try {
+      return await run();
+    } catch (error) {
+      if (!retriable(error)) {
+        throw error;
+      }
+      await waitToRetry(client, what, error, k, incompleteCause);
+      freshReads(client);
+    }
+  }
+  try {
+    return await run();
+  } catch (error) {
+    if (retriable(error)) {
+      logGiveUp(client, what, incompleteCause);
+      exhausted.add(error as object);
+    }
+    throw error;
+  }
+}
+
 /** A GraphQL answer whose `errors` is a non-empty list. */
 function hasGraphqlErrors(data: unknown): boolean {
   const errors = (Object(data) as { errors?: unknown }).errors;
@@ -143,7 +198,9 @@ type ReadAttempt =
  * counts as an error; after the last retry it is returned as it is. A 404 of a request
  * sent with `request: { absent404: true }` is an answer ("absent") and is not retried.
  * Writes pass through; `write()` retries them. Install it before the read cache, so
- * identical reads still share one answer.
+ * identical reads still share one answer. It sees only requests: an answer that
+ * arrives but fails its caller's completeness check is retried at call level by
+ * `retryIncomplete`.
  */
 export function installReadRetries(octokit: Octokit, log: LogLine, wait: Wait): void {
   octokit.hook.wrap("request", async (request, options) => {

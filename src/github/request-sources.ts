@@ -1,13 +1,15 @@
 import type { GitHubClient } from "./client.ts";
-import { absentProbe, GitHubError, readOptional } from "./errors.ts";
+import { absentProbe, incompleteRead, readOptional } from "./errors.ts";
 import { queryGraphql } from "./issue-query.ts";
 import { formatIssue, type IssueRef, type Repo } from "./repo.ts";
+import { retryIncomplete } from "./retry.ts";
 
 /**
  * The reads the Scope stage supplies to its agents (#735): they hold no GitHub
  * credential, so every GitHub fact they judge comes from here. Each list is read in
  * full through `queryGraphql` (retried like every read); a missing node or an
- * incomplete nested list fails with `GITHUB_READ_FAILED`.
+ * incomplete nested list is an incomplete answer, retried by `retryIncomplete`, and
+ * then fails with `GITHUB_READ_FAILED`.
  */
 
 /** A repository's visibility; `internal` counts as private for disclosure. */
@@ -79,15 +81,14 @@ interface Counted<T> {
   nodes: Array<T | null>;
 }
 
-function incomplete(operation: string, what: string): GitHubError {
-  return new GitHubError("GITHUB_READ_FAILED", operation, new Error(what));
-}
-
 /** The nodes of a nested list; a missing node or a count GitHub left out fails. */
 function counted<T>(operation: string, what: string, list: Counted<T>): T[] {
   const present = list.nodes.filter((node): node is T => node !== null);
   if (present.length !== list.totalCount) {
-    throw incomplete(operation, `Read ${present.length} of ${list.totalCount} ${what}`);
+    throw incompleteRead(
+      operation,
+      `Read ${present.length} of ${list.totalCount} ${what}`,
+    );
   }
   return present;
 }
@@ -115,10 +116,10 @@ async function allPages<T>(
   for (;;) {
     const connection = await page(cursor);
     if (connection === undefined) {
-      throw incomplete(operation, `GraphQL returned no ${what}`);
+      throw incompleteRead(operation, `GraphQL returned no ${what}`);
     }
     if (connection.nodes.includes(null)) {
-      throw incomplete(operation, `GraphQL returned a missing ${what} node`);
+      throw incompleteRead(operation, `GraphQL returned a missing ${what} node`);
     }
     nodes.push(...(connection.nodes as T[]));
     if (!connection.pageInfo.hasNextPage) {
@@ -196,6 +197,16 @@ export async function readOriginIssues(
   request: IssueRef & { url: string },
 ): Promise<OriginIssue[]> {
   const operation = `read the cross-references of ${formatIssue(request)}`;
+  return retryIncomplete(client, operation, () =>
+    originIssues(client, request, operation),
+  );
+}
+
+async function originIssues(
+  client: GitHubClient,
+  request: IssueRef & { url: string },
+  operation: string,
+): Promise<OriginIssue[]> {
   const events = await allPages<TimelineNode>(
     operation,
     "cross-reference",
@@ -330,6 +341,17 @@ export async function readRepositoryInventory(
 ): Promise<RepositoryInventory> {
   const name = `${repo.owner}/${repo.repo}`;
   const operation = `read the Issues and pull requests of ${name}`;
+  return retryIncomplete(client, operation, () =>
+    repositoryInventory(client, repo, name, operation),
+  );
+}
+
+async function repositoryInventory(
+  client: GitHubClient,
+  repo: Repo,
+  name: string,
+  operation: string,
+): Promise<RepositoryInventory> {
   let visibility: unknown;
   const pages = <Key extends string, T>(query: string, key: Key) =>
     allPages<T>(operation, key, async (cursor) => {
@@ -345,7 +367,7 @@ export async function readRepositoryInventory(
   const open = await pages<"issues", OpenIssueNode>(openIssuesQuery, "issues");
   const known = typeof visibility === "string" ? visibilities[visibility] : undefined;
   if (known === undefined) {
-    throw incomplete(operation, `GraphQL returned visibility ${String(visibility)}`);
+    throw incompleteRead(operation, `GraphQL returned visibility ${String(visibility)}`);
   }
   const closed = await pages<"issues", ClosedIssueNode>(closedIssuesQuery, "issues");
   const pulls = await pages<"pullRequests", PullNode>(openPullsQuery, "pullRequests");
