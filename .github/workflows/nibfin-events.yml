@@ -103,14 +103,14 @@ jobs:
           target_sha() {
             shas+=("$1")
           }
-          # Resolves the recorded commits to the nibfin/issue-* pull requests that hold
-          # them, only once a run has failed.
+          # Resolves the recorded commits to the same-repository nibfin/issue-* pull
+          # requests that hold them, only once a run has failed.
           resolve_shas() {
             local sha ref
             for sha in "${shas[@]}"; do
               while read -r ref; do
                 [ -z "$ref" ] || target_issue "$ref"
-              done < <(gh_retry api "repos/$REPO/commits/$sha/pulls" --jq '.[].head.ref' || true)
+              done < <(gh_retry api "repos/$REPO/commits/$sha/pulls" --jq ".[] | select(.head.repo.full_name == \"$REPO\") | .head.ref" || true)
             done
           }
           flag_targets() {
@@ -197,8 +197,8 @@ jobs:
                 echo "A review on a pull request from ${REVIEW_HEAD_REPO:-an unknown repository}; not routed"
                 exit 0
               fi
-              target_issue "$REVIEW_BRANCH"
               require_execution_repo
+              target_issue "$REVIEW_BRANCH"
               require_writer
               wake "branch=$REVIEW_BRANCH" "ref=$REVIEW_BRANCH"
               ;;
