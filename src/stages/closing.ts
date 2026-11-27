@@ -3,6 +3,7 @@ import {
   closeDelivered,
   deriveStage,
   findMarkedComment,
+  freshReads,
   type IssueRef,
   type IssueSnapshot,
   nibfinLabels,
@@ -16,6 +17,7 @@ import {
   readRequiredChecks,
   type RequiredCheck,
   type RequiredCheckResult,
+  type Stage,
   upsertMarkedComment,
 } from "../github/index.ts";
 import { issueOf } from "./agent.ts";
@@ -240,4 +242,50 @@ export async function closeIssue(
   await closeDelivered(client, issue);
   deps.log(`Closed ${issueName(scope)} as delivered: ${comment.url}`);
   return { ...noNextAction, wake: await wakeDownstream(scope) };
+}
+
+/** The stages of an Issue whose pull request merged. */
+export type MergedStage = Extract<Stage, { stage: "awaiting-cd" | "cd-failed" | "done" }>;
+
+/**
+ * The one rule for an Issue whose pull request merged (Proposal R3.30, R3.31,
+ * R4.11): `awaiting-cd` waits with no next action (a CD completion wakes it),
+ * `cd-failed` asks for the CD-failure fix, and `done` writes the closing comment,
+ * closes the Issue as delivered and names the downstream Issues to wake.
+ */
+export async function settleMerged(
+  scope: ReviewScope,
+  snapshot: IssueSnapshot,
+  stage: MergedStage,
+): Promise<NextAction> {
+  switch (stage.stage) {
+    case "awaiting-cd":
+      scope.deps.log(`${issueName(scope)} is waiting for CD (${stage.reason})`);
+      return noNextAction;
+    case "cd-failed":
+      scope.deps.log(`${issueName(scope)}: CD failed; requesting a CD-failure fix`);
+      return { stage: "deliver", reason: "cd-failure" };
+    case "done":
+      return closeIssue(scope, snapshot);
+  }
+}
+
+/**
+ * Right after a merge that left the base where it was (#771): no push follows, so
+ * this run goes on with the Issue as GitHub shows it now (`settleMerged`); any other
+ * stage (`pause`, a manual close, …) stops with no next action.
+ */
+export async function continueMerged(scope: ReviewScope): Promise<NextAction> {
+  const { client, context, deps } = scope;
+  freshReads(client);
+  const snapshot = await readIssueSnapshot(client, context.repo, context.issue);
+  const stage = deriveStage(snapshot);
+  switch (stage.stage) {
+    case "awaiting-cd":
+    case "cd-failed":
+    case "done":
+      return settleMerged(scope, snapshot, stage);
+  }
+  deps.log(`${issueName(scope)} is ${describeStage(stage)} after the merge; stopping`);
+  return noNextAction;
 }

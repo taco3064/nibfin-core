@@ -11,7 +11,7 @@ import {
   readReviewComments,
 } from "../github/index.ts";
 import { issueOf, prepareStageJob, runStageAgent } from "./agent.ts";
-import { closedAsDelivered, closeIssue } from "./closing.ts";
+import { closedAsDelivered, settleMerged } from "./closing.ts";
 import { type FinishContext, isAgentContext, type JobContext } from "./context.ts";
 import { currentReview, describeStage } from "./deliver-eligibility.ts";
 import { readDeliverSources } from "./deliver-prompts.ts";
@@ -202,16 +202,12 @@ async function dispatch(scope: ReviewScope): Promise<NextAction> {
     case "review":
       return reviewPullRequest(scope, snapshot, stage);
     case "awaiting-cd":
-      deps.log(`${issueName(scope)} is waiting for CD (${stage.reason})`);
-      return noNextAction;
     case "cd-failed":
-      deps.log(`${issueName(scope)}: CD failed; requesting a CD-failure fix`);
-      return { stage: "deliver", reason: "cd-failure" };
+    case "done":
+      return settleMerged(scope, snapshot, stage);
     case "conflict":
       deps.log(`${issueName(scope)}: the PR conflicts with its base; requesting a fix`);
       return { stage: "deliver", reason: "conflict" };
-    case "done":
-      return closeIssue(scope, snapshot);
   }
   const closed = stage.stage === "ineligible" && stage.reason === "closed";
   if (closed && (await closedAsDelivered(client, issueOf(context), snapshot))) {
