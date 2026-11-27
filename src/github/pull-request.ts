@@ -1,7 +1,14 @@
 import { type PullRequestSummary, summarizePullRequest } from "./branches.ts";
 import type { GitHubClient } from "./client.ts";
-import { absentProbe, GitHubError, read, readOptional } from "./errors.ts";
+import {
+  absentProbe,
+  GitHubError,
+  incompleteRead,
+  read,
+  readOptional,
+} from "./errors.ts";
 import type { Repo } from "./repo.ts";
+import { retryIncomplete } from "./retry.ts";
 
 /** A pull request with GitHub's view of whether it can be merged. */
 export interface PullRequestDetail extends PullRequestSummary {
@@ -228,7 +235,8 @@ interface ForcePushPage {
 /**
  * The heads a pull request had right before each force push, from GraphQL
  * `HeadRefForcePushedEvent.beforeCommit`, all pages. A force push removes those heads
- * from the pull request's commit list; GitHub's timeline keeps them.
+ * from the pull request's commit list; GitHub's timeline keeps them. A missing
+ * timeline is an incomplete answer: `retryIncomplete` retries every page.
  */
 export async function readForcePushedHeads(
   client: GitHubClient,
@@ -236,6 +244,17 @@ export async function readForcePushedHeads(
   number: number,
 ): Promise<string[]> {
   const operation = `read force pushes of ${repo.owner}/${repo.repo}#${number}`;
+  return retryIncomplete(client, operation, () =>
+    forcePushedHeads(client, repo, number, operation),
+  );
+}
+
+async function forcePushedHeads(
+  client: GitHubClient,
+  repo: Repo,
+  number: number,
+  operation: string,
+): Promise<string[]> {
   const heads: string[] = [];
   let cursor: string | null = null;
   do {
@@ -247,9 +266,13 @@ export async function readForcePushedHeads(
     );
     const page = (answer.data as ForcePushPage).data?.repository?.pullRequest;
     const items = page?.timelineItems;
-    if ((answer.data as ForcePushPage).errors !== undefined || items === undefined) {
+    if ((answer.data as ForcePushPage).errors !== undefined) {
+      // The request hook already retried this answer (R4.37); it is not retried again.
       const cause = new Error("GraphQL returned no timeline");
       throw new GitHubError("GITHUB_READ_FAILED", operation, cause);
+    }
+    if (items === undefined) {
+      throw incompleteRead(operation, "GraphQL returned no timeline");
     }
     heads.push(...items.nodes.flatMap((node) => node?.beforeCommit?.oid ?? []));
     cursor = items.pageInfo.hasNextPage ? items.pageInfo.endCursor : null;

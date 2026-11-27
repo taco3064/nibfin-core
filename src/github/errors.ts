@@ -18,6 +18,28 @@ export class GitHubError extends Error {
   }
 }
 
+/**
+ * The cause of a read whose answer arrived but failed Nibfin's check that it is
+ * complete (a missing node, a count mismatch, no `data`). Its message keeps the detail,
+ * such as `Read 1 of 2 dependencies`. `retryIncomplete` retries it (Proposal R4.37).
+ */
+export class IncompleteAnswer extends Error {
+  constructor(what: string) {
+    super(what);
+    this.name = "IncompleteAnswer";
+  }
+}
+
+/** `GITHUB_READ_FAILED` of `operation` whose answer was incomplete (`what`). */
+export function incompleteRead(operation: string, what: string): GitHubError {
+  return new GitHubError("GITHUB_READ_FAILED", operation, new IncompleteAnswer(what));
+}
+
+/** True for a `GitHubError` whose cause is an `IncompleteAnswer`. */
+export function isIncompleteRead(error: unknown): error is GitHubError {
+  return error instanceof GitHubError && error.cause instanceof IncompleteAnswer;
+}
+
 function describe(code: GitHubErrorCode): string {
   switch (code) {
     case "GITHUB_READ_FAILED":
@@ -30,6 +52,9 @@ function describe(code: GitHubErrorCode): string {
 }
 
 function describeCause(cause: unknown): string {
+  if (cause instanceof IncompleteAnswer) {
+    return "incomplete answer";
+  }
   if (!hasResponse(cause)) {
     return "no response";
   }

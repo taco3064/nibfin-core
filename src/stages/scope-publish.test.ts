@@ -152,6 +152,28 @@ describe("publishRequestPlan", () => {
     assert.ok(!t.world.github.calls.some((call) => call.path.startsWith("/search")));
   });
 
+  it("retries the read-back of a created Issue that GraphQL lags (#768)", async () => {
+    const t = setup();
+    let lagging = 1;
+    t.world.github.routes.set("GRAPHQL IssueRecord", (request) => {
+      const { variables } = request.body as { variables: { number: number } };
+      if (variables.number !== 51 || lagging === 0) {
+        return undefined as never;
+      }
+      lagging -= 1;
+      return { data: { data: { repository: { issueOrPullRequest: null } } } };
+    });
+    const outcome = await t.publish([fresh("parser", "acme/lib", "Add the X parser")]);
+    assert.equal(outcome.kind, "published");
+    assert.equal(t.request.state, "closed");
+    assert.ok(
+      t.world.github.log.includes(
+        "GitHub read acme/lib#51 (retry 1 of 3): incomplete answer; waiting 1 s",
+      ),
+    );
+    assert.equal(lagging, 0);
+  });
+
   it("reuses the request's own Issues with their bodies unchanged", async () => {
     const t = setup();
     const own = t.world.add({

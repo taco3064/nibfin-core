@@ -1,6 +1,7 @@
 import type { GitHubClient } from "./client.ts";
-import { GitHubError, read } from "./errors.ts";
+import { GitHubError, incompleteRead, read } from "./errors.ts";
 import type { Repo } from "./repo.ts";
+import { retryIncomplete } from "./retry.ts";
 
 const versionsQuery = `query($id: ID!) {
   node(id: $id) {
@@ -33,14 +34,18 @@ interface CommentNodeResponse {
   errors?: unknown[];
 }
 
+function operationOf(repo: Repo, commentId: number): string {
+  return `read edits of comment ${repo.owner}/${repo.repo}#${commentId}`;
+}
+
 /** One GraphQL query on the node of an Issue or pull request comment. */
 async function queryComment(
   client: GitHubClient,
   repo: Repo,
   commentId: number,
   query: string,
-): Promise<{ operation: string; response: CommentNodeResponse }> {
-  const operation = `read edits of comment ${repo.owner}/${repo.repo}#${commentId}`;
+  operation: string,
+): Promise<CommentNodeResponse> {
   const { data: comment } = await read(operation, () =>
     client.request("GET /repos/{owner}/{repo}/issues/comments/{comment_id}", {
       ...repo,
@@ -50,18 +55,23 @@ async function queryComment(
   const answer = await read(operation, () =>
     client.request("POST /graphql", { query, variables: { id: comment.node_id } }),
   );
-  return { operation, response: answer.data as CommentNodeResponse };
+  return answer.data as CommentNodeResponse;
 }
 
 /**
  * The number of versions from `userContentEdits.totalCount`, which is empty for a
- * comment never edited and, once edited, lists every edit plus the original.
+ * comment never edited and, once edited, lists every edit plus the original. GraphQL
+ * `errors` fail at once (the request hook already retried them); a missing count is an
+ * incomplete answer, which `retryIncomplete` retries.
  */
 function versionsOf(operation: string, response: CommentNodeResponse): number {
   const total = response.data?.node?.userContentEdits?.totalCount;
-  if (response.errors !== undefined || typeof total !== "number") {
+  if (response.errors !== undefined) {
     const cause = new Error("GraphQL returned no edit count");
     throw new GitHubError("GITHUB_READ_FAILED", operation, cause);
+  }
+  if (typeof total !== "number") {
+    throw incompleteRead(operation, "GraphQL returned no edit count");
   }
   return Math.max(1, total);
 }
@@ -76,13 +86,17 @@ export async function readCommentVersions(
   repo: Repo,
   commentId: number,
 ): Promise<number> {
-  const { operation, response } = await queryComment(
-    client,
-    repo,
-    commentId,
-    versionsQuery,
-  );
-  return versionsOf(operation, response);
+  const operation = operationOf(repo, commentId);
+  return retryIncomplete(client, operation, async () => {
+    const response = await queryComment(
+      client,
+      repo,
+      commentId,
+      versionsQuery,
+      operation,
+    );
+    return versionsOf(operation, response);
+  });
 }
 
 /** A comment's body together with its number of versions, from one read. */
@@ -100,17 +114,20 @@ export async function readCommentWithVersions(
   repo: Repo,
   commentId: number,
 ): Promise<CommentWithVersions> {
-  const { operation, response } = await queryComment(
-    client,
-    repo,
-    commentId,
-    bodyAndVersionsQuery,
-  );
-  const versions = versionsOf(operation, response);
-  const body = response.data?.node?.body;
-  if (typeof body !== "string") {
-    const cause = new Error("GraphQL returned no comment body");
-    throw new GitHubError("GITHUB_READ_FAILED", operation, cause);
-  }
-  return { body, versions };
+  const operation = operationOf(repo, commentId);
+  return retryIncomplete(client, operation, async () => {
+    const response = await queryComment(
+      client,
+      repo,
+      commentId,
+      bodyAndVersionsQuery,
+      operation,
+    );
+    const versions = versionsOf(operation, response);
+    const body = response.data?.node?.body;
+    if (typeof body !== "string") {
+      throw incompleteRead(operation, "GraphQL returned no comment body");
+    }
+    return { body, versions };
+  });
 }

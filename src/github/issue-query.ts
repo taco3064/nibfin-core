@@ -7,12 +7,14 @@ import {
 } from "./branches.ts";
 import type { Actor, GitHubClient } from "./client.ts";
 import type { DependencyIssue } from "./dependencies.ts";
-import { GitHubError, read } from "./errors.ts";
+import { GitHubError, incompleteRead, read } from "./errors.ts";
 import { formatIssue, type IssueRef } from "./repo.ts";
+import { retryIncomplete } from "./retry.ts";
 
 /**
  * One GraphQL query; GraphQL `errors` or a missing `data` fail it with
- * `GITHUB_READ_FAILED`, so no partial answer is used.
+ * `GITHUB_READ_FAILED`, so no partial answer is used. A missing `data` is an
+ * incomplete answer (`incompleteRead`), which `retryIncomplete` retries.
  */
 export async function queryGraphql<T>(
   client: GitHubClient,
@@ -24,10 +26,14 @@ export async function queryGraphql<T>(
     client.request("POST /graphql", { query, variables }),
   );
   const { data, errors } = answer.data as { data?: T | null; errors?: unknown[] };
-  if (errors !== undefined || data === undefined || data === null) {
-    const first = (errors?.[0] as { message?: unknown } | undefined)?.message;
+  if (errors !== undefined) {
+    // The request hook already retried this answer (R4.37); it is not retried again.
+    const first = (errors[0] as { message?: unknown } | undefined)?.message;
     const reason = typeof first === "string" ? first : "GraphQL returned no data";
     throw new GitHubError("GITHUB_READ_FAILED", operation, new Error(reason));
+  }
+  if (data === undefined || data === null) {
+    throw incompleteRead(operation, "GraphQL returned no data");
   }
   return data;
 }
@@ -232,10 +238,6 @@ interface RecordData {
   } & FixPulls;
 }
 
-function incomplete(operation: string, what: string): GitHubError {
-  return new GitHubError("GITHUB_READ_FAILED", operation, new Error(what));
-}
-
 /** The nodes of a connection; a missing node or a count GitHub left out fails. */
 function allNodes<T>(
   operation: string,
@@ -245,7 +247,7 @@ function allNodes<T>(
 ): T[] {
   const present = nodes.filter((node): node is T => node !== null);
   if (present.length !== total) {
-    throw incomplete(operation, `Read ${present.length} of ${total} ${what}`);
+    throw incompleteRead(operation, `Read ${present.length} of ${total} ${what}`);
   }
   return present;
 }
@@ -281,7 +283,7 @@ function dependencies(
  */
 function pullRequests(operation: string, branch: string, pulls: Pulls) {
   if (pulls.pageInfo.hasNextPage) {
-    throw incomplete(operation, `More than 100 pull requests of ${branch}`);
+    throw incompleteRead(operation, `More than 100 pull requests of ${branch}`);
   }
   return pulls.nodes
     .filter((pull): pull is PullNode => pull !== null && !pull.isCrossRepository)
@@ -302,7 +304,7 @@ function pullRequests(operation: string, branch: string, pulls: Pulls) {
 function comment(operation: string, node: CommentNode): RecordComment {
   const id = Number(node.fullDatabaseId);
   if (node.fullDatabaseId === null || !Number.isSafeInteger(id) || id <= 0) {
-    throw incomplete(operation, `GraphQL returned comment id ${node.fullDatabaseId}`);
+    throw incompleteRead(operation, `GraphQL returned comment id ${node.fullDatabaseId}`);
   }
   return {
     id,
@@ -331,13 +333,13 @@ async function allComments(
     });
     const comments = data.repository?.issue?.comments;
     if (comments === undefined) {
-      throw incomplete(operation, "GraphQL returned no comments");
+      throw incompleteRead(operation, "GraphQL returned no comments");
     }
     nodes.push(...comments.nodes);
     page = comments.pageInfo;
   }
   if (nodes.includes(null)) {
-    throw incomplete(operation, "GraphQL returned a missing comment");
+    throw incompleteRead(operation, "GraphQL returned a missing comment");
   }
   return (nodes as CommentNode[]).map((node) => comment(operation, node));
 }
@@ -375,7 +377,7 @@ async function issueBranches(
     ),
   };
   if (repository.fixRefs.pageInfo.hasNextPage) {
-    throw incomplete(operation, "More than 100 fix branches");
+    throw incompleteRead(operation, "More than 100 fix branches");
   }
   // Names under `refs/heads/nibfin/`; the query may match more, only exact names count.
   const refs = new Set(
@@ -391,7 +393,7 @@ async function issueBranches(
     for (const [alias, name] of Object.entries(branches)) {
       const pulls = batch[alias];
       if (pulls === undefined) {
-        throw incomplete(operation, `GraphQL returned no pull requests of ${name}`);
+        throw incompleteRead(operation, `GraphQL returned no pull requests of ${name}`);
       }
       const probe = {
         name,
@@ -424,7 +426,9 @@ async function issueBranches(
  * past the first fix branches): state, state reason, text, labels, Assignees, Blocked
  * by (checked against `issueDependenciesSummary.totalBlockedBy`), all comments, and
  * the pull requests and refs of its delivery and CD fix branches. A pull request
- * number, a missing Issue or an incomplete list fails with `GITHUB_READ_FAILED`.
+ * number fails with `GITHUB_READ_FAILED` at once. A missing Issue or an incomplete
+ * list is an incomplete answer: `retryIncomplete` retries the whole read (follow-up
+ * queries included) with fresh reads before it fails with `GITHUB_READ_FAILED`.
  * Repeated calls in a Job send the same request, so the read cache answers them.
  */
 export async function readIssueRecord(
@@ -433,6 +437,14 @@ export async function readIssueRecord(
 ): Promise<IssueRecord> {
   const ref: IssueRef = { owner: issue.owner, repo: issue.repo, number: issue.number };
   const operation = `read ${formatIssue(ref)}`;
+  return retryIncomplete(client, operation, () => issueRecord(client, ref, operation));
+}
+
+async function issueRecord(
+  client: GitHubClient,
+  ref: IssueRef,
+  operation: string,
+): Promise<IssueRecord> {
   const branch = deliveryBranch(ref.number);
   const data = await queryGraphql<RecordData>(client, operation, recordQuery, {
     ...variablesOf(ref),
@@ -443,9 +455,13 @@ export async function readIssueRecord(
   });
   const node = data.repository?.issueOrPullRequest;
   if (node === null || node === undefined || node.__typename !== "Issue") {
-    const what =
-      node?.__typename === "PullRequest" ? "is a pull request" : "was not found";
-    throw incomplete(operation, `${formatIssue(ref)} ${what}`);
+    if (node?.__typename === "PullRequest") {
+      // A definite answer, not an incomplete one: it is not retried.
+      const cause = new Error(`${formatIssue(ref)} is a pull request`);
+      throw new GitHubError("GITHUB_READ_FAILED", operation, cause);
+    }
+    // A just-created Issue can read as missing until GraphQL catches up: retried.
+    throw incompleteRead(operation, `${formatIssue(ref)} was not found`);
   }
   const assignees = node.assignees;
   return {
@@ -478,6 +494,16 @@ export async function readBlockingRecord(
   issue: IssueRef,
 ): Promise<DependencyIssue[]> {
   const operation = `read blocking of ${formatIssue(issue)}`;
+  return retryIncomplete(client, operation, () =>
+    blockingRecord(client, issue, operation),
+  );
+}
+
+async function blockingRecord(
+  client: GitHubClient,
+  issue: IssueRef,
+  operation: string,
+): Promise<DependencyIssue[]> {
   const data = await queryGraphql<{
     repository: {
       issue: {
@@ -488,7 +514,7 @@ export async function readBlockingRecord(
   }>(client, operation, blockingQuery, variablesOf(issue));
   const node = data.repository?.issue;
   if (node === null || node === undefined) {
-    throw incomplete(operation, `${formatIssue(issue)} was not found`);
+    throw incompleteRead(operation, `${formatIssue(issue)} was not found`);
   }
   return dependencies(
     operation,
