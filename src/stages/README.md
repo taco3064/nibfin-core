@@ -131,7 +131,7 @@ removing it resumes from GitHub state.
 ## Scope stage
 
 `runScopeStage(context, client, deps?)` (`nibfin run --stage scope ...`) runs for an
-open `request` Issue without `scope` (Proposal R3.2–R3.11, R4.8; #734, #735). Both
+open `request` Issue without `scope` (Proposal R3.2–R3.11, R4.8; #734, #735, #736). Both
 roles are read-only and get every GitHub fact from the stage, since they hold no
 credential (`scope-sources.ts`, `src/github` "Request sources"):
 
@@ -169,16 +169,65 @@ title, body, blockedBy}` or reused `{key, reuse, blockedBy}`), or `PLAN_BLOCKED`
      generic `pending` comment is not added (R3.9, R3.10, R4.3);
    - a verified `PLAN_READY`: `deps.publish(scope, plan)` gets the `RequestPlan`
      (request URL, Investigation reason, report, Issues) in memory, never from Issue
-     text (R3.7). Until publication (#736) the default, `logUnpublishedPlan`, logs the
-     plan's keys, repositories, titles and edges, writes nothing and asks for no next
-     action.
+     text (R3.7), with the request's Assignees from step 5 and a `recheck` that
+     repeats step 5 on fresh reads. Publication follows below.
+7. Publication (`publishRequestPlan`, `scope-publish.ts`; #736, R3.3–R3.6, R3.42)
+   runs no agent: every read and write uses Core's client (R3.48, R3.49). It follows
+   the scope skill's `## Publish` and `## Requests` rules:
+   1. Refresh, read-only, before any write. The request's own Issues are read again
+      (`readOriginIssues`): one the plan does not reuse, or a reuse that is no longer
+      among them (discarded since the Plan), is `REPLAN_REQUIRED`. So is a reused
+      Issue that already has `scope` or is closed and that the plan would give a
+      Blocked by edge it does not have. Each new Issue's repository inventory is read
+      once: closed Issues discarded as not planned or duplicate are ignored; one open
+      Issue with the exact title and body, not one of the request's own, is adopted as
+      that entry (its cross-reference may lag behind its creation, the same-title
+      second net); any other exact-title match is `REPLAN_REQUIRED`. Then
+      `PUBLICATION_BLOCKED`: a request without Assignees, an Assignee that cannot be
+      assigned in the repository of an open new or reused Issue, or a URL blocker
+      outside the repositories of the request, the new and the reused Issues (the
+      Plan saw only those). Read failures here are thrown (generic `pending`, nothing
+      written).
+   2. Creates each remaining new Issue in plan order with title and body only (no
+      labels or Assignees, so it is not eligible for Shape) and reads back its title,
+      exact body and open state (`createIssue`, `src/github` "Writes").
+   3. Adds every native Blocked by edge (`addBlockedBy`); both directions read back.
+   4. `recheck`: no longer at `scope` (`pause`, `pending`, closed, …) stops; an
+      edited request starts the next round at step 3, without a limit.
+   5. Only now, for each open new, reused or adopted Issue: the request's Assignees
+      (`addAssignees`, read back), then `scope` (read back). Adding `scope` fires
+      that Issue's own `labeled` route for Shape. Closed reused Issues are listed but
+      never written; reused bodies are never changed.
+   6. `recheck` again, then the `scope-request` comment lists every created, reused
+      or adopted Issue by key and URL, and `closeIssueAs(..., "completed")`. Exit 0.
+
+   Any other end asks a person on the request with the `scope-request` comment and
+   `pending` (R3.9, R3.10, R4.3, R4.5). The comment has the verdict, the reason, the
+   Issues published so far by key and URL and the request's own Issues:
+   - `REPLAN_REQUIRED` or `PUBLICATION_BLOCKED` from the refresh: nothing else is
+     written; the Job exits 0.
+   - a write that fails or cannot be confirmed (from step 2 on): the verdict is
+     `PARTIAL_PUBLICATION` when a write took or may have taken effect, otherwise
+     `PUBLICATION_BLOCKED`. The Job log gets `nibfin: <code>: <message>` (R1.14); the
+     comment also carries the generic `pending` comment's content (`pendingBody`:
+     code, run URL, message, usage-limit and temporary notes) and is written once more
+     with a pointer to the run log when GitHub rejects it (`upsertPersonComment`).
+     After `pending` the Job exits 1, so the CLI adds no second comment and does not
+     route after the stage. When that comment or label cannot be written, the original
+     failure is thrown and the CLI's generic `pending` applies.
+
+   Every write is repeat-safe, so a redo converges: removing `pending`, or the next
+   routed event after a crash, runs the stage from the Investigation, whose Plan
+   reuses the Issues already created through their cross-references (or the
+   same-title adoption), and publication writes only what is missing. An Issue that
+   has `scope` already had all its edges.
 
 Role notes bind every posted `reason` (and the report) to the request repository's
 visibility and each new Issue to its target's; `internal` counts as private. Agent,
 result and GitHub failures are thrown with their codes and end in the generic
-`pending` (`src/cli/run.ts`). After a Scope run Core dispatches only its wakes, never
-the request's own route (see `src/route`); the per-Issue concurrency group keeps two
-runs on one request apart.
+`pending` (`src/cli/run.ts`), except a failed publication write, which step 7 handles.
+After a Scope run Core dispatches only its wakes, never the request's own route (see
+`src/route`); the per-Issue concurrency group keeps two runs on one request apart.
 
 ## Shape stage
 

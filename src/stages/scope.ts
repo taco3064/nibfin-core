@@ -3,6 +3,7 @@ import {
   checkAssignable,
   closeIssueAs,
   deriveStage,
+  freshReads,
   GitHubError,
   type IssueRef,
   type IssueSnapshot,
@@ -24,12 +25,21 @@ import {
 } from "./agent.ts";
 import type { JobContext } from "./context.ts";
 import { type NextAction, noNextAction, writeNextAction } from "./next.ts";
+import { describeFailure, pendingBody, runUrl, upsertPersonComment } from "./pending.ts";
 import { trackProgress } from "./progress.ts";
 import type { PromptSection } from "./prompt.ts";
 import {
+  listIssues,
+  type PublishedIssue,
+  type PublishOutcome,
+  publishRequestPlan,
+  type PublishScope,
+  type Recheck,
+  scopeRequestCommentKey,
+} from "./scope-publish.ts";
+import {
   type InvestigationResult,
   investigationRole,
-  type PlannedIssue,
   type PlanResult,
   parseInvestigationResult,
   parsePlanResult,
@@ -41,58 +51,39 @@ import {
   assignabilitySection,
   readRequestSource,
   readScopeSources,
+  type RequestSource,
   requestTextChanged,
   type ScopeSources,
   scopeSections,
 } from "./scope-sources.ts";
 
 export type { RequestPlan } from "./scope-roles.ts";
-
-/** The marked comment the Scope stage keeps on the request (Proposal R3.42). */
-export const scopeRequestCommentKey = "scope-request";
-
-/** What publication (#736) works with besides the plan. */
-export interface PublishScope {
-  client: ActingClient;
-  /** The request. */
-  issue: IssueRef;
-  log: (line: string) => void;
-}
+export {
+  type PublishedIssue,
+  type PublishOutcome,
+  type PublishScope,
+  type Recheck,
+  scopeRequestCommentKey,
+} from "./scope-publish.ts";
 
 /** The stage's dependencies plus the publication of a verified `PLAN_READY` plan. */
 export interface ScopeDeps extends StageDeps {
-  publish: (scope: PublishScope, plan: RequestPlan) => Promise<NextAction>;
-}
-
-function describeEntry(issue: PlannedIssue): string {
-  const edges =
-    issue.blockedBy.length === 0 ? "" : `, blocked by ${issue.blockedBy.join(", ")}`;
-  return "reuse" in issue
-    ? `- ${issue.key}: reuse ${issue.reuse}${edges}`
-    : `- ${issue.key}: ${issue.repository} "${issue.title}"${edges}`;
-}
-
-/**
- * Until #736: logs the plan's keys, repositories, titles and edges and that
- * publication is not implemented, writes nothing and asks for no next action.
- */
-export function logUnpublishedPlan(
-  scope: PublishScope,
-  plan: RequestPlan,
-): Promise<NextAction> {
-  scope.log(
-    `PLAN_READY for ${plan.request}:\n${plan.issues.map(describeEntry).join("\n")}`,
-  );
-  scope.log(
-    "Publishing a request's plan is not implemented in this version; nothing was written",
-  );
-  return Promise.resolve(noNextAction);
+  publish: (scope: PublishScope, plan: RequestPlan) => Promise<PublishOutcome>;
 }
 
 export const defaultScopeDeps: ScopeDeps = {
   ...defaultStageDeps,
-  publish: logUnpublishedPlan,
+  publish: publishRequestPlan,
 };
+
+/** How a Scope run ends: its next action and exit code. */
+interface ScopeEnd {
+  next: NextAction;
+  /** 1 only after the stage itself asked a person to act on a failed write. */
+  exitCode: 0 | 1;
+}
+
+const ended: ScopeEnd = { next: noNextAction, exitCode: 0 };
 
 function describeStage(stage: Stage): string {
   return stage.stage === "ineligible" ? `ineligible (${stage.reason})` : stage.stage;
@@ -120,8 +111,9 @@ async function readScopeSnapshot(
  * Investigation judges feasibility, and only a feasible judgment runs the read-only
  * Plan. The stage then comments and closes as not planned (already covered), comments
  * and adds `pending` (a person must decide), or hands a verified `PLAN_READY` plan to
- * `deps.publish` in memory. Writes the next action and returns the exit code; agent,
- * result and GitHub failures are thrown with their codes.
+ * `deps.publish` in memory. Writes the next action and returns the exit code: 1 when
+ * a publication write failed and the stage already added `pending` with its own
+ * comment. Other agent, result and GitHub failures are thrown with their codes.
  */
 export async function runScopeStage(
   context: JobContext,
@@ -129,25 +121,25 @@ export async function runScopeStage(
   deps: ScopeDeps = defaultScopeDeps,
 ): Promise<number> {
   const progress = trackProgress(client);
-  let next: NextAction;
+  let end: ScopeEnd;
   try {
-    next = await scopeStage(context, progress.client, deps);
+    end = await scopeStage(context, progress.client, deps);
   } catch (error) {
     await writeNextAction(context, noNextAction, progress.progressed);
     throw error;
   }
-  await writeNextAction(context, next, progress.progressed);
-  return 0;
+  await writeNextAction(context, end.next, progress.progressed);
+  return end.exitCode;
 }
 
 async function scopeStage(
   context: JobContext,
   client: ActingClient,
   deps: ScopeDeps,
-): Promise<NextAction> {
+): Promise<ScopeEnd> {
   const snapshot = await readScopeSnapshot({ context, client, deps });
   if (snapshot === undefined) {
-    return noNextAction;
+    return ended;
   }
   const skills = [investigationRole.skill, planRole.skill];
   const job = await prepareStageJob(context, client, deps, skills);
@@ -164,7 +156,7 @@ async function scopeRound(
   deps: ScopeDeps,
   round: number,
   snapshot: IssueSnapshot,
-): Promise<NextAction> {
+): Promise<ScopeEnd> {
   const { client } = job;
   const sources = await readScopeSources(client, snapshot);
   deps.log(`Round ${round}: ${investigationRole.title}`);
@@ -179,14 +171,14 @@ async function scopeRound(
   }
   const current = await readScopeSnapshot(job);
   if (current === undefined) {
-    return noNextAction;
+    return ended;
   }
   const request = await readRequestSource(client, current);
   if (requestTextChanged(sources.request, request)) {
     deps.log(`Round ${round}: the request changed; investigating again`);
     return scopeRound(job, deps, round + 1, current);
   }
-  return act({ job, deps, sources }, decision);
+  return act({ job, deps, sources, round, request }, decision);
 }
 
 const investigateTask =
@@ -254,6 +246,9 @@ interface Acting {
   job: StageJob;
   deps: ScopeDeps;
   sources: ScopeSources;
+  round: number;
+  /** The request as the last re-read found it. */
+  request: RequestSource;
 }
 
 function listOrigins(origins: readonly OriginIssue[]): string {
@@ -324,26 +319,132 @@ function planDecision(
   };
 }
 
-function personBody(
-  decision: { verdict: string; reason: string },
-  origins: readonly OriginIssue[],
-) {
+interface PersonDecision {
+  verdict: string;
+  reason: string;
+  /** The Issues publication created or reused so far, when it ran. */
+  published?: readonly PublishedIssue[];
+}
+
+function personBody(decision: PersonDecision, origins: readonly OriginIssue[]) {
   return [
     "Only a person can decide how this request continues, so Nibfin added `pending`.",
     `Judgment: ${decision.verdict}`,
     decision.reason,
+    ...(decision.published === undefined
+      ? []
+      : [`Issues published so far:\n${listIssues(decision.published)}`]),
     `The request's own Issues:\n${listOrigins(origins)}`,
     "Record the decision in the authority or change the request, then remove " +
       "`pending`; the Scope stage then starts again from the feasibility check.",
   ].join("\n\n");
 }
 
-async function act(acting: Acting, decision: Decision): Promise<NextAction> {
+async function addPending(client: ActingClient, issue: IssueRef): Promise<void> {
+  const labels = await setLabels(client, issue, { add: [nibfinLabels.pending] });
+  if (!labels.includes(nibfinLabels.pending)) {
+    const operation = `add pending to ${issue.owner}/${issue.repo}#${issue.number}`;
+    const cause = new Error("pending was not read back");
+    throw new GitHubError("GITHUB_WRITE_UNCONFIRMED", operation, cause);
+  }
+}
+
+/**
+ * Hands the plan to publication with a re-check like step 5 of the round, and ends the
+ * run from its outcome: an edit starts the next round; a person outcome comments and
+ * adds `pending`.
+ */
+async function publish(acting: Acting, plan: RequestPlan): Promise<ScopeEnd> {
+  const { job, deps, sources } = acting;
+  const { client } = job;
+  const issue = issueOf(job.context);
+  let latest: IssueSnapshot | undefined;
+  const recheck = async (): Promise<Recheck> => {
+    // Nothing may have been written since the last read; read GitHub again.
+    freshReads(client);
+    const current = await readScopeSnapshot(job);
+    if (current === undefined) {
+      return "stopped";
+    }
+    const request = await readRequestSource(client, current);
+    if (!requestTextChanged(sources.request, request)) {
+      return "scope";
+    }
+    latest = current;
+    return "changed";
+  };
+  const scope: PublishScope = {
+    client,
+    issue,
+    assignees: acting.request.assignees,
+    log: deps.log,
+    recheck,
+  };
+  const outcome = await deps.publish(scope, plan);
+  switch (outcome.kind) {
+    case "published":
+    case "stopped":
+      return ended;
+    case "changed":
+      deps.log(`Round ${acting.round}: the request changed; investigating again`);
+      return scopeRound(job, deps, acting.round + 1, latest as IssueSnapshot);
+    case "person":
+      return askAfterPublish(acting, outcome);
+  }
+}
+
+/**
+ * A person outcome of publication: the `scope-request` comment with the verdict, the
+ * reason and the Issues published so far, then `pending`. After a failed write the
+ * comment also carries the generic `pending` comment's content (code, run URL,
+ * message, temporary note), the Job log the original failure (R1.14), and the run
+ * exits 1, so the CLI adds no second comment. When that comment or label cannot be
+ * written, the original failure is thrown for the CLI's generic `pending`.
+ */
+async function askAfterPublish(
+  acting: Acting,
+  outcome: Extract<PublishOutcome, { kind: "person" }>,
+): Promise<ScopeEnd> {
+  const { job, deps, sources } = acting;
+  const { client, context } = job;
+  const issue = issueOf(context);
+  const person = personBody(outcome, sources.origins);
+  if (!("error" in outcome)) {
+    const comment = await upsertMarkedComment(
+      client,
+      issue,
+      scopeRequestCommentKey,
+      person,
+    );
+    await addPending(client, issue);
+    deps.log(`${outcome.verdict}: a person must decide (${comment.url})`);
+    return ended;
+  }
+  const { error } = outcome;
+  deps.log(`nibfin: ${describeFailure(error)}`);
+  const url = runUrl(context.runRepo, context.runId);
+  try {
+    const comment = await upsertPersonComment(
+      client,
+      issue,
+      scopeRequestCommentKey,
+      (withMessage) => `${person}\n\n${pendingBody(error, url, withMessage)}`,
+    );
+    await addPending(client, issue);
+    deps.log(`${outcome.verdict}: a person must decide (${comment.url})`);
+  } catch (failure) {
+    deps.log(`nibfin: could not ask a person: ${describeFailure(failure)}`);
+    throw error;
+  }
+  return { next: noNextAction, exitCode: 1 };
+}
+
+async function act(acting: Acting, decision: Decision): Promise<ScopeEnd> {
   const { job, deps, sources } = acting;
   const { client } = job;
   const issue = issueOf(job.context);
   if (decision.kind === "publish") {
-    return deps.publish({ client, issue, log: deps.log }, decision.plan);
+    return publish(acting, decision.plan);
   }
   if (decision.kind === "covered") {
     const body = coveredBody(decision.judgment);
@@ -355,20 +456,15 @@ async function act(acting: Acting, decision: Decision): Promise<NextAction> {
     );
     deps.log(`Already covered (${comment.url})`);
     if ((await readScopeSnapshot(job)) === undefined) {
-      return noNextAction;
+      return ended;
     }
     await closeIssueAs(client, issue, "not_planned");
     deps.log("Closed the request as not planned");
-    return noNextAction;
+    return ended;
   }
   const body = personBody(decision, sources.origins);
   const comment = await upsertMarkedComment(client, issue, scopeRequestCommentKey, body);
-  const labels = await setLabels(client, issue, { add: [nibfinLabels.pending] });
-  if (!labels.includes(nibfinLabels.pending)) {
-    const operation = `add pending to ${issue.owner}/${issue.repo}#${issue.number}`;
-    const cause = new Error("pending was not read back");
-    throw new GitHubError("GITHUB_WRITE_UNCONFIRMED", operation, cause);
-  }
+  await addPending(client, issue);
   deps.log(`${decision.verdict}: a person must decide (${comment.url})`);
-  return noNextAction;
+  return ended;
 }
