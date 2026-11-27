@@ -200,6 +200,12 @@ none); for a GitHub Actions check run (`github-actions`) the id is the job id (#
 answers with a redirect to the log, which Octokit's fetch follows, and a 404 is
 `undefined` (#672).
 
+`readLastUnlabeled(client, issue, label)` gives the latest `created_at` of an
+`unlabeled` event for `label` among all the Issue's events
+(`GET …/issues/{n}/events`, every page of 100), or `null`; and
+`readIssueComment(client, repo, id)` reads one Issue comment by REST with its
+`updated_at`. The repair stage uses both (#777, `src/stages`).
+
 The snapshot carries no Issue text. `readIssueText(client, issue)` gives an Issue's
 current `{ title, body }` (an empty description is `""`) from its record, from any
 repository the credential covers (#671).
