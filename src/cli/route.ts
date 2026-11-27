@@ -1,8 +1,9 @@
-import type { ActingClient, Repo } from "../github/index.ts";
+import { type ActingClient, freshReads, type Repo } from "../github/index.ts";
 import {
   continueAfterStage,
   deleteIssueBranches,
   dispatchRoute,
+  type DispatchScope,
   dispatchStage,
   readRoute,
   routeEvent,
@@ -14,9 +15,13 @@ import {
   positiveInteger,
   readNextAction,
   readRepo,
+  type RepairClock,
+  type RepairOutcome,
   required,
+  runRepair,
   runUrl,
   StageError,
+  systemClock,
 } from "../stages/index.ts";
 import { askPerson, type CliIo, printFailure } from "./failure.ts";
 
@@ -109,13 +114,17 @@ export const lineLog = (io: CliIo) => (line: string) => void io.stdout.write(`${
  * and dispatches one route run per Issue in turn, so every stage decision happens
  * inside the Issue's own concurrency group. A failure once an Issue is known sets
  * `pending` on that Issue only; the other Issues are still dispatched, and the
- * command exits 1 when any failed.
+ * command exits 1 when any failed. For `--issue`, an Issue with `pending` and nothing
+ * to route runs the repair stage (#777, `runRepair`); when it removes `pending`, the
+ * Issue is routed and dispatched once more. A failure of the repair stage itself sets
+ * `pending` with the line `- Stage: \`repair\`` (Proposal R4.50).
  */
 export async function runRoute(
   args: readonly string[],
   io: CliIo,
   env: NodeJS.ProcessEnv,
   connect: Connect,
+  clock: RepairClock = systemClock,
 ): Promise<number> {
   let input: RouteInput;
   let client: ActingClient;
@@ -136,15 +145,34 @@ export async function runRoute(
     log(`${name}: ${JSON.stringify(target)} belongs to no Issue; nothing to route`);
     return 0;
   }
+  const url = runUrl(input.runRepo, input.runId);
   let code = 0;
   for (const issue of issues) {
+    const ref = { ...repo, number: issue };
     try {
       if ("issue" in target) {
         const state = await readRoute(client, repo, issue, log);
         if (!state.open) {
           await deleteIssueBranches(client, repo, issue, log);
         }
-        if (state.route === null) {
+        if (state.route === null && state.repair !== null) {
+          log(`${name}#${issue}: repair (${state.repair.kind})`);
+          let outcome: RepairOutcome;
+          try {
+            outcome = await runRepair(client, ref, state.repair, clock, log);
+          } catch (error) {
+            // The repair stage failed: R4.5's comment names it, so it does not start
+            // again for this stop (Proposal R4.50).
+            printFailure(io, error);
+            await askPerson(io, client, ref, error, url, "repair");
+            code = 1;
+            continue;
+          }
+          if (outcome === "released") {
+            freshReads(client);
+            await dispatchIssue(scope, repo, issue, name);
+          }
+        } else if (state.route === null) {
           log(`${name}#${issue}: nothing to run (${describeStage(state.stage)})`);
         } else {
           await dispatchStage(scope, repo, issue, state.route);
@@ -154,12 +182,26 @@ export async function runRoute(
       }
     } catch (error) {
       printFailure(io, error);
-      const url = runUrl(input.runRepo, input.runId);
-      await askPerson(io, client, { ...repo, number: issue }, error, url);
+      await askPerson(io, client, ref, error, url);
       code = 1;
     }
   }
   return code;
+}
+
+/** After the repair stage released `pending`: the one re-dispatch (Proposal R4.42). */
+async function dispatchIssue(
+  scope: DispatchScope,
+  repo: Repo,
+  issue: number,
+  name: string,
+): Promise<void> {
+  const state = await readRoute(scope.client, repo, issue, scope.log);
+  if (state.route === null) {
+    scope.log(`${name}#${issue}: nothing to run (${describeStage(state.stage)})`);
+  } else {
+    await dispatchStage(scope, repo, issue, state.route);
+  }
 }
 
 /**

@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 import { failure, fakeToken, type Handler, paged } from "../github/fake-github.test.ts";
 import { pull } from "../github/fixtures.test.ts";
 import { freshReads, GitHubError } from "../github/index.ts";
+import { requestPerson, StageError } from "../stages/index.ts";
 import { fakeBranches } from "../route/fake-branches.test.ts";
 import { fakeRunner, selfHostedRunner } from "../route/fake-runner.test.ts";
 import {
@@ -69,21 +70,29 @@ describe("nibfin route --issue", () => {
     assert.match(result.stdout, /Dispatched Nibfin · acme\/app#1 · scope: https:/);
   });
 
-  it("dispatches nothing for a request that waits for a person", async () => {
-    const t = routeDeps({ labels: ["request", "pending"] });
-    const result = await capture([...route, "--issue", "1"], t.deps);
-    assert.equal(result.code, 0);
-    assert.equal(result.stdout, "acme/app#1: nothing to run (ineligible (pending))\n");
-    assert.deepEqual(t.runner.dispatched, []);
-  });
-
-  it("dispatches nothing for an Issue that waits for a person", async () => {
-    const t = routeDeps({ labels: ["scope", "pending"] });
-    const result = await capture([...route, "--issue", "1"], t.deps);
-    assert.equal(result.code, 0);
-    assert.equal(result.stdout, "acme/app#1: nothing to run (ineligible (pending))\n");
-    assert.deepEqual(t.runner.dispatched, []);
-  });
+  for (const labels of [
+    ["request", "pending"],
+    ["scope", "pending"],
+  ]) {
+    it(`advises for ${labels.join(" and ")} without a cause`, async () => {
+      const t = routeDeps({ labels });
+      const result = await capture([...route, "--issue", "1"], t.deps);
+      assert.equal(result.code, 0);
+      assert.equal(
+        result.stdout,
+        "acme/app#1: repair (new)\nacme/app#1: repair: not classified, advice\n",
+      );
+      assert.deepEqual(t.runner.dispatched, []);
+      assert.ok(t.issues.main.labels.includes("pending"));
+      const [record] = t.issues.marked("repair");
+      assert.match(record.body, /status=needs-person action=advice handled= -->/);
+      // A later wake writes nothing more for that stop.
+      const writes = t.issues.github.writes().length;
+      const again = await capture([...route, "--issue", "1"], t.deps);
+      assert.equal(again.code, 0);
+      assert.equal(t.issues.github.writes().length, writes);
+    });
+  }
 
   it("writes nothing when no runner has the Assignee's label", async () => {
     const t = routeDeps({ labels: ["scope"] });
@@ -396,5 +405,84 @@ describe("nibfin route input", () => {
     const result = await capture([...route, "--issue", "1"], t.deps);
     assert.equal(result.code, 1);
     assert.match(result.stderr, /GITHUB_READ_FAILED: read user/);
+  });
+});
+
+describe("nibfin route --issue runs the repair stage", () => {
+  const instant = {
+    now: () => Date.parse("2026-11-27T12:00:00Z"),
+    sleep: () => Promise.resolve(),
+    jobStart: Date.parse("2026-11-27T12:00:00Z"),
+  };
+
+  /** An Issue with `scope` that stopped on `error`, with the test clock. */
+  async function stopped(error: unknown, overrides: Partial<FakeIssue> = {}) {
+    const t = routeDeps({ labels: ["scope"], ...overrides });
+    t.deps.clock = instant;
+    const issue = { owner: "acme", repo: "app", number: 1 };
+    const url = "https://github.com/acme/runner/actions/runs/800";
+    await requestPerson(t.issues.github.client, issue, error, url);
+    return t;
+  }
+
+  it("removes pending from a temporary stop and dispatches once more", async () => {
+    const t = await stopped(new StageError("STAGE_GIT_FAILED", "git failed"));
+    const result = await capture([...route, "--issue", "1"], t.deps);
+    assert.equal(result.code, 0);
+    assert.ok(!t.issues.main.labels.includes("pending"));
+    assert.deepEqual(t.runner.dispatched, [
+      { stage: "shape", repo: "acme/app", issue: "1", reason: "", assignee: "5" },
+    ]);
+    const lines = result.stdout.split("\n");
+    assert.equal(lines[0], "acme/app#1: repair (new)");
+    assert.equal(lines[1], "acme/app#1: repair: external temporary problem, retry");
+    assert.match(result.stdout, /Dispatched Nibfin · acme\/app#1 · shape: https:/);
+    assert.match(t.issues.marked("repair")[0].body, /status=repairing action=retry/);
+  });
+
+  it("logs nothing to run when the released Issue has nothing to dispatch", async () => {
+    const t = await stopped(new StageError("STAGE_GIT_FAILED", "x"), { assignees: [] });
+    const result = await capture([...route, "--issue", "1"], t.deps);
+    assert.equal(result.code, 0);
+    assert.ok(!t.issues.main.labels.includes("pending"));
+    assert.deepEqual(t.runner.dispatched, []);
+    assert.match(
+      result.stdout,
+      /acme\/app#1: nothing to run \(ineligible \(no-assignee\)\)\n$/,
+    );
+  });
+
+  it("keeps pending and names the repair stage when it fails (R4.50)", async () => {
+    const t = await stopped(new StageError("STAGE_GIT_FAILED", "x"));
+    t.issues.github.routes.set("DELETE /repos/acme/app/issues/1/labels/pending", {
+      data: [{ name: "pending" }],
+    });
+    const result = await capture([...route, "--issue", "1"], t.deps);
+    assert.equal(result.code, 1);
+    assert.match(result.stderr, /^nibfin: GITHUB_WRITE_UNCONFIRMED: remove pending/);
+    assert.match(result.stdout, /Added pending to acme\/app#1/);
+    assert.ok(t.issues.main.labels.includes("pending"));
+    const [pending] = t.issues.marked("pending");
+    assert.match(
+      pending.body,
+      /- Code: `GITHUB_WRITE_UNCONFIRMED`\n- Run: .*\n- Stage: `repair`\n/,
+    );
+    assert.deepEqual(t.runner.dispatched, []);
+    // The repair stage does not start again for that stop.
+    freshReads(t.issues.github.client);
+    const writes = t.issues.github.writes().length;
+    const again = await capture([...route, "--issue", "1"], t.deps);
+    assert.equal(again.code, 0);
+    assert.equal(again.stdout, "acme/app#1: nothing to run (ineligible (pending))\n");
+    assert.equal(t.issues.github.writes().length, writes);
+  });
+
+  it("leaves a paused Issue alone", async () => {
+    const t = await stopped(new StageError("STAGE_GIT_FAILED", "x"));
+    t.issues.main.labels.push("pause");
+    freshReads(t.issues.github.client);
+    const result = await capture([...route, "--issue", "1"], t.deps);
+    assert.equal(result.stdout, "acme/app#1: nothing to run (ineligible (paused))\n");
+    assert.deepEqual(t.issues.marked("repair"), []);
   });
 });

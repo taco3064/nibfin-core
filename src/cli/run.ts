@@ -5,6 +5,7 @@ import {
   type JobContext,
   readFinishContext,
   readJobContext,
+  type RepairClock,
   runDeliverStage,
   runFinishStage,
   runReviewStage,
@@ -59,6 +60,8 @@ export interface RunDeps {
   env: NodeJS.ProcessEnv;
   connect: Connect;
   stages: Readonly<StageRunners>;
+  /** The repair stage's clock (`nibfin route`); the system clock by default. */
+  clock?: RepairClock;
 }
 
 export const defaultRunDeps: RunDeps = {
@@ -141,7 +144,7 @@ export async function run(
     return runStage(args.slice(1), io, deps);
   }
   if (args[0] === "route") {
-    return runRoute(args.slice(1), io, deps.env, deps.connect);
+    return runRoute(args.slice(1), io, deps.env, deps.connect, deps.clock);
   }
   if (args[0] === "render-workflows") {
     return renderWorkflowsCommand(args.slice(1), io);

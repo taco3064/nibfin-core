@@ -3,7 +3,7 @@ import { describe, it } from "node:test";
 import { failure, paged, rejection } from "../github/fake-github.test.ts";
 import { pull as pullJson } from "../github/fixtures.test.ts";
 import { type ActingClient, freshReads, GitHubError } from "../github/index.ts";
-import type { NextAction } from "../stages/index.ts";
+import { type NextAction, requestPerson, StageError } from "../stages/index.ts";
 import {
   branch,
   type DeliveryWorld,
@@ -255,6 +255,27 @@ describe("routeIssue", () => {
     const state = await readRoute(await plain({ assignees })(), repo, 1, log);
     assert.deepEqual(state.route, { stage: "shape", reason: null, assignees });
     assert.deepEqual(state.stage, { stage: "shape" });
+    assert.equal(state.repair, null);
+  });
+
+  it("gives the repair need of a pending Issue and no route (#777)", async () => {
+    const issues = fakeIssues(fakeIssue({ labels: ["scope"] }));
+    const error = new StageError("STAGE_GIT_FAILED", "x");
+    await requestPerson(issues.github.client, { ...repo, number: 1 }, error, undefined);
+    const state = await readRoute(issues.github.client, repo, 1, log);
+    assert.equal(state.route, null);
+    assert.equal(state.repair?.kind, "new");
+    assert.equal(state.repair?.pending?.id, issues.marked("pending")[0].id);
+  });
+
+  it("does not repair a paused or closed pending Issue", async () => {
+    for (const overrides of [
+      { labels: ["scope", "pause", "pending"] },
+      { state: "closed" as const, labels: ["scope", "pending"] },
+    ]) {
+      const state = await readRoute(await plain(overrides)(), repo, 1, log);
+      assert.equal(state.repair, null);
+    }
   });
 });
 

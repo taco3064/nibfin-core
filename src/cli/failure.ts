@@ -1,5 +1,5 @@
 import type { ActingClient, IssueRef } from "../github/index.ts";
-import { describeFailure, requestPerson } from "../stages/index.ts";
+import { describeFailure, type PendingStage, requestPerson } from "../stages/index.ts";
 
 export { describeFailure };
 
@@ -19,8 +19,8 @@ export function printFailure(io: CliIo, error: unknown): void {
 
 /**
  * After a failure for a known Issue: sets `pending` with its comment (except for
- * `STAGE_WRITER_ACTIVE`). When that write fails too (GitHub unreachable), the run's
- * failure is the only record.
+ * `STAGE_WRITER_ACTIVE`), naming `stage` when given. When that write fails too (GitHub
+ * unreachable), the run's failure is the only record.
  */
 export async function askPerson(
   io: CliIo,
@@ -28,10 +28,11 @@ export async function askPerson(
   issue: IssueRef,
   error: unknown,
   url: string | undefined,
+  stage?: PendingStage,
 ): Promise<void> {
   const name = `${issue.owner}/${issue.repo}#${issue.number}`;
   try {
-    if (await requestPerson(client, issue, error, url)) {
+    if (await requestPerson(client, issue, error, url, stage)) {
       io.stdout.write(`Added pending to ${name}\n`);
     }
   } catch (failure) {

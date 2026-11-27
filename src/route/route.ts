@@ -19,6 +19,8 @@ import {
   type NextAction,
   readApprovalWait,
   readPendingReport,
+  readRepairNeed,
+  type RepairNeed,
   shapeNextAction,
 } from "../stages/index.ts";
 
@@ -36,11 +38,16 @@ export interface IssueRoute {
   assignees: readonly Actor[];
 }
 
-/** An Issue's route, whether it is open, and its derived stage for the log. */
+/**
+ * An Issue's route, whether it is open, its derived stage for the log, and for an
+ * Issue that derives `ineligible (pending)` its repair need (#777; `null` otherwise
+ * or when there is nothing to repair).
+ */
 export interface RouteState {
   open: boolean;
   route: IssueRoute | null;
   stage: Stage;
+  repair: RepairNeed | null;
 }
 
 const nothing: NextAction = { stage: null, reason: null };
@@ -98,7 +105,8 @@ async function nextFor(
 
 /**
  * Reads the Issue and derives what runs next for it (see `routeIssue`). A route has
- * at least one Assignee; with several, all are candidates (#739).
+ * at least one Assignee; with several, all are candidates (#739). An Issue that
+ * derives `ineligible (pending)` also gets its repair need (`readRepairNeed`).
  */
 export async function readRoute(
   client: ActingClient,
@@ -112,10 +120,13 @@ export async function readRoute(
   const next = await nextFor(client, ref, snapshot, stage, log);
   const { assignees } = snapshot.issue;
   const open = snapshot.issue.state === "open";
+  const pending = stage.stage === "ineligible" && stage.reason === "pending";
+  const repair = pending ? await readRepairNeed(client, ref) : null;
   if (next.stage === null || assignees.length === 0) {
-    return { open, route: null, stage };
+    return { open, route: null, stage, repair };
   }
-  return { open, route: { stage: next.stage, reason: next.reason, assignees }, stage };
+  const route = { stage: next.stage, reason: next.reason, assignees };
+  return { open, route, stage, repair };
 }
 
 /**
