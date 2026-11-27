@@ -461,9 +461,12 @@ written, so they follow the skill's Disclosure rules.
 Fix context: `ci-failure` lists the failed required checks with URLs and, for a
 GitHub Actions check run (app `github-actions`, whose check-run id is the job id),
 the last 200 lines of the job log; other checks and statuses get their URL only.
-`review` gives the review comment. `cd-failure` lists the failed CD runs of the
-newest merged PR whose CD failed, with the log tails of their failed jobs
-(`filter=latest`). `conflict` gives the PR, that it conflicts with the base and what
+`review` gives the review comment. `cd-failure` at `cd-failed` lists the failed runs
+of the stage's own `runs`, with their merged PR and merge commit: the Issue's own
+merge, the previous Issue's fix on a newer base head (`failedOn`), or the Issue's
+failed runs on paths that fix did not re-run (#772). On a fix-branch redo it lists the
+failed CD runs of the newest merged PR whose CD failed. Each run comes with the log
+tails of its failed jobs (`filter=latest`). `conflict` gives the PR, that it conflicts with the base and what
 to do (as for a moved base), and the new base commits. Log text is redacted of the
 token.
 
@@ -599,7 +602,8 @@ Results:
 | ----------------------------------- | ----------------------------------------- |
 | `review`                            | Review the pinned head; send problems     |
 |                                     | back or merge (below)                     |
-| `awaiting-cd`                       | Log the reason; next action none          |
+| `awaiting-cd`                       | Log the reason (and the Issue it waits    |
+|                                     | on); next action none                     |
 | `cd-failed`                         | Next `{ "deliver", "cd-failure" }`        |
 | `conflict`                          | Next `{ "deliver", "conflict" }`          |
 | `done`                              | Closing comment, `delivered`, close, wake |
@@ -732,7 +736,9 @@ from GitHub data:
 - every pull request of the Issue's branches, with its merge commit;
 - for each merged PR, the base's current required checks and their results on its
   head;
-- the CD runs of each merge, with conclusions and URLs;
+- the CD runs of each merge, with conclusions and URLs, and when the Issue's red merge
+  passed on a newer base head (`done.passedOn`, #772), a line "CD passed on newer
+  `<base>` `<sha>`" with that head's runs;
 - counts: CD-fix PRs (`-cd-<k>` branches), CI-fix rounds (distinct commits with a
   failed required check among each PR's current commits and the commits of every
   head it had right before a force push, such as a rebase; a replaced head GitHub
@@ -740,9 +746,21 @@ from GitHub data:
   PR's marked `review` comment from `userContentEdits`, 0 without one).
 
 Then it re-reads the snapshot and closes only when the Issue still derives `done`
-with the same CD run ids and conclusions; otherwise (a late run, `pause`, …) it stops
+with the same CD run ids and conclusions (those of `passedOn` included); otherwise (a late run, `pause`, …) it stops
 with no next action and the next run rewrites the comment. `closeDelivered` adds
 `delivered` and closes the Issue as completed.
+
+### A red `main` (#772)
+
+`awaiting-cd` has three more reasons for a red merge `M` on a base that was already
+red (see `src/github/README.md`): `previous-cd-pending` (the push before M still runs
+CD), `previous-cd-red` (that push is red and its open Issue, named by `waitingOn`, has
+not merged a fix) and `previous-fix-cd-pending` (that Issue's fix has no complete CD on
+a newer head yet). Only the Issue whose merge made `main` red gets `cd-failed`; the
+others wait without `pending` or a comment, and the route wakes them (`cdWaiters`,
+`src/route/README.md`). A waiting Issue whose `main` passes for its merge finishes as
+`done`; one whose predecessor's fix is red, or skipped a workflow that failed on its
+merge, gets `cd-failed` and fixes from the latest base.
 
 ### Wake
 

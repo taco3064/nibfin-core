@@ -222,6 +222,46 @@ describe("readIssueSnapshot", () => {
     assert.equal(deriveStage(snapshot).stage, "review");
   });
 
+  it("reads the base around a red merge of the current branch only (#772)", async () => {
+    const red = (sha: string) => ({
+      mergeCommitSha: sha,
+      nibfinRunPresent: true,
+      runs: [
+        {
+          id: 1,
+          name: "CI",
+          path: "ci.yml",
+          status: "completed",
+          conclusion: "failure",
+          state: "failed" as const,
+          url: "",
+        },
+      ],
+    });
+    const calls: unknown[][] = [];
+    const baseCd = { heads: [], newest: null, previous: null, previousIssue: null };
+    const readers = {
+      readCdRuns: (_c: unknown, _r: unknown, _b: string, sha: string) =>
+        Promise.resolve(sha === "m10" ? red(sha) : { ...red(sha), runs: [] }),
+      readBaseCd: (...args: unknown[]) => {
+        calls.push(args.slice(2));
+        return Promise.resolve(baseCd);
+      },
+    };
+    const branchPulls = (fixSha: string) => ({
+      "nibfin/issue-1": [pull(10, { merged: true, mergeSha: "m10" })],
+      [fixHead]: [pull(11, { head: fixHead, merged: true, mergeSha: fixSha })],
+    });
+    const fixedGreen = scenario({ pulls: branchPulls("m11") });
+    const green = await readIssueSnapshot(fixedGreen.client, repo, 1, readers);
+    assert.equal(green.baseCd, null);
+    assert.deepEqual(calls, []);
+    const fixedRed = scenario({ pulls: branchPulls("m10") });
+    const snapshot = await readIssueSnapshot(fixedRed.client, repo, 1, readers);
+    assert.equal(snapshot.baseCd, baseCd);
+    assert.deepEqual(calls, [["main", red("m10"), 1]]);
+  });
+
   it("reads mergeable of the current branch's open PR only", async () => {
     const github = scenario({
       pulls: {

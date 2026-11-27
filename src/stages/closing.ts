@@ -264,7 +264,8 @@ export async function closeIssue(
   const comment = await upsertMarkedComment(client, issue, deliveredCommentKey, body);
   const after = await readIssueSnapshot(client, context.repo, context.issue);
   const stage = deriveStage(after);
-  if (stage.stage !== "done" || cdRecord(after) !== cdRecord(snapshot)) {
+  const changed = cdRecord(after) !== cdRecord(snapshot);
+  if (stage.stage !== "done" || changed) {
     deps.log(
       `Not closing ${issueName(scope)}: it is now ${describeStage(stage)} or its CD ` +
         "runs changed since the closing comment",

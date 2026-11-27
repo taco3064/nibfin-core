@@ -116,6 +116,18 @@ the environment.
   dispatched and the command exits 1. Nothing for an unrelated commit or branch; a
   failed read while mapping fails the run before any Issue is known, without
   `pending`.
+- Waiters on a red `main` (#772): after `--sha <X>` (whether X maps to an Issue or
+  not), and after a closed Issue's own route with its newest merge as X (when it has
+  one), `cdWaiters` runs. It reads the default branch and X's CD and stops unless that
+  CD is complete (Nibfin's push run present, no run pending): the completion event of
+  that CD runs it later. It reads the push-head page (`readBaseHeads`) and stops when X
+  is not on it. Candidates are the head just newer than X when its CD has a failure, and
+  the heads older than X, walking back while their CD has a failure. Every Issue of a
+  candidate (`issuesOfCommit`, the same mapping as `--sha`), when open, not one of X's
+  own Issues (or the closed Issue) and not woken yet, gets one route run; every wake is
+  logged. A woken Issue derives its own stage in its own concurrency group; a repeated
+  wake is harmless. A failure in the `--sha` walk sets `pending` on X's first Issue,
+  when X has one; in the closed-Issue walk, on the closed Issue.
 
 After `nibfin run` exits 0 (`continueAfterStage`), Core reads the stage's next-action
 file and dispatches a route for each `wake` target first. Its reads go to GitHub

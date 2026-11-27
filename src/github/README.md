@@ -147,8 +147,12 @@ nibfin/` matching `issue-<n>-cd-`), three fix branches per query, until a `k` ha
   (`readPullRequest`; `null` while GitHub computes it, and for every other pull
   request, which is not read).
 
-`deps` can replace the CI, CD and pull request readers (`readCi`, `readCdRuns`,
-`readPullRequest`). CI and CD stay
+- When the current branch's merged pull request has a failed CD run, `baseCd`: the
+  base branch around that red merge (`readBaseCd`, below; `null` otherwise, so a
+  green `main` adds no reads).
+
+`deps` can replace the CI, CD, pull request and base readers (`readCi`, `readCdRuns`,
+`readPullRequest`, `readBaseCd`). CI and CD stay
 REST: no single GraphQL query keeps their required-check semantics; within a Job they
 are read once through the read cache.
 
@@ -163,7 +167,31 @@ check suite) never count.
 
 CD is the push runs of the merge commit on the base branch, newest per workflow `path`,
 without Nibfin's own workflows. Nibfin's own push run for that commit is the signal that
-the set is complete.
+the set is complete. `readCdRuns` also keeps that run's `workflow_id` as
+`nibfinWorkflowId` (the run at `.github/workflows/nibfin-issue.yml` when several Nibfin
+workflows ran on the push, else the lowest id).
+
+### The base branch around a red merge (#772)
+
+Nibfin's push workflow runs once on every push to the base branch (Proposal R3.35), and
+merges are rebase merges, so its push runs list the push heads of `main`, each newer
+head containing the older ones. `readBaseHeads(client, repo, base, workflowId)` reads
+one page (100) of `GET …/actions/workflows/{workflow_id}/runs?event=push&branch=<base>`
+(only that workflow, so other workflows take no slot), keeps push runs of the base, and
+sorts them by run id, newest first, one SHA per run. The listing has no documented
+order; sorting by id is the same assumption `readCdRuns` makes for "newest".
+
+`readBaseCd(client, repo, base, ownCd, n)` (null without `ownCd.nibfinWorkflowId`)
+returns `heads`; when the Issue's merge `M` is on the page: `newest`, the CD of the
+newest head when it is not `M`; `previous`, the CD of the head just older than `M`;
+and only when `previous` has a failed run, `previousIssue`: the Issue of that push
+(`issueOfCommit`: the first Issue of `GET /commits/{sha}/pulls`, the pull
+request that introduced the push; `issuesOfCommit` adds every Issue merged to it, the
+rule `routeEvent` uses, #771) with its open state, and unless it is
+Issue `n` itself, its newest merge (`newestMergeOf`, by pull request number across its
+branches) when that is not the red push: `fix` with its pull request, whether it is a
+head on the page newer than `M`, and its CD. The fix is read whether the Issue is open
+or closed. A merge older than the page gets nothing around it.
 
 `deriveStage(snapshot)` checks, in order: `ineligible` (`closed`, `no-scope`, `paused`,
 `pending` (#674: Nibfin needs a person; removing the label resumes), `blocked` by an
@@ -179,9 +207,29 @@ Issue that is not Closed + `delivered`, `no-assignee`), then `shape` without
 | Open PR, a required check not done     | `awaiting-ci`                              |
 | Open PR, all required checks succeeded | `review`                                   |
 | Merged, no Nibfin push run yet         | `awaiting-cd` (`nibfin-push-run-missing`)  |
-| Merged, a CD run failed                | `cd-failed` (wins over pending)            |
+| Merged, a CD run failed                | `cd-failed` (wins over pending), unless    |
+|                                        | the red-merge rule below says otherwise    |
 | Merged, a CD run not done              | `awaiting-cd` (`cd-runs-pending`)          |
 | Merged, all CD runs succeeded or none  | `done`                                     |
+
+A red merge `M` (#772) is fixed only by the Issue whose merge made the base red. A
+newer head _passes for M_ when Nibfin's run is present, none of its CD runs is pending
+or failed, and every workflow `path` that failed on M has a successful run on it (a
+`paths:`-filtered workflow that did not run again does not pass). In order:
+
+1. `newest` passes for M → `done` with `passedOn` (that head's CD).
+2. No `previous` (or no `baseCd`), `previous` green, `previous` red of no Issue, or of
+   this Issue → `cd-failed` with M's runs.
+3. `previous` still pending → `awaiting-cd` (`previous-cd-pending`).
+4. `previous` red and its Issue merged nothing since: open → `awaiting-cd`
+   (`previous-cd-red`, `waitingOn` that Issue); closed → `cd-failed` with M's runs.
+5. That Issue's newer merge `F`, open or closed: not a newer head on the page, or no
+   Nibfin run yet → `awaiting-cd` (`previous-fix-cd-pending`); a failed run →
+   `cd-failed` with F's runs and `failedOn` (F and its pull request); still pending →
+   `previous-fix-cd-pending`; passes for M → `done` with `passedOn` F; green but missing a
+   path that failed on M → `cd-failed` with M's failed runs on those paths.
+
+The result depends only on what GitHub holds, not on when the previous Issue closes.
 
 An open PR is used before a merged one. A conflicting PR gets no `pull_request` CI
 from GitHub, so `conflict` is checked first; while `mergeable` is `null` the CI rules
