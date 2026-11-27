@@ -1,3 +1,4 @@
+import { type BaseCd, readBaseCd } from "./base-cd.ts";
 import type { BranchProbe, IssueBranches, PullRequestSummary } from "./branches.ts";
 import { type CdState, readCdRuns } from "./cd-runs.ts";
 import type { Actor, GitHubClient } from "./client.ts";
@@ -41,6 +42,11 @@ export interface IssueSnapshot {
   };
   /** Every pull request of the Issue's branches, newest first. */
   pullRequests: PullRequestState[];
+  /**
+   * The base branch around the current branch's merged pull request, read only when
+   * its CD has a failed run (see `readBaseCd`); `null` otherwise.
+   */
+  baseCd: BaseCd | null;
 }
 
 /** The CI, CD and pull request readers a snapshot is built from; replaceable. */
@@ -48,19 +54,22 @@ export interface SnapshotReaders {
   readCi: typeof readCi;
   readCdRuns: typeof readCdRuns;
   readPullRequest: typeof readPullRequest;
+  readBaseCd: typeof readBaseCd;
 }
 
 export const defaultSnapshotReaders: SnapshotReaders = {
   readCi,
   readCdRuns,
   readPullRequest,
+  readBaseCd,
 };
 
 /**
  * Everything the stage rules need about Issue `issueNumber`, read from GitHub: the Issue,
  * its Blocked by and its branches from the Issue record (one GraphQL query), then CI of
  * each open and CD of each merged pull request, and `mergeable` of the current
- * branch's open pull request (REST). Every list is read in full; any
+ * branch's open pull request (REST), and the base branch around a red merge of the
+ * current branch (`readBaseCd`). Every list is read in full; any
  * failed read fails the whole snapshot with `GITHUB_READ_FAILED`.
  */
 export async function readIssueSnapshot(
@@ -72,6 +81,13 @@ export async function readIssueSnapshot(
   const readers = { ...defaultSnapshotReaders, ...deps };
   const record = await readIssueRecord(client, { ...repo, number: issueNumber });
   const branches = await withRunData(client, repo, record.branches, readers);
+  const merged = branches.current.pullRequests.find((pull) => pull.merged);
+  const cd = merged?.cd ?? null;
+  const red = cd?.runs.some((run) => run.state === "failed") === true;
+  const baseCd =
+    red && merged !== undefined && cd !== null
+      ? await readers.readBaseCd(client, repo, merged.baseRef, cd, issueNumber)
+      : null;
   return {
     issue: {
       ...record.issue,
@@ -86,6 +102,7 @@ export async function readIssueSnapshot(
     pullRequests: [branches.delivery, ...branches.fixes]
       .flatMap((branch) => branch.pullRequests)
       .toSorted((a, b) => b.number - a.number),
+    baseCd,
   };
 }
 

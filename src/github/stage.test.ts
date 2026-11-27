@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import type { BaseCd } from "./base-cd.ts";
 import type { WorkflowRunSummary } from "./cd-runs.ts";
 import type { DependencyIssue } from "./dependencies.ts";
 import type { RequiredCheck, RequiredCheckResult } from "./required-checks.ts";
@@ -79,6 +80,7 @@ interface SnapshotOptions {
   blockedBy?: DependencyIssue[];
   delivery?: PullRequestState[];
   fixes?: BranchState[];
+  baseCd?: BaseCd | null;
 }
 
 function snapshot(options: SnapshotOptions = {}): IssueSnapshot {
@@ -106,6 +108,7 @@ function snapshot(options: SnapshotOptions = {}): IssueSnapshot {
       nextFixBranch: `${delivery}-cd-${fixes.length + 1}`,
     },
     pullRequests: [],
+    baseCd: options.baseCd ?? null,
   };
 }
 

@@ -71,9 +71,11 @@ async function describeRun(
  * The fix reason and what it points at, as the Writer and the Acceptor read it:
  * `ci-failure` → the failed required checks with URLs, and the log tail of each
  * GitHub Actions job (other checks and statuses: URL only); `review` → the review
- * comment; `cd-failure` → the failed CD runs of the merged PR with the log tails of
- * their failed jobs; `conflict` → the PR, what to do, and the commits of the base the
- * branch lacks with their pull requests. Log text is redacted of the token.
+ * comment; `cd-failure` → the failed CD runs that decided the fix (the Issue's own
+ * merge, or another Issue's fix on a newer base head, #772), their merged PR and
+ * merge commit, with the log tails of their failed jobs; `conflict` → the PR, what
+ * to do, and the commits of the base the branch lacks with their pull requests. Log
+ * text is redacted of the token.
  */
 export async function describeFix(
   options: FixContextOptions,
@@ -97,10 +99,15 @@ export async function describeFix(
       `Review comment: ${fix.comment.url}`,
       fenced(options.redact(fix.comment.body)),
     );
-  } else if (fix.pullRequest === undefined) {
+  } else if (fix.failedOn === undefined) {
     parts.push("No merged pull request with a failed CD run was found.");
   } else {
-    parts.push(`Merged pull request: ${fix.pullRequest.url}`, "Failed CD runs:");
+    const { mergeCommitSha, pullRequestUrl } = fix.failedOn;
+    parts.push(
+      `Merged pull request: ${pullRequestUrl}`,
+      `Merge commit: \`${mergeCommitSha}\``,
+      "Failed CD runs:",
+    );
     for (const run of fix.failed) {
       parts.push(await describeRun(options, run));
     }

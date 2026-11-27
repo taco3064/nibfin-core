@@ -214,6 +214,8 @@ export function unlabel(issue: FakeIssue, label: string): void {
 export function fakeIssues(main: FakeIssue, blockers: FakeIssue[] = []): FakeIssues {
   const github = fakeGitHub({
     "GET /repos/acme/app/pulls": paged([]),
+    "GET /repos/acme/app": { data: { default_branch: "main", owner: { id: 5 } } },
+    "GET /repos/acme/app/actions/runs": paged([], "workflow_runs"),
   });
   routeIssue(github, main, blockers);
   for (const blocker of blockers) {

@@ -8,6 +8,17 @@ export {
   readBranchHead,
   readPullRequests,
 } from "./branches.ts";
+export {
+  type BaseCd,
+  issueOfCommit,
+  issuesOfCommit,
+  type NewestMerge,
+  newestMergeOf,
+  type PreviousFix,
+  type PreviousIssue,
+  readBaseCd,
+  readBaseHeads,
+} from "./base-cd.ts";
 export { type CdState, readCdRuns, type WorkflowRunSummary } from "./cd-runs.ts";
 export {
   type ActingClient,
@@ -114,6 +125,7 @@ export {
   type SnapshotReaders,
 } from "./snapshot.ts";
 export {
+  type AwaitingCdReason,
   type CiStage,
   deliveryOutcome,
   type DeliveryOutcome,

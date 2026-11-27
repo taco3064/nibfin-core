@@ -1,5 +1,11 @@
-import { type ActingClient, freshReads, type Repo } from "../github/index.ts";
 import {
+  type ActingClient,
+  freshReads,
+  newestMergeOf,
+  type Repo,
+} from "../github/index.ts";
+import {
+  cdWaiters,
   continueAfterStage,
   deleteIssueBranches,
   dispatchRoute,
@@ -112,12 +118,15 @@ export const lineLog = (io: CliIo) => (line: string) => void io.stdout.write(`${
  * branches (#700), then dispatches its stage (deduplicated); for `--sha` or
  * `--branch`, maps the event to its Issues (a commit can belong to several, #771)
  * and dispatches one route run per Issue in turn, so every stage decision happens
- * inside the Issue's own concurrency group. A failure once an Issue is known sets
- * `pending` on that Issue only; the other Issues are still dispatched, and the
- * command exits 1 when any failed. For `--issue`, an Issue with `pending` and nothing
- * to route runs the repair stage (#777, `runRepair`); when it removes `pending`, the
- * Issue is routed and dispatched once more. A failure of the repair stage itself sets
- * `pending` with the line `- Stage: \`repair\`` (Proposal R4.50).
+ * inside the Issue's own concurrency group. Then, for `--sha` (also a commit of no
+ * Issue) and for a closed Issue's newest merge, wakes the Issues whose red merge may
+ * wait on that push head (`cdWaiters`, #772). A failure once an Issue is known sets
+ * `pending` on that Issue only (for the `--sha` waiter walk, on the commit's first
+ * Issue); the other Issues are still dispatched, and the command exits 1 when any
+ * failed. For `--issue`, an Issue with `pending` and nothing to route runs the
+ * repair stage (#777, `runRepair`); when it removes `pending`, the Issue is routed
+ * and dispatched once more. A failure of the repair stage itself sets `pending`
+ * with the line `- Stage: \`repair\`` (Proposal R4.50).
  */
 export async function runRoute(
   args: readonly string[],
@@ -143,7 +152,6 @@ export async function runRoute(
   const name = `${repo.owner}/${repo.repo}`;
   if (issues.length === 0) {
     log(`${name}: ${JSON.stringify(target)} belongs to no Issue; nothing to route`);
-    return 0;
   }
   const url = runUrl(input.runRepo, input.runId);
   let code = 0;
@@ -177,12 +185,27 @@ export async function runRoute(
         } else {
           await dispatchStage(scope, repo, issue, state.route);
         }
+        if (!state.open) {
+          await wakeAfterClose(scope, repo, issue);
+        }
       } else {
         await dispatchRoute(scope, repo, issue);
       }
     } catch (error) {
       printFailure(io, error);
       await askPerson(io, client, ref, error, url);
+      code = 1;
+    }
+  }
+  if ("sha" in target) {
+    try {
+      await cdWaiters(scope, repo, target.sha, issues);
+    } catch (error) {
+      printFailure(io, error);
+      const first = issues[0];
+      if (first !== undefined) {
+        await askPerson(io, client, { ...repo, number: first }, error, url);
+      }
       code = 1;
     }
   }
@@ -202,6 +225,22 @@ async function dispatchIssue(
   } else {
     await dispatchStage(scope, repo, issue, state.route);
   }
+}
+
+/**
+ * A closed Issue may be the one a newer red merge waits on (#772): its newest merge,
+ * when it has one, starts the same waiter walk as a completed CD event.
+ */
+async function wakeAfterClose(
+  scope: DispatchScope,
+  repo: Repo,
+  issue: number,
+): Promise<void> {
+  const { merge } = await newestMergeOf(scope.client, repo, issue);
+  if (merge === null) {
+    return;
+  }
+  await cdWaiters(scope, repo, merge.sha, [issue]);
 }
 
 /**

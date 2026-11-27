@@ -2,12 +2,11 @@ import {
   type ActingClient,
   type Actor,
   deriveStage,
-  GitHubError,
   type IssueRef,
   type IssueSnapshot,
   issueOfBranch,
+  issuesOfCommit,
   readIssueSnapshot,
-  readPullRequestsMergedAt,
   type Repo,
   type Stage,
 } from "../github/index.ts";
@@ -167,26 +166,5 @@ export async function routeEvent(
     const issue = issueOfBranch(target.branch);
     return issue === undefined ? [] : [issue];
   }
-  const operation = `list pull requests of ${repo.owner}/${repo.repo}@${target.sha}`;
-  let pulls;
-  try {
-    pulls = await client.paginate(
-      "GET /repos/{owner}/{repo}/commits/{commit_sha}/pulls",
-      {
-        ...repo,
-        commit_sha: target.sha,
-        per_page: 100,
-      },
-    );
-  } catch (error) {
-    throw new GitHubError("GITHUB_READ_FAILED", operation, error);
-  }
-  const heads = pulls
-    .filter((pull) => pull.state === "open" || pull.merged_at !== null)
-    .map((pull) => pull.head.ref);
-  for (const pull of await readPullRequestsMergedAt(client, repo, target.sha)) {
-    heads.push(pull.headRef);
-  }
-  const issues = heads.map(issueOfBranch).filter((issue) => issue !== undefined);
-  return [...new Set(issues)];
+  return issuesOfCommit(client, repo, target.sha);
 }
