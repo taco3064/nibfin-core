@@ -8,6 +8,7 @@ import { NoProgressError, StageError, type StageErrorCode } from "./errors.ts";
 import { fakeIssue, fakeIssues } from "./fake-job.test.ts";
 import {
   codeOf,
+  describeFailure,
   pendingBody,
   pendingCommentKey,
   requestPerson,
@@ -231,5 +232,17 @@ describe("runUrl", () => {
     assert.equal(runUrl({ owner: "acme", repo: "runner" }, 900), url);
     assert.equal(runUrl(undefined, 900), undefined);
     assert.equal(runUrl({ owner: "acme", repo: "runner" }, undefined), undefined);
+  });
+});
+
+describe("describeFailure", () => {
+  it("shows a code and message, a message, or the value", () => {
+    const coded = new GitHubError("GITHUB_READ_FAILED", "read x", new Error("y"));
+    assert.equal(
+      describeFailure(coded),
+      "GITHUB_READ_FAILED: read x: read failed (no response)",
+    );
+    assert.equal(describeFailure(new Error("plain")), "plain");
+    assert.equal(describeFailure("text"), "text");
   });
 });

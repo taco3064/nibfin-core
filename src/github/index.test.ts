@@ -5,6 +5,8 @@ import * as github from "./index.ts";
 test("the github module exports its public API", () => {
   assert.deepEqual(Object.keys(github).toSorted(), [
     "GitHubError",
+    "addAssignees",
+    "addBlockedBy",
     "allowedMergeMethods",
     "cdFixBranch",
     "checkAssignable",
@@ -14,6 +16,7 @@ test("the github module exports its public API", () => {
     "commitStatusState",
     "connectClient",
     "createClient",
+    "createIssue",
     "defaultSnapshotReaders",
     "deleteBranch",
     "deliveryBranch",
@@ -21,6 +24,7 @@ test("the github module exports its public API", () => {
     "deriveStage",
     "dispatchWorkflow",
     "ensurePullRequest",
+    "findCreatedIssue",
     "findMarkedComment",
     "freshReads",
     "hasOriginLine",
@@ -49,6 +53,7 @@ test("the github module exports its public API", () => {
     "readCommitsAhead",
     "readDefaultBranch",
     "readForcePushedHeads",
+    "readIssueId",
     "readIssueRecord",
     "readIssueSnapshot",
     "readIssueText",

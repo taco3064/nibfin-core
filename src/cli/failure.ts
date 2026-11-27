@@ -1,5 +1,7 @@
 import type { ActingClient, IssueRef } from "../github/index.ts";
-import { requestPerson } from "../stages/index.ts";
+import { describeFailure, requestPerson } from "../stages/index.ts";
+
+export { describeFailure };
 
 export interface OutputStream {
   write(text: string): unknown;
@@ -8,15 +10,6 @@ export interface OutputStream {
 export interface CliIo {
   stdout: OutputStream;
   stderr: OutputStream;
-}
-
-/** A failure as its code, if any, and its message. Nothing else is printed. */
-export function describeFailure(error: unknown): string {
-  if (!(error instanceof Error)) {
-    return String(error);
-  }
-  const { code } = error as { code?: unknown };
-  return typeof code === "string" ? `${code}: ${error.message}` : error.message;
 }
 
 /** Prints a failure to stderr. */
