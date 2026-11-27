@@ -46,6 +46,7 @@ COPY --from=build /src/package.json /opt/nibfin/package.json
 COPY --from=build /src/node_modules /opt/nibfin/node_modules
 COPY --from=build /src/dist /opt/nibfin/dist
 COPY skills /opt/nibfin/skills
+COPY templates /opt/nibfin/templates
 RUN chmod +x /opt/nibfin/dist/cli/main.js \
   && ln -s /opt/nibfin/dist/cli/main.js /usr/local/bin/nibfin \
   && mkdir /workspace \
