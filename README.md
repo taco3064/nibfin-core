@@ -15,16 +15,18 @@ workflows. The previous implementation is kept for reference at the tag
 
 ## Layout
 
-| Path          | Responsibility                                        |
-| ------------- | ----------------------------------------------------- |
-| `src/cli/`    | The `nibfin` command-line entry                       |
-| `src/github/` | GitHub state: Issues, pull requests and checks (#667) |
-| `src/agent/`  | Agent CLI runner (#668)                               |
-| `src/config/` | `.nibfin.json`, role skill text and tools (#669)      |
-| `src/stages/` | Delivery stages (#671–#673)                           |
-| `src/route/`  | What runs next for an Issue, and its dispatch (#674)  |
-| `skills/`     | Role Skills, rewritten by #670                        |
-| `docs/`       | Workflow callers and hand setup (#674)                |
+| Path             | Responsibility                                              |
+| ---------------- | ----------------------------------------------------------- |
+| `src/cli/`       | The `nibfin` command-line entry                             |
+| `src/github/`    | GitHub state: Issues, pull requests and checks (#667)       |
+| `src/agent/`     | Agent CLI runner (#668)                                     |
+| `src/config/`    | `.nibfin.json`, role skill text and tools (#669)            |
+| `src/stages/`    | Delivery stages (#671–#673)                                 |
+| `src/route/`     | What runs next for an Issue, and its dispatch (#674)        |
+| `src/workflows/` | Renders the Nibfin workflow files from the templates (#775) |
+| `skills/`        | Role Skills, rewritten by #670                              |
+| `templates/`     | Workflow templates, shipped in the image (#775)             |
+| `docs/`          | Workflow callers and hand setup (#674)                      |
 
 Tests sit next to the code as `src/**/*.test.ts`.
 
@@ -38,6 +40,7 @@ npm run check   # typecheck, lint and format check
 npm test        # node:test with 100% line, branch and function coverage
 npm run build   # compile src/ to dist/
 node dist/cli/main.js --version
+npm run render:workflows   # rewrite .github/workflows/nibfin-*.yml from templates/
 ```
 
 CI runs the same commands as the `verify` job on pull requests and pushes to `main`. On
@@ -50,10 +53,11 @@ Nibfin jobs run in one container image, built in the cloud by the `Image` workfl
 (`.github/workflows/image.yml`). Hosts never build it.
 
 - **When:** on every push to `main` that changes an image input (`Containerfile`,
-  `.dockerignore`, `.npmrc`, the package manifests, `tsconfig*.json`, `src/`, `skills/`
-  or the workflow itself), and on manual dispatch.
+  `.dockerignore`, `.npmrc`, the package manifests, `tsconfig*.json`, `src/`, `skills/`,
+  `templates/` or the workflow itself), and on manual dispatch.
 - **What:** `node:24-bookworm-slim` with `git`, `gh`, `uv`, the Codex and Claude CLIs and
-  `rulesync`, installed unmodified at their current release, plus the built `nibfin` CLI.
+  `rulesync`, installed unmodified at their current release, plus the built `nibfin` CLI
+  with its role skills and workflow templates.
   It also carries the system libraries and fonts Playwright's Chromium needs, installed
   by Playwright's own `install-deps chromium` at its current release (see Browsers).
   Everything runs as the non-root user `node` (uid 1000) in `/workspace`. The image
@@ -66,7 +70,10 @@ Nibfin jobs run in one container image, built in the cloud by the `Image` workfl
   `org.opencontainers.image.revision` label names an ancestor of the commit (or the
   commit itself). Image runs of one ref queue instead of cancelling each other.
 - **Workflows:** `nibfin-*.yml` run the delivery stages for Nibfin's own repositories;
-  see `docs/nibfin-callers.md`. CI lints every workflow with actionlint
+  see `docs/nibfin-callers.md`. They are rendered from `templates/workflows/` by
+  `nibfin render-workflows`, which also renders the files `gh nibfin` writes into user
+  repositories (see `src/workflows/README.md`); `npm test` fails when a committed file
+  differs from its render. CI lints every workflow with actionlint
   (`.github/actionlint.yaml`).
 
 Always pull by digest:

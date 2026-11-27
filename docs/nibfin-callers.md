@@ -16,8 +16,15 @@ peers: their events wake their Issues by dispatching to the execution repository
   private on the `nibfin` runners (route) or the Assignee's `nibfin-<user id>`
   runners (finish).
 - `nibfin-runner-request.yml` (nibfin-core): answers a collaborator's runner request
-  Issue with a registration token encrypted to their SSH key; it follows gh-nibfin's
-  template of the same name.
+  Issue with a registration token encrypted to their SSH key.
+- `nibfin-e2e-notify.yml` (every repository): asks nibfin-e2e to retest a delivered
+  Issue.
+
+nibfin-core's `nibfin-*.yml` files are rendered from `templates/workflows/` by
+`npm run render:workflows` (the own execution set of `nibfin render-workflows`; see
+`src/workflows/README.md`). Edit the template, not the file: `npm test` fails when a
+committed file differs from its render. The same templates render the files
+`gh nibfin` writes into user repositories.
 
 Events only wake an Issue. Core reads GitHub, decides what runs (`src/route`) and
 dispatches it. When a person is needed, Core adds the `pending` label with a comment;
@@ -25,44 +32,29 @@ removing `pending` is the go-ahead.
 
 ## The peer caller
 
-Each peer repository has one workflow, `.github/workflows/nibfin-issue.yml`. List
-under `workflow_run.workflows` every workflow of that repository that runs on push to
-the default branch and every one that produces a required check, by exact name:
+Each peer repository has the own channel's peer set: `.github/workflows/nibfin-issue.yml`,
+which calls `taco3064/nibfin-core/.github/workflows/nibfin-events.yml@main`, and
+`nibfin-e2e-notify.yml`. Render them from Core's templates instead of copying them by
+hand. Pass with `--workflow` every workflow of that repository that runs on push to the
+default branch and every one that produces a required check, by exact name; no
+`--image` is needed:
 
-```yaml
-name: Nibfin · Issue events
-
-run-name: >-
-  ${{ github.event.issue
-  && format('Nibfin · {0}#{1} · wake', github.repository, github.event.issue.number)
-  || format('Nibfin · {0}@{1} · wake', github.repository,
-  github.event.workflow_run && (github.event.workflow_run.event == 'pull_request'
-  && github.event.workflow_run.head_branch || github.event.workflow_run.head_sha)
-  || github.event.pull_request.head.ref || github.event.check_suite.head_branch
-  || github.event.sha || github.sha) }}
-
-on:
-  issues:
-    types: [opened, reopened, closed, assigned, unassigned, labeled, unlabeled]
-  pull_request_review:
-    types: [submitted]
-  workflow_run:
-    workflows: [CI] # this repository's CI/CD workflow names
-    types: [completed]
-  check_suite:
-    types: [completed]
-  status:
-  push:
-    branches: [main] # the default branch
-
-permissions: {}
-
-jobs:
-  wake:
-    uses: taco3064/nibfin-core/.github/workflows/nibfin-events.yml@main
-    secrets:
-      token: ${{ secrets.NIBFIN_GITHUB_TOKEN }}
+```sh
+nibfin render-workflows --set peer --channel own --default-branch <branch> \
+  --workflow <name>...
 ```
+
+It prints one JSON object keyed by file path (see `src/workflows/README.md`). With the
+image, for example:
+
+```sh
+podman run --rm ghcr.io/taco3064/nibfin:main nibfin render-workflows --set peer \
+  --channel own --default-branch main --workflow CI > peer.json
+jq -j '.[".github/workflows/nibfin-issue.yml"]' peer.json > .github/workflows/nibfin-issue.yml
+```
+
+The copies gh-nibfin and nibfin-e2e hold today were written by hand before the render
+existed; refresh them from it by hand.
 
 The push trigger also gives every merge commit the `Nibfin ·` push run that CD
 detection waits for, so keep it unfiltered on the default branch. The `closed` type
@@ -121,7 +113,7 @@ Nothing below is done by Nibfin; the Owner does it once.
 
 - Delete gh-nibfin's `nibfin-wake.yml`, and nibfin-e2e's `nibfin-release.yml` and
   `runner-admission-verification.yml`.
-- Replace the disabled `nibfin-issue.yml` with the caller above, then enable it:
+- Replace the disabled `nibfin-issue.yml` with the rendered one above, then enable it:
   `gh workflow enable nibfin-issue.yml --repo <owner>/<repo>`.
 
 ### Runners (Linux, inside the `podman machine` VM on the Windows host)
@@ -174,8 +166,11 @@ Nothing below is done by Nibfin; the Owner does it once.
 
 - Close by hand any Issue that was merged before `nibfin-issue.yml` existed: its
   merge commit has no `Nibfin ·` push run, so it stays `awaiting-cd`.
+- Core's own workflow files are rendered and change only with the templates; like any
+  `.github/workflows/` change, such an edit is delivered by hand.
 - The workflows run `@main` and the image `:main`. After a merge that changes the
-  CLI they can differ until the Image workflow finishes. A failure in that window
-  that Core can see sets `pending`; a failure before Core runs (checkout, image pull
-  or start, an option the older CLI lacks, or the very first rollout before `:main`
-  exists) leaves a failed Actions run, which GitHub notifies the owner about.
+  CLI or the templates they can differ until the Image workflow finishes. A failure
+  in that window that Core can see sets `pending`; a failure before Core runs
+  (checkout, image pull or start, an option the older CLI lacks, or the very first
+  rollout before `:main` exists) leaves a failed Actions run, which GitHub notifies
+  the owner about.
