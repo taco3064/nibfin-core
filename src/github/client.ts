@@ -80,9 +80,11 @@ function withActor(octokit: NibfinOctokit, actor: Actor): NibfinOctokit & Acting
  * Retries (Proposal R4.37–R4.39): a read (GET, GraphQL query) that fails with any
  * error, including a GraphQL `errors` answer, is retried up to `maxRetries` times,
  * except a 404 sent with `request: { absent404: true }`; writes are retried by
- * `write()` after a pre-read. Each retry waits `retryDelay` (a rate limit the time
- * GitHub states) and is logged with `log`. The throttling plugin only spaces writes
- * and reports GraphQL rate limits. Reads are kept per Job (`freshReads`).
+ * `write()` after a pre-read. A read whose answer arrived but is incomplete (a missing
+ * node or count) is retried at call level by `retryIncomplete`, with fresh reads.
+ * Each retry waits `retryDelay` (a rate limit the time GitHub states) and is logged
+ * with `log`. The throttling plugin only spaces writes and reports GraphQL rate
+ * limits. Reads are kept per Job (`freshReads`).
  */
 export function createClient(
   token: string,

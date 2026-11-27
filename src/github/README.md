@@ -30,6 +30,21 @@ unchanged.
   inside the read cache, so identical reads still share one answer. A GraphQL answer
   with `errors` counts as a failure; after the last retry it is returned as it is and
   its caller fails as before.
+- An answer that arrived but fails Nibfin's check that it is complete (a missing
+  node, a count that does not match, a missing connection or `data`, a missing
+  Issue) is retried at call level (#768): its check throws `incompleteRead`, a
+  `GITHUB_READ_FAILED` caused by an `IncompleteAnswer`, and `retryIncomplete(client,
+operation, run)` reruns the whole read up to 3 times. Each retry is logged as
+  `GitHub <operation> (retry <k> of 3): incomplete answer; waiting <s> s`, waits
+  `k²` seconds and drops the kept reads (`freshReads`), so the next attempt reaches
+  GitHub rather than the read cache. After the third retry it logs the give-up line
+  and throws the last error, whose message ends `(incomplete answer)`. The reads that
+  do so: `readIssueRecord` (with its follow-up queries), `readBlockingRecord`,
+  `readOriginIssues`, `readRepositoryInventory`, `readCommentVersions`,
+  `readCommentWithVersions` and `readForcePushedHeads`. Other errors pass through at
+  once (the request hook already retried them), as do definite answers such as "is a
+  pull request", so retries never multiply; an error a nested `retryIncomplete` gave
+  up on is not retried again.
 - A 404 that the caller reads as "absent" is an answer and is not retried: the read
   passes `request: absentProbe` (`{ absent404: true }`, which Octokit does not
   send). The five `readOptional` reads do: `branchExists`, the base branch of
@@ -45,7 +60,8 @@ unchanged.
   inside the running call; no timer, cron or later wake.
 - Each retry writes `<what> (retry <k> of 3): <cause>; waiting <s> s` to `log` (the
   Job log), where `<what>` is `GitHub <METHOD> <path>` and `<cause>` is `HTTP
-<status>`, `no response`, `GraphQL error` or `primary`/`secondary rate limit`.
+<status>`, `no response`, `GraphQL error` or `primary`/`secondary rate limit` (at call
+  level `<what>` is `GitHub <operation>` and `<cause>` is `incomplete answer`).
   Giving up writes `<what>: <cause>; not retrying after 3 retries`. The line carries
   the URL path only, never the query string, the body, a header or GitHub's message.
 - The throttling plugin no longer retries by itself (both handlers return false); it
@@ -109,11 +125,13 @@ follow-up queries only past 100 comments or past the first fix branches):
 - The pull requests (head in this repository) and refs of its delivery and fix
   branches, below.
 
-A pull request number, a missing Issue or a list longer than GitHub's page (labels,
-Assignees, more than 100 pull requests of one branch) fails with
-`GITHUB_READ_FAILED`. GraphQL has its own rate-limit budget, separate from REST.
-`queryGraphql(client, operation, query, variables)` turns GraphQL `errors` or a
-missing `data` into `GITHUB_READ_FAILED`.
+A pull request number fails with `GITHUB_READ_FAILED` at once. A missing Issue (a
+just-created one can read as missing until GraphQL catches up) or a list longer than
+GitHub's page (labels, Assignees, more than 100 pull requests of one branch) is an
+incomplete answer: the whole read is retried up to 3 times (`retryIncomplete`, above)
+before it fails with `GITHUB_READ_FAILED`. GraphQL has its own rate-limit budget,
+separate from REST. `queryGraphql(client, operation, query, variables)` turns GraphQL
+`errors` into `GITHUB_READ_FAILED` and a missing `data` into an incomplete answer.
 
 `readIssueSnapshot(client, repo, n, deps?)` builds on the record:
 
@@ -347,7 +365,8 @@ Administration, so they are not read; GitHub still enforces them on the merge.
 The Scope stage's agents hold no GitHub credential, so the stage reads every GitHub
 fact they judge (`request-sources.ts`). Each list is read in full through
 `queryGraphql`, so the read retries apply; a missing node, connection or nested list
-that does not match its count is `GITHUB_READ_FAILED`.
+that does not match its count is an incomplete answer, retried by `retryIncomplete`
+and then `GITHUB_READ_FAILED`.
 
 - `readOriginIssues(client, request)`: the request's own Issues (Proposal R3.4). It
   pages through the request's `timelineItems(itemTypes: [CROSS_REFERENCED_EVENT])`,
