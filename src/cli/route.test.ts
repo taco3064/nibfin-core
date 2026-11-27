@@ -313,6 +313,33 @@ describe("nibfin route --sha and --branch", () => {
     assert.deepEqual(t.issues.github.writes(), []);
   });
 
+  it("adds pending to the commit's Issue when the waiter walk fails", async () => {
+    const t = routeDeps();
+    commitOf(t, 1);
+    t.issues.github.routes.set("GET /repos/acme/app/actions/runs", failure(500));
+    const result = await capture([...route, "--sha", "abcdef1"], t.deps);
+    assert.equal(result.code, 1);
+    assert.match(result.stderr, /GITHUB_READ_FAILED/);
+    assert.ok(t.issues.main.labels.includes("pending"));
+    assert.deepEqual(t.runner.dispatched, [
+      { stage: "route", repo: "acme/app", issue: "1" },
+    ]);
+  });
+
+  it("fails without pending when the walk of a commit of no Issue fails", async () => {
+    const t = routeDeps();
+    t.issues.github.routes.set("GET /repos/acme/app/commits/abcdef1/pulls", paged([]));
+    t.issues.github.routes.set("GET /repos/acme/app/git/commits/abcdef1", {
+      data: { sha: "abcdef1", committer: { date: "2026-11-26T19:34:27Z" } },
+    });
+    t.issues.github.routes.set("GET /repos/acme/app/pulls", paged([]));
+    t.issues.github.routes.set("GET /repos/acme/app/actions/runs", failure(500));
+    const result = await capture([...route, "--sha", "abcdef1"], t.deps);
+    assert.equal(result.code, 1);
+    assert.match(result.stderr, /GITHUB_READ_FAILED/);
+    assert.deepEqual(t.issues.github.writes(), []);
+  });
+
   it("adds pending to the mapped Issue when its dispatch fails", async () => {
     const t = routeDeps();
     const path =

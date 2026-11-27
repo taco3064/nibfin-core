@@ -58,4 +58,24 @@ describe("cdWaiters (#772)", () => {
     const own = await red.cli("--sha", "bbbb006");
     assert.deepEqual(own.dispatched, [routeRun(4)]);
   });
+
+  it("wakes every Issue merged to a red head (#771 included)", async () => {
+    const red = await redMain();
+    for (const number of [7, 8, 9]) {
+      red.addIssue(number);
+    }
+    red.merge(70, "nibfin/issue-7", "cccc001", { CI: "failure" });
+    // Issue 8's pull request merged to cccc001 without moving main (#771).
+    red.world.pulls.push({
+      number: 80,
+      state: "closed",
+      merged: true,
+      head: "nibfin/issue-8",
+      sha: "head-80",
+      mergeSha: "cccc001",
+    });
+    red.merge(90, "nibfin/issue-9", "cccc002", { CI: "success" });
+    const result = await red.cli("--sha", "cccc002");
+    assert.deepEqual(result.dispatched, [routeRun(9), routeRun(7), routeRun(8)]);
+  });
 });
