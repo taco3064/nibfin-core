@@ -12,6 +12,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "check": "tsc -p tsconfig.json && eslint . && prettier --check .",
+    "render:workflows": "node src/workflows/regenerate.ts",
     "test": "node --test --experimental-test-coverage --test-coverage-include=\"src/**\" --test-coverage-exclude=\"src/**/*.test.ts\" --test-coverage-lines=100 --test-coverage-branches=100 --test-coverage-functions=100 \"src/**/*.test.ts\""
   },
   "devDependencies": {
@@ -23,6 +24,7 @@
   },
   "dependencies": {
     "@octokit/plugin-throttling": "^11.0.5",
-    "@octokit/rest": "^22.0.1"
+    "@octokit/rest": "^22.0.1",
+    "eta": "^4.6.0"
   }
 }

@@ -1,0 +1,13 @@
+      - name: Pull the image
+        id: image
+        run: |
+<% if (it.channel === "user") { -%>
+          podman pull "$IMAGE_REF"
+          echo "Nibfin image: $IMAGE_REF"
+          echo "ref=$IMAGE_REF" >> "$GITHUB_OUTPUT"
+<% } else { -%>
+          podman pull "$IMAGE:<%~ it.imageTag %>"
+          digest=$(podman image inspect --format '{{.Digest}}' "$IMAGE:<%~ it.imageTag %>")
+          echo "Nibfin image: $IMAGE@$digest"
+          echo "ref=$IMAGE@$digest" >> "$GITHUB_OUTPUT"
+<% } -%>

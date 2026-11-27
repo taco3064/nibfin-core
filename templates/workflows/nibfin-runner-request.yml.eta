@@ -1,0 +1,294 @@
+<%~ include("/fragments/header.eta", { ...it, file: "nibfin-runner-request.yml" }) -%>
+name: Nibfin · Runner request
+
+# Answers a collaborator's runner request: an Issue titled "Nibfin runner request"
+# whose body has the line <!-- nibfin:runner-request --> and one line
+# "ssh-key-id: <id>". When the author has write or admin permission, it comments a
+# runner registration token for this repository, encrypted with age to that SSH key
+# of the author's GitHub account. An optional line "deploy-key: ssh-ed25519 <key>"
+# (sent for a private repository) is first added as a read-only deploy key titled
+# nibfin-runner-<login>. Otherwise, or when anything fails, it comments the reason
+# and closes the Issue. Event text reaches the scripts only through env.
+run-name: Nibfin · ${{ github.repository }}#${{ github.event.issue.number }} · runner request
+
+on:
+  issues:
+    types: [opened]
+
+permissions:
+  issues: write
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  request:
+    name: request
+    if: contains(github.event.issue.body, '<!-- nibfin:runner-request -->')
+    runs-on: ubuntu-24.04
+    env:
+      # Comments and closing use the job's token; the Nibfin token only reads the
+      # author's permission, adds the deploy key and creates the registration token.
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+      ISSUE: ${{ github.event.issue.number }}
+      LOGIN: ${{ github.event.issue.user.login }}
+    steps:
+      - name: Check the request
+        id: check
+        env:
+          NIBFIN_TOKEN: ${{ secrets.NIBFIN_GITHUB_TOKEN }}
+          TITLE: ${{ github.event.issue.title }}
+          BODY: ${{ github.event.issue.body }}
+          USER_TYPE: ${{ github.event.issue.user.type }}
+        run: |
+          set -euo pipefail
+          # Every GitHub API call is retried up to 3 times on any error (R4.37).
+          # The retry line names the call and its path, never a body.
+          gh_retry() {
+            local attempt arg out what=
+            for arg in "$@"; do
+              case "$arg" in */*) what=$arg && break ;; esac
+            done
+            for attempt in 1 2 3 4; do
+              if out=$(gh "$@"); then
+                [ -z "$out" ] || printf '%s\n' "$out"
+                return 0
+              fi
+              [ "$attempt" != 4 ] || return 1
+              echo "nibfin: GitHub API $1 $what failed; retry $attempt of 3" >&2
+              sleep $((1 << (attempt - 1)))
+            done
+          }
+          refuse() {
+            printf 'reason: %s\n\n%s\n' "$1" "$2" >"$RUNNER_TEMP/nibfin-refusal.md"
+            echo "Refused: $1"
+            echo "state=refused" >>"$GITHUB_OUTPUT"
+            exit 0
+          }
+          state=$(gh_retry api "repos/$REPO/issues/$ISSUE" --jq .state)
+          if [ "$state" != open ]; then
+            echo "#$ISSUE is $state; nothing to answer"
+            echo "state=closed" >>"$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ "$TITLE" != "Nibfin runner request" ]; then
+            refuse "the title is not \"Nibfin runner request\"" \
+              "Open the request with gh nibfin runner add."
+          fi
+          if [ "$USER_TYPE" != User ]; then
+            refuse "the author $LOGIN is a $USER_TYPE account, not a user" \
+              "A user with write access to $REPO opens the request with gh nibfin runner add."
+          fi
+          body=${BODY//$'\r'/}
+          count=$(printf '%s\n' "$body" | grep -c '^ssh-key-id:' || true)
+          if [ "$count" != 1 ]; then
+            refuse "the body has $count ssh-key-id lines, want exactly one" \
+              "Open the request with gh nibfin runner add."
+          fi
+          key_id=$(printf '%s\n' "$body" | sed -n 's/^ssh-key-id: \([1-9][0-9]\{0,18\}\)$/\1/p')
+          if [ -z "$key_id" ]; then
+            refuse "the ssh-key-id line is not \"ssh-key-id: <id>\"" \
+              "Open the request with gh nibfin runner add."
+          fi
+          # The optional deploy key: one ssh-ed25519 public key, checked down to
+          # its wire format (length 11, "ssh-ed25519", length 32, 32 key bytes).
+          deploy_count=$(printf '%s\n' "$body" | grep -c '^deploy-key:' || true)
+          if [ "$deploy_count" -gt 1 ]; then
+            refuse "the body has $deploy_count deploy-key lines, want at most one" \
+              "Open the request with gh nibfin runner add."
+          fi
+          deploy_blob=
+          if [ "$deploy_count" = 1 ]; then
+            deploy_blob=$(printf '%s\n' "$body" | sed -En 's|^deploy-key: ssh-ed25519 ([A-Za-z0-9+/]+={0,2})$|\1|p')
+            deploy_hex=
+            if [ -n "$deploy_blob" ]; then
+              deploy_hex=$(printf '%s' "$deploy_blob" | base64 -d 2>/dev/null | od -An -v -tx1 | tr -d ' \n') || deploy_hex=
+            fi
+            if [ "${#deploy_hex}" != 102 ] || [ "${deploy_hex:0:38}" != 0000000b7373682d6564323535313900000020 ]; then
+              refuse "the deploy-key line is not an ssh-ed25519 public key" \
+                "Open the request with gh nibfin runner add."
+            fi
+          fi
+          permission=$(GH_TOKEN="$NIBFIN_TOKEN" gh_retry api "repos/$REPO/collaborators/$LOGIN/permission" --jq .permission)
+          case "$permission" in
+            admin | write) ;;
+            *)
+              refuse "$LOGIN has $permission permission on $REPO, not write or admin" \
+                "Ask the owner of $REPO to make you a collaborator with write access, then run gh nibfin runner add again."
+              ;;
+          esac
+          key=$(gh_retry api --paginate "users/$LOGIN/keys" |
+            jq -r --arg id "$key_id" '.[] | select((.id | tostring) == $id) | .key')
+          if [ -z "$key" ]; then
+            refuse "$LOGIN has no SSH key with id $key_id on GitHub" \
+              "Add the SSH key to your GitHub account, then run gh nibfin runner add again."
+          fi
+          case "$key" in
+            "ssh-ed25519 "* | "ssh-rsa "*) ;;
+            *)
+              refuse "the SSH key $key_id of $LOGIN is ${key%% *}, not ssh-ed25519 or ssh-rsa" \
+                "Use an ssh-ed25519 or ssh-rsa key of your GitHub account with gh nibfin runner add."
+              ;;
+          esac
+          printf '%s\n' "$key" >"$RUNNER_TEMP/nibfin-request.pub"
+          echo "Request of $LOGIN for the SSH key $key_id (${key%% *})"
+          deploy_key=no
+          if [ -n "$deploy_blob" ]; then
+            printf 'ssh-ed25519 %s\n' "$deploy_blob" >"$RUNNER_TEMP/nibfin-deploy-key.pub"
+            deploy_key=yes
+            echo "The request has a deploy key"
+          fi
+          {
+            echo "state=ok"
+            echo "key-id=$key_id"
+            echo "deploy-key=$deploy_key"
+          } >>"$GITHUB_OUTPUT"
+      - name: Install age
+        if: steps.check.outputs.state == 'ok'
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y age
+          age --version
+      - name: Add the deploy key
+        if: steps.check.outputs.state == 'ok' && steps.check.outputs.deploy-key == 'yes'
+        env:
+          NIBFIN_TOKEN: ${{ secrets.NIBFIN_GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          key=$(cat "$RUNNER_TEMP/nibfin-deploy-key.pub")
+          blob=${key#ssh-ed25519 }
+          title="nibfin-runner-$LOGIN"
+          err="$RUNNER_TEMP/nibfin-deploy-key.err"
+          # A failed add is retried up to 3 times, but only after the keys are
+          # read again: a key that is already a deploy key of this repository,
+          # also one an earlier attempt added, is accepted.
+          for attempt in 1 2 3 4; do
+            if id=$(GH_TOKEN="$NIBFIN_TOKEN" gh api -X POST "repos/$REPO/keys" \
+              -f title="$title" -f key="$key" -F read_only=true --jq .id 2>"$err"); then
+              echo "Added the read-only deploy key $title to $REPO (id $id)"
+              exit 0
+            fi
+            if found=$(GH_TOKEN="$NIBFIN_TOKEN" gh api --paginate "repos/$REPO/keys" |
+              jq -r --arg blob "$blob" \
+                '.[] | select(((.key // "") | split(" ") | .[1]) == $blob) | "id \(.id), read_only \(.read_only)"' |
+              sed -n 1p) && [ -n "$found" ]; then
+              echo "The key is already a deploy key of $REPO ($found)"
+              exit 0
+            fi
+            [ "$attempt" != 4 ] || break
+            echo "nibfin: GitHub API add deploy key to repos/$REPO failed; retry $attempt of 3" >&2
+            sleep $((1 << (attempt - 1)))
+          done
+          cat "$err" >&2
+          echo "Cannot add the deploy key $title to $REPO" >&2
+          exit 1
+      - name: Create and encrypt the registration token
+        if: steps.check.outputs.state == 'ok'
+        env:
+          NIBFIN_TOKEN: ${{ secrets.NIBFIN_GITHUB_TOKEN }}
+          KEY_ID: ${{ steps.check.outputs.key-id }}
+        run: |
+          set -euo pipefail
+          # Every GitHub API call is retried up to 3 times on any error (R4.37).
+          # The retry line names the call and its path, never a body.
+          gh_retry() {
+            local attempt arg out what=
+            for arg in "$@"; do
+              case "$arg" in */*) what=$arg && break ;; esac
+            done
+            for attempt in 1 2 3 4; do
+              if out=$(gh "$@"); then
+                [ -z "$out" ] || printf '%s\n' "$out"
+                return 0
+              fi
+              [ "$attempt" != 4 ] || return 1
+              echo "nibfin: GitHub API $1 $what failed; retry $attempt of 3" >&2
+              sleep $((1 << (attempt - 1)))
+            done
+          }
+          response=$(GH_TOKEN="$NIBFIN_TOKEN" gh_retry api -X POST "repos/$REPO/actions/runners/registration-token")
+          token=$(printf '%s' "$response" | jq -r '.token // empty')
+          if [ -z "$token" ]; then
+            echo "GitHub returned no registration token" >&2
+            exit 1
+          fi
+          echo "::add-mask::$token"
+          expires=$(printf '%s' "$response" | jq -r '.expires_at // empty')
+          unset response
+          ciphertext=$(printf '%s' "$token" | age -a -R "$RUNNER_TEMP/nibfin-request.pub")
+          unset token
+          {
+            echo '<!-- nibfin:runner-registration -->'
+            echo "requester: $LOGIN"
+            echo "ssh-key-id: $KEY_ID"
+            echo "expires-at: $expires"
+            echo
+            echo "A runner registration token for $REPO, encrypted to the SSH key $KEY_ID of @$LOGIN. gh nibfin runner add decrypts it and registers the runner."
+            echo
+            echo '```text'
+            printf '%s\n' "$ciphertext"
+            echo '```'
+          } >"$RUNNER_TEMP/nibfin-answer.md"
+          echo "Encrypted a registration token that expires at $expires"
+      - name: Answer the request
+        if: ${{ !cancelled() && steps.check.outputs.state != 'closed' }}
+        env:
+          JOB_STATUS: ${{ job.status }}
+          STATE: ${{ steps.check.outputs.state }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          # Every GitHub API call is retried up to 3 times on any error (R4.37).
+          # The retry line names the call and its path, never a body.
+          gh_retry() {
+            local attempt arg out what=
+            for arg in "$@"; do
+              case "$arg" in */*) what=$arg && break ;; esac
+            done
+            for attempt in 1 2 3 4; do
+              if out=$(gh "$@"); then
+                [ -z "$out" ] || printf '%s\n' "$out"
+                return 0
+              fi
+              [ "$attempt" != 4 ] || return 1
+              echo "nibfin: GitHub API $1 $what failed; retry $attempt of 3" >&2
+              sleep $((1 << (attempt - 1)))
+            done
+          }
+          body=$(mktemp -p "$RUNNER_TEMP")
+          if [ "$JOB_STATUS" != success ]; then
+            marker='<!-- nibfin:runner-request-refused -->'
+            printf '%s\nreason: the request workflow failed (%s)\n\n%s\n' "$marker" "$RUN_URL" \
+              "Read the run's log; run gh nibfin runner add again when the cause is fixed." >"$body"
+          elif [ "$STATE" = refused ]; then
+            marker='<!-- nibfin:runner-request-refused -->'
+            { echo "$marker"; cat "$RUNNER_TEMP/nibfin-refusal.md"; } >"$body"
+          else
+            marker='<!-- nibfin:runner-registration -->'
+            cp "$RUNNER_TEMP/nibfin-answer.md" "$body"
+          fi
+          payload=$(mktemp -p "$RUNNER_TEMP")
+          jq -n --rawfile body "$body" '{body: $body}' >"$payload"
+          # One answer per marker: a rerun updates the workflow's earlier comment.
+          # The comments are read again before each send, so an answer whose
+          # reply was lost is updated, not posted twice.
+          for attempt in 1 2 3 4; do
+            id=$(gh_retry api --paginate "repos/$REPO/issues/$ISSUE/comments" |
+              jq -r --arg m "$marker" \
+                '.[] | select(.user.login == "github-actions[bot]" and (.body | startswith($m))) | .id' |
+              sed -n 1p)
+            if [ -n "$id" ]; then
+              gh api -X PATCH "repos/$REPO/issues/comments/$id" --input "$payload" --jq .html_url && break
+            else
+              gh api -X POST "repos/$REPO/issues/$ISSUE/comments" --input "$payload" --jq .html_url && break
+            fi
+            [ "$attempt" != 4 ] || exit 1
+            echo "nibfin: GitHub API answer on repos/$REPO/issues/$ISSUE failed; retry $attempt of 3" >&2
+            sleep $((1 << (attempt - 1)))
+          done
+          if [ "$marker" = '<!-- nibfin:runner-request-refused -->' ]; then
+            gh_retry api -X PATCH "repos/$REPO/issues/$ISSUE" -f state=closed -f state_reason=not_planned --jq .state
+          fi

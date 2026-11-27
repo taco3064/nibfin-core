@@ -1,4 +1,5 @@
-# Follows gh-nibfin's template internal/templates/workflowfiles/workflows/nibfin-runner-request.yml.
+# Rendered by `nibfin render-workflows` from taco3064/nibfin-core
+# templates/workflows/nibfin-runner-request.yml.eta. Edit the template, not this file.
 name: Nibfin · Runner request
 
 # Answers a collaborator's runner request: an Issue titled "Nibfin runner request"
