@@ -1,0 +1,48 @@
+<%~ include("/fragments/header.eta", { ...it, file: "nibfin-issue.yml" }) -%>
+name: Nibfin · Issue events
+
+# Wakes the Issue an event belongs to; Core decides what runs. It also runs on every
+# push to the default branch, which is the "Nibfin ·" push run CD detection waits for.
+# A review submitted on a same-repository nibfin/issue-* pull request wakes its Issue
+# by branch, so Core re-checks a pull request that waits for a required approval.
+<% if (it.channel === "user") { -%>
+# Events only wake an Issue: each one becomes a route run of the execution
+# repository's nibfin-shared-runner.yml. Event text reaches the script only through env.
+<% } -%>
+run-name: >-
+  ${{ github.event.issue
+  && format('Nibfin · {0}#{1} · wake', github.repository, github.event.issue.number)
+  || format('Nibfin · {0}@{1} · wake', github.repository,
+  github.event.workflow_run && (github.event.workflow_run.event == 'pull_request'
+  && github.event.workflow_run.head_branch || github.event.workflow_run.head_sha)
+  || github.event.pull_request.head.ref || github.event.check_suite.head_branch
+  || github.event.sha || github.sha) }}
+
+on:
+  issues:
+    types: [opened, reopened, closed, assigned, unassigned, labeled, unlabeled]
+  pull_request_review:
+    types: [submitted]
+<% if (it.workflows !== "") { -%>
+  workflow_run:
+    # Every workflow that runs on push to the default branch or produces a required check.
+    workflows: <%~ it.workflows %>
+    types: [completed]
+<% } -%>
+  check_suite:
+    types: [completed]
+  status:
+  push:
+    branches: <%~ it.branches %>
+
+permissions: {}
+
+jobs:
+  wake:
+<% if (it.channel === "user") { -%>
+<%~ include("/fragments/wake-job.eta", it) -%>
+<% } else { -%>
+    uses: <%~ it.eventsUses %>
+    secrets:
+      token: ${{ secrets.NIBFIN_GITHUB_TOKEN }}
+<% } -%>

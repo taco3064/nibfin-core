@@ -13,6 +13,7 @@ import {
   runUrl,
 } from "../stages/index.ts";
 import { askPerson, type CliIo, printFailure } from "./failure.ts";
+import { renderWorkflowsCommand } from "./render-workflows.ts";
 import { type Connect, lineLog, routeAfterStage, runRoute } from "./route.ts";
 import { readVersion } from "./version.ts";
 
@@ -29,13 +30,16 @@ export const usage = `Usage: nibfin <option>
                   [--model <model>]
        nibfin run --stage finish --repo <owner>/<repo> --issue <n>
        nibfin route --repo <owner>/<repo> (--issue <n> | --sha <sha> | --branch <b>)
+       nibfin render-workflows --set execution|peer --channel own|user [--image <ref>]
+                  --default-branch <branch> [--workflow <name>]...
 
 Options:
   --help     Show this help
   --version  Print the nibfin version
 
 The run and route commands read the rest of their context from the environment;
-see src/stages/README.md and src/route/README.md.
+see src/stages/README.md and src/route/README.md. render-workflows prints the
+rendered workflow files as JSON; see src/workflows/README.md.
 `;
 
 type StageName = "scope" | "shape" | "deliver" | "review" | "finish";
@@ -138,6 +142,9 @@ export async function run(
   }
   if (args[0] === "route") {
     return runRoute(args.slice(1), io, deps.env, deps.connect);
+  }
+  if (args[0] === "render-workflows") {
+    return renderWorkflowsCommand(args.slice(1), io);
   }
   const option = args.length === 1 ? args[0] : undefined;
   if (option === "--version") {

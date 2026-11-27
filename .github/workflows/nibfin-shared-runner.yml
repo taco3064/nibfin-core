@@ -1,3 +1,5 @@
+# Rendered by `nibfin render-workflows` from taco3064/nibfin-core
+# templates/workflows/nibfin-shared-runner.yml.eta. Edit the template, not this file.
 name: Nibfin · Shared runner
 
 # Every route and stage Job of every Issue runs here, in the execution repository.

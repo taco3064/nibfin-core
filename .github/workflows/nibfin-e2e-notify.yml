@@ -1,3 +1,5 @@
+# Rendered by `nibfin render-workflows` from taco3064/nibfin-core
+# templates/workflows/nibfin-e2e-notify.yml.eta. Edit the template, not this file.
 name: Nibfin · e2e notify
 
 # Asks the e2e gate to retest the Proposal rules a delivered Issue touched

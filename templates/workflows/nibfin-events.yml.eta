@@ -1,0 +1,20 @@
+<%~ include("/fragments/header.eta", { ...it, file: "nibfin-events.yml" }) -%>
+name: Nibfin · Events
+
+# Reusable: turns one GitHub event of the calling repository into a route run of the
+# execution repository's nibfin-shared-runner.yml. Events only wake an Issue; Core
+# decides from GitHub state what runs. Callers: nibfin-issue.yml (see
+# docs/nibfin-callers.md). Event text reaches the script only through env.
+
+on:
+  workflow_call:
+    secrets:
+      token:
+        description: The gh login token of the Nibfin account (repo, workflow)
+        required: true
+
+permissions: {}
+
+jobs:
+  wake:
+<%~ include("/fragments/wake-job.eta", it) -%>

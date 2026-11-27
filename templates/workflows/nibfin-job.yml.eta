@@ -1,0 +1,230 @@
+<%~ include("/fragments/header.eta", { ...it, file: "nibfin-job.yml" }) -%>
+name: Nibfin · Job
+
+# Reusable: one route, finish or stage Job in the Nibfin image
+# under rootless Podman. Core dispatches whatever runs next itself; these steps only
+# check out, pull the image, run the container and clean up. Called by
+# nibfin-shared-runner.yml, which owns the concurrency group.
+
+on:
+  workflow_call:
+    inputs:
+      repo:
+        description: The Issue's repository, <owner>/<repo>
+        type: string
+        required: true
+      issue:
+        type: string
+        default: ""
+      sha:
+        type: string
+        default: ""
+      branch:
+        type: string
+        default: ""
+      stage:
+        description: route, scope, shape, deliver, review or finish
+        type: string
+        required: true
+      reason:
+        type: string
+        default: ""
+      assignee:
+        description: The first Assignee's user id (stage runs)
+        type: string
+        default: ""
+      ref:
+        type: string
+        default: ""
+    secrets:
+      token:
+        description: The gh login token of the Nibfin account (repo, workflow)
+        required: true
+
+permissions: {}
+
+env:
+  IMAGE: <%~ it.imageRepository %>
+<% if (it.channel === "user") { -%>
+  IMAGE_REF: <%~ it.imageRef %>
+<% } -%>
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  route:
+    name: route
+    if: inputs.stage == 'route'
+    # The route Job runs no agent: on a public execution repository it runs on a
+    # GitHub-hosted runner (free there), so it never waits behind a stage Job; on a
+    # private one it stays on the Owner's runners and uses no Actions minutes.
+    runs-on: ${{ github.event.repository.private && fromJSON('["self-hosted","nibfin"]') || 'ubuntu-24.04' }}
+    steps:
+<%~ include("/fragments/pull-image.eta", it) -%>
+      - name: Route
+        env:
+          NIBFIN_GITHUB_TOKEN: ${{ secrets.token }}
+          NIBFIN_RUN_REPO: ${{ github.repository }}
+          NIBFIN_RUN_ID: ${{ github.run_id }}
+          IMAGE_REF: ${{ steps.image.outputs.ref }}
+          REPO: ${{ inputs.repo }}
+          ISSUE: ${{ inputs.issue }}
+          SHA: ${{ inputs.sha }}
+          BRANCH: ${{ inputs.branch }}
+        run: |
+          if [ -n "$ISSUE" ]; then
+            target=(--issue "$ISSUE")
+          elif [ -n "$SHA" ]; then
+            target=(--sha "$SHA")
+          else
+            target=(--branch "$BRANCH")
+          fi
+          # Labels let a Dashboard on this host map `podman events` to the Issue.
+          labels=(--label "io.github.taco3064.nibfin.repo=$REPO")
+          if [ -n "$ISSUE" ]; then
+            labels+=(--label "io.github.taco3064.nibfin.issue=$ISSUE")
+          fi
+          podman run --rm --userns=keep-id:uid=1000,gid=1000 "${labels[@]}" \
+            --env NIBFIN_GITHUB_TOKEN --env NIBFIN_RUN_REPO --env NIBFIN_RUN_ID \
+            "$IMAGE_REF" nibfin route --repo "$REPO" "${target[@]}"
+      # `nibfin route` adds `pending` itself once it knows the Issue; this covers an
+      # image pull or a container that never started.
+<%~ include("/fragments/ask-person.eta", it) -%>
+
+  finish:
+    name: finish
+    if: inputs.stage == 'finish'
+    # The finish stage runs no agent (merge a recorded review, close a delivered
+    # Issue, wake downstream Issues): on a public execution repository it runs on a
+    # GitHub-hosted runner (free there), so it never waits behind an agent Job; on a
+    # private one it stays on the Assignee's runners and uses no Actions minutes.
+    runs-on: ${{ github.event.repository.private && fromJSON(format('["self-hosted","nibfin-{0}"]', inputs.assignee)) || 'ubuntu-24.04' }}
+    steps:
+<%~ include("/fragments/pull-image.eta", it) -%>
+      - name: Run the finish stage
+        env:
+          NIBFIN_GITHUB_TOKEN: ${{ secrets.token }}
+          NIBFIN_RUN_REPO: ${{ github.repository }}
+          NIBFIN_RUN_ID: ${{ github.run_id }}
+          NIBFIN_NEXT_FILE: /nibfin/out/next.json
+          IMAGE_REF: ${{ steps.image.outputs.ref }}
+          REPO: ${{ inputs.repo }}
+          ISSUE: ${{ inputs.issue }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/nibfin-out"
+          # Labels let a Dashboard on this host map `podman events` to the Issue.
+          podman run --rm --userns=keep-id:uid=1000,gid=1000 \
+            --label "io.github.taco3064.nibfin.repo=$REPO" \
+            --label "io.github.taco3064.nibfin.issue=$ISSUE" \
+            --volume "$RUNNER_TEMP/nibfin-out:/nibfin/out:Z" \
+            --env NIBFIN_GITHUB_TOKEN --env NIBFIN_RUN_REPO --env NIBFIN_RUN_ID \
+            --env NIBFIN_NEXT_FILE \
+            "$IMAGE_REF" nibfin run --stage finish --repo "$REPO" --issue "$ISSUE"
+      - name: Clean up
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/nibfin-out"
+      # `nibfin run` adds `pending` itself when it can; this covers an image pull or
+      # a container that never started.
+<%~ include("/fragments/ask-person.eta", it) -%>
+
+  stage:
+    name: stage
+    if: inputs.stage != 'route' && inputs.stage != 'finish'
+    # Any Runner of the Assignee; the provider and the model are the Runner's own
+    # (NIBFIN_PROVIDER and NIBFIN_MODEL in its .env), never a repository variable
+    # or an input.
+    runs-on: [self-hosted, "nibfin-${{ inputs.assignee }}"]
+    steps:
+      - name: Remove what an earlier Job left behind
+        run: |
+          # A failed clean up must not break every later Job on this runner.
+          workspace="$GITHUB_WORKSPACE/nibfin-workspace"
+          if [ -e "$workspace" ]; then
+            chmod -R u+w "$workspace"
+            rm -rf "$workspace"
+          fi
+      - name: Check out the Issue's repository
+        uses: actions/checkout@v7
+        with:
+          repository: ${{ inputs.repo }}
+          token: ${{ secrets.token }}
+          path: nibfin-workspace
+          persist-credentials: false
+          clean: true
+<%~ include("/fragments/pull-image-and-prune.eta", it) -%>
+      - name: Run the stage
+        env:
+          NIBFIN_GITHUB_TOKEN: ${{ secrets.token }}
+          NIBFIN_RUN_REPO: ${{ github.repository }}
+          NIBFIN_RUN_ID: ${{ github.run_id }}
+          NIBFIN_AGENT_HOME: /nibfin/home
+          NIBFIN_WORKSPACE: /workspace
+          NIBFIN_TOOL_CACHE: /nibfin/tools
+          NIBFIN_NEXT_FILE: /nibfin/out/next.json
+          NIBFIN_MEMORY_REQUIRED: ${{ vars.NIBFIN_MEMORY || '3g' }}
+          MEMORY: ${{ vars.NIBFIN_MEMORY || '3g' }}
+          MEMORY_HIGH: ${{ vars.NIBFIN_MEMORY_HIGH || '2560m' }}
+          PIDS_LIMIT: ${{ vars.NIBFIN_PIDS_LIMIT || '4096' }}
+          CPUS: ${{ vars.NIBFIN_CPUS || '4' }}
+          CONTAINER_LIMITS: ${{ vars.NIBFIN_CONTAINER_LIMITS }}
+          IMAGE_REF: ${{ steps.image.outputs.ref }}
+          STAGE: ${{ inputs.stage }}
+          REPO: ${{ inputs.repo }}
+          ISSUE: ${{ inputs.issue }}
+          REASON: ${{ inputs.reason }}
+        run: |
+          # The Runner's .env sets NIBFIN_PROVIDER; the runner reads it when it starts.
+          PROVIDER="${NIBFIN_PROVIDER:-}"
+          case "$PROVIDER" in
+            claude | codex) ;;
+            *)
+              echo "This Runner's .env must set NIBFIN_PROVIDER to claude or codex (it is \"$PROVIDER\"); restart the Runner after changing it" >&2
+              exit 1
+              ;;
+          esac
+          # The Runner's .env may set NIBFIN_MODEL for this Runner only; without it,
+          # Core's default for the provider applies.
+          MODEL="${NIBFIN_MODEL:-}"
+          mkdir -p "$RUNNER_TEMP/nibfin-out"
+          options=(--stage "$STAGE" --repo "$REPO" --issue "$ISSUE" --provider "$PROVIDER")
+          if [ -n "$MODEL" ]; then
+            options+=(--model "$MODEL")
+          fi
+          if [ -n "$REASON" ]; then
+            options+=(--reason "$REASON")
+          fi
+          # NIBFIN_CONTAINER_LIMITS=off: the host cannot apply per-container limits
+          # (e.g. a WSL-based podman machine); the memory check still runs.
+          limits=()
+          if [ "$CONTAINER_LIMITS" != "off" ]; then
+            limits=(--pids-limit "$PIDS_LIMIT" --memory "$MEMORY" --cpus "$CPUS"
+              --cgroup-conf "memory.high=$MEMORY_HIGH")
+          fi
+          # Labels let a Dashboard on this host map `podman events` to the Issue.
+          podman run --rm --userns=keep-id:uid=1000,gid=1000 "${limits[@]}" \
+            --label "io.github.taco3064.nibfin.repo=$REPO" \
+            --label "io.github.taco3064.nibfin.issue=$ISSUE" \
+            --volume "$GITHUB_WORKSPACE/nibfin-workspace:/workspace:Z" \
+            --volume "nibfin-home-$PROVIDER:/nibfin/home" \
+            --volume nibfin-tools:/nibfin/tools \
+            --volume "$RUNNER_TEMP/nibfin-out:/nibfin/out:Z" \
+            --env NIBFIN_GITHUB_TOKEN --env NIBFIN_RUN_REPO --env NIBFIN_RUN_ID \
+            --env NIBFIN_AGENT_HOME --env NIBFIN_WORKSPACE --env NIBFIN_TOOL_CACHE \
+            --env NIBFIN_NEXT_FILE --env NIBFIN_MEMORY_REQUIRED \
+            "$IMAGE_REF" nibfin run "${options[@]}"
+      - name: Clean up
+        if: always()
+        run: |
+          for path in "$GITHUB_WORKSPACE/nibfin-workspace" "$RUNNER_TEMP/nibfin-out"; do
+            if [ -e "$path" ]; then
+              # Caches such as Go's module cache are read-only; rm alone cannot remove them.
+              chmod -R u+w "$path"
+              rm -rf "$path"
+            fi
+          done
+      # Every failed step needs a person (`nibfin run` exits 0 while another Writer
+      # is active). `nibfin run` adds `pending` itself when it can; this covers the
+      # rest: checkout, image pull, a container that never started, clean up.
+<%~ include("/fragments/ask-person.eta", it) -%>
