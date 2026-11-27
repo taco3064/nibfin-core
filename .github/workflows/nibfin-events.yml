@@ -54,22 +54,101 @@ jobs:
           if [ "$EVENT_NAME" != pull_request_review ]; then
             require_execution_repo
           fi
-          # Sends one gh call again up to 3 times on any error (1, 2 and 4 s apart).
+          # Sends one gh call again up to 3 times on any error (1, 2 and 4 s apart). A
+          # rate-limit answer waits for the reset instead (at most an hour; 60 s for a
+          # secondary limit). The last error is kept for the pending comment.
+          last_error="$RUNNER_TEMP/nibfin-gh-error"
           gh_retry() {
-            local attempt arg out what=
+            local attempt arg out what= delay
             for arg in "$@"; do
               case "$arg" in */*) what=$arg && break ;; esac
             done
             for attempt in 1 2 3 4; do
-              if out=$(gh "$@"); then
+              if out=$(gh "$@" 2>"$last_error"); then
                 [ -z "$out" ] || printf '%s\n' "$out"
                 return 0
               fi
+              cat "$last_error" >&2
               [ "$attempt" != 4 ] || return 1
-              echo "nibfin: GitHub API $1 $what failed; retry $attempt of 3" >&2
-              sleep $((1 << (attempt - 1)))
+              delay=$((1 << (attempt - 1)))
+              if grep -qi 'rate limit' "$last_error"; then
+                delay=$(rate_limit_delay)
+              fi
+              echo "nibfin: GitHub API $1 $what failed; retry $attempt of 3 in ${delay}s" >&2
+              sleep "$delay"
             done
           }
+          # Seconds until the primary rate limit resets (the rate_limit read does not
+          # count against it), or 60 when it is not exhausted (a secondary limit).
+          rate_limit_delay() {
+            local remaining reset now
+            read -r remaining reset < <(gh api rate_limit \
+              --jq '.resources.core | "\(.remaining) \(.reset)"' 2>/dev/null) || true
+            now=$(date +%s)
+            if [ "${remaining:-1}" = 0 ] && [ "${reset:-0}" -gt "$now" ]; then
+              echo $(((reset - now + 5) > 3600 ? 3600 : reset - now + 5))
+            else
+              echo 60
+            fi
+          }
+          # The Issues of the event (or its commits), set before the first call that can
+          # fail: on a failed run each Issue gets pending and a comment, so the event is
+          # not lost.
+          targets=()
+          target_issue() {
+            [[ $1 =~ ^nibfin/issue-([0-9]+) ]] && targets+=("${BASH_REMATCH[1]}")
+            return 0
+          }
+          shas=()
+          target_sha() {
+            shas+=("$1")
+          }
+          # Resolves the recorded commits to the nibfin/issue-* pull requests that hold
+          # them, only once a run has failed.
+          resolve_shas() {
+            local sha ref
+            for sha in "${shas[@]}"; do
+              while read -r ref; do
+                [ -z "$ref" ] || target_issue "$ref"
+              done < <(gh_retry api "repos/$REPO/commits/$sha/pulls" --jq '.[].head.ref' || true)
+            done
+          }
+          flag_targets() {
+            local n url comment body mine failure
+            failure=$(tail -c 1500 "$last_error" 2>/dev/null || true)
+            url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+            resolve_shas
+            if [ "${#targets[@]}" = 0 ]; then
+              echo "The wake failed and its Issue could not be found; no pending added" \
+                | tee -a "$GITHUB_STEP_SUMMARY" >&2
+              return
+            fi
+            mine=$(gh_retry api user --jq .id) || mine=
+            body=$(
+              printf '<!-- nibfin:pending -->\nNibfin stopped and needs a person.\n\n'
+              printf -- '- Code: `WAKE_FAILED`\n- Run: %s\n\n' "$url"
+              printf '```text\n%s\n```\n\n' "${failure:-The failed call left no message; see the run log.}"
+              printf 'This looks temporary (network, GitHub or a single agent run); '
+              printf 'removing the label retries it.\n\nRemove the `pending` label to continue.'
+            )
+            for n in $(printf '%s\n' "${targets[@]}" | sort -un); do
+              comment=$(gh_retry api "repos/$REPO/issues/$n/comments?per_page=100" --paginate \
+                --jq ".[] | select(.user.id == ${mine:-0} and (.body | startswith(\"<!-- nibfin:pending -->\"))) | .id" \
+                | head -n 1) || comment=
+              if [ -n "$comment" ]; then
+                gh_retry api -X PATCH "repos/$REPO/issues/comments/$comment" -f body="$body" >/dev/null || true
+              else
+                gh_retry api "repos/$REPO/issues/$n/comments" -f body="$body" >/dev/null || true
+              fi
+              if gh_retry api "repos/$REPO/issues/$n/labels" -f 'labels[]=pending' \
+                --jq 'map(.name) | index("pending") != null' | grep -qx true; then
+                echo "Added pending to #$n" | tee -a "$GITHUB_STEP_SUMMARY"
+              else
+                echo "Could not add pending to #$n" | tee -a "$GITHUB_STEP_SUMMARY" >&2
+              fi
+            done
+          }
+          trap 'status=$?; [ "$status" = 0 ] || flag_targets; exit "$status"' EXIT
           # Ends the run unrouted unless the sender has admin or write permission.
           # A failed permission read fails the run.
           require_writer() {
@@ -105,6 +184,7 @@ jobs:
                   exit 0
                   ;;
               esac
+              targets=("$ISSUE")
               require_writer
               wake "issue=$ISSUE"
               ;;
@@ -117,6 +197,7 @@ jobs:
                 echo "A review on a pull request from ${REVIEW_HEAD_REPO:-an unknown repository}; not routed"
                 exit 0
               fi
+              target_issue "$REVIEW_BRANCH"
               require_execution_repo
               require_writer
               wake "branch=$REVIEW_BRANCH" "ref=$REVIEW_BRANCH"
@@ -131,8 +212,10 @@ jobs:
                   echo "A pull request from $RUN_HEAD_REPO; not routed"
                   exit 0
                 fi
+                target_issue "$RUN_BRANCH"
                 wake "branch=$RUN_BRANCH" "ref=$RUN_BRANCH"
               else
+                target_sha "$RUN_SHA"
                 wake "sha=$RUN_SHA" "ref=$RUN_SHA"
               fi
               ;;
@@ -140,15 +223,18 @@ jobs:
               if [ "$SUITE_APP" = github-actions ] || [ -z "$SUITE_BRANCH" ]; then
                 exit 0
               fi
+              target_issue "$SUITE_BRANCH"
               wake "branch=$SUITE_BRANCH" "ref=$SUITE_BRANCH"
               ;;
             status)
+              target_sha "$STATUS_SHA"
               wake "sha=$STATUS_SHA" "ref=$STATUS_SHA"
               ;;
             push)
               if [ "$PUSH_REF" != "refs/heads/$DEFAULT_BRANCH" ]; then
                 exit 0
               fi
+              target_sha "$PUSH_SHA"
               wake "sha=$PUSH_SHA" "ref=$PUSH_SHA"
               ;;
             *)
