@@ -24,6 +24,14 @@ export { freshReads, shareReadCache } from "./read-cache.ts";
 export { logGiveUp, maxRetries, retryCause, waitToRetry } from "./retry.ts";
 export { type DependencyIssue, readBlocking } from "./dependencies.ts";
 export {
+  addAssignees,
+  addBlockedBy,
+  createIssue,
+  findCreatedIssue,
+  type IssueHandle,
+  readIssueId,
+} from "./issue-writes.ts";
+export {
   type IssueRecord,
   queryGraphql,
   readIssueRecord,

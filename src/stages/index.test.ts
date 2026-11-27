@@ -17,6 +17,7 @@ test("the stages module exports its public API", () => {
     "deliverBlockedCommentKey",
     "deliverRunName",
     "deliveredCommentKey",
+    "describeFailure",
     "describeStage",
     "fixReasons",
     "isAgentContext",

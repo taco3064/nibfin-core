@@ -38,6 +38,7 @@ export {
 } from "./next.ts";
 export {
   codeOf,
+  describeFailure,
   isWait,
   pendingCommentKey,
   requestPerson,

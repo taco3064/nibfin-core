@@ -3,6 +3,7 @@ import {
   type ActingClient,
   GitHubError,
   type IssueRef,
+  type MarkedComment,
   nibfinLabels,
   rateLimitOf,
   type Repo,
@@ -40,6 +41,15 @@ export function codeOf(error: unknown): string | undefined {
     return undefined;
   }
   return typeof error.code === "string" ? error.code : undefined;
+}
+
+/** A failure as its code, if any, and its message, as the Job log shows it. */
+export function describeFailure(error: unknown): string {
+  if (!(error instanceof Error)) {
+    return String(error);
+  }
+  const { code } = error as { code?: unknown };
+  return typeof code === "string" ? `${code}: ${error.message}` : error.message;
 }
 
 /** Whether `error` is the wait for another Writer, which writes nothing. */
@@ -111,6 +121,28 @@ export function pendingBody(
 }
 
 /**
+ * Upserts the marked comment `key` on `issue` with `render(true)`. When GitHub
+ * rejects it (`GITHUB_WRITE_REJECTED`, e.g. a very long message), it writes
+ * `render(false)`, the body without the message, once more. Any other failure is
+ * thrown.
+ */
+export async function upsertPersonComment(
+  client: ActingClient,
+  issue: IssueRef,
+  key: string,
+  render: (withMessage: boolean) => string,
+): Promise<MarkedComment> {
+  try {
+    return await upsertMarkedComment(client, issue, key, render(true));
+  } catch (failure) {
+    if (codeOf(failure) !== rejectedCode) {
+      throw failure;
+    }
+    return upsertMarkedComment(client, issue, key, render(false));
+  }
+}
+
+/**
  * Asks a person to act on `issue` after `error`: upserts the marked `pending`
  * comment and adds `pending`, confirmed by the read-back labels. Nothing runs for
  * the Issue while `pending` is present; removing it is the go-ahead. A
@@ -128,15 +160,9 @@ export async function requestPerson(
   if (isWait(error)) {
     return false;
   }
-  try {
-    await upsertMarkedComment(client, issue, pendingCommentKey, pendingBody(error, url));
-  } catch (failure) {
-    if (codeOf(failure) !== rejectedCode) {
-      throw failure;
-    }
-    const short = pendingBody(error, url, false);
-    await upsertMarkedComment(client, issue, pendingCommentKey, short);
-  }
+  await upsertPersonComment(client, issue, pendingCommentKey, (withMessage) =>
+    pendingBody(error, url, withMessage),
+  );
   const labels = await setLabels(client, issue, { add: [nibfinLabels.pending] });
   if (!labels.includes(nibfinLabels.pending)) {
     throw unconfirmed("add pending", "The read-back labels lack pending");
