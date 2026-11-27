@@ -151,6 +151,15 @@ function dynamicRoute(world: DeliveryWorld, request: FakeRequest) {
   if (commitPulls) {
     return paged(world.commitPulls.get(commitPulls[1]) ?? [])(request);
   }
+  const workflowRuns = /^\/repos\/acme\/app\/actions\/workflows\/(\d+)\/runs$/.exec(
+    request.path,
+  );
+  if (workflowRuns) {
+    return paged(
+      workflowRunsOf(world, Number(workflowRuns[1]), request),
+      "workflow_runs",
+    )(request);
+  }
   const checks = /^\/repos\/acme\/app\/commits\/([^/]+)\/check-runs$/.exec(request.path);
   if (checks) {
     return paged(world.checkRuns.get(checks[1]) ?? [], "check_runs")(request);
@@ -171,6 +180,23 @@ function dynamicRoute(world: DeliveryWorld, request: FakeRequest) {
     return paged(json)(request);
   }
   return undefined;
+}
+
+/** The push runs of workflow `id`, filtered by `event` and `branch` like GitHub. */
+function workflowRunsOf(world: DeliveryWorld, id: number, request: FakeRequest) {
+  const event = request.query.get("event");
+  const branch = request.query.get("branch");
+  return world.pushRuns.filter((run) => {
+    const { workflow_id, head_branch } = run as {
+      workflow_id?: number;
+      head_branch: string;
+    };
+    return (
+      workflow_id === id &&
+      (event === null || event === "push") &&
+      (branch === null || head_branch === branch)
+    );
+  });
 }
 
 function routeRuns(world: DeliveryWorld) {

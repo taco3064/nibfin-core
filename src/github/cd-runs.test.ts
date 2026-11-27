@@ -82,4 +82,28 @@ describe("readCdRuns", () => {
     assert.ok(error instanceof GitHubError);
     assert.equal(error.code, "GITHUB_READ_FAILED");
   });
+
+  it("keeps the workflow id of Nibfin's push workflow", async () => {
+    const nibfin = (id: number, path: string, workflowId?: number) =>
+      workflowRun(id, { name: "Nibfin · x", path, workflowId });
+    const idOf = async (items: unknown[]) => {
+      const github = fakeGitHub({ [runs]: paged(items, "workflow_runs") });
+      return (await readCdRuns(github.client, repo, "main", "merge-1")).nibfinWorkflowId;
+    };
+    const push = ".github/workflows/nibfin-issue.yml";
+    assert.equal(
+      await idOf([nibfin(1, ".github/workflows/a.yml", 3), nibfin(2, push, 9)]),
+      9,
+    );
+    assert.equal(
+      await idOf([
+        nibfin(1, ".github/workflows/a.yml", 8),
+        nibfin(2, ".github/workflows/b.yml", 4),
+        nibfin(3, push),
+      ]),
+      4,
+    );
+    assert.equal(await idOf([nibfin(1, push)]), undefined);
+    assert.equal(await idOf([workflowRun(1, { workflowId: 5 })]), undefined);
+  });
 });

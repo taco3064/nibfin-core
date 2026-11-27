@@ -100,6 +100,10 @@ export interface WorkflowRunOptions {
   suiteId?: number;
   event?: string;
   sha?: string;
+  /** The run's `workflow_id`; left out when unset. */
+  workflowId?: number;
+  /** `head_branch`; `main` when unset. */
+  branch?: string;
 }
 
 export function workflowRun(id: number, options: WorkflowRunOptions = {}) {
@@ -112,7 +116,9 @@ export function workflowRun(id: number, options: WorkflowRunOptions = {}) {
     check_suite_id: options.suiteId,
     event: options.event ?? "push",
     head_sha: options.sha ?? "merge-1",
+    head_branch: options.branch ?? "main",
     html_url: `https://github.com/acme/app/actions/runs/${id}`,
+    ...(options.workflowId === undefined ? {} : { workflow_id: options.workflowId }),
   };
 }
 
@@ -123,4 +129,34 @@ export function comment(id: number, userId: number | null, body: string | null) 
     body,
     html_url: `https://github.com/acme/app/issues/1#issuecomment-${id}`,
   };
+}
+
+/** The workflow id fixtures give Nibfin's push workflow `nibfin-issue.yml`. */
+export const nibfinPushWorkflowId = 77;
+
+/** A run of Nibfin's push workflow on push head `sha`. */
+export function nibfinPushRun(id: number, sha: string) {
+  return workflowRun(id, {
+    name: "Nibfin · Issue events",
+    path: ".github/workflows/nibfin-issue.yml",
+    sha,
+    workflowId: nibfinPushWorkflowId,
+  });
+}
+
+/** A completed (or pending, with `conclusion: null`) CD run of `workflow` on `sha`. */
+export function cdRun(
+  id: number,
+  sha: string,
+  workflow: string,
+  conclusion: string | null = "success",
+) {
+  return workflowRun(id, {
+    name: workflow,
+    path: `.github/workflows/${workflow.toLowerCase()}.yml`,
+    sha,
+    status: conclusion === null ? "in_progress" : "completed",
+    conclusion,
+    workflowId: 100 + [...workflow].reduce((sum, c) => sum + c.charCodeAt(0), 0),
+  });
 }

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import type { BaseCd } from "./base-cd.ts";
-import type { WorkflowRunSummary } from "./cd-runs.ts";
+import type { BaseCd, PreviousFix, PreviousIssue } from "./base-cd.ts";
+import type { CdState, WorkflowRunSummary } from "./cd-runs.ts";
 import type { DependencyIssue } from "./dependencies.ts";
 import type { RequiredCheck, RequiredCheckResult } from "./required-checks.ts";
 import type { RunState } from "./run-state.ts";
@@ -390,5 +390,149 @@ describe("deliveryOutcome: fixes after a CD failure", () => {
       }),
     );
     assert.equal(done.stage, "done");
+  });
+});
+
+describe("deliveryOutcome: a red merge on the base branch (#772)", () => {
+  const cdRun = (id: number, workflow: string, state: RunState): WorkflowRunSummary => ({
+    ...run(id, state),
+    name: workflow,
+    path: `${workflow}.yml`,
+  });
+  const cd = (sha: string, runs: WorkflowRunSummary[], nibfin = true): CdState => ({
+    mergeCommitSha: sha,
+    nibfinRunPresent: nibfin,
+    runs,
+  });
+  const ownRuns = [cdRun(1, "ci", "failed"), cdRun(2, "lint", "success")];
+  const base = (fields: Partial<BaseCd>): BaseCd => ({
+    heads: ["m2"],
+    newest: null,
+    previous: null,
+    previousIssue: null,
+    ...fields,
+  });
+  const outcome = (baseCd: BaseCd, runs = ownRuns) =>
+    deliveryOutcome(snapshot({ delivery: [pr(2, { merged: true, runs })], baseCd }));
+  const red = cd("m0", [cdRun(5, "ci", "failed")]);
+  const green = (sha: string, runs = [cdRun(7, "ci", "success")]) => cd(sha, runs);
+  const fixOf = (fields: Partial<PreviousFix> = {}): PreviousFix => ({
+    mergeCommitSha: "f9",
+    pullRequestUrl: "https://github.com/acme/app/pull/90",
+    newerThanMerge: true,
+    cd: green("f9"),
+    ...fields,
+  });
+  const afterRed = (issue: PreviousIssue) =>
+    outcome(base({ previous: red, previousIssue: issue }));
+
+  it("finishes when the newest head passes for the merge", () => {
+    const newest = green("m4");
+    const stage = outcome(base({ newest, previous: red }));
+    assert.deepEqual(stage, {
+      stage: "done",
+      branch: delivery,
+      pullRequest: stage.stage === "done" ? stage.pullRequest : undefined,
+      passedOn: newest,
+    });
+  });
+
+  it("does not count a green newest head that did not re-run a failed path", () => {
+    const newest = green("m4", [cdRun(8, "lint", "success")]);
+    const stage = outcome(base({ newest }));
+    assert.equal(stage.stage, "cd-failed");
+    assert.ok(stage.stage === "cd-failed");
+    assert.equal(stage.runs, ownRuns);
+    assert.equal(stage.failedOn, undefined);
+    const pending = cd("m4", [cdRun(8, "ci", "success"), cdRun(9, "x", "pending")]);
+    assert.equal(outcome(base({ newest: pending })).stage, "cd-failed");
+    const noNibfin = cd("m4", [cdRun(8, "ci", "success")], false);
+    assert.equal(outcome(base({ newest: noNibfin })).stage, "cd-failed");
+  });
+
+  it("fixes its own merge when it is the first red push", () => {
+    for (const fields of [
+      {},
+      { previous: green("m0") },
+      { previous: red },
+      { previous: red, previousIssue: { number: 1, open: true, fix: null } },
+    ]) {
+      const stage = outcome(base(fields));
+      assert.equal(stage.stage, "cd-failed");
+      assert.ok(stage.stage === "cd-failed");
+      assert.equal(stage.runs, ownRuns);
+      assert.equal(stage.nextFixBranch, `${delivery}-cd-1`);
+    }
+  });
+
+  it("waits while the previous push still runs CD", () => {
+    for (const previous of [
+      cd("m0", [], false),
+      cd("m0", [cdRun(5, "ci", "pending"), cdRun(6, "lint", "success")]),
+    ]) {
+      const stage = outcome(base({ previous }));
+      assert.deepEqual(stageOf(stage), ["awaiting-cd", "previous-cd-pending"]);
+      assert.ok(stage.stage === "awaiting-cd");
+      assert.equal(stage.waitingOn, undefined);
+      assert.equal(stage.runs, ownRuns);
+    }
+  });
+
+  it("waits for the open Issue that made the base red, fixes for a closed one", () => {
+    const waiting = afterRed({ number: 7, open: true, fix: null });
+    assert.deepEqual(stageOf(waiting), ["awaiting-cd", "previous-cd-red"]);
+    assert.ok(waiting.stage === "awaiting-cd");
+    assert.equal(waiting.waitingOn, 7);
+    const fixing = afterRed({ number: 7, open: false, fix: null });
+    assert.ok(fixing.stage === "cd-failed");
+    assert.equal(fixing.runs, ownRuns);
+  });
+
+  it("waits for the previous Issue's fix to complete CD on a newer head", () => {
+    for (const fix of [
+      fixOf({ newerThanMerge: false }),
+      fixOf({ cd: cd("f9", [], false) }),
+      fixOf({ cd: cd("f9", [cdRun(7, "ci", "pending")]) }),
+    ]) {
+      const stage = afterRed({ number: 7, open: true, fix });
+      assert.deepEqual(stageOf(stage), ["awaiting-cd", "previous-fix-cd-pending"]);
+      assert.ok(stage.stage === "awaiting-cd");
+      assert.equal(stage.waitingOn, 7);
+    }
+  });
+
+  it("fixes the failure of the previous Issue's red fix, open or closed", () => {
+    const fixRuns = [cdRun(7, "ci", "failed"), cdRun(8, "lint", "pending")];
+    for (const open of [true, false]) {
+      const fix = fixOf({ cd: cd("f9", fixRuns) });
+      const stage = afterRed({ number: 7, open, fix });
+      assert.ok(stage.stage === "cd-failed");
+      assert.equal(stage.runs, fixRuns);
+      assert.deepEqual(stage.failedOn, {
+        mergeCommitSha: "f9",
+        pullRequestUrl: "https://github.com/acme/app/pull/90",
+      });
+    }
+  });
+
+  it("finishes on the previous Issue's fix that passes, open or closed", () => {
+    for (const open of [true, false]) {
+      const fix = fixOf();
+      const stage = afterRed({ number: 7, open, fix });
+      assert.ok(stage.stage === "done");
+      assert.equal(stage.passedOn, fix.cd);
+    }
+  });
+
+  it("fixes the failed paths the previous Issue's green fix did not re-run", () => {
+    const own = [cdRun(1, "ci", "failed"), cdRun(2, "image", "failed")];
+    const fix = fixOf({ cd: green("f9", [cdRun(7, "ci", "success")]) });
+    const stage = outcome(
+      base({ previous: red, previousIssue: { number: 7, open: true, fix } }),
+      own,
+    );
+    assert.ok(stage.stage === "cd-failed");
+    assert.deepEqual(stage.runs, [own[1]]);
+    assert.equal(stage.failedOn, undefined);
   });
 });
