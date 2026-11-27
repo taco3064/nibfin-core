@@ -1,5 +1,5 @@
 #!/bin/sh
-# Smoke-checks a built Nibfin image: every tool runs as the non-root uid 1000, and
+# Smoke-checks a built Nibfin image: every tool runs as the non-root uid 1000,
 # the system libraries and fonts for Playwright's Chromium are present, and the
 # workflow templates ship in the image (nibfin render-workflows renders a user set).
 # Usage: smoke-image.sh <image>
