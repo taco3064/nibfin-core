@@ -75,6 +75,7 @@ describe("readBuiltInSkillNames", () => {
     assert.deepEqual(await readBuiltInSkillNames(), [
       "accept",
       "deliver",
+      "repair",
       "scope",
       "shape",
     ]);

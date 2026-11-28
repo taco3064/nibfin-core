@@ -33,10 +33,10 @@ dangling one is invalid, not missing.
 - `tools`: only `node`, `python` and `go`, each an exact `x.y.z` string. Go also takes
   `x.y`, which must name a release called exactly `go<x.y>`: first releases up to Go
   1.20 have names like `go1.20`, without `.0`.
-- `skills`: only the built-in skills (today `accept`, `deliver`, `scope` and `shape`;
-  Proposal R7.5), each exactly `{ mode, path }` with `mode` `extend` or `override`
-  and `path` a string. Any other name is rejected as an unknown skill, with the list
-  of the built-in skills.
+- `skills`: only the built-in skills (today `accept`, `deliver`, `repair`, `scope` and
+  `shape`; Proposal R7.5), each exactly `{ mode, path }` with `mode` `extend` or
+  `override` and `path` a string. Any other name is rejected as an unknown skill, with
+  the list of the built-in skills.
 - Any other key at any level is invalid, including the removed `allowedDomains` and
   `writerBackend`.
 

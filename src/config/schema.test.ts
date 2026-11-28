@@ -222,9 +222,10 @@ describe("readNibfinConfig", () => {
     await writeFile(join(dir, ".nibfin.json"), plan);
     const error = await rejection(dir);
     assert.equal(error.code, "CONFIG_INVALID");
-    assert.match(
+    const known = "accept, deliver, repair, scope, shape";
+    assert.ok(
+      error.message.includes(`$.skills.plan: unknown skill; the skills are ${known}`),
       error.message,
-      /\$\.skills\.plan: unknown skill; the skills are accept, deliver, scope, shape/,
     );
   });
 
