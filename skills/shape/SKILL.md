@@ -282,6 +282,24 @@ from the current sources and investigate again. The previous Shape is reference 
 not resubmit it with patches. The new Shape states how it resolves each point of the
 reason, or, with evidence, why a point does not hold.
 
+### A person's decision on a repair record
+
+When the stage supplies a person's decision on a repair record, return the Issue change
+that decision asks for; that run writes no Shape. The record's options are suggestions.
+
+- The decision is what the person said. A bare option number means that option's Issue
+  change. A reply in their own words means what it says, read literally: do not map it
+  onto the nearest option, and add nothing an option said that the reply did not. Update
+  every part of the body the decision makes untrue, such as an outcome it replaces, and
+  name each such update in the change summary.
+- Return only changes to the Issue body and its `Blocked by` edges. Name in the change
+  summary every other step the decision asks for, such as a label like `pause`, a CI or
+  workflow change, closing the Issue or work in another repository, as a step a person
+  takes. Never drop a part of the decision silently.
+- When the decision is unclear or contradicts itself, return blocked and quote it; do not
+  guess.
+- Keep the rest of the body as it is, and follow Disclosure.
+
 ### Revisions
 
 When the Validator required changes, resolve every finding. A finding that starts with
