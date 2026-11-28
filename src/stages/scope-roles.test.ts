@@ -189,12 +189,17 @@ describe("parsePlanResult", () => {
     [
       "a blockedBy that is no list",
       ready([{ ...fresh("a"), blockedBy: "b" }]),
-      /blockedBy must be a list/,
+      /issue "a": blockedBy must be a list of strings/,
     ],
     [
       "a blockedBy of non-strings",
       ready([{ ...fresh("a"), blockedBy: [1] }]),
-      /blockedBy must be a list/,
+      /issue "a": blockedBy must be a list of strings/,
+    ],
+    [
+      "a null blockedBy",
+      ready([{ ...fresh("a"), blockedBy: null }]),
+      /issue "a": blockedBy must be a list of strings/,
     ],
     [
       "an unknown edge",
@@ -218,6 +223,25 @@ describe("parsePlanResult", () => {
       invalid(() => parsePlanResult(message, context), pattern);
     });
   }
+
+  it("reads a missing blockedBy as no dependencies", () => {
+    const bare = { key: "a", repository: "acme/lib", title: "Title a", body };
+    const issues = [bare, { key: "b", reuse: reuseUrl }, fresh("c", ["a", "b"])];
+    assert.deepEqual(parsePlanResult(ready(issues), context), {
+      outcome: "PLAN_READY",
+      deduplication: "verified",
+      report: "## Plan",
+      issues: [
+        { ...bare, blockedBy: [] },
+        { key: "b", reuse: reuseUrl, blockedBy: [] },
+        fresh("c", ["a", "b"]),
+      ],
+    });
+    invalid(
+      () => parsePlanResult(ready([bare, fresh("c", ["z"])]), context),
+      /issue "c": blockedBy z is neither a key nor an Issue URL/,
+    );
+  });
 
   it("accepts a diamond of edges", () => {
     const plan = parsePlanResult(

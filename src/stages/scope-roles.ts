@@ -187,7 +187,8 @@ function parseEntry(
   }
   const key = entryText(value, "key", `issues[${index}]`, finalMessage);
   const where = `issue ${JSON.stringify(key)}`;
-  const { blockedBy } = value;
+  // An absent blockedBy means no dependencies; any present value must be a list.
+  const blockedBy = value.blockedBy === undefined ? [] : value.blockedBy;
   if (!Array.isArray(blockedBy) || !blockedBy.every((item) => typeof item === "string")) {
     throw invalidResult(`${where}: blockedBy must be a list of strings`, finalMessage);
   }
