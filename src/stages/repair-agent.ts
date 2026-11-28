@@ -40,6 +40,7 @@ import { readPendingCause } from "./pending.ts";
 import { fenced, type PromptSection } from "./prompt.ts";
 import { pendingEvidence, readRepairNeed, release, type RepairNeed } from "./repair.ts";
 import {
+  formatOptions,
   formatRepairRecord,
   type RepairAction,
   repairCommentKey,
@@ -50,6 +51,7 @@ import {
   type RepairClass,
   type RepairOption,
   repairClasses,
+  parseIssueUrl,
   type RepairResult,
   repairRole,
   parseRepairResult,
@@ -459,17 +461,6 @@ function proposal(result: RepairResult): string {
   }
 }
 
-function optionsDetails(result: RepairResult & { outcome: "DECIDE" }): string {
-  const options = result.options.map((option, index) =>
-    [
-      `${index + 1}. **${titleOf(option)}**${option.recommended ? " (recommended)" : ""}`,
-      indent(option.consequence),
-      indent(`Issue change: ${option.issueChange}`),
-    ].join("\n"),
-  );
-  return ["### Options", "", ...options].join("\n");
-}
-
 function stepsDetails(result: RepairResult & { outcome: "FOLLOW_UP" }): string {
   const steps = result.steps.map((step, index) =>
     [
@@ -492,12 +483,6 @@ function stepsDetails(result: RepairResult & { outcome: "FOLLOW_UP" }): string {
     );
   }
   return parts.join("\n");
-}
-
-function parseIssueUrl(url: string): IssueRef {
-  const [, owner, repo, number] =
-    /^https:\/\/github\.com\/([^/]+)\/([^/]+)\/issues\/(\d+)$/.exec(url)!;
-  return { owner, repo, number: Number(number) };
 }
 
 /**
@@ -647,7 +632,7 @@ async function applyResult(
           advice:
             "Reply with only the number of the option you choose (or use the " +
             "Dashboard's decision comment), then remove `pending` (Proposal R4.51).",
-          details: optionsDetails(result),
+          details: formatOptions(result.options),
         },
         evidence,
       });

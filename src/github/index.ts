@@ -45,6 +45,8 @@ export {
 } from "./issue-writes.ts";
 export {
   type IssueComment,
+  listIssueComments,
+  type ListedComment,
   readIssueComment,
   readLastUnlabeled,
 } from "./issue-events.ts";

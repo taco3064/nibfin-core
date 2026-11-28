@@ -27,6 +27,8 @@ export interface FakeComment {
   versions?: number;
   /** REST `updated_at`: set from `fakeTime()` on every create and update. */
   updatedAt?: string;
+  /** REST `created_at`: set from `fakeTime()` when it is created. */
+  createdAt?: string;
 }
 
 /** An Issue event as REST lists it, e.g. `unlabeled` for `pending`. */
@@ -85,6 +87,7 @@ function commentJson(issue: FakeIssue, comment: FakeComment) {
     user: { id: comment.userId, login: `user-${comment.userId}` },
     body: comment.body,
     html_url: `${issueUrl(issue)}#issuecomment-${comment.id}`,
+    created_at: comment.createdAt ?? "2026-11-27T00:00:00.000Z",
     // Fake-only: GraphQL `userContentEdits.totalCount` for the Issue record.
     edits: (comment.versions ?? 1) === 1 ? 0 : comment.versions,
   };
@@ -117,12 +120,14 @@ let nextCommentId = 1000;
 
 /** Adds a comment to `issue` and the route that updates it in place. */
 function addComment(github: FakeGitHub, issue: FakeIssue, userId: number, body: string) {
+  const now = fakeTime();
   const comment: FakeComment & { versions: number } = {
     id: nextCommentId++,
     userId,
     body,
     versions: 1,
-    updatedAt: fakeTime(),
+    updatedAt: now,
+    createdAt: now,
   };
   issue.comments.push(comment);
   const path = `/repos/${issue.owner}/${issue.repo}/issues/comments/${comment.id}`;

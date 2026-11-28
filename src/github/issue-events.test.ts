@@ -2,7 +2,11 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { GitHubError } from "./errors.ts";
 import { failure, fakeGitHub, paged, rejection, repo } from "./fake-github.test.ts";
-import { readIssueComment, readLastUnlabeled } from "./issue-events.ts";
+import {
+  listIssueComments,
+  readIssueComment,
+  readLastUnlabeled,
+} from "./issue-events.ts";
 
 const issue = { ...repo, number: 3 };
 const events = "GET /repos/acme/app/issues/3/events";
@@ -76,5 +80,49 @@ describe("readIssueComment", () => {
       readIssueComment(github.client, { owner: "acme", repo: "other" }, 55),
     );
     assert.ok(error instanceof GitHubError);
+  });
+});
+
+describe("listIssueComments", () => {
+  const list = "GET /repos/acme/app/issues/3/comments";
+  const item = (id: number, login: string | null, body: string | null) => ({
+    id,
+    user: login === null ? null : { id: id + 1, login },
+    body,
+    created_at: "2026-11-27T01:00:00Z",
+    html_url: `https://github.com/acme/app/issues/3#issuecomment-${id}`,
+  });
+
+  it("reads every page with logins, bodies and creation times", async () => {
+    const items = [
+      item(1, "ann", "2"),
+      ...Array.from({ length: 100 }, (_, i) => item(10 + i, "bob", "chat")),
+      item(500, null, null),
+    ];
+    const github = fakeGitHub({ [list]: paged(items) });
+    const comments = await listIssueComments(github.client, issue);
+    assert.equal(comments.length, 102);
+    assert.deepEqual(comments[0], {
+      id: 1,
+      login: "ann",
+      body: "2",
+      createdAt: "2026-11-27T01:00:00Z",
+      url: "https://github.com/acme/app/issues/3#issuecomment-1",
+    });
+    assert.deepEqual(comments.at(-1), {
+      id: 500,
+      login: null,
+      body: "",
+      createdAt: "2026-11-27T01:00:00Z",
+      url: "https://github.com/acme/app/issues/3#issuecomment-500",
+    });
+    assert.equal(github.calls[0]?.query.get("per_page"), "100");
+  });
+
+  it("fails when the comments cannot be read", async () => {
+    const github = fakeGitHub({ [list]: failure(500) });
+    const error = await rejection(listIssueComments(github.client, issue));
+    assert.ok(error instanceof GitHubError);
+    assert.equal(error.code, "GITHUB_READ_FAILED");
   });
 });

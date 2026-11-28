@@ -33,6 +33,7 @@ test("the github module exports its public API", () => {
     "issueOfBranch",
     "issueOfCommit",
     "issuesOfCommit",
+    "listIssueComments",
     "logGiveUp",
     "maxRetries",
     "mergeMethodOrder",

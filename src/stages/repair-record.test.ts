@@ -3,13 +3,16 @@ import { createHash } from "node:crypto";
 import { describe, it } from "node:test";
 import {
   formatDecision,
+  formatOptions,
   formatRepairRecord,
   parseDecision,
+  parseOptions,
   parseRepairRecord,
   pendingDigest,
   type RepairState,
   repairStatus,
   type RepairStatusInput,
+  recordReason,
 } from "./repair-record.ts";
 
 const text = {
@@ -196,5 +199,81 @@ describe("decision comment", () => {
     ]) {
       assert.equal(parseDecision(body), undefined, body);
     }
+  });
+});
+
+describe("formatOptions and parseOptions", () => {
+  const options = [
+    {
+      title: "Keep\nthe limit",
+      consequence: "Large files stay unsupported.\n2. **not an option**",
+      issueChange: "Out of scope gains large files.",
+      recommended: false,
+    },
+    {
+      title: "Raise the limit",
+      consequence: "Large files work.",
+      issueChange: "Outcome names the new limit.\n\nTests cover it.",
+      recommended: true,
+    },
+  ];
+
+  it("writes each option with its consequence and Issue change indented", () => {
+    assert.equal(
+      formatOptions(options),
+      [
+        "### Options",
+        "",
+        "1. **Keep the limit**",
+        "   Large files stay unsupported.",
+        "   2. **not an option**",
+        "   Issue change: Out of scope gains large files.",
+        "2. **Raise the limit** (recommended)",
+        "   Large files work.",
+        "   Issue change: Outcome names the new limit.",
+        "",
+        "   Tests cover it.",
+      ].join("\n"),
+    );
+  });
+
+  it("reads the options back, up to the next section", () => {
+    const body = formatRepairRecord(
+      {
+        for: "0123456789abcdef",
+        status: "waiting-for-choice",
+        action: "options",
+        handled: [],
+      },
+      { ...text, details: `${formatOptions(options)}\n\n### Later\n\n3. **No**` },
+    );
+    assert.deepEqual(parseOptions(body), [
+      {
+        number: 1,
+        text: [
+          "1. **Keep the limit**",
+          "   Large files stay unsupported.",
+          "   2. **not an option**",
+          "   Issue change: Out of scope gains large files.",
+        ].join("\n"),
+      },
+      {
+        number: 2,
+        text: [
+          "2. **Raise the limit** (recommended)",
+          "   Large files work.",
+          "   Issue change: Outcome names the new limit.",
+          "",
+          "   Tests cover it.",
+        ].join("\n"),
+      },
+    ]);
+    assert.equal(recordReason(body), "It looks temporary.");
+  });
+
+  it("reads no options without the section", () => {
+    assert.deepEqual(parseOptions("1. **One**"), []);
+    assert.deepEqual(parseOptions("### Options\n\nno option"), []);
+    assert.equal(recordReason("no reason"), undefined);
   });
 });

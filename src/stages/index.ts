@@ -69,6 +69,14 @@ export {
   systemClock,
 } from "./repair.ts";
 export {
+  type Choice,
+  choiceCommentKey,
+  type ChoiceState,
+  type ChoiceStatus,
+  pendingChoice,
+  readChoice,
+} from "./choice.ts";
+export {
   formatDecision,
   formatRepairRecord,
   isPendingCurrent,
