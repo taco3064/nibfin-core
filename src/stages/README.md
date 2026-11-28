@@ -115,6 +115,11 @@ the labels first and writes at most once per stop:
 reads the failed run's job logs. `readRepairInput` reads the reader rule's inputs for
 both the repair stage and `askPersonOnce`.
 
+A failed wake (`runWake`, "Wake" in `src/route/README.md`) calls `askPersonOnce`
+without a stage and with the failure itself, so its comment carries the original
+code and the temporary note only when `pendingBody` gives it; an Issue that already
+has `pending` is left as it is (rule 1).
+
 ## Repair stage
 
 **Parsed by gh-nibfin.** The record and decision formats and the reader rule below are
@@ -134,8 +139,8 @@ wake of the Issue reaches the stage.
 comment: the header before the first ` ```text ` line and the trailer after
 the last ` ``` ` line (the whole body without a fence). It gives `code` (the
 first ``- Code: `X` ``; `none` is no code), `run` (the `- Run:` URL),
-`temporary` (the trailer has the temporary sentence, `temporarySentence`, which the
-wake failure of `nibfin-events.yml` writes word for word), `reset` (``it resets at
+`temporary` (the trailer has the temporary sentence, `temporarySentence`, which only
+`pendingBody` writes, a failed wake's comment included, #776), `reset` (``it resets at
 `<reset>` `` in the usage-limit note) and `fromRepair` (``- Stage: `repair` ``).
 Text inside the fenced failure message never counts.
 

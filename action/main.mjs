@@ -1,8 +1,8 @@
+import { readFileSync } from 'node:fs';
 import { setTimeout as setTimeout$1 } from 'node:timers/promises';
+import 'node:path';
 import { createHash } from 'node:crypto';
 import 'node:fs/promises';
-import 'node:path';
-import 'node:fs';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import 'node:readline';
@@ -6285,6 +6285,27 @@ async function read(operation, run) {
         throw asReadError(operation, error);
     }
 }
+/**
+ * The request option of a read whose 404 means "absent" (pass it as `request`): that
+ * 404 is an answer, so the client does not retry it (Proposal R4.39). Octokit does not
+ * send it.
+ */
+const absentProbe = Object.freeze({ absent404: true });
+/**
+ * Runs a read where a 404 means "absent"; any other failure is `GITHUB_READ_FAILED`.
+ * Its request carries `request: absentProbe`, so that 404 is not retried.
+ */
+async function readOptional(operation, run) {
+    try {
+        return await run();
+    }
+    catch (error) {
+        if (hasResponse(error) && statusOf(error) === 404) {
+            return undefined;
+        }
+        throw asReadError(operation, error);
+    }
+}
 function asReadError(operation, error) {
     if (error instanceof GitHubError) {
         return error;
@@ -6613,6 +6634,82 @@ function formatIssue(issue) {
     return `${issue.owner}/${issue.repo}#${issue.number}`;
 }
 
+/** The branch that delivers Issue `n`. */
+function deliveryBranch(issueNumber) {
+    return `nibfin/issue-${issueNumber}`;
+}
+/** The branch of the `k`-th fix after a CD failure of Issue `n`. */
+function cdFixBranch(issueNumber, k) {
+    return `${deliveryBranch(issueNumber)}-cd-${k}`;
+}
+const issueBranchPattern = /^nibfin\/issue-([1-9]\d*)(?:-cd-[1-9]\d*)?$/;
+/**
+ * The Issue number of a delivery branch `nibfin/issue-<n>` or a CD fix branch
+ * `nibfin/issue-<n>-cd-<k>`; `undefined` for any other branch.
+ */
+function issueOfBranch(branch) {
+    const match = issueBranchPattern.exec(branch);
+    return match === null ? undefined : Number(match[1]);
+}
+function summarizePullRequest(pull) {
+    return {
+        number: pull.number,
+        state: pull.state === "open" ? "open" : "closed",
+        merged: pull.merged_at !== null,
+        headRef: pull.head.ref,
+        headSha: pull.head.sha,
+        baseRef: pull.base.ref,
+        mergeCommitSha: pull.merge_commit_sha,
+        url: pull.html_url,
+    };
+}
+
+/**
+ * Whether `login` has write access to the repository: its collaborator permission is
+ * `admin` or `write` (`maintain` reads as `write`). A 404 (not a collaborator) is no
+ * access; any other failure is `GITHUB_READ_FAILED`.
+ */
+async function hasWritePermission(client, repo, login) {
+    const answer = await readOptional(`read the permission of ${login} on ${repo.owner}/${repo.repo}`, () => client.request("GET /repos/{owner}/{repo}/collaborators/{username}/permission", {
+        ...repo,
+        username: login,
+        request: absentProbe,
+    }));
+    const permission = answer?.data.permission;
+    return permission === "admin" || permission === "write";
+}
+/**
+ * The merged pull requests whose `merge_commit_sha` is `sha` (#771). GitHub's
+ * `GET …/commits/{sha}/pulls` names only the pull request that introduced a commit,
+ * so a second pull request merged to the same commit (main did not move) is found
+ * here: the closed pull requests, most recently updated first, page by page, up to
+ * the first page that reaches one updated before the commit's committer date (any
+ * pull request merged to `sha` was merged, so updated, after the commit existed).
+ */
+async function readPullRequestsMergedAt(client, repo, sha) {
+    const name = `${repo.owner}/${repo.repo}`;
+    const { data: commit } = await read(`read commit ${name}@${sha}`, () => client.request("GET /repos/{owner}/{repo}/git/commits/{commit_sha}", {
+        ...repo,
+        commit_sha: sha,
+    }));
+    const since = Date.parse(commit.committer.date);
+    const pulls = await read(`list closed pull requests of ${name}`, () => client.paginate("GET /repos/{owner}/{repo}/pulls", {
+        ...repo,
+        state: "closed",
+        sort: "updated",
+        direction: "desc",
+        per_page: 100,
+    }, (response, done) => {
+        if (response.data.some((pull) => Date.parse(pull.updated_at) < since)) {
+            done();
+        }
+        return response.data;
+    }));
+    return pulls
+        .filter((pull) => pull.merged_at !== null && pull.merge_commit_sha === sha)
+        .map(summarizePullRequest);
+}
+
 /** A failure that names its cause and keeps the tool's original exit code. */
 class AgentError extends Error {
     code;
@@ -6633,13 +6730,64 @@ class AgentError extends Error {
 
 promisify(execFile);
 
-/** The branch that delivers Issue `n`. */
-function deliveryBranch(issueNumber) {
-    return `nibfin/issue-${issueNumber}`;
+/** A stage that stopped for a named reason. `cause` keeps the original error, if any. */
+class StageError extends Error {
+    code;
+    constructor(code, message, cause) {
+        super(message, { cause });
+        this.name = "StageError";
+        this.code = code;
+    }
 }
-/** The branch of the `k`-th fix after a CD failure of Issue `n`. */
-function cdFixBranch(issueNumber, k) {
-    return `${deliveryBranch(issueNumber)}-cd-${k}`;
+/**
+ * A stage that exited 0 without progress while the route still asks for the same
+ * stage and reason (#674). `temporary` when waiting is likely to fix it (GitHub
+ * still computing mergeability).
+ */
+class NoProgressError extends StageError {
+    temporary;
+    constructor(message, temporary) {
+        super("STAGE_NO_PROGRESS", message);
+        this.name = "NoProgressError";
+        this.temporary = temporary;
+    }
+}
+
+function invalid$1(field, reason) {
+    return new StageError("STAGE_INPUT_INVALID", `${field} ${reason}`);
+}
+const repoPattern = /^([A-Za-z0-9-]+)\/([A-Za-z0-9._-]+)$/;
+const numberPattern = /^[1-9]\d*$/;
+function required(value, field) {
+    if (value === undefined || value.trim() === "") {
+        throw invalid$1(field, "is missing");
+    }
+    return value;
+}
+function positiveInteger(value, field) {
+    const text = required(value, field);
+    const number = Number(text);
+    if (!numberPattern.test(text) || !Number.isSafeInteger(number)) {
+        throw invalid$1(field, "must be a positive integer");
+    }
+    return number;
+}
+function readRepo$1(value, field) {
+    const match = repoPattern.exec(required(value, field));
+    if (match === null) {
+        throw invalid$1(field, "must be <owner>/<repo>");
+    }
+    return { owner: match[1], repo: match[2] };
+}
+
+/** Every workflow Nibfin installs has a name starting with this prefix. */
+const nibfinWorkflowPrefix = "Nibfin ·";
+/**
+ * The run name of an Issue's stage or route run (#674):
+ * `Nibfin · <owner>/<repo>#<n> · <stage>`.
+ */
+function nibfinRunTitle(repo, issue, stage) {
+    return `${nibfinWorkflowPrefix} ${repo.owner}/${repo.repo}#${issue} · ${stage}`;
 }
 
 /**
@@ -6917,6 +7065,41 @@ async function issueRecord(client, ref, operation) {
 }
 
 /**
+ * The Issues of the open or merged pull requests of `GET /commits/{sha}/pulls` whose
+ * head is `nibfin/issue-<n>[-cd-<k>]` (the head ref stays after the branch is
+ * deleted), in GitHub's order, without repeats.
+ */
+async function associatedIssues(client, repo, sha) {
+    const operation = `list pull requests of ${repo.owner}/${repo.repo}@${sha}`;
+    const pulls = await read(operation, () => client.paginate("GET /repos/{owner}/{repo}/commits/{commit_sha}/pulls", {
+        ...repo,
+        commit_sha: sha,
+        per_page: 100,
+    }));
+    const issues = pulls
+        .filter((pull) => pull.state === "open" || pull.merged_at !== null)
+        .map((pull) => issueOfBranch(pull.head.ref))
+        .filter((issue) => issue !== undefined);
+    return [...new Set(issues)];
+}
+/**
+ * Every Issue of commit `sha`, without repeats: those of `GET /commits/{sha}/pulls`
+ * (see `associatedIssues`), then those of every merged pull request whose
+ * `merge_commit_sha` is the commit (a pull request that merged without moving the
+ * base is not associated with it, #771). Empty when it belongs to no Issue.
+ */
+async function issuesOfCommit(client, repo, sha) {
+    const issues = await associatedIssues(client, repo, sha);
+    for (const pull of await readPullRequestsMergedAt(client, repo, sha)) {
+        const issue = issueOfBranch(pull.headRef);
+        if (issue !== undefined) {
+            issues.push(issue);
+        }
+    }
+    return [...new Set(issues)];
+}
+
+/**
  * Runs a write and retries it on any error up to `maxRetries` times (Proposal
  * R4.37–R4.38). A 4xx that `recover` shows as the intended state is success and is
  * not retried. Before each re-send the client's retry wait passes, then `confirm`
@@ -7150,27 +7333,28 @@ async function setLabels(client, issue, changes) {
     return readLabels(client, issue);
 }
 
-/** A stage that stopped for a named reason. `cause` keeps the original error, if any. */
-class StageError extends Error {
-    code;
-    constructor(code, message, cause) {
-        super(message, { cause });
-        this.name = "StageError";
-        this.code = code;
-    }
+/** `GET /repos/{owner}/{repo}`; within a run the read cache shares one request. */
+async function readRepo(client, repo) {
+    const { data } = await read(`read ${repo.owner}/${repo.repo}`, () => client.request("GET /repos/{owner}/{repo}", { ...repo }));
+    return data;
+}
+/** The default branch of `repo`. */
+async function readDefaultBranch(client, repo) {
+    return (await readRepo(client, repo)).default_branch;
 }
 /**
- * A stage that exited 0 without progress while the route still asks for the same
- * stage and reason (#674). `temporary` when waiting is likely to fix it (GitHub
- * still computing mergeability).
+ * Dispatches `workflow` of `repo` on its default branch with `inputs` and returns
+ * the new run's URL when GitHub reports it. A dispatch only wakes an Issue, so a
+ * repeated one is harmless (R4.35), and it cannot be confirmed by a re-read: any
+ * failure is re-sent without a pre-read up to `maxRetries` times. Then no response
+ * or a 5xx is `GITHUB_WRITE_UNCONFIRMED`, any other failure `GITHUB_WRITE_REJECTED`.
  */
-class NoProgressError extends StageError {
-    temporary;
-    constructor(message, temporary) {
-        super("STAGE_NO_PROGRESS", message);
-        this.name = "NoProgressError";
-        this.temporary = temporary;
-    }
+async function dispatchWorkflow(client, repo, workflow, inputs) {
+    const ref = await readDefaultBranch(client, repo);
+    return write(client, `dispatch ${workflow} of ${repo.owner}/${repo.repo}`, async () => {
+        const { data } = await client.request("POST /repos/{owner}/{repo}/actions/workflows/{workflow_id}/dispatches", { ...repo, workflow_id: workflow, ref, inputs, return_run_details: true });
+        return data?.html_url;
+    }, { confirm: () => Promise.resolve(undefined) });
 }
 
 // The repair record and decision comment: the contract gh-nibfin parses (Proposal
@@ -7248,33 +7432,6 @@ function recordApplies(input) {
         input.record.for === pendingDigest(input.pendingComment.body));
 }
 
-function invalid$1(field, reason) {
-    return new StageError("STAGE_INPUT_INVALID", `${field} ${reason}`);
-}
-const repoPattern = /^([A-Za-z0-9-]+)\/([A-Za-z0-9._-]+)$/;
-const numberPattern = /^[1-9]\d*$/;
-function required(value, field) {
-    if (value === undefined || value.trim() === "") {
-        throw invalid$1(field, "is missing");
-    }
-    return value;
-}
-function positiveInteger(value, field) {
-    const text = required(value, field);
-    const number = Number(text);
-    if (!numberPattern.test(text) || !Number.isSafeInteger(number)) {
-        throw invalid$1(field, "must be a positive integer");
-    }
-    return number;
-}
-function readRepo(value, field) {
-    const match = repoPattern.exec(required(value, field));
-    if (match === null) {
-        throw invalid$1(field, "must be <owner>/<repo>");
-    }
-    return { owner: match[1], repo: match[2] };
-}
-
 function unconfirmed(operation, reason) {
     return new GitHubError("GITHUB_WRITE_UNCONFIRMED", operation, new Error(reason));
 }
@@ -7322,8 +7479,8 @@ function runUrl(repo, id) {
         : `https://github.com/${repo.owner}/${repo.repo}/actions/runs/${id}`;
 }
 /**
- * The sentence a `pending` comment carries for a failure that looks temporary. The wake
- * failure of `nibfin-events.yml` writes it word for word; the repair stage reads it.
+ * The sentence a `pending` comment carries for a failure that looks temporary. Only
+ * `pendingBody` writes it (a failed wake too, #776); the repair stage reads it.
  */
 const temporarySentence = "This looks temporary (network, GitHub or a single agent run); removing the " +
     "label retries it.";
@@ -7535,8 +7692,260 @@ async function askPersonOnce(client, issue, error, url, stage) {
     return requestPerson(client, issue, failure, url, repair ? "repair" : undefined);
 }
 
+/** The execution repository's workflow that runs every route and stage Job. */
+const sharedRunnerWorkflow = "nibfin-shared-runner.yml";
+const repoName = (repo) => `${repo.owner}/${repo.repo}`;
+async function dispatch(scope, title, inputs) {
+    const url = await dispatchWorkflow(scope.client, scope.runRepo, sharedRunnerWorkflow, inputs);
+    scope.log(`Dispatched ${title}${url === undefined ? "" : `: ${url}`}`);
+}
+/**
+ * Dispatches a route run for the target; never deduplicated, so no wake is lost. An
+ * Issue is sent as `issue`; a commit as `sha` and a branch as `branch`, each also as
+ * `ref`, which names the run `Nibfin · <owner>/<repo>@<ref> · route` as the shared
+ * runner does.
+ */
+async function dispatchRoute(scope, repo, target) {
+    const inputs = { stage: "route", repo: repoName(repo) };
+    if ("issue" in target) {
+        const title = nibfinRunTitle(repo, target.issue, "route");
+        await dispatch(scope, title, { ...inputs, issue: String(target.issue) });
+        return;
+    }
+    const [name, ref] = "sha" in target ? ["sha", target.sha] : ["branch", target.branch];
+    const title = `${nibfinWorkflowPrefix} ${repoName(repo)}@${ref} · route`;
+    await dispatch(scope, title, { ...inputs, [name]: ref, ref });
+}
+
+// The Issues an event names (#776: kept apart from `route.ts`, which reaches the
+// stages barrel, so the Action can import it).
+/**
+ * The Issues of an event target, without repeats: the Issue itself; the Issue of a
+ * `nibfin/issue-<n>[-cd-<k>]` branch; or for a commit, the Issues of every open or
+ * merged pull request of `GET /commits/{sha}/pulls` whose head is such a branch,
+ * then those of every merged pull request whose `merge_commit_sha` is the commit
+ * (a pull request that merged without moving the base is not associated with it,
+ * #771). Empty when the target belongs to no Issue.
+ */
+async function routeEvent(client, repo, target) {
+    if ("issue" in target) {
+        return [target.issue];
+    }
+    if ("branch" in target) {
+        const issue = issueOfBranch(target.branch);
+        return issue === undefined ? [] : [issue];
+    }
+    return issuesOfCommit(client, repo, target.sha);
+}
+
+const issueBranchPrefix = "nibfin/issue-";
+/** Labels Nibfin's own stages add and remove; their changes wake nothing. */
+const ownLabels = new Set(["shaped", "delivered"]);
+function invalidEvent(eventName, field) {
+    return new StageError("STAGE_INPUT_INVALID", `The ${eventName} event has no ${field}`);
+}
+/** The execution repository, required before any target or token is used. */
+function executionRepoOf(value) {
+    if (value === undefined || value.trim() === "") {
+        throw new StageError("STAGE_INPUT_INVALID", "The variable NIBFIN_EXECUTION_REPO is not set (input execution-repo)");
+    }
+    return readRepo$1(value, "NIBFIN_EXECUTION_REPO");
+}
+const skip = (reason) => ({ kind: "skip", reason });
+function issuesWake(payload, name, executionRepo) {
+    const number = payload.issue?.number;
+    if (number === undefined) {
+        throw invalidEvent("issues", "issue");
+    }
+    const labels = (payload.issue?.labels ?? []).map((label) => label.name);
+    if (!labels.includes("scope") && !labels.includes("request")) {
+        return skip(`${name}#${number} has no scope or request label; not routed`);
+    }
+    const { action } = payload;
+    const label = payload.label?.name;
+    if ((action === "labeled" || action === "unlabeled") &&
+        label !== undefined &&
+        ownLabels.has(label)) {
+        return skip(`Nibfin's own label change (${action} ${label}); not routed`);
+    }
+    const writer = payload.sender?.login;
+    if (writer === undefined) {
+        throw invalidEvent("issues", "sender");
+    }
+    const target = { issue: number };
+    return { kind: "wake", executionRepo, target, writer };
+}
+function reviewWake(payload, name, executionRepo) {
+    const head = payload.pull_request?.head;
+    const branch = head?.ref;
+    if (branch === undefined || !branch.startsWith(issueBranchPrefix)) {
+        return skip("A review on a pull request that is not Nibfin's; not routed");
+    }
+    const headRepo = head?.repo?.full_name;
+    if (headRepo !== name) {
+        const from = headRepo ?? "an unknown repository";
+        return skip(`A review on a pull request from ${from}; not routed`);
+    }
+    const repo = executionRepoOf(executionRepo);
+    const writer = payload.sender?.login;
+    if (writer === undefined) {
+        throw invalidEvent("pull_request_review", "sender");
+    }
+    return { kind: "wake", executionRepo: repo, target: { branch }, writer };
+}
+function workflowRunTarget(payload, name) {
+    const run = payload.workflow_run;
+    if (run?.event === "pull_request") {
+        const branch = run.head_branch;
+        if (typeof branch !== "string" || !branch.startsWith(issueBranchPrefix)) {
+            return "A run of a pull request that is not Nibfin's; not routed";
+        }
+        const headRepo = run.head_repository?.full_name;
+        if (headRepo !== name) {
+            return `A pull request from ${headRepo ?? "an unknown repository"}; not routed`;
+        }
+        return { branch };
+    }
+    const sha = run?.head_sha;
+    if (sha === undefined) {
+        throw invalidEvent("workflow_run", "head_sha");
+    }
+    return { sha };
+}
+function checkSuiteTarget(payload) {
+    const suite = payload.check_suite;
+    const branch = suite?.head_branch;
+    if (suite?.app?.slug === "github-actions" || typeof branch !== "string" || !branch) {
+        return "A check suite of GitHub Actions or of no branch; not routed";
+    }
+    return { branch };
+}
+function pushTarget(payload) {
+    const branch = payload.repository?.default_branch;
+    if (branch === undefined || payload.ref !== `refs/heads/${branch}`) {
+        return "A push to a branch that is not the default branch; not routed";
+    }
+    if (payload.after === undefined) {
+        throw invalidEvent("push", "after");
+    }
+    return { sha: payload.after };
+}
+/** The target of an event that wakes without a permission check, or why it skips. */
+function targetOf(eventName, payload, name) {
+    switch (eventName) {
+        case "workflow_run":
+            return workflowRunTarget(payload, name);
+        case "check_suite":
+            return checkSuiteTarget(payload);
+        case "status":
+            if (payload.sha === undefined) {
+                throw invalidEvent("status", "sha");
+            }
+            return { sha: payload.sha };
+        case "push":
+            return pushTarget(payload);
+        default:
+            return `The ${eventName} event is not routed`;
+    }
+}
+/**
+ * What an event of `repo` wakes, decided from its payload alone, before any token is
+ * used, with the workflows' rules in their order (#776):
+ *
+ * - every event but `pull_request_review` first needs the execution repository;
+ * - `issues`: the Issue needs `scope` or `request`, and a `labeled` or `unlabeled`
+ *   `shaped` or `delivered` wakes nothing; then `{ issue }`, if the sender writes;
+ * - `pull_request_review`: a `nibfin/issue-*` head of the same repository, then the
+ *   execution repository; `{ branch }`, if the sender writes;
+ * - `workflow_run`: of a `pull_request`, a `nibfin/issue-*` head of the same
+ *   repository, `{ branch }` (a failed check is never routed by commit); any other,
+ *   `{ sha: head_sha }`;
+ * - `check_suite`: not of the `github-actions` app and with a head branch,
+ *   `{ branch }`;
+ * - `status`: `{ sha }`; `push`: only to the default branch, `{ sha: after }`;
+ * - any other event is not routed.
+ *
+ * A missing or invalid `NIBFIN_EXECUTION_REPO`, or a payload without a field its event
+ * always has, is `STAGE_INPUT_INVALID`.
+ */
+function wakeOf(eventName, payload, repo, executionRepo) {
+    const name = `${repo.owner}/${repo.repo}`;
+    if (eventName === "pull_request_review") {
+        return reviewWake(payload, name, executionRepo);
+    }
+    const execution = executionRepoOf(executionRepo);
+    if (eventName === "issues") {
+        return issuesWake(payload, name, execution);
+    }
+    const target = targetOf(eventName, payload, name);
+    return typeof target === "string"
+        ? skip(target)
+        : { kind: "wake", executionRepo: execution, target, writer: undefined };
+}
+/**
+ * After a failed wake, asks a person once on each Issue of the target (`routeEvent`)
+ * with the failure itself (`askPersonOnce`): an Issue whose `pending` stands is left
+ * as it is. Nothing is written when the target belongs to no Issue or its Issues
+ * cannot be read.
+ */
+async function askPeople(client, input, target, error, log) {
+    let issues;
+    try {
+        issues = await routeEvent(client, input.repo, target);
+    }
+    catch (readError) {
+        const reason = describeFailure(readError);
+        log(`The wake failed and its Issues could not be read (${reason}); no pending added`);
+        return;
+    }
+    if (issues.length === 0) {
+        log("The wake failed and belongs to no Issue; no pending added");
+    }
+    for (const number of issues) {
+        const issue = { ...input.repo, number };
+        const name = formatIssue(issue);
+        try {
+            const wrote = await askPersonOnce(client, issue, error, input.url);
+            log(wrote
+                ? `Added pending to ${name}`
+                : `${name}: Nibfin's stop stands; left as it is`);
+        }
+        catch (writeError) {
+            log(`Could not add pending to ${name}: ${describeFailure(writeError)}`);
+        }
+    }
+}
+/**
+ * Wakes the event's Issue (`wakeOf`): a skipped event logs why and never connects.
+ * Otherwise it connects, checks the writer's permission (`hasWritePermission`; without
+ * it nothing is routed) and dispatches the route run (`dispatchRoute`). When that
+ * fails, each Issue of the target is asked about once (`askPersonOnce`) and the failure
+ * is thrown on, so the run fails.
+ */
+async function runWake(input, connect, log) {
+    const decision = wakeOf(input.eventName, input.payload, input.repo, input.executionRepo);
+    if (decision.kind === "skip") {
+        log(decision.reason);
+        return;
+    }
+    const client = await connect();
+    const { target, writer } = decision;
+    try {
+        if (writer !== undefined && !(await hasWritePermission(client, input.repo, writer))) {
+            log(`${writer} has no admin or write permission; not routed`);
+            return;
+        }
+        const scope = { client, runRepo: decision.executionRepo, runId: undefined, log };
+        await dispatchRoute(scope, input.repo, target);
+    }
+    catch (error) {
+        await askPeople(client, input, target, error, log);
+        throw error;
+    }
+}
+
 /** The commands of the Action's `command` input. */
-const actionCommands = ["job-failed"];
+const actionCommands = ["job-failed", "wake"];
 /** The environment variable of the Action input `name`. */
 function inputName(name) {
     return `INPUT_${name.toUpperCase()}`;
@@ -7563,13 +7972,13 @@ const stagePattern = /^[a-z][a-z-]*$/;
  * `STAGE_INPUT_INVALID` naming the field, never its value.
  */
 function readJobFailedInputs(env) {
-    const repo = readRepo(input(env, "repo"), inputName("repo"));
+    const repo = readRepo$1(input(env, "repo"), inputName("repo"));
     const number = positiveInteger(input(env, "issue"), inputName("issue"));
     const stage = required(input(env, "stage"), inputName("stage"));
     if (!stagePattern.test(stage)) {
         throw invalid(inputName("stage"), "must be a stage name");
     }
-    const runRepo = readRepo(env.GITHUB_REPOSITORY, "GITHUB_REPOSITORY");
+    const runRepo = readRepo$1(env.GITHUB_REPOSITORY, "GITHUB_REPOSITORY");
     const runId = positiveInteger(env.GITHUB_RUN_ID, "GITHUB_RUN_ID");
     return {
         token: required(input(env, "token"), inputName("token")),
@@ -7578,12 +7987,54 @@ function readJobFailedInputs(env) {
         url: runUrl(runRepo, runId),
     };
 }
+function readPayload(text) {
+    let payload;
+    try {
+        payload = JSON.parse(text);
+    }
+    catch {
+        payload = undefined;
+    }
+    if (typeof payload !== "object" || payload === null || Array.isArray(payload)) {
+        throw invalid("GITHUB_EVENT_PATH", "must be the event's JSON payload");
+    }
+    return payload;
+}
+/**
+ * The inputs of `wake`: the event from `GITHUB_EVENT_NAME` and the runner's event
+ * file (`GITHUB_EVENT_PATH`, read with `readFile`), its repository
+ * (`GITHUB_REPOSITORY`), the run URL, and the `token` and `execution-repo` inputs as
+ * given: the wake checks them only once it needs them. A missing or invalid runner
+ * variable or event file is `STAGE_INPUT_INVALID` naming it, never its content.
+ */
+function readWakeInputs(env, readFile) {
+    const eventName = required(env.GITHUB_EVENT_NAME, "GITHUB_EVENT_NAME");
+    const path = required(env.GITHUB_EVENT_PATH, "GITHUB_EVENT_PATH");
+    const repo = readRepo$1(env.GITHUB_REPOSITORY, "GITHUB_REPOSITORY");
+    const runId = positiveInteger(env.GITHUB_RUN_ID, "GITHUB_RUN_ID");
+    let text;
+    try {
+        text = readFile(path);
+    }
+    catch {
+        throw invalid("GITHUB_EVENT_PATH", "cannot be read");
+    }
+    return {
+        eventName,
+        payload: readPayload(text),
+        repo,
+        executionRepo: input(env, "execution-repo"),
+        url: runUrl(repo, runId),
+        token: input(env, "token"),
+    };
+}
 
 // The Action's commands (#776). Rules live in their Core modules; this file only
 // connects them to the inputs and the log.
 const defaultActionDeps = {
     env: process.env,
     connect: (token, log) => connectClient(token, {}, log),
+    readFile: (path) => readFileSync(path, "utf8"),
 };
 const lineLog = (io) => (line) => void io.stdout.write(`${line}\n`);
 /**
@@ -7602,7 +8053,18 @@ async function jobFailed(io, deps) {
         : `${name}: Nibfin's stop stands; left as it is\n`);
     return 0;
 }
-const commands = { "job-failed": jobFailed };
+/**
+ * `wake`: the job of `nibfin-events.yml` and of the user `nibfin-issue.yml`. It runs
+ * `runWake`; the `token` input is required only once an event wakes an Issue.
+ */
+async function wake(io, deps) {
+    const { token, ...input } = readWakeInputs(deps.env, deps.readFile);
+    const log = lineLog(io);
+    const connect = () => deps.connect(required(token, inputName("token")), log);
+    await runWake(input, connect, log);
+    return 0;
+}
+const commands = { "job-failed": jobFailed, wake };
 /**
  * Runs the command the `command` input names and returns the exit code: 0 when it
  * did its work, 1 with the failure on stderr (its code and message, never an input's

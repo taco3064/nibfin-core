@@ -19,11 +19,20 @@ environment, with no `@actions/core`.
 - `job-failed` (inputs `token`, `repo`, `issue`, `stage`): the last step of a route,
   finish or stage Job that failed. It calls `askPersonOnce` with `JOB_FAILED` (see
   "Pending" in `src/stages/README.md`).
+- `wake` (inputs `token`, `execution-repo`): the job of `nibfin-events.yml` and of the
+  user `nibfin-issue.yml`. It reads the event from `GITHUB_EVENT_NAME` and the
+  runner's event file (`GITHUB_EVENT_PATH`) and runs `runWake` (see "Wake" in
+  `src/route/README.md`). `execution-repo` is `${{ vars.NIBFIN_EXECUTION_REPO }}`.
+  `token` is read only when the event wakes an Issue, so a skipped event, such as a
+  review on a fork pull request (which gets no secret), needs none.
 
-`job-failed` builds the run URL with Core's `runUrl` from `GITHUB_REPOSITORY` and
-`GITHUB_RUN_ID`. It exits 0 when it added `pending` or left a standing stop as it is,
-and 1 when an input is invalid or GitHub could not be written; the log then has the
-failure's code and message, never an input's value.
+Both commands build the run URL with Core's `runUrl` from `GITHUB_REPOSITORY` and
+`GITHUB_RUN_ID`; in a reusable workflow these and the event are the caller's. They
+exit 0 when they did their work (`job-failed`: added `pending` or left a standing
+stop as it is; `wake`: dispatched, or skipped the event), and 1 when an input is
+invalid or GitHub could not be read or written (a failed wake does so after asking a
+person on its Issues); the log then has the failure's code and message, never an
+input's value.
 
 Every GitHub call goes through Core's client (`connectClient`): up to 3 retries with
 Core's delays and rate-limit waits, log lines that name the call and path only. The

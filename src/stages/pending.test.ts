@@ -305,7 +305,7 @@ describe("readPendingCause", () => {
     });
   });
 
-  it("reads the wake failure the events workflow writes", () => {
+  it("reads a wake failure the events workflow wrote before #776", () => {
     const body =
       "<!-- nibfin:pending -->\nNibfin stopped and needs a person.\n\n" +
       "- Code: `WAKE_FAILED`\n- Run: https://github.com/acme/app/actions/runs/1\n\n" +

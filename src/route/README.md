@@ -61,7 +61,48 @@ second pull request that merged to the same commit without moving the base is fo
 only the second way (#771): `GET …/git/commits/{sha}` gives the commit's committer
 date, and `GET …/pulls?state=closed&sort=updated&direction=desc&per_page=100` is
 read page by page up to the first page holding a pull request updated before that
-date. Anything else belongs to no Issue.
+date. Anything else belongs to no Issue. `routeEvent` and `RouteTarget` live in
+`event-issues.ts`, which imports only `src/github`, so the Action can use them;
+`route.ts` and the barrel re-export them.
+
+## Wake
+
+`wake.ts` is the job of `nibfin-events.yml` and of the user `nibfin-issue.yml`, run by
+the Action's `wake` command (see `src/action/README.md`, #776). Events only wake an
+Issue (R4.35).
+
+`wakeOf(eventName, payload, repo, executionRepo)` decides from the event payload
+alone, before any token is used, in this order:
+
+1. every event but `pull_request_review` first needs `NIBFIN_EXECUTION_REPO`;
+2. `issues`: the Issue needs `scope` or `request`; a `labeled` or `unlabeled`
+   `shaped` or `delivered` wakes nothing (any other label change, such as re-adding a
+   flow label or removing `pause`, and `assigned`/`unassigned` wake); target
+   `{ issue }`, if the sender has admin or write permission;
+3. `pull_request_review`: a `nibfin/issue-*` head of the same repository, then
+   `NIBFIN_EXECUTION_REPO`; target `{ branch }`, if the reviewer has admin or write
+   permission. A review on a fork pull request is skipped before the (then empty)
+   token is read;
+4. `workflow_run`: from `pull_request`, a `nibfin/issue-*` head branch of the same
+   repository, target `{ branch }`; a run that fails that check is not routed (never
+   by its commit); from anything else, `{ sha: head_sha }`;
+5. `check_suite`: not of the `github-actions` app and with a head branch,
+   `{ branch }`;
+6. `status`: `{ sha }`; `push`: only to the default branch, `{ sha: after }`;
+7. any other event is not routed.
+
+A missing or invalid `NIBFIN_EXECUTION_REPO`, or a payload without a field its event
+always has, is `STAGE_INPUT_INVALID`: the run fails with that line and no Issue gets
+`pending`.
+
+`runWake` logs a skipped event and returns without connecting. Otherwise it connects,
+checks the writer (`hasWritePermission`; without write access the event is not
+routed) and dispatches with `dispatchRoute` to the execution repository. When the
+permission read or the dispatch fails, the Issues of the target (`routeEvent`) each
+go through `askPersonOnce` with the failure itself: its own code, and the temporary
+note exactly when `pendingBody` gives it. An Issue whose `pending` stands is left as
+it is. Then the failure is thrown on and the run fails. A target of no Issue, or one
+whose Issues cannot be read, gets no `pending`; the failed run is the record.
 
 ## Dispatch
 
@@ -70,8 +111,12 @@ Core dispatches `nibfin-shared-runner.yml` of the execution repository
 URL. A dispatch cannot be confirmed by a re-read: no response or a 5xx is
 `GITHUB_WRITE_UNCONFIRMED`, any other failure `GITHUB_WRITE_REJECTED`.
 
-- `dispatchRoute`: inputs `stage: route`, `repo`, `issue`. Never deduplicated, so no
-  wake is lost.
+- `dispatchRoute(scope, repo, target)`: inputs `stage: route`, `repo` and the target:
+  `issue` for `{ issue }`; `sha` or `branch` for `{ sha }` or `{ branch }`, each also
+  as `ref`, logged as the run the shared runner names
+  `Nibfin · <owner>/<repo>@<ref> · route`. Never deduplicated, so no wake is lost.
+  Core's own callers (`continueAfterStage`, `cdWaiters`, `nibfin route --sha` and
+  `--branch`) pass `{ issue }`.
 - `dispatchStage`: inputs `stage`, `repo`, `issue`, `reason` (empty for none) and
   `assignee`, the chosen Assignee's user id. It is `planDispatch` followed by
   `dispatchPlanned` when the plan is `ready`, and returns whether it dispatched; its

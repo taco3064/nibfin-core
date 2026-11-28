@@ -4,11 +4,13 @@ description: >-
   available. Built from nibfin-core's src/action/; see src/action/README.md.
 inputs:
   command:
-    description: "What to run: job-failed"
+    description: "What to run: job-failed or wake"
     required: true
   token:
-    description: The gh login token of the Nibfin account
-    required: true
+    description: >-
+      The gh login token of the Nibfin account. A wake reads it only for an event
+      that wakes an Issue (a review on a fork pull request gets no secret).
+    required: false
   repo:
     description: "job-failed: the Issue's repository, <owner>/<repo>"
     required: false
@@ -17,6 +19,9 @@ inputs:
     required: false
   stage:
     description: "job-failed: the stage of the Job that failed"
+    required: false
+  execution-repo:
+    description: "wake: the execution repository, <owner>/<repo> (NIBFIN_EXECUTION_REPO)"
     required: false
 runs:
   using: node24
