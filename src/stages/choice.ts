@@ -1,16 +1,19 @@
-// The option a Collaborator chose on a repair record (#779, Proposal R4.51, R4.52):
-// reading the decision comment and storing the choice in Nibfin's `choice` comment
-// until the next Shape run applies it. See "Chosen option" in README.md.
+// A Collaborator's decision on a repair record (Proposal R4.51, R4.52): reading the
+// decision comment and storing it in Nibfin's `choice` comment until the next Shape
+// run applies it. See "Chosen option" in README.md.
 import {
   type ActingClient,
   findMarkedComment,
   hasWritePermission,
   type IssueRef,
   listIssueComments,
+  nibfinLabels,
   readIssueComment,
+  readLastUnlabeled,
   upsertMarkedComment,
 } from "../github/index.ts";
 import {
+  isNibfinComment,
   parseDecision,
   parseOptions,
   parseRepairRecord,
@@ -27,18 +30,26 @@ export const choiceCommentKey = "choice";
  */
 export type ChoiceStatus = "chosen" | "applying" | "applied" | "dropped";
 
-/** One decision on an options record. */
+/**
+ * One decision on an options record: an option (the Dashboard's marked comment or a
+ * body that is only a listed option number) or the Collaborator's own words.
+ */
 export interface Choice {
   /** The options record's `for`. */
   for: string;
-  option: number;
+  /** The option the decision names; absent for a decision in the person's own words. */
+  option?: number;
+  /** The named option's lines from the record; present exactly with `option`. */
+  optionText?: string;
+  /** Without `option`: the record's options, as suggestions, when it lists any. */
+  options?: string;
+  /** The decision comment's body as written (line endings `\n`, trimmed). */
+  text: string;
   /** The decision comment's id and URL. */
   comment: number;
   commentUrl: string;
   /** The decision comment's author. */
   author: string;
-  /** The chosen option's lines from the record. */
-  optionText: string;
   /** The record's Reason line. */
   reason: string;
 }
@@ -58,9 +69,12 @@ const statusText: Record<ChoiceStatus, string> = {
   applied: "applied.",
   dropped: "not applied.",
 };
+const partlyAppliedText =
+  "the Issue body and Blocked by changes were applied; the parts under Not applied " +
+  "are for a person to do.";
 
 const stateLine = new RegExp(
-  "^<!-- nibfin:choice-state for=([0-9a-f]{16}) option=([1-9][0-9]*) " +
+  "^<!-- nibfin:choice-state for=([0-9a-f]{16})(?: option=([1-9][0-9]*))? " +
     "comment=([1-9][0-9]*) status=(chosen|applying|applied|dropped) -->$",
 );
 const chosenLine = new RegExp(
@@ -68,40 +82,78 @@ const chosenLine = new RegExp(
     "\\((\\S+)\\) on the repair record\\.$",
   "m",
 );
+const ownWordsLine = new RegExp(
+  "^`([^`\\n]+)` decided in their own words in \\[this comment\\]" +
+    "\\((\\S+)\\) on the repair record\\.$",
+  "m",
+);
 const reasonLine = /^- Reason of the stop: (.*)$/m;
 const optionHeading = "\n### Chosen option\n\n";
+const suggestedHeading = "\n### Suggested options\n\n";
+const decisionHeading = "\n### Decision\n\n";
 
 const oneLine = (text: string) => text.replace(/\s+/g, " ").trim();
 
+/** Line endings as GitHub keeps them, without surrounding blank space. */
+const normalize = (text: string) => text.replace(/\r\n?/g, "\n").trim();
+
 /**
- * The `choice` comment body (without its marker line): the state line, who chose
- * which option where, the record's Reason, the status and `details` (one line each),
- * then the chosen option's text last.
+ * The `choice` comment body (without its marker line): the state line, who decided
+ * (which option, or in their own words) where, the record's Reason, the status,
+ * `details` and one `Not applied:` line per `notApplied` part (one line each), then
+ * the chosen option's text (or, for own words, the suggested options when there are
+ * any), then the decision's text last. Option and options texts never hold a `### `
+ * line (`parseOptions` ends at one), so the first `### Decision` heading is the
+ * boundary.
  */
 export function formatChoice(
   choice: Choice,
   status: ChoiceStatus,
   details: readonly string[] = [],
+  notApplied: readonly string[] = [],
 ): string {
+  const option = choice.option === undefined ? "" : ` option=${choice.option}`;
+  const where = `[this comment](${choice.commentUrl}) on the repair record.`;
+  const who =
+    choice.option === undefined
+      ? `\`${choice.author}\` decided in their own words in ${where}`
+      : `Option ${choice.option} was chosen by \`${choice.author}\` in ${where}`;
+  const partly = status === "applied" && notApplied.length > 0;
+  const section =
+    choice.optionText !== undefined
+      ? ["### Chosen option", "", choice.optionText.trim(), ""]
+      : choice.options === undefined
+        ? []
+        : ["### Suggested options", "", choice.options.trim(), ""];
   return [
-    `<!-- nibfin:choice-state for=${choice.for} option=${choice.option} ` +
+    `<!-- nibfin:choice-state for=${choice.for}${option} ` +
       `comment=${choice.comment} status=${status} -->`,
-    `Option ${choice.option} was chosen by \`${choice.author}\` in ` +
-      `[this comment](${choice.commentUrl}) on the repair record.`,
+    who,
     "",
     `- Reason of the stop: ${oneLine(choice.reason)}`,
-    `- Status: ${statusText[status]}`,
+    `- Status: ${partly ? partlyAppliedText : statusText[status]}`,
     ...details.map((detail) => `- ${oneLine(detail)}`),
+    ...notApplied.map((part) => `- Not applied: ${oneLine(part)}`),
     "",
-    "### Chosen option",
+    ...section,
+    "### Decision",
     "",
-    choice.optionText.trim(),
+    choice.text,
   ].join("\n");
+}
+
+/** The text of the section after `heading` in `head`, or `undefined` without one. */
+function section(head: string, heading: string): string | undefined {
+  const at = head.indexOf(heading);
+  return at === -1 ? undefined : head.slice(at + heading.length).trim();
 }
 
 /**
  * The stored choice of a `choice` comment body (marker line optional); `undefined`
- * when a part `formatChoice` writes is missing.
+ * when a part `formatChoice` writes is missing. The header lines are read only before
+ * the first section heading, so a decision's own text cannot fake them. A body
+ * without `### Decision` (written before own-words decisions existed) is an option
+ * choice with an empty `text`.
  */
 export function parseChoice(
   body: string,
@@ -109,30 +161,61 @@ export function parseChoice(
   const lines = body.split("\n");
   const first = lines[0] === "<!-- nibfin:choice -->" ? lines[1] : lines[0];
   const state = stateLine.exec(first ?? "");
-  const chosen = chosenLine.exec(body);
-  const reason = reasonLine.exec(body);
-  const at = body.indexOf(optionHeading);
-  if (state === null || chosen === null || reason === null || at === -1) {
+  const decisionAt = body.indexOf(decisionHeading);
+  const head = decisionAt === -1 ? body : body.slice(0, decisionAt);
+  const text = decisionAt === -1 ? "" : body.slice(decisionAt + decisionHeading.length);
+  const headingAt = head.indexOf("\n### ");
+  const header = headingAt === -1 ? head : head.slice(0, headingAt);
+  const reason = reasonLine.exec(header);
+  if (state === null || reason === null) {
     return undefined;
   }
-  return {
+  const base = {
     for: state[1],
-    option: Number(state[2]),
     comment: Number(state[3]),
     status: state[4] as ChoiceStatus,
-    author: chosen[1],
-    commentUrl: chosen[2],
     reason: reason[1],
-    optionText: body.slice(at + optionHeading.length).trim(),
+    text: text.trim(),
+  };
+  if (state[2] !== undefined) {
+    const chosen = chosenLine.exec(header);
+    const optionText = section(head, optionHeading);
+    if (chosen === null || optionText === undefined) {
+      return undefined;
+    }
+    return {
+      ...base,
+      option: Number(state[2]),
+      optionText,
+      author: chosen[1],
+      commentUrl: chosen[2],
+    };
+  }
+  const own = ownWordsLine.exec(header);
+  if (own === null || decisionAt === -1) {
+    return undefined;
+  }
+  const options = section(head, suggestedHeading);
+  return {
+    ...base,
+    ...(options === undefined ? {} : { options }),
+    author: own[1],
+    commentUrl: own[2],
   };
 }
 
 /**
  * The live decision on Nibfin's options record (R4.51): among the comments created
- * after the record's last update, newest first, the first that `parseDecision` reads
- * as an option the record lists and whose author has write access to the Issue's
- * repository (one permission read per login). `null` without an options record or
- * such a comment (R4.52).
+ * after the record's last update and, once `pending` was removed after that update,
+ * at or before that removal, newest first, the first whose author has write access
+ * to the Issue's repository (one permission read per login). Comments without an
+ * author, empty ones and Nibfin's own marked comments are skipped; a non-writer's
+ * comment never ends the search. The Dashboard's marked comment or a body that is
+ * only a number the record lists maps to that option; any other body is a decision
+ * in the person's own words, never read as an option, carrying the record's options
+ * as suggestions. `null` without an options record or such a comment (R4.52). The
+ * upper bound keeps a comment written after `pending` was removed without a decision
+ * from turning into one later.
  */
 export async function readLiveDecision(
   client: ActingClient,
@@ -146,15 +229,20 @@ export async function readLiveDecision(
   const options = parseOptions(record.body);
   const { updatedAt } = await readIssueComment(client, issue, record.id);
   const since = Date.parse(updatedAt);
+  const removed = await readLastUnlabeled(client, issue, nibfinLabels.pending);
+  const removedAt = removed === null ? Number.NaN : Date.parse(removed);
+  const until = removedAt > since ? removedAt : Number.POSITIVE_INFINITY;
   const comments = (await listIssueComments(client, issue))
-    .filter((comment) => Date.parse(comment.createdAt) > since)
+    .filter((comment) => {
+      const created = Date.parse(comment.createdAt);
+      return created > since && created <= until;
+    })
     .reverse();
   const repo = { owner: issue.owner, repo: issue.repo };
   const writers = new Map<string, boolean>();
   for (const comment of comments) {
-    const number = parseDecision(comment.body);
-    const option = options.find((candidate) => candidate.number === number);
-    if (option === undefined || comment.login === null) {
+    const text = normalize(comment.body);
+    if (comment.login === null || text === "" || isNibfinComment(text)) {
       continue;
     }
     let writer = writers.get(comment.login);
@@ -162,23 +250,39 @@ export async function readLiveDecision(
       writer = await hasWritePermission(client, repo, comment.login);
       writers.set(comment.login, writer);
     }
-    if (writer) {
-      return {
-        for: state.for,
-        option: option.number,
-        comment: comment.id,
-        commentUrl: comment.url,
-        author: comment.login,
-        optionText: option.text,
-        reason: recordReason(record.body) ?? "",
-      };
+    if (!writer) {
+      continue;
     }
+    const decision = {
+      for: state.for,
+      text,
+      comment: comment.id,
+      commentUrl: comment.url,
+      author: comment.login,
+      reason: recordReason(record.body) ?? "",
+    };
+    const number = parseDecision(text);
+    const option = options.find((candidate) => candidate.number === number);
+    if (option !== undefined) {
+      return { ...decision, option: option.number, optionText: option.text };
+    }
+    if (options.length === 0) {
+      return decision;
+    }
+    return { ...decision, options: options.map((item) => item.text).join("\n") };
   }
   return null;
 }
 
-const sameDecision = (a: Choice, b: Choice) =>
-  a.for === b.for && a.option === b.option && a.comment === b.comment;
+/**
+ * Whether two choices are the same decision: the same record, option and comment,
+ * and the same text, so an edit of the decision comment is a new decision.
+ */
+export const sameDecision = (a: Choice, b: Choice) =>
+  a.for === b.for &&
+  a.option === b.option &&
+  a.comment === b.comment &&
+  a.text === b.text;
 
 /**
  * The Issue's choice: one decision per options record, so a stored choice for the
@@ -224,8 +328,9 @@ export async function saveChoice(
   choice: Choice,
   status: ChoiceStatus,
   details: readonly string[] = [],
+  notApplied: readonly string[] = [],
 ): Promise<void> {
-  const body = formatChoice(choice, status, details);
+  const body = formatChoice(choice, status, details, notApplied);
   await upsertMarkedComment(client, issue, choiceCommentKey, body);
 }
 

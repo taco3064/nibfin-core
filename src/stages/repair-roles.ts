@@ -120,7 +120,11 @@ export function parseIssueUrl(url: string): IssueRef {
   return { owner, repo, number: Number(number) };
 }
 
-function strings(
+/**
+ * The list of non-empty strings in `result[field]`; may be empty only when
+ * `allowEmpty`. Anything else is `STAGE_RESULT_INVALID`.
+ */
+export function strings(
   result: JsonRecord,
   field: string,
   finalMessage: string,

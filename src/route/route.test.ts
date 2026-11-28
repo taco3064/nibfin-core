@@ -18,6 +18,7 @@ import {
   fakeIssues,
   seedComment,
   shapeVersion,
+  unlabel,
 } from "../stages/fake-job.test.ts";
 import {
   addPullComment,
@@ -110,6 +111,25 @@ function reviewWithChoice(
     change?.(world);
     await chooseOption(world.issues, status);
     return world.issues.github.client;
+  };
+}
+
+/**
+ * The review world with an options record and a writer's comment in their own
+ * words; with `afterRemoval`, `pending` was removed (no decision, R4.52) before it.
+ */
+function reviewWithWords(afterRemoval: boolean): Build {
+  return async () => {
+    const world = await reviewWorld();
+    const { issues } = world;
+    permissions(issues);
+    await writeOptionsRecord(issues);
+    if (afterRemoval) {
+      unlabel(issues.main, "pending");
+    }
+    decide(issues, "Drop the widget, and keep `pause`.");
+    freshReads(issues.github.client);
+    return issues.github.client;
   };
 }
 
@@ -230,6 +250,12 @@ describe("routeIssue", () => {
       route("shape", null),
     ],
     ["review with an applied option", reviewWithChoice("applied"), route("review", null)],
+    ["review with a decision in own words", reviewWithWords(false), route("shape", null)],
+    [
+      "review with chat after pending was removed without a decision",
+      reviewWithWords(true),
+      route("review", null),
+    ],
     ["review with a dropped option", reviewWithChoice("dropped"), route("review", null)],
     [
       "a pending report with a chosen option",

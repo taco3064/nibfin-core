@@ -1,5 +1,6 @@
-// The Shape stage applies the option a Collaborator chose on a repair record before
-// it shapes (#779, Proposal R4.51). See "Chosen option" in README.md.
+// The Shape stage applies a Collaborator's decision on a repair record (an option or
+// their own words) before it shapes (Proposal R4.51). See "Chosen option" in
+// README.md.
 import {
   addBlockedBy,
   deriveStage,
@@ -18,12 +19,13 @@ import {
   type ChoiceState,
   pendingChoice,
   readChoice,
+  sameDecision,
   saveChoice,
 } from "./choice.ts";
 import { describeStage } from "./deliver-eligibility.ts";
 import { StageError } from "./errors.ts";
 import { redactToken } from "./git.ts";
-import type { PromptSection } from "./prompt.ts";
+import { fenced, type PromptSection } from "./prompt.ts";
 import { parseIssueUrl } from "./repair-roles.ts";
 import { blockShape } from "./shape-publish.ts";
 import { parseChoiceResult, shapeChoiceRole } from "./shape-roles.ts";
@@ -36,32 +38,48 @@ import {
 import { isDeliveryStage, unconfirmed } from "./shape-wrong.ts";
 
 const choiceTask =
-  "A Collaborator chose the option below on Nibfin's repair record of this Issue " +
-  "(Proposal R4.51). Return the Issue change that option describes: the complete " +
-  "new Issue body (or `null` when the body stays as it is) and any `Blocked by` " +
-  "Issue URLs to add. Keep everything the option does not change, and keep every " +
-  "`Origin:` line of the current body. Core writes the change; do not shape the " +
-  "Issue.";
+  "A Collaborator decided on Nibfin's repair record of this Issue (Proposal R4.51); " +
+  "the decision is below, as they wrote it. The record's options are suggestions " +
+  "only. Follow the skill's \"A person's decision on a repair record\". Return the " +
+  "Issue change the decision asks for: the complete new Issue body (or `null` when " +
+  "the body stays as it is) and any `Blocked by` Issue URLs to add. List in " +
+  "`notApplied` every part of the decision that is not a change to the body or " +
+  "Blocked by (for example a label, a CI rerun or closing the Issue); Core does not " +
+  "perform them and posts them for a person. Keep everything the decision does not " +
+  "change, and keep every `Origin:` line of the current body. Core writes the " +
+  "change; do not shape the Issue.";
+
+/** How logs and errors name a decision: its option, or the comment it is in. */
+const describeChoice = (choice: Choice) =>
+  choice.option === undefined
+    ? `the decision in ${choice.commentUrl}`
+    : `option ${choice.option} (chosen in ${choice.commentUrl})`;
 
 function choiceSections(choice: Choice, sources: ShapeSources): PromptSection[] {
+  const named =
+    choice.optionText !== undefined
+      ? ["", `It names option ${choice.option}:`, "", choice.optionText]
+      : choice.options === undefined
+        ? []
+        : ["", "The record's options, suggestions only:", "", choice.options];
   return [
     { title: "Task", body: choiceTask },
     ...sourceSections(sources),
     {
-      title: "Chosen option",
+      title: "Decision",
       body: [
-        `Option ${choice.option}, chosen in ${choice.commentUrl}.`,
+        `By \`${choice.author}\` in ${choice.commentUrl}.`,
         "",
         `Reason of the stop: ${choice.reason}`,
+        ...named,
         "",
-        choice.optionText,
+        "The decision as written:",
+        "",
+        fenced(choice.text),
       ].join("\n"),
     },
   ];
 }
-
-const sameChoice = (a: Choice, b: Choice) =>
-  a.for === b.for && a.option === b.option && a.comment === b.comment;
 
 const blockedByUrls = (snapshot: IssueSnapshot) =>
   snapshot.blockedBy.map((issue) => issue.url.toLowerCase()).toSorted();
@@ -73,7 +91,7 @@ function blockedByChanged(before: IssueSnapshot, after: IssueSnapshot): boolean 
 /**
  * Where the run goes after the choice: the current snapshot when the Issue is at
  * `shape` (the Shape round follows); `undefined` otherwise. For a delivery stage
- * (the option left a shaped Issue as it was), the re-route after the stage continues
+ * (the decision left a shaped Issue as it was), the re-route after the stage continues
  * delivery; for a paused, closed or `pending` Issue, the wake that clears it does.
  */
 async function continueAfter(job: StageJob, issue: IssueRef) {
@@ -83,13 +101,14 @@ async function continueAfter(job: StageJob, issue: IssueRef) {
   if (stage.stage === "shape") {
     return snapshot;
   }
-  job.deps.log(`After the chosen option the Issue is at ${stage.stage}; no Shape round`);
+  job.deps.log(`After the decision the Issue is at ${stage.stage}; no Shape round`);
   return undefined;
 }
 
 /**
- * Applies a pending choice before the Shape round (#779): W0 stores a new decision as
- * `chosen`; the read-only choice role returns the option's Issue change; after a
+ * Applies a pending choice before the Shape round: W0 stores a new decision as
+ * `chosen`; the read-only choice role returns the decision's Issue change and the
+ * parts Core does not apply (posted as `Not applied:` lines from W1 on); after a
  * recheck (paused, closed or `pending` → nothing written; a newer decision or an
  * Issue edit → the role runs again on the fresh reads) Core writes W1 `applying`, W2
  * the body, W3 the Blocked by edges, W4 removes `shaped` when the change changed a
@@ -109,7 +128,7 @@ export async function applyChoice(
     const { choice } = state;
     if (state.status === "new") {
       await saveChoice(client, issue, choice, "chosen");
-      deps.log(`Saved option ${choice.option} chosen in ${choice.commentUrl}`);
+      deps.log(`Saved ${describeChoice(choice)}`);
     }
     if (state.status === "applying") {
       await saveChoice(client, issue, choice, "dropped", [
@@ -117,15 +136,15 @@ export async function applyChoice(
       ]);
       throw new StageError(
         "STAGE_CHOICE_INTERRUPTED",
-        `Applying option ${choice.option} (chosen in ${choice.commentUrl}) stopped ` +
+        `Applying ${describeChoice(choice)} stopped ` +
           "part way, so it may be partly applied. Check the Issue body and its " +
           "Blocked by against the `choice` comment, fix them if needed, then remove " +
-          "`pending`; Nibfin does not apply this option again.",
+          "`pending`; Nibfin does not apply this decision again.",
       );
     }
     const before = await readIssueSnapshot(client, issue, issue.number);
     const sources = await readShapeSources(client, before);
-    deps.log(`Option ${choice.option}: ${shapeChoiceRole.title}`);
+    deps.log(`${describeChoice(choice)}: ${shapeChoiceRole.title}`);
     const sections = choiceSections(choice, sources);
     const message = await runStageAgent(job, shapeChoiceRole, sections);
     const result = parseChoiceResult(message, sources.issue.body);
@@ -140,7 +159,7 @@ export async function applyChoice(
     const after = await readIssueSnapshot(client, issue, issue.number);
     const stage = deriveStage(after);
     if (stage.stage !== "shape" && !isDeliveryStage(stage)) {
-      deps.log(`The Issue is ${describeStage(stage)}; the option is not applied yet`);
+      deps.log(`The Issue is ${describeStage(stage)}; the decision is not applied yet`);
       return undefined;
     }
     const fresh = await readChoice(client, issue);
@@ -151,11 +170,11 @@ export async function applyChoice(
     const current = await readShapeSources(client, after);
     const changed =
       fresh.status !== "chosen" ||
-      !sameChoice(fresh.choice, choice) ||
+      !sameDecision(fresh.choice, choice) ||
       issueTextChanged(sources, current) ||
       blockedByChanged(before, after);
     if (changed) {
-      deps.log("The Issue or the decision changed while the option was prepared");
+      deps.log("The Issue or the decision changed while the change was prepared");
       state = fresh;
       continue;
     }
@@ -166,7 +185,8 @@ export async function applyChoice(
       `Change: ${summary}`,
       ...(edges.length === 0 ? [] : [`Blocked by to add: ${edges.join(", ")}`]),
     ];
-    await saveChoice(client, issue, choice, "applying", details);
+    const notApplied = result.notApplied.map(redact);
+    await saveChoice(client, issue, choice, "applying", details, notApplied);
     let edited = false;
     if (body !== null && body !== current.issue.body) {
       await updateIssueBody(client, issue, body);
@@ -184,8 +204,11 @@ export async function applyChoice(
       }
     }
     const outcome = edited ? "The Issue was changed as above." : "No Issue change.";
-    await saveChoice(client, issue, choice, "applied", [...details, outcome]);
-    deps.log(`Applied option ${choice.option}: ${edited ? summary : "no Issue change"}`);
+    const done = [...details, outcome];
+    await saveChoice(client, issue, choice, "applied", done, notApplied);
+    deps.log(
+      `Applied ${describeChoice(choice)}: ${edited ? summary : "no Issue change"}`,
+    );
     return continueAfter(job, issue);
   }
 }
