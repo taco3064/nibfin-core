@@ -16,8 +16,9 @@ peers: their events wake their Issues by dispatching to the execution repository
   runner (`ubuntu-24.04`) when the execution repository is public, and when it is
   private on the `nibfin` runners (route) or the Assignee's `nibfin-<user id>`
   runners (finish).
-- `nibfin-runner-request.yml` (nibfin-core): answers a collaborator's runner request
-  Issue with a registration token encrypted to their SSH key.
+- `nibfin-runner-request.yml` (nibfin-core): installs `age`, then one step of Core's
+  Action (`command: runner-request`) answers a collaborator's runner request Issue
+  with a registration token encrypted to their SSH key.
 - `nibfin-e2e-notify.yml` (every repository): asks nibfin-e2e to retest a delivered
   Issue.
 
