@@ -84,6 +84,19 @@ caches, under the repository root. Point tools at a repository-local path when t
 default writes elsewhere. Ignore generated files with a narrow `.gitignore` entry; keep
 required deliverables and maintained tests in the commits.
 
+## Comments
+
+A code comment must make sense to a reader who never opens the Issue tracker: say in its
+own words what the code does or why. An Issue or pull request number may follow as the
+source; it never replaces the explanation. A comment, doc comments included, that cannot
+be understood without its reference does not meet this: `Owned by #668`, a bare `(#354)`,
+or `For the merge admission (#673)`.
+
+When you change a file, also rewrite such comments anywhere in it, not only near your
+edit. Write them from what the code and your inputs show; when the reason is not evident
+there, say what the code does, keep the reference, and do not invent a reason. Do not
+change a file only to fix its comments.
+
 ## Protected paths and credentials
 
 - Never modify your own execution policy or Secrets, nor the protected paths:
