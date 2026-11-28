@@ -84,6 +84,7 @@ template or fragment throws `EtaFileResolutionError`.
 
 A block that repeats in one output comes from one fragment: the "Ask a person to act"
 step, Core's Action with `command: job-failed` (three times in `nibfin-job.yml`), the
-pull steps, the events job (`nibfin-events.yml` and the user `nibfin-issue.yml`) and the
-header. Rendered output is checked with Prettier and must not need reformatting;
-`templates/` itself is in `.prettierignore`.
+pull steps, the events job (one step, Core's Action with `command: wake`, in
+`nibfin-events.yml` and the user `nibfin-issue.yml`) and the header. Rendered output
+is checked with Prettier and must not need reformatting; `templates/` itself is in
+`.prettierignore`.

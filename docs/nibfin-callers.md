@@ -6,7 +6,8 @@ its `nibfin-shared-runner.yml`. `taco3064/gh-nibfin` and `taco3064/nibfin-e2e` a
 peers: their events wake their Issues by dispatching to the execution repository.
 
 - `nibfin-issue.yml` (every repository): turns an event into a route run.
-- `nibfin-events.yml` (nibfin-core, reusable): the event filters and the dispatch.
+- `nibfin-events.yml` (nibfin-core, reusable): one step of Core's Action
+  (`command: wake`), which runs Core's event filters and the dispatch.
 - `nibfin-shared-runner.yml` (nibfin-core): run titles, one concurrency group per
   Issue, calls `nibfin-job.yml`.
 - `nibfin-job.yml` (nibfin-core, reusable): checkout, image, container and clean-up.

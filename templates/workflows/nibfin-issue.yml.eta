@@ -7,7 +7,7 @@ name: Nibfin · Issue events
 # by branch, so Core re-checks a pull request that waits for a required approval.
 <% if (it.channel === "user") { -%>
 # Events only wake an Issue: each one becomes a route run of the execution
-# repository's nibfin-shared-runner.yml. Event text reaches the script only through env.
+# repository's nibfin-shared-runner.yml. Core's Action reads the event as data.
 <% } -%>
 run-name: >-
   ${{ github.event.issue

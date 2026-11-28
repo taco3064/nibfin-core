@@ -169,15 +169,47 @@ describe("renderWorkflows nibfin-issue.yml", () => {
   it("inlines Core's events job in the user channel", () => {
     for (const request of [requests["user execution"], requests["user peer"]]) {
       const user = file(request, "nibfin-issue.yml");
-      assert.ok(!/^\s*uses:/m.test(user));
+      assert.ok(!/^ {4}uses:/m.test(user));
       const events = file(requests["own execution"], "nibfin-events.yml");
       const job = (text: string) => text.slice(text.indexOf("\njobs:\n  wake:\n"));
       assert.equal(
         job(user),
-        job(events).replace("${{ secrets.token }}", "${{ secrets.NIBFIN_GITHUB_TOKEN }}"),
+        job(events)
+          .replace("${{ secrets.token }}", "${{ secrets.NIBFIN_GITHUB_TOKEN }}")
+          .replace("nibfin-core/action@main", `nibfin-core/action@${commit}`),
       );
-      for (const part of ["rate_limit_delay", "flag_targets", "WAKE_FAILED"]) {
-        assert.ok(user.includes(part), part);
+    }
+  });
+
+  it("wakes through one step of Core's Action, with no bash rule", () => {
+    const action = "taco3064/nibfin-core/action";
+    const files = [
+      [file(requests["own execution"], "nibfin-events.yml"), `${action}@main`],
+      [file(requests["user execution"], "nibfin-issue.yml"), `${action}@${commit}`],
+      [file(requests["user peer"], "nibfin-issue.yml"), `${action}@${commit}`],
+    ];
+    for (const [content, uses] of files) {
+      assert.ok(
+        content.includes(
+          `        uses: ${uses}\n        with:\n          command: wake\n` +
+            "          token: ${{ secrets.",
+        ),
+      );
+      assert.ok(
+        content.endsWith("          execution-repo: ${{ vars.NIBFIN_EXECUTION_REPO }}\n"),
+      );
+      assert.equal(count(content, "uses: "), 1);
+      for (const part of [
+        "run: |",
+        "gh_retry",
+        "rate_limit_delay",
+        "flag_targets",
+        "resolve_shas",
+        "WAKE_FAILED",
+        "curl",
+        "env:",
+      ]) {
+        assert.ok(!content.includes(part), part);
       }
     }
   });
