@@ -2,6 +2,7 @@ import type { GitHubClient } from "./client.ts";
 import { absentProbe, read, readOptional } from "./errors.ts";
 import type { Repo } from "./repo.ts";
 import { type RunState, runState } from "./run-state.ts";
+import { write } from "./write.ts";
 
 /** A job of a GitHub Actions workflow run. */
 export interface WorkflowJobSummary {
@@ -60,4 +61,29 @@ export async function readJobLog(
     return data;
   }
   return new TextDecoder().decode(data as ArrayBuffer);
+}
+
+/**
+ * Re-runs GitHub Actions job `jobId` and the jobs that depend on it
+ * (`POST …/actions/jobs/{job_id}/rerun`, 201). A re-run cannot be confirmed by a
+ * re-read before GitHub starts it, so a failure is re-sent without a pre-read up to
+ * `maxRetries` times, as a dispatch is.
+ */
+export async function rerunJob(
+  client: GitHubClient,
+  repo: Repo,
+  jobId: number,
+): Promise<void> {
+  await write(
+    client,
+    `re-run ${repo.owner}/${repo.repo} job ${jobId}`,
+    async () => {
+      await client.request("POST /repos/{owner}/{repo}/actions/jobs/{job_id}/rerun", {
+        ...repo,
+        job_id: jobId,
+      });
+      return true;
+    },
+    { confirm: () => Promise.resolve(undefined) },
+  );
 }

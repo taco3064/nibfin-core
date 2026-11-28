@@ -41,6 +41,7 @@ export {
   findCreatedIssue,
   type IssueHandle,
   readIssueId,
+  updateIssueBody,
 } from "./issue-writes.ts";
 export {
   type IssueComment,
@@ -71,7 +72,12 @@ export {
   readIssueText,
   readIssueTitle,
 } from "./issue-text.ts";
-export { readJobLog, readRunJobs, type WorkflowJobSummary } from "./job-logs.ts";
+export {
+  readJobLog,
+  readRunJobs,
+  rerunJob,
+  type WorkflowJobSummary,
+} from "./job-logs.ts";
 export { nibfinLabels } from "./labels.ts";
 export {
   isNibfinWorkflow,
@@ -100,6 +106,7 @@ export {
   readLatestReviews,
   readPullRequest,
   readPullRequestCommits,
+  readPullRequestFiles,
   readPullRequestsMergedAt,
   readRequestedReviewers,
   readReviewComments,

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { GitHubError } from "./errors.ts";
 import { failure, fakeGitHub, paged, rejection, repo } from "./fake-github.test.ts";
-import { readJobLog, readRunJobs } from "./job-logs.ts";
+import { readJobLog, readRunJobs, rerunJob } from "./job-logs.ts";
 
 const jobs = "GET /repos/acme/app/actions/runs/7/jobs";
 const log = "GET /repos/acme/app/actions/jobs/11/logs";
@@ -61,5 +61,26 @@ describe("readJobLog", () => {
     const error = await rejection(readJobLog(github.client, repo, 11));
     assert.ok(error instanceof GitHubError);
     assert.equal(error.code, "GITHUB_READ_FAILED");
+  });
+});
+
+describe("rerunJob", () => {
+  const rerun = "POST /repos/acme/app/actions/jobs/11/rerun";
+
+  it("re-runs the job", async () => {
+    const github = fakeGitHub({ [rerun]: { status: 201 } });
+    await rerunJob(github.client, repo, 11);
+    assert.deepEqual(
+      github.writes().map((call) => call.path),
+      ["/repos/acme/app/actions/jobs/11/rerun"],
+    );
+  });
+
+  it("fails rejected after its retries", async () => {
+    const github = fakeGitHub({ [rerun]: failure(403) });
+    const error = await rejection(rerunJob(github.client, repo, 11));
+    assert.ok(error instanceof GitHubError);
+    assert.equal(error.code, "GITHUB_WRITE_REJECTED");
+    assert.equal(github.writes().length, 4);
   });
 });
