@@ -1,6 +1,6 @@
-// The wake (#776): turns one GitHub event of a repository into a route run of the
+// The wake: turns one GitHub event of a repository into a route run of the
 // execution repository's nibfin-shared-runner.yml. Events only wake an Issue; the
-// route decides what runs (R4.35). The Action's `wake` command runs it.
+// route decides what runs (R4.35). The Action's `wake` command runs it (#776).
 import type { ActingClient } from "../github/client.ts";
 import { hasWritePermission } from "../github/pull-request.ts";
 import { formatIssue, type Repo } from "../github/repo.ts";
@@ -23,7 +23,7 @@ export interface WakePayload {
   action?: string;
   sender?: { login?: string };
   repository?: { default_branch?: string };
-  issue?: { number?: number; labels?: Named[] };
+  issue?: { number?: number; state?: string; labels?: Named[] };
   label?: Named;
   pull_request?: { head?: { ref?: string; repo?: FullName | null } };
   workflow_run?: {
@@ -53,7 +53,10 @@ export type WakeDecision =
     };
 
 const issueBranchPrefix = "nibfin/issue-";
-/** Labels Nibfin's own stages add and remove; their changes wake nothing. */
+/**
+ * Labels Nibfin's own stages add and remove; their changes wake nothing, except
+ * `delivered` added to an Issue that is not open (`deliveredByHand`).
+ */
 const ownLabels: ReadonlySet<string> = new Set(["shaped", "delivered"]);
 
 function invalidEvent(eventName: string, field: string): StageError {
@@ -73,6 +76,21 @@ function executionRepoOf(value: string | undefined): Repo {
 
 const skip = (reason: string): WakeDecision => ({ kind: "skip", reason });
 
+/**
+ * Whether the event adds `delivered` to an Issue that is not open: a person closed
+ * it first and marked it delivered afterwards, so the route's wake-only redo has to
+ * run. Nibfin's own close adds the label while the Issue is still open. A payload
+ * without the state also wakes; the route decides from GitHub, and an extra wake
+ * does no repeated work (R4.35).
+ */
+function deliveredByHand(payload: WakePayload, label: string): boolean {
+  return (
+    payload.action === "labeled" &&
+    label === "delivered" &&
+    payload.issue?.state !== "open"
+  );
+}
+
 function issuesWake(
   payload: WakePayload,
   name: string,
@@ -91,7 +109,8 @@ function issuesWake(
   if (
     (action === "labeled" || action === "unlabeled") &&
     label !== undefined &&
-    ownLabels.has(label)
+    ownLabels.has(label) &&
+    !deliveredByHand(payload, label)
   ) {
     return skip(`Nibfin's own label change (${action} ${label}); not routed`);
   }
@@ -191,11 +210,13 @@ function targetOf(
 
 /**
  * What an event of `repo` wakes, decided from its payload alone, before any token is
- * used, with the workflows' rules in their order (#776):
+ * used, with the workflows' rules in their order:
  *
  * - every event but `pull_request_review` first needs the execution repository;
  * - `issues`: the Issue needs `scope` or `request`, and a `labeled` or `unlabeled`
- *   `shaped` or `delivered` wakes nothing; then `{ issue }`, if the sender writes;
+ *   `shaped` or `delivered` wakes nothing, except `labeled delivered` on an Issue
+ *   whose state is not `open` (delivered by hand after the close); then
+ *   `{ issue }`, if the sender writes;
  * - `pull_request_review`: a `nibfin/issue-*` head of the same repository, then the
  *   execution repository; `{ branch }`, if the sender writes;
  * - `workflow_run`: of a `pull_request`, a `nibfin/issue-*` head of the same

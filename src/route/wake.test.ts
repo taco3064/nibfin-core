@@ -106,9 +106,10 @@ describe("wakeOf issues", () => {
   });
 
   it("skips Nibfin's own shaped and delivered label changes only", () => {
+    const open = { number: 1, state: "open", labels: labels("scope") };
     for (const action of ["labeled", "unlabeled"]) {
       for (const name of ["shaped", "delivered"]) {
-        const event = issueEvent({ action, label: { name } });
+        const event = issueEvent({ action, label: { name }, issue: open });
         skips(
           "issues",
           event,
@@ -122,6 +123,25 @@ describe("wakeOf issues", () => {
     const opened = issueEvent({ label: { name: "shaped" } });
     wakes("issues", opened, { issue: 1 }, "ann");
     wakes("issues", issueEvent({ action: "labeled" }), { issue: 1 }, "ann");
+  });
+
+  it("wakes when delivered is added to an Issue that is not open", () => {
+    const delivered = { action: "labeled", label: { name: "delivered" } };
+    const closed = { number: 1, state: "closed", labels: labels("scope", "delivered") };
+    wakes("issues", issueEvent({ ...delivered, issue: closed }), { issue: 1 }, "ann");
+    const unknown = { number: 1, labels: labels("scope", "delivered") };
+    wakes("issues", issueEvent({ ...delivered, issue: unknown }), { issue: 1 }, "ann");
+    for (const [action, name] of [
+      ["unlabeled", "delivered"],
+      ["labeled", "shaped"],
+      ["unlabeled", "shaped"],
+    ]) {
+      skips(
+        "issues",
+        issueEvent({ action, label: { name }, issue: closed }),
+        `Nibfin's own label change (${action} ${name}); not routed`,
+      );
+    }
   });
 
   it("rejects an event without its Issue or sender", () => {
