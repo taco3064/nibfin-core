@@ -101,9 +101,10 @@ a contract (`repair-record.ts`); change them only together with gh-nibfin.
 The deterministic part of the repair stage (#777, Proposal R4.40–R4.52). It runs
 inside `nibfin route --issue` (no agent, R5.70–R5.71) when the Issue derives
 `ineligible (pending)` (so never for a closed, unscoped or paused Issue) and nothing
-else is routed. The repair agent, applying a chosen option and the `labeled:pending`
-wake are separate work; until that wake exists, any other routed wake of the Issue
-reaches the stage.
+else is routed. What the code cannot decide goes to the read-only repair agent in a
+`repair` stage Job (#778, see Repair agent below). Applying a chosen option and the
+`labeled:pending` wake are separate work; until that wake exists, any other routed
+wake of the Issue reaches the stage.
 
 ### Reading the `pending` comment
 
@@ -132,17 +133,20 @@ none). Then:
 
 A new stop is decided in this order:
 
-1. no current comment, or no code → `not classified`, advice;
-2. the code is in the record's `handled` list → the category it had the first time,
-   advice: the second stop for that code (R4.47);
-3. `AGENT_USAGE_LIMIT` → when the reset is ISO 8601 UTC (`YYYY-MM-DDThh:mm:ss[.s]Z`)
+1. no current comment → `not classified`, advice;
+2. no code → the repair agent;
+3. a second `AGENT_USAGE_LIMIT` stop (the code is in the record's `handled` list) →
+   advice: the second stop for that code (R4.47). The usage limit never reaches the
+   agent (R4.43);
+4. `AGENT_USAGE_LIMIT` → when the reset is ISO 8601 UTC (`YYYY-MM-DDThh:mm:ss[.s]Z`)
    and reset + 1 minute is at most `jobLimitMinutes` (330) after the Job's process
    started: `wait`, category `external temporary problem (provider usage limit)`;
    otherwise advice with the reset as reported, or that none was reported (R4.43,
    R4.46). Codex's free-text resets are not exact times and get advice;
-4. the temporary sentence → `retry`, category `external temporary problem` (R4.42);
-5. anything else → `not classified`, advice: read the latest Nibfin comment, fix
-   what it names, then remove `pending`.
+5. the temporary sentence, for a code not in `handled` → `retry`, category
+   `external temporary problem` (R4.42);
+6. anything else (a second stop for another handled code, R4.47, or a code no rule
+   decides) → the repair agent (see Repair agent).
 
 Writes: W1 upserts the record. `advice` ends there (`pending` stays). `retry` then
 removes `pending` (W2, confirmed by the read-back labels, else
@@ -150,7 +154,8 @@ removes `pending` (W2, confirmed by the read-back labels, else
 cache, and continues to W2 only while the Issue still derives `ineligible (pending)`
 and `readRepairNeed` still says resume for the same `pending` digest; a person
 removing `pending`, `pause`, closing, or a new stop ends it without a write. Resume
-skips W1 and goes to the step its action names (a wait sleeps for the time left).
+skips W1 and goes to the step its action names (a wait sleeps for the time left;
+`agent`, `amend` and `rerun` are under Repair agent).
 After W2 the route reads the Issue again and dispatches what it calls for once.
 Every write is idempotent (R4.35): a crash after W1 resumes, a crash after W2 is an
 Issue without `pending`. The wait holds the route Job and the Issue's concurrency
@@ -173,17 +178,97 @@ Its next line is the state line:
 - `for`: `pendingDigest(body)`, the first 16 hex characters of the SHA-256 of the
   exact `pending` comment body (UTF-8, as the API's `body`, marker line included)
   the record covers. Without a current comment it is the digest of `""`.
-- `status`: `repairing`, `needs-person`, or `waiting-for-choice` (reserved for the
-  repair agent's options; this stage never writes it).
-- `action`: `retry`, `wait` (with `reset`) or `advice`.
+- `status`: `repairing`, `needs-person`, or `waiting-for-choice` (the repair agent's
+  options).
+- `action`: `retry`, `wait` (with `reset`), `advice`, and for the repair agent (#778)
+  `agent` (dispatched, working), `rerun` (failed CI jobs re-run), `amend` (the Issue
+  is being amended) and `options`. **Contract change:** `agent`, `rerun`, `amend` and
+  `options` are new to gh-nibfin; a reader that rejects an unknown action shows
+  `needs-person` until it accepts them.
 - `handled`: comma-separated codes already handled automatically on this Issue,
-  carried over from the previous record (possibly empty).
+  carried over from the previous record (possibly empty). A stop without a code is
+  `NONE`.
 
 No value contains `--`. Then the visible lines (R4.49): `- Category:`, `- Reason:`
-(one line), `- Evidence:` (the code, a link to the `pending` comment and its run),
-`- Done:` and `- Advice:`. It never quotes the failure message.
+(one line), `- Evidence:` (the code, a link to the `pending` comment and its run; the
+repair agent's evidence follows as nested items), `- Done:` and `- Advice:`, then the
+repair agent's options or follow-up steps. It never quotes the failure message.
 `formatRepairRecord(state, text)` writes it and `parseRepairRecord(body)` reads the
 state; a missing or unparseable state line, or `wait` without `reset`, is no record.
+
+### Repair agent
+
+A stop the decision order hands to the agent (#778, R4.40) is planned before any
+record is written: `runRepair` calls the route's `planDispatch` for `stage: repair`
+with the Issue's Assignees (the same runner choice, waiting-run check and consent as
+every stage, R4.20–R4.26):
+
+- `none` (no runner of an Assignee) → advice that no runner can run the repair agent;
+- `consent` → no record. The Issue has `pause` and the consent comments, so the reader
+  shows `needs-person`; removing `pause` wakes the route, which plans again and finds
+  the Assignee asked;
+- `waiting` → W1 writes the `agent` record (`repairing`, category `being
+classified`); the queued repair run picks it up;
+- `ready` → W1, then the dispatch. A failed dispatch goes to R4.50.
+
+The repair Job (`nibfin run --stage repair`, `runRepairStage`) runs in the Issue's
+concurrency group and has no post-stage route:
+
+1. It reads the Issue and goes on only while the Issue derives `ineligible (pending)`
+   and an `agent` record covers the current stop. When the Issue was paused or closed
+   while the run was queued, it writes a `needs-person` record (the agent did not run)
+   and runs nothing; otherwise it writes nothing.
+2. It resolves the `repair` and `scope` skills and gives the read-only agent
+   (`repairRole`): the Issue (body, labels, Assignees, Blocked by), the `pending`
+   comment, the failed run's jobs and the 200-line log tail of each failed job (only
+   when `- Run:` names a run of the execution repository), the open pull request
+   (head, required checks, failed Actions checks' log tails, changed files), the
+   current record (with the R4.47 line when the stop's key is in `handled`), the
+   repository's open Issues without bodies, where the product authority is, the scope
+   skill's `### Small amendments` section and the visibility. Every section is
+   redacted of the token.
+3. `parseRepairResult` accepts only these outcomes, each with its classes (R4.41,
+   R4.48); anything else is `STAGE_RESULT_INVALID`. Every result has `class`, a
+   one-line `summary` and a non-empty `evidence` list.
+   - `RERUN`: A, B or C.
+   - `AMEND`: D; `body` (or `null`), `blockedBy` (Issue URLs) and `changeSummary`,
+     with a body or an edge; the body keeps every `Origin:` line of the current body.
+   - `DECIDE`: E; 2–4 `options`, each `title`, `consequence`, `issueChange` and
+     `recommended`, exactly one recommended.
+   - `FOLLOW_UP`: any class; `steps`, each `text` with an https `link` or a
+     `command`; `bugReport {title, body}` for B, and only for B.
+
+   With the R4.47 guard, `RERUN` and `AMEND` are invalid.
+
+4. It reads the Issue again. `pending` removed, or a new stop → no write. Paused or
+   closed → a `needs-person` record with the agent's class, summary and proposal, not
+   applied. `AMEND` with a body that changed meanwhile → a `needs-person` record.
+5. It acts. The record is always written first (W1), and `handled` gains the stop's
+   key only for `RERUN` and `AMEND`:
+   - `RERUN` class C with failed required checks that GitHub Actions created on the
+     open pull request's head → record `repairing rerun`, then
+     `POST …/actions/jobs/{id}/rerun` for each (`rerunJob`). `pending` stays; the CI
+     completion wake resumes the record, which removes `pending` once no required
+     check is pending (or no pull request is open) and routes the Issue;
+   - any other `RERUN` → record `repairing retry`, remove `pending`, route once
+     (`rerouteIssue`);
+   - `AMEND` → record `repairing amend` with the change summary and the Blocked by it
+     adds, then `updateIssueBody` (read back exactly) when the body differs,
+     `addBlockedBy` per URL, remove `pending`, route once;
+   - `DECIDE` → record `waiting-for-choice options` with the numbered options, the
+     recommended one marked; `pending` stays;
+   - `FOLLOW_UP` → record `needs-person advice` with the numbered steps, and for B a
+     bug report to file at `bugReportUrl` (nibfin-core's new-Issue page); `pending`
+     stays.
+
+Core performs every write; the agent holds no credential and must leave its workspace
+unchanged. A failure Core catches in the repair Job (an invalid result, a usage limit,
+a login or write failure) rewrites the `pending` comment with ``- Stage: `repair` ``
+(R4.50). When the route resumes an `agent` or `amend` record and no repair run of the
+Issue is waiting to start, the repair Job ended without a result (or was never
+dispatched): `STAGE_REPAIR_ENDED` goes to R4.50 the same way, and the agent never runs
+twice for one stop. Until the job workflow wakes the Issue on such an end, it is
+detected on the Issue's next wake; until then the reader shows `repairing`.
 
 ### Reader rule
 
