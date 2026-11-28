@@ -17,6 +17,11 @@ export interface RenderRequest {
   defaultBranch: string;
   /** The repository's CI/CD workflow names; none leaves out `workflow_run`. */
   workflows: readonly string[];
+  /**
+   * User channel (both sets): the full nibfin-core commit the Action is pinned to, the
+   * one the image was built from. The own channel takes none (it runs `@main`).
+   */
+  commit?: string;
 }
 
 /**
@@ -39,6 +44,8 @@ export interface TemplateData {
   eventsToken: string;
   /** Own channel: what `nibfin-issue.yml` calls for its events job. */
   eventsUses: string | undefined;
+  /** What the steps of Core's Action call: `@main` (own) or `@<commit>` (user). */
+  actionUses: string;
 }
 
 /** A render input that is missing or not allowed. */
@@ -127,6 +134,29 @@ export function flow(items: readonly string[]): string {
   return `[${items.map(quote).join(", ")}]`;
 }
 
+/** Core's JavaScript Action, a subdirectory of nibfin-core (#776). */
+export const actionPath = "taco3064/nibfin-core/action";
+
+// A full-length commit SHA, as GitHub's pinning rule asks for.
+const commitPattern = /^[0-9a-f]{40}$/;
+
+function readActionUses(commit: string | undefined, channel: WorkflowChannel): string {
+  if (channel === "own") {
+    if (commit !== undefined) {
+      throw new WorkflowInputError("the own channel takes no commit; it runs @main");
+    }
+    return `${actionPath}@main`;
+  }
+  if (commit === undefined) {
+    throw new WorkflowInputError("the user channel needs a commit");
+  }
+  if (!commitPattern.test(commit)) {
+    const quoted = JSON.stringify(commit);
+    throw new WorkflowInputError(`commit ${quoted} is not a full 40-character SHA`);
+  }
+  return `${actionPath}@${commit}`;
+}
+
 const eventsUses: Record<WorkflowSet, string> = {
   execution: "./.github/workflows/nibfin-events.yml",
   peer: "taco3064/nibfin-core/.github/workflows/nibfin-events.yml@main",
@@ -139,6 +169,7 @@ export function templateData(request: RenderRequest): TemplateData {
   const image = readImage(request, set, channel);
   const branches = flow([readBranch(request.defaultBranch)]);
   const names = readWorkflows(request.workflows);
+  const actionUses = readActionUses(request.commit, channel);
   const own = channel === "own";
   return {
     set,
@@ -149,5 +180,6 @@ export function templateData(request: RenderRequest): TemplateData {
     workflows: names.length === 0 ? "" : flow(names),
     eventsToken: own ? "${{ secrets.token }}" : "${{ secrets.NIBFIN_GITHUB_TOKEN }}",
     eventsUses: own ? eventsUses[set] : undefined,
+    actionUses,
   };
 }

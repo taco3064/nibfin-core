@@ -7,6 +7,7 @@ import { capture } from "./fake-io.test.ts";
 import { renderWorkflowsCommand } from "./render-workflows.ts";
 
 const digest = `ghcr.io/taco3064/nibfin@sha256:${"0".repeat(64)}`;
+const commit = "0".repeat(40);
 
 describe("nibfin render-workflows", () => {
   it("prints the rendered files as one JSON object", async () => {
@@ -18,6 +19,8 @@ describe("nibfin render-workflows", () => {
       "user",
       "--image",
       digest,
+      "--commit",
+      commit,
       "--default-branch",
       "trunk",
       "--workflow",
@@ -34,7 +37,12 @@ describe("nibfin render-workflows", () => {
       image: digest,
       defaultBranch: "trunk",
       workflows: ["Build", "CI"],
+      commit,
     });
+    const job = (JSON.parse(result.stdout) as Record<string, string>)[
+      ".github/workflows/nibfin-job.yml"
+    ];
+    assert.ok(job.includes(`uses: taco3064/nibfin-core/action@${commit}\n`));
     assert.equal(result.stdout, `${JSON.stringify(expected)}\n`);
     assert.deepEqual(Object.keys(JSON.parse(result.stdout) as object), [
       ".github/workflows/nibfin-issue.yml",
@@ -72,6 +80,16 @@ describe("nibfin render-workflows", () => {
       ["--set", "peer", "--channel", "user", "--default-branch", "main", "--image", "x"],
       /image "x" is not/,
     ],
+    [
+      "a user set without a commit",
+      ["--set", "peer", "--channel", "user", "--default-branch", "main"],
+      /WORKFLOW_INPUT_INVALID: the user channel needs a commit$/m,
+    ],
+    [
+      "a commit for the own channel",
+      ["--set=peer", "--channel=own", "--default-branch=main", `--commit=${commit}`],
+      /the own channel takes no commit/,
+    ],
     ["an unknown option", ["--set", "peer", "--force"], /Unknown option '--force'/],
     ["a positional argument", ["peer"], /Unexpected argument 'peer'/],
   ];
@@ -101,6 +119,7 @@ describe("renderWorkflowsCommand template errors", () => {
       stderr: { write: (text: string) => err.push(text) },
     };
     const args = ["--set", "peer", "--channel", "user", "--default-branch", "main"];
+    args.push("--commit", commit);
     assert.equal(renderWorkflowsCommand(args, io, views), 1);
     assert.deepEqual(out, []);
     assert.match(

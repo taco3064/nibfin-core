@@ -19,7 +19,8 @@ docker run --rm "$image" sh -euc '
   done
   zero=$(printf "%064d" 0)
   nibfin render-workflows --set execution --channel user \
-    --image "ghcr.io/taco3064/nibfin@sha256:$zero" --default-branch main |
+    --image "ghcr.io/taco3064/nibfin@sha256:$zero" --commit "$(printf "%040d" 0)" \
+    --default-branch main |
     grep -F "IMAGE_REF: ghcr.io/taco3064/nibfin@sha256:$zero" > /dev/null
   echo "render-workflows: rendered the user execution set"
 '
