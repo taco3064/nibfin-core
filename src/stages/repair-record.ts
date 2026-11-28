@@ -8,8 +8,15 @@ export const repairCommentKey = "repair";
 /** What a reader shows for a `pending` Issue (R9.52). */
 export type RepairStatus = "repairing" | "waiting-for-choice" | "needs-person";
 
-/** What the repair stage did or is doing for the stop the record covers. */
-export type RepairAction = "retry" | "wait" | "advice";
+/**
+ * What the repair stage did or is doing for the stop the record covers: `retry`
+ * (remove `pending` and dispatch once), `wait` (a usage-limit reset), `advice`
+ * (a person acts), and for the repair agent (#778) `agent` (dispatched, working),
+ * `rerun` (failed CI jobs re-run; `pending` stays until CI completes), `amend`
+ * (the Issue is being amended) and `options` (numbered options to choose from).
+ */
+export type RepairAction =
+  "retry" | "wait" | "advice" | "agent" | "rerun" | "amend" | "options";
 
 /** The state line of a repair record. */
 export interface RepairState {
@@ -31,6 +38,8 @@ export interface RepairText {
   evidence: string;
   done: string;
   advice: string;
+  /** Markdown after the R4.49 lines: the options or the follow-up steps (#778). */
+  details?: string;
 }
 
 const statuses: readonly RepairStatus[] = [
@@ -38,7 +47,15 @@ const statuses: readonly RepairStatus[] = [
   "waiting-for-choice",
   "needs-person",
 ];
-const actions: readonly RepairAction[] = ["retry", "wait", "advice"];
+const actions: readonly RepairAction[] = [
+  "retry",
+  "wait",
+  "advice",
+  "agent",
+  "rerun",
+  "amend",
+  "options",
+];
 
 /**
  * The digest that ties a repair record to one `pending` comment: the first 16 hex
@@ -54,7 +71,10 @@ const stateLine = new RegExp(
     "handled=([A-Z0-9_,]*)(?: reset=([0-9T:.Z-]+))? -->$",
 );
 
-/** The record body (without the `repair` marker line): state line, then R4.49 lines. */
+/**
+ * The record body (without the `repair` marker line): state line, then R4.49 lines,
+ * then `details` when given.
+ */
 export function formatRepairRecord(state: RepairState, text: RepairText): string {
   const reset = state.reset === undefined ? "" : ` reset=${state.reset}`;
   const line =
@@ -72,6 +92,7 @@ export function formatRepairRecord(state: RepairState, text: RepairText): string
     `- Evidence: ${text.evidence}`,
     `- Done: ${text.done}`,
     `- Advice: ${text.advice}`,
+    ...(text.details === undefined ? [] : ["", text.details.trim()]),
   ].join("\n");
 }
 

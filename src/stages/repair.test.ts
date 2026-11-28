@@ -3,7 +3,10 @@ import { describe, it } from "node:test";
 import { AgentError } from "../agent/index.ts";
 import { rejection } from "../github/fake-github.test.ts";
 import { freshReads, GitHubError, upsertMarkedComment } from "../github/index.ts";
+import { checkRun } from "../github/fixtures.test.ts";
 import { StageError } from "./errors.ts";
+import { deliveryWorld } from "./fake-delivery.test.ts";
+import { openPull } from "./fake-repair.test.ts";
 import {
   type FakeIssues,
   fakeIssue,
@@ -15,11 +18,18 @@ import { requestPerson } from "./pending.ts";
 import {
   jobLimitMinutes,
   type RepairClock,
+  type RepairDispatcher,
+  type RepairDispatchPlan,
   readRepairNeed,
   runRepair,
   systemClock,
 } from "./repair.ts";
-import { formatRepairRecord, parseRepairRecord, pendingDigest } from "./repair-record.ts";
+import {
+  formatRepairRecord,
+  parseRepairRecord,
+  pendingDigest,
+  type RepairAction,
+} from "./repair-record.ts";
 
 const issue = { owner: "acme", repo: "app", number: 1 };
 const url = "https://github.com/acme/runner/actions/runs/900";
@@ -70,10 +80,43 @@ function record(issues: FakeIssues) {
 
 const log = () => {};
 
-async function repair(issues: FakeIssues, clock: RepairClock) {
+/** A repair dispatcher that records what the stage asked of it. */
+function fakeDispatcher(plan: RepairDispatchPlan = { kind: "ready", assignee: 5 }) {
+  const calls: string[] = [];
+  let waiting: number | undefined;
+  const dispatcher: RepairDispatcher = {
+    plan: () => {
+      calls.push("plan");
+      return Promise.resolve(plan);
+    },
+    dispatch: (assignee) => {
+      calls.push(`dispatch ${assignee}`);
+      return Promise.resolve();
+    },
+    waitingRun: () => {
+      calls.push("waitingRun");
+      return Promise.resolve(waiting);
+    },
+  };
+  return {
+    dispatcher,
+    calls,
+    wait: (id: number | undefined) => {
+      waiting = id;
+    },
+  };
+}
+
+const noDispatch = fakeDispatcher().dispatcher;
+
+async function repair(
+  issues: FakeIssues,
+  clock: RepairClock,
+  dispatcher: RepairDispatcher = noDispatch,
+) {
   const need = await readRepairNeed(issues.github.client, issue);
   assert.notEqual(need, null);
-  return runRepair(issues.github.client, issue, need!, clock, log);
+  return runRepair(issues.github.client, issue, need!, clock, log, dispatcher);
 }
 
 describe("readRepairNeed", () => {
@@ -170,20 +213,20 @@ describe("runRepair", () => {
     );
   });
 
-  it("advises on a second stop for the same code (R4.47)", async () => {
+  it("hands a second stop for the same code to the agent (R4.47)", async () => {
     const issues = await stopped(gitFailed());
     await repair(issues, testClock().clock);
     await stopAgain(issues, gitFailed("again"), 901);
-    assert.equal(await repair(issues, testClock().clock), "advised");
+    const fake = fakeDispatcher();
+    assert.equal(await repair(issues, testClock().clock, fake.dispatcher), "agent");
+    assert.deepEqual(fake.calls, ["plan", "dispatch 5"]);
     assert.ok(issues.main.labels.includes("pending"));
     const { body, state } = record(issues);
-    assert.equal(state.status, "needs-person");
-    assert.equal(state.action, "advice");
+    assert.equal(state.status, "repairing");
+    assert.equal(state.action, "agent");
     assert.deepEqual(state.handled, ["STAGE_GIT_FAILED"]);
-    assert.match(body, /- Category: external temporary problem\n/);
-    assert.match(body, /This is the second stop for `STAGE_GIT_FAILED`/);
-    // The record now covers the stop: later wakes have nothing to do.
-    assert.equal(await readRepairNeed(issues.github.client, issue), null);
+    assert.match(body, /- Category: being classified\n/);
+    assert.match(body, /- Done: Dispatched the repair agent\./);
   });
 
   it("retries another temporary code after one was handled", async () => {
@@ -256,16 +299,115 @@ describe("runRepair", () => {
     );
   });
 
-  it("advises on a code it cannot decide and on a stop without a code", async () => {
-    const blocked = await stopped(new StageError("STAGE_BLOCKED", "x"));
-    assert.equal(await repair(blocked, testClock().clock), "advised");
-    const { body } = record(blocked);
-    assert.match(body, /- Category: not classified\n/);
-    assert.match(body, /cannot decide the code `STAGE_BLOCKED`/);
-    assert.match(body, /- Advice: Read the latest Nibfin comment on this Issue/);
-    const uncoded = await stopped(new Error("x"));
-    assert.equal(await repair(uncoded, testClock().clock), "advised");
-    assert.match(record(uncoded).body, /cannot decide the code `none`/);
+  it("hands a code it cannot decide and a stop without a code to the agent", async () => {
+    for (const error of [new StageError("STAGE_BLOCKED", "x"), new Error("x")]) {
+      const issues = await stopped(error);
+      const fake = fakeDispatcher();
+      assert.equal(await repair(issues, testClock().clock, fake.dispatcher), "agent");
+      assert.deepEqual(fake.calls, ["plan", "dispatch 5"]);
+      const { state } = record(issues);
+      assert.equal(state.action, "agent");
+      assert.deepEqual(state.handled, []);
+      // The queued repair run resumes the record: the route writes nothing more.
+      fake.wait(1001);
+      const writes = issues.github.writes().length;
+      assert.equal(await repair(issues, testClock().clock, fake.dispatcher), "stopped");
+      assert.equal(issues.github.writes().length, writes);
+    }
+  });
+
+  it("writes the agent record without dispatching when a repair run waits", async () => {
+    const issues = await stopped(new StageError("STAGE_BLOCKED", "x"));
+    const fake = fakeDispatcher({ kind: "waiting", runId: 1001 });
+    assert.equal(await repair(issues, testClock().clock, fake.dispatcher), "agent");
+    assert.deepEqual(fake.calls, ["plan"]);
+    assert.equal(record(issues).state.action, "agent");
+  });
+
+  it("writes no record when the plan asked for consent", async () => {
+    const issues = await stopped(new StageError("STAGE_BLOCKED", "x"));
+    const fake = fakeDispatcher({ kind: "consent" });
+    const writes = issues.github.writes().length;
+    assert.equal(await repair(issues, testClock().clock, fake.dispatcher), "stopped");
+    assert.deepEqual(fake.calls, ["plan"]);
+    assert.deepEqual(issues.marked("repair"), []);
+    assert.equal(issues.github.writes().length, writes);
+  });
+
+  it("advises when no runner of an Assignee can run the agent", async () => {
+    const issues = await stopped(new StageError("STAGE_BLOCKED", "x"));
+    const fake = fakeDispatcher({ kind: "none" });
+    assert.equal(await repair(issues, testClock().clock, fake.dispatcher), "advised");
+    const { body, state } = record(issues);
+    assert.equal(state.status, "needs-person");
+    assert.equal(state.action, "advice");
+    assert.match(body, /- Reason: No runner of an Assignee can run the repair agent\./);
+    assert.ok(issues.main.labels.includes("pending"));
+    assert.equal(await readRepairNeed(issues.github.client, issue), null);
+  });
+
+  it("never hands a usage limit to the agent (R4.43)", async () => {
+    const issues = await stopped(usageLimit());
+    const fake = fakeDispatcher();
+    assert.equal(await repair(issues, testClock().clock, fake.dispatcher), "advised");
+    assert.deepEqual(fake.calls, []);
+  });
+
+  /** Seeds a `repairing` record with `action` for the current `pending` comment. */
+  async function seedRecord(issues: FakeIssues, action: RepairAction) {
+    const [pending] = issues.marked("pending");
+    const state = {
+      for: pendingDigest(pending.body),
+      status: "repairing",
+      action,
+      handled: [],
+    } as const;
+    const text = { category: "c", reason: "r", evidence: "e", done: "d", advice: "a" };
+    await upsertMarkedComment(
+      issues.github.client,
+      issue,
+      "repair",
+      formatRepairRecord(state, text),
+    );
+  }
+
+  for (const action of ["agent", "amend"] as const) {
+    it(`ends a resumed ${action} record without a waiting run (R4.50)`, async () => {
+      const issues = await stopped(new StageError("STAGE_BLOCKED", "x"));
+      await seedRecord(issues, action);
+      const fake = fakeDispatcher();
+      const writes = issues.github.writes().length;
+      const error = await rejection(repair(issues, testClock().clock, fake.dispatcher));
+      assert.ok(error instanceof StageError);
+      assert.equal(error.code, "STAGE_REPAIR_ENDED");
+      assert.match(error.message, /ended without a result/);
+      assert.equal(/partly applied/.test(error.message), action === "amend");
+      assert.deepEqual(fake.calls, ["waitingRun"]);
+      assert.equal(issues.github.writes().length, writes);
+    });
+  }
+
+  it("keeps a resumed rerun while required checks are pending", async () => {
+    const world = await deliveryWorld({ noShape: true });
+    const { issues } = world;
+    await stopAgain(issues, new StageError("STAGE_BLOCKED", "x"), 900);
+    await seedRecord(issues, "rerun");
+    const head = openPull(world, [checkRun(55, "verify", { status: "in_progress" })]);
+    freshReads(issues.github.client);
+    const writes = issues.github.writes().length;
+    assert.equal(await repair(issues, testClock().clock), "stopped");
+    assert.equal(issues.github.writes().length, writes);
+    assert.ok(issues.main.labels.includes("pending"));
+    world.checkRuns.set(head, [checkRun(56, "verify", { conclusion: "failure" })]);
+    freshReads(issues.github.client);
+    assert.equal(await repair(issues, testClock().clock), "released");
+    assert.ok(!issues.main.labels.includes("pending"));
+  });
+
+  it("releases a resumed rerun without an open pull request", async () => {
+    const issues = await stopped(new StageError("STAGE_BLOCKED", "x"));
+    await seedRecord(issues, "rerun");
+    assert.equal(await repair(issues, testClock().clock), "released");
   });
 
   it("advises when pending has no current Nibfin comment", async () => {
@@ -297,7 +439,14 @@ describe("runRepair", () => {
     assert.equal(need?.kind, "resume");
     const before = issues.github.writes().length;
     assert.equal(
-      await runRepair(issues.github.client, issue, need, testClock().clock, log),
+      await runRepair(
+        issues.github.client,
+        issue,
+        need,
+        testClock().clock,
+        log,
+        noDispatch,
+      ),
       "released",
     );
     const writes = issues.github.writes().slice(before);

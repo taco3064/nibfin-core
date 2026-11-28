@@ -67,6 +67,16 @@ const coreArgs = [
  * workspace, so no configuration the agent can write (the workspace's config, the
  * global or system config) applies while the token is in the environment.
  */
+/** The Basic credential of `token` as Git sends it (`x-access-token:<token>`). */
+function basicCredential(token: string): string {
+  return Buffer.from(`x-access-token:${token}`).toString("base64");
+}
+
+/** `text` without `token` or the Basic credential that carries it. */
+export function redactToken(text: string, token: string): string {
+  return text.split(token).join("***").split(basicCredential(token)).join("***");
+}
+
 export class Git {
   readonly workspace: string;
   readonly coreRepo: string;
@@ -90,14 +100,12 @@ export class Git {
 
   /** The `Authorization` header Git sends to github.com, as actions/checkout does. */
   #header(): string {
-    const basic = Buffer.from(`x-access-token:${this.#token}`).toString("base64");
-    return `AUTHORIZATION: basic ${basic}`;
+    return `AUTHORIZATION: basic ${basicCredential(this.#token)}`;
   }
 
   /** `text` without the token or the header that carries it. */
   redact(text: string): string {
-    const basic = this.#header().slice("AUTHORIZATION: basic ".length);
-    return text.split(this.#token).join("***").split(basic).join("***");
+    return redactToken(text, this.#token);
   }
 
   #allowedProtocol(): string {

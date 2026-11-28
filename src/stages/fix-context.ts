@@ -24,17 +24,30 @@ export interface FixContextOptions {
   base: string;
 }
 
-async function logTail(options: FixContextOptions, jobId: number): Promise<string> {
-  const log = await readJobLog(options.client, options.repo, jobId);
+/**
+ * The last `logTailLines` lines of GitHub Actions job `jobId`'s log, redacted and
+ * fenced, or a note that the log is not available.
+ */
+export async function jobLogTail(
+  client: GitHubClient,
+  repo: Repo,
+  redact: (text: string) => string,
+  jobId: number,
+): Promise<string> {
+  const log = await readJobLog(client, repo, jobId);
   if (log === undefined) {
     return "The job log is not available.";
   }
-  const lines = options.redact(log).split(/\r?\n/);
+  const lines = redact(log).split(/\r?\n/);
   if (lines.at(-1) === "") {
     lines.pop();
   }
   const tail = lines.slice(-logTailLines).join("\n");
   return `Last ${logTailLines} lines of the job log:\n\n${fenced(tail)}`;
+}
+
+function logTail(options: FixContextOptions, jobId: number): Promise<string> {
+  return jobLogTail(options.client, options.repo, options.redact, jobId);
 }
 
 async function describeCheck(

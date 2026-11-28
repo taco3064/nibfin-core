@@ -1,5 +1,7 @@
 import { type ActingClient, connectClient } from "../github/index.ts";
+import { rerouteIssue } from "../route/index.ts";
 import {
+  defaultStageDeps,
   type FinishContext,
   isWait,
   type JobContext,
@@ -7,11 +9,13 @@ import {
   readJobContext,
   type RepairClock,
   runDeliverStage,
+  runRepairStage,
   runFinishStage,
   runReviewStage,
   runScopeStage,
   runShapeStage,
   runUrl,
+  StageError,
 } from "../stages/index.ts";
 import { askPerson, type CliIo, printFailure } from "./failure.ts";
 import { renderWorkflowsCommand } from "./render-workflows.ts";
@@ -29,6 +33,8 @@ export const usage = `Usage: nibfin <option>
                   [--model <model>] [--reason ci-failure|review|cd-failure|conflict]
        nibfin run --stage review --repo <owner>/<repo> --issue <n> --provider <p>
                   [--model <model>]
+       nibfin run --stage repair --repo <owner>/<repo> --issue <n> --provider <p>
+                  [--model <model>]
        nibfin run --stage finish --repo <owner>/<repo> --issue <n>
        nibfin route --repo <owner>/<repo> (--issue <n> | --sha <sha> | --branch <b>)
        nibfin render-workflows --set execution|peer --channel own|user [--image <ref>]
@@ -43,7 +49,7 @@ see src/stages/README.md and src/route/README.md. render-workflows prints the
 rendered workflow files as JSON; see src/workflows/README.md.
 `;
 
-type StageName = "scope" | "shape" | "deliver" | "review" | "finish";
+type StageName = "scope" | "shape" | "deliver" | "review" | "repair" | "finish";
 type StageRunner = (context: JobContext, client: ActingClient) => Promise<number>;
 /** The finish stage runs no agent, so its context has no agent fields (#755). */
 type FinishRunner = (context: FinishContext, client: ActingClient) => Promise<number>;
@@ -52,6 +58,7 @@ interface StageRunners {
   shape: StageRunner;
   deliver: StageRunner;
   review: StageRunner;
+  repair: StageRunner;
   finish: FinishRunner;
 }
 
@@ -72,9 +79,31 @@ export const defaultRunDeps: RunDeps = {
     shape: runShapeStage,
     deliver: (context, client) => runDeliverStage(context, client),
     review: (context, client) => runReviewStage(context, client),
+    repair: (context, client) =>
+      runRepairStage(context, client, {
+        ...defaultStageDeps,
+        reroute: rerouteAfterRepair,
+      }),
     finish: (context, client) => runFinishStage(context, client),
   },
 };
+
+/**
+ * After the repair Job removed `pending`: reads the Issue's route and dispatches it
+ * once from the execution repository (#778).
+ */
+export async function rerouteAfterRepair(
+  context: JobContext,
+  client: ActingClient,
+): Promise<void> {
+  const { runRepo } = context;
+  if (runRepo === undefined) {
+    throw new StageError("STAGE_INPUT_INVALID", "NIBFIN_RUN_REPO is missing");
+  }
+  const log = (line: string) => void process.stdout.write(`${line}\n`);
+  const scope = { client, runRepo, runId: context.runId, log };
+  await rerouteIssue(scope, context.repo, context.issue);
+}
 
 function stageName(args: readonly string[], deps: RunDeps): StageName | undefined {
   const index = args.indexOf("--stage");
@@ -85,10 +114,12 @@ function stageName(args: readonly string[], deps: RunDeps): StageName | undefine
 }
 
 /**
- * Runs one stage, then continues the Issue from GitHub state (`routeAfterStage`).
- * Any failure once the client exists sets `pending` on the Issue and exits 1, except
- * `STAGE_WRITER_ACTIVE`: a wait that writes nothing and exits 0, so a non-zero exit
- * always means a person must act.
+ * Runs one stage, then continues the Issue from GitHub state (`routeAfterStage`;
+ * the repair stage continues the Issue itself, #778). Any failure once the client
+ * exists sets `pending` on the Issue and exits 1, except `STAGE_WRITER_ACTIVE`: a
+ * wait that writes nothing and exits 0, so a non-zero exit always means a person must
+ * act. A failure of the repair stage names it on the `pending` comment, so it does
+ * not start again for that stop (Proposal R4.50).
  */
 async function runStage(
   args: readonly string[],
@@ -120,7 +151,7 @@ async function runStage(
   }
   try {
     const code = await runner(client);
-    if (code === 0) {
+    if (code === 0 && stage !== "repair") {
       await routeAfterStage(io, client, context, stage);
     }
     return code;
@@ -130,7 +161,15 @@ async function runStage(
       return 0;
     }
     const issue = { ...context.repo, number: context.issue };
-    await askPerson(io, client, issue, error, runUrl(context.runRepo, context.runId));
+    const url = runUrl(context.runRepo, context.runId);
+    await askPerson(
+      io,
+      client,
+      issue,
+      error,
+      url,
+      stage === "repair" ? "repair" : undefined,
+    );
     return 1;
   }
 }

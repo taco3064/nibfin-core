@@ -3,7 +3,7 @@ import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, it } from "node:test";
 import { makeTempDir } from "../agent/fake-cli.test.ts";
-import { failure, fakeToken } from "../github/fake-github.test.ts";
+import { failure, fakeToken, rejection } from "../github/fake-github.test.ts";
 import { type ActingClient, GitHubError } from "../github/index.ts";
 import { fakeRunner } from "../route/fake-runner.test.ts";
 import {
@@ -14,7 +14,7 @@ import {
 } from "../stages/fake-job.test.ts";
 import { type FinishContext, type JobContext, StageError } from "../stages/index.ts";
 import { capture } from "./fake-io.test.ts";
-import { defaultRunDeps, type RunDeps, usage } from "./run.ts";
+import { defaultRunDeps, rerouteAfterRepair, type RunDeps, usage } from "./run.ts";
 import { readVersion } from "./version.ts";
 
 describe("run", () => {
@@ -71,9 +71,27 @@ describe("run --stage", () => {
         seen.token = token;
         return Promise.resolve(client);
       },
-      stages: { scope: stage, shape: stage, deliver: stage, review: stage, finish },
+      stages: {
+        scope: stage,
+        shape: stage,
+        deliver: stage,
+        review: stage,
+        repair: stage,
+        finish,
+      },
     };
     return { deps, seen, issues, runner };
+  }
+
+  function atShapeFor(outcome: (context: JobContext) => Promise<number>) {
+    return stageDeps(outcome, fakeIssues(fakeIssue({ labels: ["scope"] })));
+  }
+
+  async function withNextFile(next: unknown) {
+    const dir = await makeTempDir("cli-next-");
+    const nextFile = join(dir, "next.json");
+    writeFileSync(nextFile, JSON.stringify(next));
+    return nextFile;
   }
 
   it("runs the Shape stage with the Job context", async () => {
@@ -116,6 +134,60 @@ describe("run --stage", () => {
     assert.match(withReason.stderr, /--reason is only valid with --stage deliver/);
   });
 
+  it("runs the repair stage without the post-stage route (#778)", async () => {
+    const t = atShapeFor(() => Promise.resolve(0));
+    const nextFile = await withNextFile({
+      stage: "shape",
+      reason: null,
+      wake: [],
+      progressed: true,
+    });
+    t.deps.env = { ...env, NIBFIN_NEXT_FILE: nextFile };
+    const result = await capture(["run", "--stage", "repair", ...args], t.deps);
+    assert.equal(result.code, 0);
+    assert.equal(t.seen.context?.issue, 1);
+    assert.deepEqual(t.runner.dispatched, []);
+  });
+
+  it("names the repair stage on the pending comment when it fails (R4.50)", async () => {
+    const error = new StageError("STAGE_RESULT_INVALID", "bad result");
+    const t = stageDeps(() => Promise.reject(error));
+    const result = await capture(["run", "--stage", "repair", ...args], t.deps);
+    assert.equal(result.code, 1);
+    const [comment] = t.issues.marked("pending");
+    assert.match(
+      comment.body,
+      /- Code: `STAGE_RESULT_INVALID`\n- Run: .*\n- Stage: `repair`\n/,
+    );
+    const shape = stageDeps(() => Promise.reject(error));
+    await capture(["run", "--stage", "shape", ...args], shape.deps);
+    assert.doesNotMatch(shape.issues.marked("pending")[0].body, /- Stage:/);
+  });
+
+  it("re-routes after the repair Job from the execution repository", async () => {
+    const issues = fakeIssues(fakeIssue({ labels: ["scope"] }));
+    const runner = fakeRunner(issues.github);
+    const context = { ...jobContext("/w"), runRepo: { owner: "acme", repo: "runner" } };
+    const write = process.stdout.write.bind(process.stdout);
+    const lines: string[] = [];
+    process.stdout.write = (text: string | Uint8Array, ...rest: never[]) =>
+      typeof text === "string" ? lines.push(text) > 0 : write(text, ...rest);
+    try {
+      await rerouteAfterRepair(context, issues.github.client);
+    } finally {
+      process.stdout.write = write;
+    }
+    assert.deepEqual(
+      runner.dispatched.map((inputs) => inputs.stage),
+      ["shape"],
+    );
+    assert.match(lines.join(""), /Dispatched Nibfin · acme\/app#1 · shape/);
+    const error = await rejection(
+      rerouteAfterRepair(jobContext("/w"), issues.github.client),
+    );
+    assert.match(String(error), /NIBFIN_RUN_REPO is missing/);
+  });
+
   it("runs the finish stage without the agent fields", async () => {
     const t = stageDeps(() => Promise.resolve(0));
     const finish = ["run", "--stage", "finish", "--repo", "acme/app", "--issue", "1"];
@@ -132,12 +204,13 @@ describe("run --stage", () => {
     assert.match(withProvider.stderr, /--provider is not valid with --stage finish/);
   });
 
-  it("uses the Scope, Shape, Deliver, review and finish stages by default", async () => {
+  it("uses the Scope, Shape, Deliver, review, repair and finish stages", async () => {
     assert.deepEqual(Object.keys(defaultRunDeps.stages), [
       "scope",
       "shape",
       "deliver",
       "review",
+      "repair",
       "finish",
     ]);
     const issues = fakeIssues(fakeIssue({ state: "closed" }));
@@ -157,6 +230,7 @@ describe("run --stage", () => {
       assert.equal(await defaultRunDeps.stages.scope(context, client), 0);
       assert.equal(await defaultRunDeps.stages.deliver(context, client), 0);
       assert.equal(await defaultRunDeps.stages.review(context, client), 0);
+      assert.equal(await defaultRunDeps.stages.repair(context, client), 0);
       const { repo, issue, token } = context;
       assert.equal(await defaultRunDeps.stages.finish({ repo, issue, token }, client), 0);
     } finally {
@@ -166,6 +240,7 @@ describe("run --stage", () => {
       "acme/app#1 is not at the scope stage: ineligible (closed)\n",
       "acme/app#1 is not at the deliver stage: ineligible (closed) (no reason)\n",
       "acme/app#1 is not at the review stage: ineligible (closed)\n",
+      "acme/app#1: no repair agent record covers the current stop; nothing to do\n",
       "acme/app#1 is not at the review stage: ineligible (closed)\n",
     ]);
   });
@@ -284,18 +359,8 @@ describe("run --stage", () => {
     assert.deepEqual(t.runner.dispatched, []);
   });
 
-  async function withNextFile(next: unknown) {
-    const dir = await makeTempDir("cli-next-");
-    const nextFile = join(dir, "next.json");
-    writeFileSync(nextFile, JSON.stringify(next));
-    return nextFile;
-  }
-
   function atShape() {
-    return stageDeps(
-      () => Promise.resolve(0),
-      fakeIssues(fakeIssue({ labels: ["scope"] })),
-    );
+    return atShapeFor(() => Promise.resolve(0));
   }
 
   it("continues the Issue after a stage from the next-action file", async () => {

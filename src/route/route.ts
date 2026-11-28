@@ -38,14 +38,16 @@ export interface IssueRoute {
 }
 
 /**
- * An Issue's route, whether it is open, its derived stage for the log, and for an
- * Issue that derives `ineligible (pending)` its repair need (#777; `null` otherwise
- * or when there is nothing to repair).
+ * An Issue's route, whether it is open, its derived stage for the log, its Assignees
+ * in GitHub's order (the repair agent's candidates, #778), and for an Issue that
+ * derives `ineligible (pending)` its repair need (#777; `null` otherwise or when
+ * there is nothing to repair).
  */
 export interface RouteState {
   open: boolean;
   route: IssueRoute | null;
   stage: Stage;
+  assignees: readonly Actor[];
   repair: RepairNeed | null;
 }
 
@@ -122,10 +124,10 @@ export async function readRoute(
   const pending = stage.stage === "ineligible" && stage.reason === "pending";
   const repair = pending ? await readRepairNeed(client, ref) : null;
   if (next.stage === null || assignees.length === 0) {
-    return { open, route: null, stage, repair };
+    return { open, route: null, stage, assignees, repair };
   }
   const route = { stage: next.stage, reason: next.reason, assignees };
-  return { open, route, stage, repair };
+  return { open, route, stage, assignees, repair };
 }
 
 /**
