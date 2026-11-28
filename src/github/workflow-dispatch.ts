@@ -80,3 +80,30 @@ export async function dispatchWorkflow(
     { confirm: () => Promise.resolve(undefined) },
   );
 }
+
+/**
+ * Sends the `repository_dispatch` event `eventType` to `repo` with `payload` as its
+ * `client_payload`. Like `dispatchWorkflow`, it cannot be confirmed by a re-read and
+ * a repeated event is harmless (a repeated retest), so any failure is re-sent
+ * without a pre-read up to `maxRetries` times. Then no response or a 5xx is
+ * `GITHUB_WRITE_UNCONFIRMED`, any other failure `GITHUB_WRITE_REJECTED`.
+ */
+export async function dispatchRepository(
+  client: GitHubClient,
+  repo: Repo,
+  eventType: string,
+  payload: Readonly<Record<string, unknown>>,
+): Promise<void> {
+  await write(
+    client,
+    `send ${eventType} to ${repo.owner}/${repo.repo}`,
+    async () => {
+      await client.request("POST /repos/{owner}/{repo}/dispatches", {
+        ...repo,
+        event_type: eventType,
+        client_payload: payload,
+      });
+    },
+    { confirm: () => Promise.resolve(undefined) },
+  );
+}
