@@ -11,7 +11,9 @@ from the snapshot, composing the stages' own rules:
 
 1. derived `scope` (an open `request` without `scope`, #734) → `scope`; derived
    `shape` → `shape`;
-2. a delivery stage with a pending `shape-wrong` report (`readPendingReport`) →
+2. a delivery stage with a pending choice on a repair record (`readChoice`, see
+   "Chosen option" in `src/stages`, #779) → `shape`, which applies it first; a
+   delivery stage with a pending `shape-wrong` report (`readPendingReport`) →
    `deliver` (its start removes `shaped`);
 3. `review` whose PR has a current review comment (`currentReview(...)?.current ===
 true`; a stale one falls to rule 4) → `deliver review`; `review` whose PR has a

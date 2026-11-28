@@ -26,6 +26,13 @@ import {
   requireApprovals,
   reviewWorld,
 } from "../stages/fake-review.test.ts";
+import { readLiveDecision, saveChoice } from "../stages/choice.ts";
+import {
+  decide,
+  issueRef,
+  permissions,
+  writeOptionsRecord,
+} from "../stages/fake-choice.test.ts";
 import { shapeWrongBody } from "../stages/shape-wrong.ts";
 import { readRoute, routeEvent, routeIssue } from "./route.ts";
 
@@ -72,6 +79,38 @@ function approvalWait(world: Awaited<ReturnType<typeof reviewWorld>>, head = wor
     `<!-- nibfin:approval-wait -->\nReviewed head: ${head}\n` +
     `Reviewed Shape: ${shapeVersion(world.issues)}\n\nWaiting.`;
   addPullComment(world, 7, body);
+}
+
+/**
+ * An options record with a writer's decision for option 2 on `issues`; `status`
+ * stores it as that `choice` status first.
+ */
+async function chooseOption(
+  issues: DeliveryWorld["issues"],
+  status?: "chosen" | "applying" | "applied" | "dropped",
+) {
+  permissions(issues);
+  await writeOptionsRecord(issues);
+  decide(issues, 2);
+  freshReads(issues.github.client);
+  if (status !== undefined) {
+    const live = await readLiveDecision(issues.github.client, issueRef);
+    await saveChoice(issues.github.client, issueRef, live!, status);
+    freshReads(issues.github.client);
+  }
+}
+
+/** The review world with a chosen option (`status` as in `chooseOption`). */
+function reviewWithChoice(
+  status?: "chosen" | "applying" | "applied" | "dropped",
+  change?: (world: Awaited<ReturnType<typeof reviewWorld>>) => void,
+): Build {
+  return async () => {
+    const world = await reviewWorld();
+    change?.(world);
+    await chooseOption(world.issues, status);
+    return world.issues.github.client;
+  };
 }
 
 function onFixBranch(world: DeliveryWorld) {
@@ -177,6 +216,46 @@ describe("routeIssue", () => {
       atReview((w) =>
         Object.assign(w.pull, { state: "closed", merged: true, mergeSha: "m" }),
       ),
+      null,
+    ],
+    ["review with a new chosen option", reviewWithChoice(), route("shape", null)],
+    [
+      "review with a stored chosen option",
+      reviewWithChoice("chosen"),
+      route("shape", null),
+    ],
+    [
+      "review with an option left applying",
+      reviewWithChoice("applying"),
+      route("shape", null),
+    ],
+    ["review with an applied option", reviewWithChoice("applied"), route("review", null)],
+    ["review with a dropped option", reviewWithChoice("dropped"), route("review", null)],
+    [
+      "a pending report with a chosen option",
+      reviewWithChoice(undefined, (w) => reportWrong(w)),
+      route("shape", null),
+    ],
+    [
+      "ci-failed with an applied option",
+      reviewWithChoice("applied", (w) => {
+        w.required = ["test"];
+        w.checkRuns.set(w.head, [failedActionsCheck(1, "test")]);
+      }),
+      route("deliver", "ci-failure"),
+    ],
+    [
+      "deliver with a chosen option",
+      () => delivery((w) => chooseOption(w.issues)),
+      route("shape", null),
+    ],
+    [
+      "a pending Issue with a chosen option",
+      async () => {
+        const issues = fakeIssues(fakeIssue({ labels: ["scope", "shaped", "pending"] }));
+        await chooseOption(issues);
+        return issues.github.client;
+      },
       null,
     ],
     ["no scope", plain({ labels: [] }), null],
