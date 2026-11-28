@@ -1,16 +1,30 @@
 import { AgentError } from "../agent/index.ts";
 import {
   type ActingClient,
+  findMarkedComment,
   GitHubError,
+  type IssueComment,
   type IssueRef,
   type MarkedComment,
   nibfinLabels,
   rateLimitOf,
+  readIssueComment,
+  readIssueRecord,
+  readLastUnlabeled,
   type Repo,
   setLabels,
   upsertMarkedComment,
 } from "../github/index.ts";
 import { NoProgressError } from "./errors.ts";
+import {
+  amendmentNote,
+  isPendingCurrent,
+  parseRepairRecord,
+  recordApplies,
+  repairCommentKey,
+  type RepairState,
+  type RepairStatusInput,
+} from "./repair-record.ts";
 import { unconfirmed } from "./shape-wrong.ts";
 
 /** The comment key of the note that asks a person to act (#674). */
@@ -224,9 +238,127 @@ export async function requestPerson(
   await upsertPersonComment(client, issue, pendingCommentKey, (withMessage) =>
     pendingBody(error, url, withMessage, stage),
   );
+  await addPendingLabel(client, issue);
+  return true;
+}
+
+/** Adds `pending`, confirmed by the read-back labels. */
+async function addPendingLabel(client: ActingClient, issue: IssueRef): Promise<void> {
   const labels = await setLabels(client, issue, { add: [nibfinLabels.pending] });
   if (!labels.includes(nibfinLabels.pending)) {
     throw unconfirmed("add pending", "The read-back labels lack pending");
   }
-  return true;
+}
+
+/** The reader rule's inputs (R9.52) with Nibfin's `pending` comment as REST reads it. */
+export interface RepairInput extends RepairStatusInput {
+  pendingComment: IssueComment | null;
+  record: RepairState | null;
+}
+
+/**
+ * Reads the reader rule's inputs for `issue`: Nibfin's marked `pending` comment (by
+ * REST, for `updated_at`), when `pending` was last removed, and Nibfin's marked
+ * `repair` comment, parsed. `hasPendingLabel` is passed through as the caller read it.
+ */
+export async function readRepairInput(
+  client: ActingClient,
+  issue: IssueRef,
+  hasPendingLabel: boolean,
+): Promise<RepairInput> {
+  const marked = await findMarkedComment(client, issue, pendingCommentKey);
+  const comment =
+    marked === undefined ? null : await readIssueComment(client, issue, marked.id);
+  const lastUnlabeled = await readLastUnlabeled(client, issue, nibfinLabels.pending);
+  const repair = await findMarkedComment(client, issue, repairCommentKey);
+  const record = repair === undefined ? null : (parseRepairRecord(repair.body) ?? null);
+  return {
+    hasPendingLabel,
+    pendingComment: comment,
+    lastUnlabeledPendingAt: lastUnlabeled,
+    record,
+  };
+}
+
+/**
+ * A Job that failed before Core could report a cause (#776): the workflow's last step
+ * writes it. Not temporary, so the repair stage hands it to the repair agent.
+ */
+export class JobFailedError extends Error {
+  readonly code = "JOB_FAILED";
+  readonly stage: string;
+  readonly amendment: boolean;
+
+  /** With `amendment`, the message adds that the repair's amendment may be partial. */
+  constructor(stage: string, amendment = false) {
+    const note = amendment ? ` ${amendmentNote}` : "";
+    super(
+      `The \`${stage}\` Job failed before Nibfin could report a cause (checkout, ` +
+        `image pull, container start or clean up); see the run log.${note}`,
+    );
+    this.name = "JobFailedError";
+    this.stage = stage;
+    this.amendment = amendment;
+  }
+}
+
+/** The repair actions whose Job is still doing its step (the route resumes both). */
+const repairInProgress: ReadonlySet<string> = new Set(["agent", "amend"]);
+
+/**
+ * Asks a person once after a failure that Core may already have reported (#776): the
+ * failed Job's last step (`stage` is the Job's stage) and a failed wake (no `stage`).
+ * The labels are read first.
+ *
+ * 1. Not `repair` and `pending` is there: nothing; the standing stop's comment stays.
+ *    For `repair` it goes on only while Nibfin's repair record covers the current
+ *    `pending` comment as `repairing` `agent` or `amend` (the repair has not done its
+ *    step); otherwise nothing, so a late failure never undoes the repair's result.
+ * 2. Nibfin's current `pending` comment (`isPendingCurrent`) names this run: only
+ *    `pending` is added, so Core's specific cause is never overwritten.
+ * 3. Otherwise `requestPerson`, naming the repair stage for `repair`. Under an `amend`
+ *    record a `JobFailedError` adds that the amendment may be partly applied.
+ *
+ * Returns whether it wrote.
+ */
+export async function askPersonOnce(
+  client: ActingClient,
+  issue: IssueRef,
+  error: unknown,
+  url: string | undefined,
+  stage?: string,
+): Promise<boolean> {
+  const { labels } = await readIssueRecord(client, issue);
+  const hasPendingLabel = labels.includes(nibfinLabels.pending);
+  const repair = stage === "repair";
+  // Any other Job only acts without `pending`; a repair Job only with it.
+  if (hasPendingLabel !== repair) {
+    return false;
+  }
+  const input = await readRepairInput(client, issue, hasPendingLabel);
+  let failure = error;
+  if (repair) {
+    const { record } = input;
+    if (
+      !recordApplies(input) ||
+      record!.status !== "repairing" ||
+      !repairInProgress.has(record!.action)
+    ) {
+      return false;
+    }
+    if (record!.action === "amend" && error instanceof JobFailedError) {
+      failure = new JobFailedError(error.stage, true);
+    }
+  }
+  const comment = input.pendingComment;
+  if (
+    url !== undefined &&
+    comment !== null &&
+    isPendingCurrent(input) &&
+    readPendingCause(comment.body).run === url
+  ) {
+    await addPendingLabel(client, issue);
+    return true;
+  }
+  return requestPerson(client, issue, failure, url, repair ? "repair" : undefined);
 }
