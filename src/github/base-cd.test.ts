@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { newestMergeOf, readBaseCd, readBaseHeads } from "./base-cd.ts";
+import { containsCommit, newestMergeOf, readBaseCd, readBaseHeads } from "./base-cd.ts";
 import { readCdRuns } from "./cd-runs.ts";
 import { GitHubError } from "./errors.ts";
 import { failure, fakeGitHub, paged, rejection, repo } from "./fake-github.test.ts";
@@ -23,6 +23,29 @@ interface Setup {
   /** Pull requests GitHub associates with a commit, by SHA. */
   commitPulls?: Record<string, unknown[]>;
   issueState?: "open" | "closed";
+  /**
+   * `compare/{a}...{b}` answers, keyed `a...b`; otherwise derived from the order
+   * of `runs` as a linear history (404 for a commit with no run).
+   */
+  compare?: Record<string, unknown>;
+}
+
+const comparePath = (basehead: string) => `GET /repos/acme/app/compare/${basehead}`;
+
+/** Answers every compare of two run SHAs from their order in `runs` (linear). */
+function routeCompare(github: ReturnType<typeof fakeGitHub>, setup: Setup) {
+  const order = [
+    ...new Set(setup.runs.map((run) => (run as { head_sha: string }).head_sha)),
+  ];
+  for (const [from, base] of order.entries()) {
+    for (const [to, head] of order.entries()) {
+      const status = from === to ? "identical" : from < to ? "ahead" : "behind";
+      github.routes.set(comparePath(`${base}...${head}`), { data: { status } });
+    }
+  }
+  for (const [basehead, answer] of Object.entries(setup.compare ?? {})) {
+    github.routes.set(comparePath(basehead), answer as never);
+  }
 }
 
 function scenario(setup: Setup) {
@@ -54,6 +77,7 @@ function scenario(setup: Setup) {
   for (const [sha, pulls] of Object.entries(setup.commitPulls ?? {})) {
     github.routes.set(`GET /repos/acme/app/commits/${sha}/pulls`, paged(pulls));
   }
+  routeCompare(github, setup);
   return github;
 }
 
@@ -110,6 +134,44 @@ describe("readBaseHeads", () => {
     const error = await rejection(
       readBaseHeads(github.client, repo, "main", nibfinPushWorkflowId),
     );
+    assert.ok(error instanceof GitHubError);
+    assert.equal(error.code, "GITHUB_READ_FAILED");
+  });
+});
+
+describe("containsCommit", () => {
+  const contains = (answer: unknown) => {
+    const github = fakeGitHub({ [comparePath("m1...m2")]: answer as never });
+    return {
+      github,
+      result: containsCommit(github.client, repo, "m1", "m2"),
+    };
+  };
+
+  it("contains the base when the compare is ahead or identical", async () => {
+    for (const status of ["ahead", "identical"]) {
+      const { github, result } = contains({ data: { status } });
+      assert.equal(await result, true);
+      const [call] = github.calls;
+      assert.equal(call.path, "/repos/acme/app/compare/m1...m2");
+      assert.equal(call.query.get("per_page"), "1");
+    }
+  });
+
+  it("does not contain it when behind, diverged or unknown (404)", async () => {
+    for (const answer of [
+      { data: { status: "behind" } },
+      { data: { status: "diverged" } },
+      failure(404),
+    ]) {
+      const { github, result } = contains(answer);
+      assert.equal(await result, false);
+      assert.equal(github.calls.length, 1, "a 404 is not retried");
+    }
+  });
+
+  it("fails as a read when GitHub fails otherwise", async () => {
+    const error = await rejection(contains(failure(500)).result);
     assert.ok(error instanceof GitHubError);
     assert.equal(error.code, "GITHUB_READ_FAILED");
   });
@@ -197,6 +259,27 @@ describe("readBaseCd", () => {
     assert.equal(base?.previous?.mergeCommitSha, "m0");
     assert.equal(base?.previousIssue, null);
     assert.ok(!github.calls.some((call) => call.path.endsWith("/pulls")));
+    assert.ok(github.calls.some((call) => call.path.endsWith("/compare/m1...m2")));
+  });
+
+  it("reads no newest head that does not contain the merge (#795)", async () => {
+    const runs = [
+      ...head(1, "m0", "success"),
+      ...head(3, "m1", "failure"),
+      ...head(5, "m2", "success"),
+    ];
+    for (const answer of [
+      { data: { status: "behind" } },
+      { data: { status: "diverged" } },
+      failure(404),
+    ]) {
+      const compare = { "m1...m2": answer };
+      const { base, github } = await baseCd({ runs, compare }, "m1");
+      assert.equal(base?.newest, null);
+      assert.equal(base?.previous?.mergeCommitSha, "m0");
+      const heads = github.calls.map((call) => call.query.get("head_sha"));
+      assert.ok(!heads.includes("m2"), "the newest head's CD is not read");
+    }
   });
 
   it("has no previous Issue for a red push of no Issue", async () => {
@@ -250,10 +333,16 @@ describe("readBaseCd", () => {
     assert.equal(fix?.mergeCommitSha, "f2");
     assert.equal(fix?.pullRequestUrl, "https://github.com/acme/app/pull/21");
     assert.equal(fix?.newerThanMerge, true);
+    assert.equal(fix?.containsMerge, true);
     assert.equal(fix?.cd.runs[0]?.state, "success");
     // The fix is not on the page yet: not newer than the merge.
     const early = runs.slice(0, 4);
     const second = await baseCd({ runs: early, pulls, commitPulls }, "m1");
     assert.equal(second.base?.previousIssue?.fix?.newerThanMerge, false);
+    // A fix that does not contain the merge (#795).
+    const compare = { "m1...f2": { data: { status: "diverged" } } };
+    const third = await baseCd({ runs, pulls, commitPulls, compare }, "m1");
+    assert.equal(third.base?.previousIssue?.fix?.newerThanMerge, true);
+    assert.equal(third.base?.previousIssue?.fix?.containsMerge, false);
   });
 });

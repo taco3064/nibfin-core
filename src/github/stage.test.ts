@@ -420,6 +420,7 @@ describe("deliveryOutcome: a red merge on the base branch (#772)", () => {
     mergeCommitSha: "f9",
     pullRequestUrl: "https://github.com/acme/app/pull/90",
     newerThanMerge: true,
+    containsMerge: true,
     cd: green("f9"),
     ...fields,
   });
@@ -521,6 +522,17 @@ describe("deliveryOutcome: a red merge on the base branch (#772)", () => {
       const stage = afterRed({ number: 7, open, fix });
       assert.ok(stage.stage === "done");
       assert.equal(stage.passedOn, fix.cd);
+    }
+  });
+
+  it("fixes its own merge when the previous fix does not contain it (#795)", () => {
+    for (const open of [true, false]) {
+      const fix = fixOf({ containsMerge: false });
+      const stage = afterRed({ number: 7, open, fix });
+      assert.ok(stage.stage === "cd-failed");
+      assert.equal(stage.runs, ownRuns);
+      assert.equal(stage.failedOn, undefined);
+      assert.equal(stage.nextFixBranch, `${delivery}-cd-1`);
     }
   });
 

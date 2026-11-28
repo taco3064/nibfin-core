@@ -245,14 +245,16 @@ function missingPaths(head: CdState, merge: CdState): WorkflowRunSummary[] {
 
 /**
  * A red own merge `M` (#772): only the Issue whose merge made the base red fixes it.
- * 1. The newest head passes for M → `done` (`passedOn`).
+ * 1. The newest head contains M and passes for M → `done` (`passedOn`); a head
+ *    that does not contain M is never used (`BaseCd.newest` is `null`, #795).
  * 2. M's predecessor is unknown or green, or red with no Issue or with this Issue →
  *    fix M's runs.
  * 3. The predecessor still runs CD → wait.
  * 4. The predecessor's Issue merged nothing since: open → wait for it; closed → fix.
  * 5. That Issue's newer merge F (open or closed): not yet a newer head with Nibfin's
- *    run → wait; red → fix F's runs; pending → wait; passes for M → `done`;
- *    green but missing a path that failed on M → fix M's runs on those paths.
+ *    run → wait; red → fix F's runs; pending → wait; contains and passes for M →
+ *    `done`; green but not containing M → fix M's runs; green but missing a path that
+ *    failed on M → fix M's runs on those paths.
  * Without `baseCd` (no head list) M is fixed, as before.
  */
 function redMergeOutcome(
@@ -314,6 +316,9 @@ function redMergeOutcome(
   }
   if (fixStatus === "pending") {
     return wait("previous-fix-cd-pending", number);
+  }
+  if (!fix.containsMerge) {
+    return fixOwn;
   }
   const missing = missingPaths(fix.cd, own);
   if (missing.length === 0) {

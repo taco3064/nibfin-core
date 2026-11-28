@@ -1,7 +1,7 @@
 import { issueOfBranch } from "./branches.ts";
 import { type CdState, readCdRuns } from "./cd-runs.ts";
 import type { GitHubClient } from "./client.ts";
-import { read } from "./errors.ts";
+import { absentProbe, read, readOptional } from "./errors.ts";
 import { readIssueRecord } from "./issue-query.ts";
 import { readPullRequestsMergedAt } from "./pull-request.ts";
 import type { Repo } from "./repo.ts";
@@ -35,6 +35,31 @@ export async function readBaseHeads(
     .filter((run) => run.event === "push" && run.head_branch === baseRef)
     .toSorted((a, b) => Number(b.id) - Number(a.id));
   return [...new Set(runs.map((run) => run.head_sha))];
+}
+
+/**
+ * Whether commit `head` contains commit `base` (`base` is its ancestor or equal):
+ * `GET /compare/{base}...{head}` answers `ahead` or `identical` (#795). `behind`,
+ * `diverged` and a commit GitHub does not know (404) do not contain it; another
+ * failure fails the read. Never judged by time or run order.
+ */
+export async function containsCommit(
+  client: GitHubClient,
+  repo: Repo,
+  base: string,
+  head: string,
+): Promise<boolean> {
+  const where = `${repo.owner}/${repo.repo} ${base}...${head}`;
+  const answer = await readOptional(`compare ${where}`, () =>
+    client.request("GET /repos/{owner}/{repo}/compare/{basehead}", {
+      ...repo,
+      basehead: `${base}...${head}`,
+      per_page: 1,
+      request: absentProbe,
+    }),
+  );
+  const status = answer?.data.status;
+  return status === "ahead" || status === "identical";
 }
 
 /**
@@ -133,6 +158,8 @@ export interface PreviousFix {
   pullRequestUrl: string;
   /** True when F is a push head on the page newer than the Issue's own merge. */
   newerThanMerge: boolean;
+  /** True when F contains the Issue's own merge (see `containsCommit`). */
+  containsMerge: boolean;
   cd: CdState;
 }
 
@@ -152,7 +179,10 @@ export interface PreviousIssue {
 export interface BaseCd {
   /** The push heads of the base branch, newest first (one page). */
   heads: string[];
-  /** The CD of the newest head, when M is on the page and is not the newest. */
+  /**
+   * The CD of the newest head, when M is on the page, is not the newest, and the
+   * newest head contains M (see `containsCommit`); `null` otherwise.
+   */
   newest: CdState | null;
   /** The CD of the head just older than M, when M is on the page and has one. */
   previous: CdState | null;
@@ -162,9 +192,9 @@ export interface BaseCd {
 
 /**
  * Reads the base branch around the Issue's own merge `M` (`ownCd`): the push heads,
- * the CD of the newest head and of M's predecessor, and when that predecessor is red,
- * its Issue and that Issue's newer merge with its CD. `null` without the workflow id
- * of Nibfin's push run on M (nothing to list heads by).
+ * the CD of the newest head when it contains M and of M's predecessor, and when that
+ * predecessor is red, its Issue and that Issue's newer merge with its CD. `null` without
+ * the workflow id of Nibfin's push run on M (nothing to list heads by).
  */
 export async function readBaseCd(
   client: GitHubClient,
@@ -182,7 +212,9 @@ export async function readBaseCd(
     return { heads, newest: null, previous: null, previousIssue: null };
   }
   const cdOf = (sha: string) => readCdRuns(client, repo, baseRef, sha);
-  const newest = at === 0 ? null : await cdOf(heads[0]);
+  const contains = (sha: string) =>
+    containsCommit(client, repo, ownCd.mergeCommitSha, sha);
+  const newest = at !== 0 && (await contains(heads[0])) ? await cdOf(heads[0]) : null;
   const previousSha = heads[at + 1];
   const previous = previousSha === undefined ? null : await cdOf(previousSha);
   const red = previous?.runs.some((run) => run.state === "failed") === true;
@@ -205,6 +237,7 @@ export async function readBaseCd(
     mergeCommitSha: merge.sha,
     pullRequestUrl: merge.pullRequestUrl,
     newerThanMerge: index !== -1 && index < at,
+    containsMerge: await contains(merge.sha),
     cd: await cdOf(merge.sha),
   };
   return { heads, newest, previous, previousIssue: { number, open, fix } };
