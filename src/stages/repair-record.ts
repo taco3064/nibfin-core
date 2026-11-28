@@ -18,6 +18,11 @@ export type RepairStatus = "repairing" | "waiting-for-choice" | "needs-person";
 export type RepairAction =
   "retry" | "wait" | "advice" | "agent" | "rerun" | "amend" | "options";
 
+/** What a stop says when a repair Job under an `amend` record ended unfinished. */
+export const amendmentNote =
+  "The amendment in the repair record may be partly applied: check the Issue body " +
+  "and its Blocked by.";
+
 /** The state line of a repair record. */
 export interface RepairState {
   /** `pendingDigest` of the `pending` comment body the record covers. */

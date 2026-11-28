@@ -93,6 +93,28 @@ resumes from GitHub state. `requestPerson(..., stage)` and `askPerson(..., stage
 add the header line ``- Stage: `repair` `` after `- Run:` when the repair stage
 itself failed; without `stage` the body is unchanged.
 
+A Job that fails before Core can report (checkout, image pull, container start or clean
+up) ends with the `job-failed` step of Core's Action (`src/action/README.md`). It calls
+`askPersonOnce(client, issue, new JobFailedError(stage), runUrl, stage)`, which reads
+the labels first and writes at most once per stop:
+
+1. For any Job but `repair`, an Issue that already has `pending` is left as it is: a
+   stop stands and its comment (cause, repair record digest) stays. A `repair` Job goes
+   on only while Nibfin's repair record covers the current `pending` comment
+   (`recordApplies`) as `repairing` with action `agent` or `amend`, so the repair has
+   not done its step; otherwise nothing is written and the repair's result stands.
+2. When Nibfin's `pending` comment is current (`isPendingCurrent`: changed after
+   `pending` was last removed) and its `- Run:` is this run, Core already wrote this
+   stop's cause and only the label write failed: only `pending` is added.
+3. Otherwise `requestPerson` with `JOB_FAILED` ("The `<stage>` Job failed before
+   Nibfin could report a cause …; see the run log."), naming ``- Stage: `repair` ``
+   for a `repair` Job, so that stop ends at once (R4.50). Under an `amend` record the
+   message adds that the amendment may be partly applied, as `STAGE_REPAIR_ENDED` does.
+
+`JOB_FAILED` is not temporary: the repair stage hands it to the repair agent, which
+reads the failed run's job logs. `readRepairInput` reads the reader rule's inputs for
+both the repair stage and `askPersonOnce`.
+
 ## Repair stage
 
 **Parsed by gh-nibfin.** The record and decision formats and the reader rule below are

@@ -5,26 +5,23 @@ import { setTimeout as sleepFor } from "node:timers/promises";
 import {
   type ActingClient,
   deriveStage,
-  findMarkedComment,
   freshReads,
   type IssueRef,
   nibfinLabels,
-  readIssueComment,
   readIssueSnapshot,
-  readLastUnlabeled,
   setLabels,
   upsertMarkedComment,
 } from "../github/index.ts";
 import {
   type PendingCause,
-  pendingCommentKey,
   readPendingCause,
+  readRepairInput,
   usageLimitCode,
 } from "./pending.ts";
 import {
+  amendmentNote,
   formatRepairRecord,
   isPendingCurrent,
-  parseRepairRecord,
   pendingDigest,
   recordApplies,
   type RepairAction,
@@ -69,18 +66,8 @@ export async function readRepairNeed(
   client: ActingClient,
   issue: IssueRef,
 ): Promise<RepairNeed | null> {
-  const marked = await findMarkedComment(client, issue, pendingCommentKey);
-  const comment =
-    marked === undefined ? null : await readIssueComment(client, issue, marked.id);
-  const lastUnlabeled = await readLastUnlabeled(client, issue, nibfinLabels.pending);
-  const repair = await findMarkedComment(client, issue, repairCommentKey);
-  const record = repair === undefined ? null : (parseRepairRecord(repair.body) ?? null);
-  const input = {
-    hasPendingLabel: true,
-    pendingComment: comment,
-    lastUnlabeledPendingAt: lastUnlabeled,
-    record,
-  };
+  const input = await readRepairInput(client, issue, true);
+  const { pendingComment: comment, record } = input;
   const pending =
     comment !== null && isPendingCurrent(input)
       ? { ...comment, digest: pendingDigest(comment.body) }
@@ -435,11 +422,7 @@ async function resumeAgent(
     log(`${name}: repair: repair run ${waiting} is waiting to start`);
     return "stopped";
   }
-  const partly =
-    action === "amend"
-      ? " The amendment in the repair record may be partly applied: check the " +
-        "Issue body and its Blocked by."
-      : "";
+  const partly = action === "amend" ? ` ${amendmentNote}` : "";
   throw new StageError(
     "STAGE_REPAIR_ENDED",
     "The repair Job for this stop ended without a result, so the repair agent's " +
