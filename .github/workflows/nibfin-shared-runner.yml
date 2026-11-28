@@ -30,7 +30,7 @@ on:
         default: ""
       stage:
         type: choice
-        options: [route, scope, shape, deliver, review, finish]
+        options: [route, scope, shape, deliver, review, finish, repair]
         required: true
       reason:
         description: Deliver only, ci-failure, review, cd-failure or conflict
