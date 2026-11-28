@@ -210,7 +210,7 @@ async function dispatch(scope: ReviewScope): Promise<NextAction> {
       return { stage: "deliver", reason: "conflict" };
   }
   const closed = stage.stage === "ineligible" && stage.reason === "closed";
-  if (closed && (await closedAsDelivered(client, issueOf(context), snapshot))) {
+  if (closed && closedAsDelivered(snapshot)) {
     deps.log(`${issueName(scope)} is already closed as delivered; waking downstream`);
     return { ...noNextAction, wake: await wakeDownstream(scope) };
   }

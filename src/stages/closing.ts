@@ -1,11 +1,9 @@
 import {
-  type ActingClient,
   type CdState,
   closeDelivered,
   deriveStage,
   findMarkedComment,
   freshReads,
-  type IssueRef,
   type IssueSnapshot,
   nibfinLabels,
   type PullRequestState,
@@ -33,20 +31,14 @@ import {
 import { wakeDownstream } from "./wake.ts";
 
 /**
- * Whether the review stage already closed this Issue as delivered: it carries
- * `delivered` and the actor's marked `delivered` comment. Only the wake remains
- * (the review stage's redo, and route rule 5 of #674). The caller checks that the
- * Issue is closed.
+ * Whether this closed Issue counts as delivered: it carries `delivered`, whoever
+ * closed it, Nibfin's own close or a person delivering by hand. Downstream Issues
+ * judge an upstream resolved by Closed + `delivered` alone (R4.11), so only the wake
+ * remains: the finish stage's wake-only redo and route rule 5. The caller checks
+ * that the Issue is closed.
  */
-export async function closedAsDelivered(
-  client: ActingClient,
-  issue: IssueRef,
-  snapshot: IssueSnapshot,
-): Promise<boolean> {
-  if (!snapshot.issue.labels.includes(nibfinLabels.delivered)) {
-    return false;
-  }
-  return (await findMarkedComment(client, issue, deliveredCommentKey)) !== undefined;
+export function closedAsDelivered(snapshot: IssueSnapshot): boolean {
+  return snapshot.issue.labels.includes(nibfinLabels.delivered);
 }
 
 /** Required checks per base branch and their results per commit, read once each. */

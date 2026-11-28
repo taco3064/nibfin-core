@@ -211,6 +211,23 @@ describe("runReviewStage closing", () => {
     assert.deepEqual(w.issues.github.writes(), []);
   });
 
+  it("only wakes downstream for an Issue delivered by hand", async () => {
+    const w = await reviewWorld();
+    mergePull(w, w.pull);
+    w.issues.main.state = "closed";
+    w.issues.main.labels.push("delivered");
+    addDownstream(w, { number: 2, labels: ["scope", "shaped"] });
+    assert.equal(await w.review(), 0);
+    assert.deepEqual(w.next(), {
+      ...noNext,
+      wake: [{ repo: "acme/app", issue: 2 }],
+      progressed: false,
+    });
+    assert.deepEqual(w.issues.github.writes(), []);
+    assert.deepEqual(delivered(w), []);
+    assert.match(w.agent.logs.join("\n"), /already closed as delivered/);
+  });
+
   it("fails after the close when the downstream list cannot be read", async () => {
     const w = await reviewWorld();
     mergePull(w, w.pull);
@@ -250,14 +267,6 @@ describe("runReviewStage dispatch", () => {
   });
 
   for (const [name, change, expected] of [
-    [
-      "closed without delivered",
-      (w: ReviewWorld) => {
-        w.issues.main.state = "closed";
-        w.issues.main.labels.push("delivered");
-      },
-      "ineligible (closed)",
-    ],
     [
       "closed and unlabeled",
       (w: ReviewWorld) => {

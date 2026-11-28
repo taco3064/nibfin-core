@@ -65,7 +65,8 @@ const nothing: NextAction = { stage: null, reason: null };
  * submitted review wakes it); `review` whose current `approval-wait` comment has its
  * approvals or a writer's request for changes on the head → finish (the Shape review
  * already passed, so no agent runs); any other delivery stage → `shapeNextAction`
- * (`done` → finish); closed as delivered → finish (wake only); anything else → none.
+ * (`done` → finish); closed with `delivered`, by Nibfin or by hand → finish (wake
+ * only); anything else → none.
  */
 async function nextFor(
   client: ActingClient,
@@ -103,7 +104,7 @@ async function nextFor(
     return shapeNextAction(stage, issue.number);
   }
   const closed = stage.stage === "ineligible" && stage.reason === "closed";
-  if (closed && (await closedAsDelivered(client, issue, snapshot))) {
+  if (closed && closedAsDelivered(snapshot)) {
     return { stage: "finish", reason: null };
   }
   return nothing;

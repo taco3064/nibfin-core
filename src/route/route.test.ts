@@ -344,11 +344,18 @@ describe("routeIssue", () => {
     assert.equal(await routeIssue(issues.github.client, repo, 1, log), null);
   });
 
-  it("does not route a closed delivered Issue without the actor's comment", async () => {
+  it("routes a closed Issue delivered by hand to the finish stage's wake", async () => {
     const issues = fakeIssues(
       fakeIssue({ state: "closed", labels: ["scope", "delivered"] }),
     );
-    seedComment(issues, issues.main, "<!-- nibfin:delivered -->\nForged.", 77);
+    assert.deepEqual(
+      await routeIssue(issues.github.client, repo, 1, log),
+      route("finish", null),
+    );
+  });
+
+  it("does not route a closed Issue without delivered", async () => {
+    const issues = fakeIssues(fakeIssue({ state: "closed", labels: ["scope"] }));
     assert.equal(await routeIssue(issues.github.client, repo, 1, log), null);
   });
 
