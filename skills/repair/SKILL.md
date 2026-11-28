@@ -108,6 +108,12 @@ Each option is one way forward the Owner could choose:
 - how the Issue would change, in a few lines; the next Shape writes the details;
 - exactly one option is recommended; its consequence ends with why.
 
+Choosing an option changes only the Issue body and its `Blocked by` edges, so the Issue
+change describes only those. Anything else an option needs, such as a label like `pause`,
+a CI or workflow change, or work in another repository, is not done by choosing it: name
+it in the consequence as a step a person takes, and never write it as part of the Issue
+change.
+
 Options exclude each other, and each is possible with current evidence. Raise one decision
 per stop. Leaving the Issue as it is counts as an option only when it is a real outcome.
 
