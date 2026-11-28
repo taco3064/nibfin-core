@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { connectClient, createClient, readActor } from "./client.ts";
+import { connectAs, connectClient, createClient, readActor, readUser } from "./client.ts";
 import { GitHubError } from "./errors.ts";
 import { failure, fakeGitHub, rejection } from "./fake-github.test.ts";
 import { nibfinLabels } from "./labels.ts";
@@ -57,6 +57,36 @@ describe("readActor and connectClient", () => {
     const client = await connectClient("secret-token", { request: { fetch } });
     assert.deepEqual(client.actor, { id: 9, login: "taco" });
     assert.deepEqual(seen, ["/user"]);
+  });
+});
+
+describe("readUser and connectAs", () => {
+  const bot = "GET /users/github-actions[bot]";
+
+  it("reads an account by login", async () => {
+    const github = fakeGitHub({ [bot]: { data: { id: 41898282, login: "x[bot]" } } });
+    const user = await readUser(github.client, "github-actions[bot]");
+    assert.deepEqual(user, { id: 41898282, login: "x[bot]" });
+  });
+
+  it("fails as a read when the account cannot be read", async () => {
+    const error = await rejection(readUser(fakeGitHub().client, "ghost"));
+    assert.ok(error instanceof GitHubError);
+    assert.equal(error.code, "GITHUB_READ_FAILED");
+  });
+
+  it("connects a client that writes as the account it names", async () => {
+    const seen: string[] = [];
+    const fetch = (input: string | URL) => {
+      seen.push(new URL(input).pathname);
+      return Promise.resolve(
+        Response.json({ id: 41898282, login: "github-actions[bot]" }),
+      );
+    };
+    const options = { request: { fetch } };
+    const client = await connectAs("job-token", "github-actions[bot]", options);
+    assert.deepEqual(client.actor, { id: 41898282, login: "github-actions[bot]" });
+    assert.deepEqual(seen, ["/users/github-actions%5Bbot%5D"]);
   });
 });
 
