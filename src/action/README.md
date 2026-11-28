@@ -96,6 +96,6 @@ recipient file `age` reads, in the system's temporary directory.
   the result.
 - CI runs `npm run bundle:action` and fails when `action/` then differs from the
   commit, as GitHub's own `check-dist` does. `action/main.mjs` is generated output:
-  ESLint and Prettier ignore it, like `dist/`.
+  ESLint ignores it, like `dist/`.
 - `image.yml` runs for every change under `action/`, so each commit that changes the
   Action has an image of that revision (R8.1). The image does not ship the Action.

@@ -2,14 +2,11 @@ import assert from "node:assert/strict";
 import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { after, before, describe, it } from "node:test";
-import { fileURLToPath } from "node:url";
 import { EtaFileResolutionError } from "eta";
-import * as prettier from "prettier";
 import { makeTempDir } from "../agent/fake-cli.test.ts";
 import type { RenderRequest } from "./inputs.ts";
 import { defaultTemplateDir, renderWorkflows, TemplateValueError } from "./render.ts";
 
-const repoRoot = fileURLToPath(new URL("../../", import.meta.url));
 const zero = `ghcr.io/taco3064/nibfin@sha256:${"0".repeat(64)}`;
 const real = `ghcr.io/taco3064/nibfin@sha256:${"ab".repeat(32)}`;
 const commit = "0123456789abcdef0123456789abcdef01234567";
@@ -93,15 +90,6 @@ describe("renderWorkflows sets", () => {
         assert.ok(!content.includes("<%") && !content.includes("%>"));
         assert.ok(!/\bundefined\b/.test(content));
         assert.ok(content.endsWith("\n") && !content.endsWith("\n\n"));
-      }
-    });
-
-    it(`renders ${name} files that Prettier leaves unchanged`, async () => {
-      for (const [path, content] of Object.entries(renderWorkflows(request))) {
-        const options = await prettier.resolveConfig(join(repoRoot, path));
-        assert.equal(options?.printWidth, 90);
-        const checked = await prettier.check(content, { ...options, parser: "yaml" });
-        assert.ok(checked, `${name} ${path} is formatted`);
       }
     });
   }

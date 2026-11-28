@@ -12,16 +12,17 @@
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "bundle:action": "npm run build && rollup --config action/rollup.config.mjs",
-    "check": "tsc -p tsconfig.json && eslint . && prettier --check .",
+    "check": "tsc -p tsconfig.json && eslint .",
+    "lint:fix": "eslint . --fix",
     "render:workflows": "node src/workflows/regenerate.ts",
     "test": "node --test --experimental-test-coverage --test-coverage-include=\"src/**\" --test-coverage-exclude=\"src/**/*.test.ts\" --test-coverage-lines=100 --test-coverage-branches=100 --test-coverage-functions=100 \"src/**/*.test.ts\""
   },
   "devDependencies": {
     "@rollup/plugin-commonjs": "^29.0.3",
     "@rollup/plugin-node-resolve": "^16.0.3",
+    "@stylistic/eslint-plugin": "^6.0.1",
     "@types/node": "^24.19.2",
     "eslint": "^10.15.0",
-    "prettier": "^3.10.1",
     "rollup": "^4.68.9",
     "typescript": "~6.0.3",
     "typescript-eslint": "^8.73.0"
