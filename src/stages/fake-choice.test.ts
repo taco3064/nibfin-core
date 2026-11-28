@@ -1,5 +1,6 @@
-// Test support for a chosen option (#779): an options repair record, decision comments
-// and collaborator permissions on the fake Issue. It holds no tests of its own.
+// Test support for a decision on a repair record: an options repair record,
+// decision comments and collaborator permissions on the fake Issue. It holds no tests
+// of its own.
 import { upsertMarkedComment } from "../github/index.ts";
 import { type FakeComment, type FakeIssues, seedComment } from "./fake-job.test.ts";
 import { formatDecision, formatOptions, formatRepairRecord } from "./repair-record.ts";
@@ -34,7 +35,7 @@ export function optionsRecordBody(forDigest = recordFor): string {
       reason: "The Issue leaves the widget open.",
       evidence: "code `STAGE_BLOCKED`",
       done: "Nothing; `pending` stays.",
-      advice: "Reply with only the number of the option you choose.",
+      advice: "Reply with an option number or in your own words.",
       details: formatOptions(options),
     },
   );

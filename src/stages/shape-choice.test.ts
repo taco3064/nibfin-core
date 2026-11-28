@@ -13,6 +13,7 @@ import {
   decide,
   issueRef,
   permissions,
+  recordFor,
   writeOptionsRecord,
 } from "./fake-choice.test.ts";
 import {
@@ -42,7 +43,8 @@ const amend = (
   next: string | null,
   blockedBy: string[] = [],
   changeSummary = "Dropped the widget.",
-) => agentResult({ outcome: "amend", body: next, blockedBy, changeSummary });
+  notApplied: string[] = [],
+) => agentResult({ outcome: "amend", body: next, blockedBy, changeSummary, notApplied });
 const ready = (shape: string) => agentResult({ outcome: "ready", shape });
 const approved = agentResult({ outcome: "approved" });
 
@@ -52,11 +54,15 @@ const roleOf = (prompt: string) => /Your role is ([^.]+)\./.exec(prompt)?.[1];
 let active: FakeIssues | undefined;
 const current = () => active!;
 
-/** acme/app#1 with an options record and a decision for option 2 by a writer. */
+/**
+ * acme/app#1 with an options record and a writer's decision: `decision` as
+ * `decide` writes it (the marked comment for option 2 by default).
+ */
 async function choiceWorld(
   steps: AgentStep[],
   labels: string[] = ["scope"],
   setup?: (issues: FakeIssues) => void | Promise<void>,
+  decision: number | string = 2,
 ) {
   const main = fakeIssue({ labels, body });
   const issues = fakeIssues(main);
@@ -69,7 +75,7 @@ async function choiceWorld(
   });
   await setup?.(issues);
   await writeOptionsRecord(issues);
-  const decision = decide(issues, 2);
+  const comment = decide(issues, decision);
   freshReads(github.client);
   const fake = fakeDeps(steps);
   const nextFile = join(await makeTempDir("shape-choice-next-"), "next.json");
@@ -79,7 +85,7 @@ async function choiceWorld(
     issues,
     main,
     fake,
-    decision,
+    decision: comment,
     run: () => runShapeStage(context, github.client, fake.deps),
     next: () => JSON.parse(readFileSync(nextFile, "utf8")) as unknown,
     writes: () =>
@@ -141,7 +147,13 @@ describe("runShapeStage with a chosen option (R4.51)", () => {
       "Shape Validator",
     ]);
     const [choiceRun, authorRun] = t.fake.runs;
-    assert.match(choiceRun.prompt, /## Chosen option\n\nOption 2, chosen in https:/);
+    assert.match(choiceRun.prompt, /## Decision\n\nBy `user-7` in https:/);
+    assert.ok(choiceRun.prompt.includes("It names option 2:"));
+    assert.match(
+      choiceRun.prompt,
+      /The decision as written:\n\n```text\n<!-- nibfin:decision option=2 -->\n```/,
+    );
+    assert.ok(!choiceRun.prompt.includes("A Collaborator chose the option"));
     assert.ok(choiceRun.prompt.includes(commentUrl(t.decision)));
     assert.ok(choiceRun.prompt.includes("2. **Drop the widget** (recommended)"));
     assert.ok(choiceRun.prompt.includes("Reason of the stop: The Issue leaves"));
@@ -160,7 +172,12 @@ describe("runShapeStage with a chosen option (R4.51)", () => {
     assert.ok(t.choiceBody().includes("- Change: Dropped the widget.\n"));
     assert.ok(t.choiceBody().includes("- The Issue was changed as above.\n"));
     assert.ok(t.choiceBody().includes("by `user-7` in [this comment]"));
-    assert.ok(t.fake.logs.includes("Applied option 2: Dropped the widget."));
+    const url = commentUrl(t.decision);
+    assert.ok(
+      t.fake.logs.includes(`Applied option 2 (chosen in ${url}): Dropped the widget.`),
+    );
+    assert.ok(!t.choiceBody().includes("Not applied"));
+    assert.ok(t.choiceBody().includes("- Status: applied.\n"));
   });
 
   it("does nothing again once the choice is applied", async () => {
@@ -216,7 +233,7 @@ describe("runShapeStage with a chosen option (R4.51)", () => {
     assert.deepEqual(t.next(), { stage: null, reason: null, progressed: true });
     assert.equal(
       t.fake.logs.at(-1),
-      "After the chosen option the Issue is at deliver; no Shape round",
+      "After the decision the Issue is at deliver; no Shape round",
     );
   });
 
@@ -319,7 +336,7 @@ describe("runShapeStage with a chosen option (R4.51)", () => {
     assert.equal(t.main.body, body);
     assert.equal(t.choice()?.option, 1);
     assert.equal(t.choice()?.comment, newer?.id);
-    assert.match(t.fake.runs[1].prompt, /Option 1, chosen in/);
+    assert.match(t.fake.runs[1].prompt, /It names option 1:/);
   });
 
   it("drops a choice an earlier run left applying, and stops", async () => {
@@ -363,6 +380,152 @@ describe("runShapeStage with a chosen option (R4.51)", () => {
     assert.equal(await t.run(), 0);
     assert.doesNotMatch(t.main.body ?? "", /ghs_fake/);
     assert.doesNotMatch(t.choiceBody(), /ghs_fake/);
+  });
+});
+
+describe("runShapeStage with a decision in a person's own words (R4.51)", () => {
+  const words = "2, but keep `pause` until the release ships.\r\nAlso rerun CI.";
+  const asWritten = "2, but keep `pause` until the release ships.\nAlso rerun CI.";
+
+  it("hands the words to the role as written and applies the body", async () => {
+    const t = await choiceWorld(
+      [
+        amend(changed, [], "Dropped the widget.", [
+          "Keep `pause`\nuntil release",
+          "Rerun CI",
+        ]),
+        ready("Plan"),
+        approved,
+      ],
+      ["scope"],
+      undefined,
+      words,
+    );
+    assert.equal(await t.run(), 0);
+    assert.equal(t.main.body, changed);
+    const [choiceRun] = t.fake.runs;
+    assert.ok(!choiceRun.prompt.includes("It names option"));
+    assert.ok(choiceRun.prompt.includes("The record's options, suggestions only:"));
+    assert.ok(choiceRun.prompt.includes("1. **Keep the widget**"));
+    assert.ok(choiceRun.prompt.includes("2. **Drop the widget** (recommended)"));
+    assert.ok(choiceRun.prompt.includes(`\`\`\`text\n${asWritten}\n\`\`\``));
+    assert.ok(choiceRun.prompt.includes("notApplied"));
+    const choice = t.choice();
+    assert.equal(choice?.status, "applied");
+    assert.equal(choice?.option, undefined);
+    assert.equal(choice?.text, asWritten);
+    const stored = t.choiceBody();
+    assert.ok(stored.includes("`user-7` decided in their own words in [this comment]"));
+    assert.ok(stored.includes("- Not applied: Keep `pause` until release\n"));
+    assert.ok(stored.includes("- Not applied: Rerun CI\n"));
+    assert.ok(
+      stored.includes(
+        "- Status: the Issue body and Blocked by changes were applied; the parts " +
+          "under Not applied are for a person to do.\n",
+      ),
+    );
+    assert.ok(stored.endsWith(`### Decision\n\n${asWritten}`));
+    assert.ok(!t.main.labels.includes("pause"));
+    assert.ok(
+      t.fake.logs.includes(
+        `Applied the decision in ${commentUrl(t.decision)}: Dropped the widget.`,
+      ),
+    );
+  });
+
+  it("reports what is not applied while applying, too", async () => {
+    const t = await choiceWorld(
+      [amend(changed, [], "Dropped.", ["Close the Issue"])],
+      ["scope", "shaped"],
+      seedShape,
+      "Close it instead.",
+    );
+    t.issues.github.routes.set("DELETE /repos/acme/app/issues/1/labels/shaped", () => ({
+      data: t.main.labels.map((name) => ({ name })),
+    }));
+    await rejection(t.run());
+    assert.equal(t.choice()?.status, "applying");
+    assert.ok(t.choiceBody().includes("- Not applied: Close the Issue\n"));
+    assert.ok(t.choiceBody().includes("- Status: being applied to the Issue.\n"));
+  });
+
+  it("rejects a result without a valid notApplied", async () => {
+    for (const notApplied of [undefined, "Rerun CI", [""], [3]]) {
+      const result = agentResult({
+        outcome: "amend",
+        body: changed,
+        blockedBy: [],
+        changeSummary: "Dropped.",
+        notApplied,
+      });
+      const t = await choiceWorld([result], ["scope"], undefined, "Drop it.");
+      const error = await rejection(t.run());
+      assert.ok(error instanceof StageError);
+      assert.equal(error.code, "STAGE_RESULT_INVALID");
+      assert.match(error.message, /notApplied must be a list of non-empty strings/);
+      assert.equal(t.choice()?.status, "chosen");
+      assert.equal(t.main.body, body);
+    }
+  });
+
+  it("applies edited words when the comment changed while the role worked", async () => {
+    const t = await choiceWorld(
+      [
+        () => {
+          const [comment] = current().main.comments.filter(
+            (item) => item.body === "Drop the widget.",
+          );
+          comment.body = "Drop the widget, and make it blue.";
+          return amend(changed);
+        },
+        amend(`The widget is blue and gone.\n\n${origin}`),
+        ready("Plan"),
+        approved,
+      ],
+      ["scope"],
+      undefined,
+      "Drop the widget.",
+    );
+    assert.equal(await t.run(), 0);
+    assert.equal(t.main.body, `The widget is blue and gone.\n\n${origin}`);
+    assert.ok(t.fake.runs[1].prompt.includes("Drop the widget, and make it blue."));
+    assert.equal(t.choice()?.text, "Drop the widget, and make it blue.");
+  });
+
+  it("gives no suggested options when the record lists none", async () => {
+    const issues = fakeIssues(fakeIssue({ labels: ["scope", "shaped"], body }));
+    permissions(issues);
+    seedShape(issues);
+    const record =
+      `<!-- nibfin:repair-state for=${recordFor} status=waiting-for-choice ` +
+      "action=options handled= -->\n- Reason: Unclear.";
+    seedComment(issues, issues.main, `<!-- nibfin:repair -->\n${record}`);
+    decide(issues, "1");
+    const fake = fakeDeps([amend(null)]);
+    assert.equal(
+      await runShapeStage(jobContext(workspace), issues.github.client, fake.deps),
+      0,
+    );
+    const [run] = fake.runs;
+    assert.ok(run.prompt.includes("Reason of the stop: Unclear.\n\nThe decision"));
+    assert.ok(!run.prompt.includes("suggestions only:"));
+    assert.ok(!run.prompt.includes("It names option"));
+    const stored = parseChoice(issues.marked("choice")[0].body);
+    assert.equal(stored?.status, "applied");
+    assert.equal(stored?.text, "1");
+    assert.equal(stored?.options, undefined);
+  });
+
+  it("names the decision, not an option, when an earlier run stopped", async () => {
+    const t = await choiceWorld([], ["scope"], undefined, "Drop it.");
+    const live = await readLiveDecision(t.issues.github.client, issueRef);
+    await saveChoice(t.issues.github.client, issueRef, live!, "applying");
+    freshReads(t.issues.github.client);
+    const error = await rejection(t.run());
+    assert.ok(error instanceof StageError);
+    assert.equal(error.code, "STAGE_CHOICE_INTERRUPTED");
+    assert.match(error.message, /^Applying the decision in https:\S+ stopped part way/);
+    assert.match(error.message, /does not apply this decision again/);
   });
 });
 
@@ -443,7 +606,8 @@ describe("runShapeStage without a decision (R4.52)", () => {
     const issues = fakeIssues(fakeIssue({ body }));
     permissions(issues);
     await writeOptionsRecord(issues);
-    decide(issues, "Which is better?");
+    permissions(issues, { 7: "write", 8: "read" });
+    decide(issues, "Which is better? Do option 1.", 8);
     const fake = fakeDeps([ready("Plan"), approved]);
     assert.equal(
       await runShapeStage(jobContext(workspace), issues.github.client, fake.deps),

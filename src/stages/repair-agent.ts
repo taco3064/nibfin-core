@@ -623,7 +623,7 @@ async function applyResult(
           ...shared,
           done: "Nothing; a product decision is needed, so `pending` stays.",
           advice:
-            "Reply with only the number of the option you choose (or use the " +
+            "Reply with an option number or in your own words (or use the " +
             "Dashboard's decision comment), then remove `pending` (Proposal R4.51).",
           details: formatOptions(result.options),
         },

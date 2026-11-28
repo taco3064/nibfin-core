@@ -202,6 +202,17 @@ export function parseDecision(body: string): number | undefined {
   return Number.isSafeInteger(option) ? option : undefined;
 }
 
+/**
+ * Whether a comment is one of Nibfin's own: its first line is a marker
+ * `<!-- nibfin:<key> -->` other than the Dashboard's `decision` marker. Nibfin writes
+ * as the person's own account, so only the marker tells its comments apart.
+ */
+export function isNibfinComment(body: string): boolean {
+  const first = body.split("\n")[0].trim();
+  const key = /^<!-- nibfin:([a-z0-9][a-z0-9-]*) -->$/.exec(first)?.[1];
+  return key !== undefined && key !== "decision";
+}
+
 const oneLine = (text: string) => text.replace(/\s+/g, " ").trim();
 
 /** Indents every non-empty line of `text` by three spaces, under a list item. */

@@ -307,7 +307,7 @@ describe("runRepairStage", () => {
     assert.equal(state.action, "options");
     assert.deepEqual(state.handled, []);
     assert.match(body, /- Category: E, product decision\n/);
-    assert.match(body, /Reply with only the number of the option/);
+    assert.match(body, /Reply with an option number or in your own words/);
     assert.ok(
       body.endsWith(
         [

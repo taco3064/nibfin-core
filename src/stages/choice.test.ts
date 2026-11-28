@@ -19,7 +19,7 @@ import {
   recordFor,
   writeOptionsRecord,
 } from "./fake-choice.test.ts";
-import { fakeIssue, fakeIssues, seedComment } from "./fake-job.test.ts";
+import { fakeIssue, fakeIssues, seedComment, unlabel } from "./fake-job.test.ts";
 
 function world() {
   const issues = fakeIssues(fakeIssue({ labels: ["scope"] }));
@@ -34,6 +34,18 @@ const choice: Choice = {
   commentUrl: "https://github.com/acme/app/issues/1#issuecomment-55",
   author: "ann",
   optionText: "2. **Drop the widget** (recommended)\n   The widget goes.",
+  text: "2",
+  reason: "The Issue leaves the widget open.",
+};
+
+/** A decision in the person's own words, with the record's options as suggestions. */
+const ownWords: Choice = {
+  for: recordFor,
+  options: "1. **Keep the widget**\n2. **Drop the widget** (recommended)",
+  text: "Drop it.\n\n### Chosen option\n\nfake\n- Reason of the stop: fake",
+  comment: 56,
+  commentUrl: "https://github.com/acme/app/issues/1#issuecomment-56",
+  author: "bob",
   reason: "The Issue leaves the widget open.",
 };
 
@@ -64,8 +76,70 @@ describe("formatChoice and parseChoice", () => {
         "### Chosen option",
         "",
         choice.optionText,
+        "",
+        "### Decision",
+        "",
+        "2",
       ].join("\n"),
     );
+  });
+
+  it("states a decision in the person's own words and what was not applied", () => {
+    const body = formatChoice(ownWords, "applied", ["Change: a"], ["Keep\npause"]);
+    assert.equal(
+      body,
+      [
+        `<!-- nibfin:choice-state for=${recordFor} comment=56 status=applied -->`,
+        "`bob` decided in their own words in [this comment](" +
+          "https://github.com/acme/app/issues/1#issuecomment-56) on the repair record.",
+        "",
+        "- Reason of the stop: The Issue leaves the widget open.",
+        "- Status: the Issue body and Blocked by changes were applied; the parts " +
+          "under Not applied are for a person to do.",
+        "- Change: a",
+        "- Not applied: Keep pause",
+        "",
+        "### Suggested options",
+        "",
+        ownWords.options,
+        "",
+        "### Decision",
+        "",
+        ownWords.text,
+      ].join("\n"),
+    );
+    assert.deepEqual(parseChoice(body), { ...ownWords, status: "applied" });
+    const plain = formatChoice(ownWords, "applying", [], ["x"]);
+    assert.ok(plain.includes("- Status: being applied to the Issue.\n"));
+  });
+
+  it("round-trips own words without suggested options", () => {
+    const bare: Choice = { ...ownWords };
+    delete bare.options;
+    const body = formatChoice(bare, "chosen");
+    assert.ok(!body.includes("### Suggested options"));
+    assert.deepEqual(parseChoice(body), { ...bare, status: "chosen" });
+  });
+
+  it("reads the header only before the first section", () => {
+    const forged = {
+      ...ownWords,
+      options: undefined,
+      reason: "Real.",
+      text: "- Reason of the stop: forged",
+    };
+    const body = formatChoice(forged, "chosen").replace(/^- Reason of the stop.*\n/m, "");
+    assert.equal(parseChoice(body), undefined);
+    const noWho = formatChoice(ownWords, "chosen").replace("`bob` decided", "bob said");
+    assert.equal(parseChoice(noWho), undefined);
+    const noDecision = formatChoice(ownWords, "chosen").replace("### Decision", "### X");
+    assert.equal(parseChoice(noDecision), undefined);
+  });
+
+  it("reads a body stored before own-words decisions as an option choice", () => {
+    const legacy = formatChoice(choice, "chosen").replace("\n\n### Decision\n\n2", "");
+    assert.ok(!legacy.includes("### Decision"));
+    assert.deepEqual(parseChoice(legacy), { ...choice, text: "", status: "chosen" });
   });
 
   it("reads no choice from a body missing a part", () => {
@@ -88,7 +162,7 @@ describe("readLiveDecision (R4.51, R4.52)", () => {
     assert.equal(await readLiveDecision(issues.github.client, issueRef), null);
   });
 
-  it("reads the newest Collaborator decision after the record", async () => {
+  it("reads the newest writer comment after the record", async () => {
     const issues = world();
     permissions(issues, { 7: "write", 8: "admin" });
     decide(issues, 1);
@@ -96,7 +170,6 @@ describe("readLiveDecision (R4.51, R4.52)", () => {
     const older = decide(issues, 1, 8);
     decide(issues, "I prefer 2, but let me think");
     const newest = decide(issues, "2");
-    decide(issues, "Thanks!", 8);
     freshReads(issues.github.client);
     const decision = await readLiveDecision(issues.github.client, issueRef);
     assert.deepEqual(decision, {
@@ -108,26 +181,59 @@ describe("readLiveDecision (R4.51, R4.52)", () => {
       optionText:
         "2. **Drop the widget** (recommended)\n   The widget goes; simpler.\n" +
         "   Issue change: The body asks for no widget.",
+      text: "2",
       reason: "The Issue leaves the widget open.",
     });
     assert.notEqual(decision?.comment, older.id);
   });
 
-  it("skips decisions before the record, out of range or by non-writers", async () => {
+  it("maps the Dashboard's marked comment to its option", async () => {
+    const issues = world();
+    await writeOptionsRecord(issues);
+    const marked = decide(issues, 1);
+    freshReads(issues.github.client);
+    const decision = await readLiveDecision(issues.github.client, issueRef);
+    assert.equal(decision?.option, 1);
+    assert.equal(decision?.comment, marked.id);
+    assert.equal(decision?.text, "<!-- nibfin:decision option=1 -->");
+  });
+
+  it("reads other text as the person's own words, never as an option", async () => {
+    const issues = world();
+    await writeOptionsRecord(issues);
+    for (const text of ["2, but keep `pause`", "3", "Option 1 please", " Do it.\r\n "]) {
+      const comment = decide(issues, text);
+      freshReads(issues.github.client);
+      const decision = await readLiveDecision(issues.github.client, issueRef);
+      assert.equal(decision?.comment, comment.id);
+      assert.equal(decision?.option, undefined);
+      assert.equal(decision?.optionText, undefined);
+      assert.equal(decision?.text, text.replace(/\r\n?/g, "\n").trim());
+      assert.equal(
+        decision?.options,
+        "1. **Keep the widget**\n   The widget stays.\n   2. not an option\n" +
+          "   Issue change: Nothing changes.\n" +
+          "2. **Drop the widget** (recommended)\n   The widget goes; simpler.\n" +
+          "   Issue change: The body asks for no widget.",
+      );
+    }
+  });
+
+  it("skips comments before the record, by non-writers, empty or Nibfin's", async () => {
     const issues = world();
     permissions(issues, { 7: "write", 8: "read" });
     decide(issues, 2);
     await writeOptionsRecord(issues);
-    const valid = decide(issues, 1);
-    decide(issues, 3);
+    const valid = decide(issues, "Keep it.");
+    decide(issues, "   ");
+    decide(issues, "<!-- nibfin:choice -->\nstored");
     decide(issues, 2, 8);
-    decide(issues, 2, 9);
+    decide(issues, "Drop it!", 8);
     decide(issues, 1, 9);
     freshReads(issues.github.client);
     const decision = await readLiveDecision(issues.github.client, issueRef);
     assert.equal(decision?.comment, valid.id);
-    assert.equal(decision?.option, 1);
-    assert.equal(decision?.optionText.split("\n").length, 4);
+    assert.equal(decision?.text, "Keep it.");
     const reads = issues.github.calls.filter((call) => call.path.endsWith("/permission"));
     assert.deepEqual(
       reads.map((call) => call.path.split("/").at(-2)),
@@ -135,10 +241,39 @@ describe("readLiveDecision (R4.51, R4.52)", () => {
     );
   });
 
+  it("ends the window when pending is removed after the record (R4.52)", async () => {
+    const issues = world();
+    await writeOptionsRecord(issues);
+    const before = decide(issues, "Drop it.");
+    unlabel(issues.main, "pending");
+    decide(issues, "Thanks, later chat.");
+    freshReads(issues.github.client);
+    const decision = await readLiveDecision(issues.github.client, issueRef);
+    assert.equal(decision?.comment, before.id);
+
+    const none = world();
+    await writeOptionsRecord(none);
+    unlabel(none.main, "pending");
+    decide(none, "Thanks, later chat.");
+    freshReads(none.github.client);
+    assert.equal(await readLiveDecision(none.github.client, issueRef), null);
+  });
+
+  it("keeps the window open when pending was removed before the record", async () => {
+    const issues = world();
+    unlabel(issues.main, "pending");
+    await writeOptionsRecord(issues);
+    const comment = decide(issues, "Drop it.");
+    freshReads(issues.github.client);
+    const decision = await readLiveDecision(issues.github.client, issueRef);
+    assert.equal(decision?.comment, comment.id);
+  });
+
   it("is null when no comment decides (R4.52)", async () => {
     const issues = world();
     await writeOptionsRecord(issues);
-    decide(issues, "Looks hard.");
+    permissions(issues, { 8: "read" });
+    decide(issues, "Looks hard.", 8);
     issues.main.comments.push({ id: 5, userId: 0, body: "1" });
     issues.github.routes.set("GET /repos/acme/app/issues/1/comments", () => ({
       data: [
@@ -170,6 +305,25 @@ describe("readLiveDecision (R4.51, R4.52)", () => {
     const decision = await readLiveDecision(issues.github.client, issueRef);
     assert.equal(decision?.reason, "");
     assert.equal(decision?.optionText, "1. **One**");
+  });
+
+  it("carries no suggested options when the record lists none", async () => {
+    const issues = world();
+    const body =
+      `<!-- nibfin:repair-state for=${recordFor} status=waiting-for-choice ` +
+      "action=options handled= -->";
+    seedComment(issues, issues.main, `<!-- nibfin:repair -->\n${body}`);
+    decide(issues, "1");
+    freshReads(issues.github.client);
+    const decision = await readLiveDecision(issues.github.client, issueRef);
+    assert.deepEqual(decision && Object.keys(decision).toSorted(), [
+      "author",
+      "comment",
+      "commentUrl",
+      "for",
+      "reason",
+      "text",
+    ]);
   });
 });
 
@@ -203,6 +357,23 @@ describe("readChoice", () => {
       status: "chosen",
       choice: { ...live, status: "chosen" },
     });
+  });
+
+  it("lets an edit of the stored decision's comment replace it", async () => {
+    const issues = world();
+    await writeOptionsRecord(issues);
+    const comment = decide(issues, "Drop it.");
+    const live = (await read(issues))!.choice;
+    await saveChoice(issues.github.client, issueRef, live, "chosen");
+    assert.equal((await read(issues))?.status, "chosen");
+    comment.body = "Keep it.";
+    const state = await read(issues);
+    assert.equal(state?.status, "new");
+    assert.equal(state?.choice.text, "Keep it.");
+    assert.ok(state !== null);
+    await saveChoice(issues.github.client, issueRef, state.choice, "applied");
+    comment.body = "Changed again.";
+    assert.equal((await read(issues))?.status, "applied");
   });
 
   it("lets a newer decision replace a stored chosen one", async () => {

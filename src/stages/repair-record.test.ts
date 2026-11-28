@@ -5,6 +5,7 @@ import {
   formatDecision,
   formatOptions,
   formatRepairRecord,
+  isNibfinComment,
   parseDecision,
   parseOptions,
   parseRepairRecord,
@@ -198,6 +199,27 @@ describe("decision comment", () => {
       "99999999999999999999",
     ]) {
       assert.equal(parseDecision(body), undefined, body);
+    }
+  });
+});
+
+describe("isNibfinComment", () => {
+  it("is true for a comment that starts with Nibfin's marker", () => {
+    assert.equal(isNibfinComment("<!-- nibfin:choice -->\nstored"), true);
+    assert.equal(isNibfinComment(" <!-- nibfin:shape-blocked --> "), true);
+  });
+
+  it("is false for the Dashboard's decision and a person's words", () => {
+    for (const body of [
+      formatDecision(2),
+      "<!-- nibfin:decision -->",
+      "Text\n<!-- nibfin:choice -->",
+      "<!-- nibfin:Choice -->",
+      "<!-- nibfin: -->",
+      "2",
+      "",
+    ]) {
+      assert.equal(isNibfinComment(body), false, body);
     }
   });
 });

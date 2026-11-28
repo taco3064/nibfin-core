@@ -1,5 +1,5 @@
 import type { StageRole } from "./prompt.ts";
-import { type IssueAmendment, parseIssueAmendment } from "./repair-roles.ts";
+import { type IssueAmendment, parseIssueAmendment, strings } from "./repair-roles.ts";
 import {
   blockedObject,
   invalidResult,
@@ -87,8 +87,9 @@ export function parseValidatorResult(finalMessage: string): ValidatorResult {
 }
 
 /**
- * Turns the option a Collaborator chose on a repair record into the Issue change it
- * describes (#779, Proposal R4.51). Core writes the change; this role does not shape.
+ * Turns a Collaborator's decision on a repair record (an option, or their own words)
+ * into the Issue change it asks for, and lists the parts of it Core does not apply
+ * (Proposal R4.51). Core writes the change; this role does not shape.
  */
 export const shapeChoiceRole: StageRole = {
   name: "shape-choice",
@@ -98,24 +99,31 @@ export const shapeChoiceRole: StageRole = {
   resultFormat: resultFormat(
     [
       '{"outcome": "amend", "body": "<the complete new Issue body>" | null, ' +
-        '"blockedBy": ["<Issue URL>"], "changeSummary": "<one line: what changed>"}',
+        '"blockedBy": ["<Issue URL>"], "changeSummary": "<one line: what changed>", ' +
+        '"notApplied": ["<one part of the decision Core does not apply>"]}',
       blockedObject,
     ],
     "`body` is null when the body stays as it is; `blockedBy` lists only Issue URLs " +
       "to add as Blocked by (empty when none). The body keeps every `Origin:` line " +
-      "of the current body. The stage writes `body` as the Issue body and posts " +
-      "`changeSummary` or `reason` on the Issue as written, so they must be safe at " +
-      "the Issue repository's visibility: follow the skill's Disclosure rules.",
+      "of the current body. `notApplied` is required: one item per part of the " +
+      "decision that is not a change to the Issue body or its Blocked by (for example " +
+      "a label, a CI rerun or closing the Issue), empty when there is none; Core does " +
+      "not perform these parts. The stage writes `body` as the Issue body and posts " +
+      "`changeSummary`, each `notApplied` item or `reason` on the Issue as written, " +
+      "so they must be safe at the Issue repository's visibility: follow the skill's " +
+      "Disclosure rules.",
   ),
 };
 
 export type ChoiceResult =
-  (IssueAmendment & { outcome: "amend" }) | { outcome: "blocked"; reason: string };
+  | (IssueAmendment & { outcome: "amend"; notApplied: string[] })
+  | { outcome: "blocked"; reason: string };
 
 /**
  * The choice role's result: an Issue change checked by `parseIssueAmendment` against
- * `currentBody` (an empty change is valid: the option leaves the Issue as it is), or
- * blocked. Anything else is `STAGE_RESULT_INVALID`.
+ * `currentBody` (an empty change is valid: the decision may leave the Issue as it
+ * is) with `notApplied`, a list of non-empty strings (possibly empty), or blocked.
+ * Anything else is `STAGE_RESULT_INVALID`.
  */
 export function parseChoiceResult(
   finalMessage: string,
@@ -126,5 +134,6 @@ export function parseChoiceResult(
     return { outcome: "blocked", reason: textField(result, "reason", finalMessage) };
   }
   const amendment = parseIssueAmendment(result, currentBody, finalMessage, true);
-  return { outcome: "amend", ...amendment };
+  const notApplied = strings(result, "notApplied", finalMessage, true);
+  return { outcome: "amend", ...amendment, notApplied };
 }
