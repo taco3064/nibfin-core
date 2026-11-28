@@ -53,6 +53,11 @@ export interface ReviewWorld extends DeliveryWorld {
   forcePushes: Map<number, string[]>;
   /** Commits ahead of `main` by head; a head missing here is gone (404). */
   ahead: Map<string, string[]>;
+  /**
+   * The commits of `main` in Git order, oldest first, for `compare/{a}...{b}`; when
+   * unset, the order in which heads were first pushed (`pushRuns`).
+   */
+  ancestry: string[] | undefined;
   /** Answers the merge; merges the pull request when unset. */
   mergeAnswer: ((request: FakeRequest) => FakeResponse) | undefined;
   /** Issues `acme/app#1` blocks; set before the run. */
@@ -166,6 +171,10 @@ function routePullDetails(world: ReviewWorld) {
         ? { status: 404, data: { message: "Not Found" } }
         : { data: { commits: commits.map((sha) => ({ sha })) } };
     }
+    const pair = /^GET \/repos\/acme\/app\/compare\/(.+)\.\.\.(.+)$/.exec(key);
+    if (pair !== null) {
+      return compareCommits(world, pair[1], pair[2]);
+    }
     const byId = /^GET \/repos\/acme\/app\/issues\/comments\/(\d+)$/.exec(key);
     const id = Number(byId?.[1]);
     // A comment of the main Issue keeps its own route (with `updated_at`).
@@ -174,6 +183,24 @@ function routePullDetails(world: ReviewWorld) {
     }
     return permissionRead(world, key) ?? fallback(key) ?? pullCommentWrite(world, key);
   };
+}
+
+/**
+ * `compare/{base}...{head}` on `main`'s linear history (`world.ancestry`, else
+ * push order): `ahead`, `identical` or `behind`; 404 for an unknown commit.
+ */
+function compareCommits(world: ReviewWorld, base: string, head: string): FakeResponse {
+  const order = world.ancestry ?? [
+    ...new Set(world.pushRuns.map((run) => (run as { head_sha: string }).head_sha)),
+  ];
+  const from = order.indexOf(base);
+  const to = order.indexOf(head);
+  if (from === -1 || to === -1) {
+    return { status: 404, data: { message: "Not Found" } };
+  }
+  const status = from === to ? "identical" : from < to ? "ahead" : "behind";
+  const commits = order.slice(from + 1, to + 1).map((sha) => ({ sha }));
+  return { data: { status, ahead_by: commits.length, commits } };
 }
 
 /** A collaborator's permission from `world.permissions`, unless a route answers it. */
@@ -320,6 +347,7 @@ export async function reviewWorld(options: WorldOptions = {}): Promise<ReviewWor
     edits: new Map(),
     forcePushes: new Map(),
     ahead: new Map(),
+    ancestry: undefined,
     mergeAnswer: undefined,
     blocking: [],
     mergeRequests: [],
