@@ -138,6 +138,7 @@ export async function redMain(): Promise<RedMain> {
           shape: noStage,
           deliver: noStage,
           review: noStage,
+          repair: noStage,
           finish: noStage,
         },
       };

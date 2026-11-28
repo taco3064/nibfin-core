@@ -33,6 +33,7 @@ import {
   type RepairStatus,
   type RepairText,
 } from "./repair-record.ts";
+import { StageError } from "./errors.ts";
 import { unconfirmed } from "./shape-wrong.ts";
 
 /** Nibfin's current `pending` comment, as REST reads it. */
@@ -120,10 +121,28 @@ export const systemClock: RepairClock = {
 
 /**
  * What `runRepair` ended with: `released` (`pending` removed, the route dispatches
- * once more), `advised` (the record holds advice, `pending` stays) or `stopped`
- * (the state changed during the wait; nothing written).
+ * once more), `advised` (the record holds advice, `pending` stays), `agent` (the
+ * repair agent has its record and runs in a repair Job) or `stopped` (nothing more
+ * to write now: the state changed during the wait, consent was asked, a repair run
+ * is waiting, or a CI rerun is still running).
  */
-export type RepairOutcome = "released" | "advised" | "stopped";
+export type RepairOutcome = "released" | "advised" | "agent" | "stopped";
+
+/** A dispatch plan of the repair stage, as the route's `planDispatch` gives it. */
+export type RepairDispatchPlan =
+  | { kind: "none" }
+  | { kind: "waiting"; runId: number }
+  | { kind: "consent" }
+  | { kind: "ready"; assignee: number };
+
+/** How the route dispatches the repair agent for the Issue (#778). */
+export interface RepairDispatcher {
+  /** Plans the `repair` dispatch; `consent` has already written `pause`. */
+  plan: () => Promise<RepairDispatchPlan>;
+  dispatch: (assignee: number) => Promise<void>;
+  /** The id of a repair run of the Issue that has not started, if any. */
+  waitingRun: () => Promise<number | undefined>;
+}
 
 const temporaryCategory = "external temporary problem";
 const usageCategory = "external temporary problem (provider usage limit)";
@@ -203,28 +222,34 @@ function usageLimit(
   );
 }
 
-/** The decision order of the repair stage for a new stop (README "Repair stage"). */
+/** The stop goes to the repair agent (#778). */
+const toAgent = "agent";
+
+/**
+ * The decision order of the repair stage for a new stop (README "Repair stage"): what
+ * the code cannot decide goes to the repair agent (R4.40).
+ */
 function decide(
   cause: PendingCause | null,
   handled: readonly string[],
   clock: RepairClock,
-): Decision {
-  const code = cause?.code;
-  const unknown = advice(
-    unknownCategory,
-    handled,
-    cause === null
-      ? "No Nibfin `pending` comment was written since `pending` was last removed."
-      : `The repair stage cannot decide the code \`${code ?? "none"}\` by itself yet.`,
-    "Read the latest Nibfin comment on this Issue, fix what it names, then remove " +
-      "the `pending` label.",
-  );
-  if (cause === null || code === undefined) {
-    return unknown;
-  }
-  if (handled.includes(code)) {
+): Decision | typeof toAgent {
+  if (cause === null) {
     return advice(
-      code === usageLimitCode ? usageCategory : temporaryCategory,
+      unknownCategory,
+      handled,
+      "No Nibfin `pending` comment was written since `pending` was last removed.",
+      "Read the latest Nibfin comment on this Issue, fix what it names, then remove " +
+        "the `pending` label.",
+    );
+  }
+  const { code } = cause;
+  if (code === undefined) {
+    return toAgent;
+  }
+  if (code === usageLimitCode && handled.includes(code)) {
+    return advice(
+      usageCategory,
       handled,
       `This Issue stopped for \`${code}\` a second time.`,
       `This is the second stop for \`${code}\`; check the cause in the \`pending\` ` +
@@ -236,7 +261,8 @@ function decide(
   if (code === usageLimitCode) {
     return usageLimit(cause, handled, clock);
   }
-  if (cause.temporary) {
+  // A second stop for a handled code: the agent writes options or advice (R4.47).
+  if (cause.temporary && !handled.includes(code)) {
     return {
       status: "repairing",
       action: "retry",
@@ -255,10 +281,11 @@ function decide(
       },
     };
   }
-  return unknown;
+  return toAgent;
 }
 
-function evidence(pending: PendingComment | null): string {
+/** The record's evidence of the stop: its code, `pending` comment and run. */
+export function pendingEvidence(pending: PendingComment | null): string {
   if (pending === null) {
     return "no Nibfin `pending` comment since `pending` was last removed";
   }
@@ -268,7 +295,10 @@ function evidence(pending: PendingComment | null): string {
 }
 
 /** Removes `pending`, confirmed by the read-back labels (W2). */
-async function release(client: ActingClient, issue: IssueRef): Promise<RepairOutcome> {
+export async function release(
+  client: ActingClient,
+  issue: IssueRef,
+): Promise<RepairOutcome> {
   const labels = await setLabels(client, issue, { remove: [nibfinLabels.pending] });
   if (labels.includes(nibfinLabels.pending)) {
     throw unconfirmed("remove pending", "The read-back labels still have pending");
@@ -307,37 +337,73 @@ async function waitAndRelease(
   return release(client, issue);
 }
 
+/** The record of a stop handed to the repair agent (#778), written before dispatch. */
+function agentDecision(handled: readonly string[]): Decision {
+  return {
+    status: "repairing",
+    action: "agent",
+    handled,
+    text: {
+      category: "being classified",
+      reason: "Nibfin's repair agent is looking at this stop.",
+      done: "Dispatched the repair agent.",
+      advice: "None needed while it works. To stop it, add `pause` or remove `pending`.",
+    },
+  };
+}
+
+const noRunner = (handled: readonly string[]) =>
+  advice(
+    unknownCategory,
+    handled,
+    "No runner of an Assignee can run the repair agent.",
+    "Read the latest Nibfin comment on this Issue, fix what it names, then remove " +
+      "the `pending` label; or start a runner of an Assignee, then remove `pending` " +
+      "to have the repair agent look at the next stop.",
+  );
+
 /**
- * Runs the repair stage for `need`. A new stop is decided in order: no current
- * `pending` comment or no code → advice (`not classified`); a code already handled →
- * advice (R4.47); `AGENT_USAGE_LIMIT` → wait when its reset is ISO 8601 UTC and one
- * minute after it lies within `jobLimitMinutes` of the Job's start, else advice
- * (R4.43); the temporary sentence → retry (R4.42); anything else → advice. It writes
- * the record (W1), then for `retry` removes `pending` (W2) and for `wait` sleeps,
- * re-reads and removes it. `resume` skips W1.
+ * A stop for the repair agent: the dispatch is planned before any record is written,
+ * so a record `repairing agent` exists only when a repair Job will run. `none` →
+ * advice; `consent` → nothing more (the Issue has `pause` and the consent comments;
+ * removing `pause` plans again); `waiting` → W1 only (the queued repair run picks it
+ * up); `ready` → W1, then the dispatch.
  */
-export async function runRepair(
+async function handToAgent(
   client: ActingClient,
   issue: IssueRef,
   need: RepairNeed,
-  clock: RepairClock,
+  dispatcher: RepairDispatcher,
   log: (line: string) => void,
 ): Promise<RepairOutcome> {
   const name = `${issue.owner}/${issue.repo}#${issue.number}`;
-  if (need.kind === "resume") {
-    const record = need.record!;
-    const digest = need.pending!.digest;
-    log(`${name}: repair: resuming ${record.action}`);
-    return record.action === "wait"
-      ? waitAndRelease(client, issue, record.reset!, digest, clock, log)
-      : release(client, issue);
+  const handled = need.record?.handled ?? [];
+  const plan = await dispatcher.plan();
+  if (plan.kind === "consent") {
+    log(`${name}: repair: waiting for the Assignees' consent before the repair agent`);
+    return "stopped";
   }
-  const { pending } = need;
-  const cause = pending === null ? null : readPendingCause(pending.body);
-  const decision = decide(cause, need.record?.handled ?? [], clock);
-  const digest = pending?.digest ?? pendingDigest("");
+  const decision = plan.kind === "none" ? noRunner(handled) : agentDecision(handled);
+  await writeRecord(client, issue, need.pending, decision);
+  log(`${name}: repair: ${decision.text.category}, ${decision.action}`);
+  if (plan.kind === "none") {
+    return "advised";
+  }
+  if (plan.kind === "ready") {
+    await dispatcher.dispatch(plan.assignee);
+  }
+  return "agent";
+}
+
+/** W1: upserts the record of `decision` for `pending`'s stop. */
+async function writeRecord(
+  client: ActingClient,
+  issue: IssueRef,
+  pending: PendingComment | null,
+  decision: Decision,
+): Promise<RepairState> {
   const state: RepairState = {
-    for: digest,
+    for: pending?.digest ?? pendingDigest(""),
     status: decision.status,
     action: decision.action,
     handled: decision.handled,
@@ -345,15 +411,113 @@ export async function runRepair(
   };
   const body = formatRepairRecord(state, {
     ...decision.text,
-    evidence: evidence(pending),
+    evidence: pendingEvidence(pending),
   });
   await upsertMarkedComment(client, issue, repairCommentKey, body);
+  return state;
+}
+
+/**
+ * Resumes a record `repairing agent` or `amend`: a repair run of the Issue that has
+ * not started will do the work, so nothing is written. Without one, the repair Job
+ * for this stop ended without a result (or was never dispatched): it is not
+ * dispatched again, and `STAGE_REPAIR_ENDED` makes the route end the stop as R4.50
+ * says.
+ */
+async function resumeAgent(
+  action: RepairAction,
+  dispatcher: RepairDispatcher,
+  name: string,
+  log: (line: string) => void,
+): Promise<RepairOutcome> {
+  const waiting = await dispatcher.waitingRun();
+  if (waiting !== undefined) {
+    log(`${name}: repair: repair run ${waiting} is waiting to start`);
+    return "stopped";
+  }
+  const partly =
+    action === "amend"
+      ? " The amendment in the repair record may be partly applied: check the " +
+        "Issue body and its Blocked by."
+      : "";
+  throw new StageError(
+    "STAGE_REPAIR_ENDED",
+    "The repair Job for this stop ended without a result, so the repair agent's " +
+      `step was not completed.${partly}`,
+  );
+}
+
+/**
+ * Resumes a record `repairing rerun`: while a required check of the Issue's open pull
+ * request is still pending, the CI completion wake resumes it; otherwise (no open pull
+ * request, or CI completed) `pending` is removed.
+ */
+async function resumeRerun(
+  client: ActingClient,
+  issue: IssueRef,
+  name: string,
+  log: (line: string) => void,
+): Promise<RepairOutcome> {
+  const snapshot = await readIssueSnapshot(client, issue, issue.number);
+  const open = snapshot.pullRequests.find((pull) => pull.state === "open");
+  const running = open?.ci?.results.some((result) => result.state === "pending");
+  if (running === true) {
+    log(`${name}: repair: the re-run CI of ${open!.url} is still running`);
+    return "stopped";
+  }
+  return release(client, issue);
+}
+
+/**
+ * Runs the repair stage for `need`. A new stop is decided in order: no current
+ * `pending` comment → advice (`not classified`); a second `AGENT_USAGE_LIMIT` →
+ * advice (R4.47); `AGENT_USAGE_LIMIT` → wait when its reset is ISO 8601 UTC and one
+ * minute after it lies within `jobLimitMinutes` of the Job's start, else advice
+ * (R4.43); the temporary sentence for a code not handled yet → retry (R4.42);
+ * anything else (no code, a second stop for a handled code, any other code) → the
+ * repair agent (#778, `handToAgent`). It writes the record (W1), then for `retry`
+ * removes `pending` (W2) and for `wait` sleeps, re-reads and removes it. `resume`
+ * skips W1: `retry` releases, `wait` waits for the time left, `rerun` releases once
+ * CI completed, and `agent` or `amend` checks for a waiting repair run.
+ */
+export async function runRepair(
+  client: ActingClient,
+  issue: IssueRef,
+  need: RepairNeed,
+  clock: RepairClock,
+  log: (line: string) => void,
+  dispatcher: RepairDispatcher,
+): Promise<RepairOutcome> {
+  const name = `${issue.owner}/${issue.repo}#${issue.number}`;
+  if (need.kind === "resume") {
+    const record = need.record!;
+    const digest = need.pending!.digest;
+    log(`${name}: repair: resuming ${record.action}`);
+    switch (record.action) {
+      case "wait":
+        return waitAndRelease(client, issue, record.reset!, digest, clock, log);
+      case "agent":
+      case "amend":
+        return resumeAgent(record.action, dispatcher, name, log);
+      case "rerun":
+        return resumeRerun(client, issue, name, log);
+      default:
+        return release(client, issue);
+    }
+  }
+  const { pending } = need;
+  const cause = pending === null ? null : readPendingCause(pending.body);
+  const decision = decide(cause, need.record?.handled ?? [], clock);
+  if (decision === toAgent) {
+    return handToAgent(client, issue, need, dispatcher, log);
+  }
+  const state = await writeRecord(client, issue, pending, decision);
   log(`${name}: repair: ${decision.text.category}, ${decision.action}`);
   if (decision.action === "advice") {
     return "advised";
   }
   if (decision.action === "wait") {
-    return waitAndRelease(client, issue, decision.reset!, digest, clock, log);
+    return waitAndRelease(client, issue, decision.reset!, state.for, clock, log);
   }
   return release(client, issue);
 }

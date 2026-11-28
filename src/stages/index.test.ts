@@ -55,6 +55,7 @@ test("the stages module exports its public API", () => {
     "runDeliverStage",
     "runFinishStage",
     "runRepair",
+    "runRepairStage",
     "runReviewStage",
     "runScopeStage",
     "runShapeStage",

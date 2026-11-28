@@ -1,7 +1,9 @@
 import {
   type ActingClient,
+  type Actor,
   dispatchWorkflow,
   nibfinRunTitle,
+  type QueuedRun,
   readNotStartedRuns,
   readRunners,
   type Repo,
@@ -9,6 +11,7 @@ import {
   runnerLabel,
 } from "../github/index.ts";
 import { askForConsent } from "./consent.ts";
+import type { FixReason, RepairDispatcher } from "../stages/index.ts";
 import type { IssueRoute } from "./route.ts";
 
 /** The execution repository's workflow that runs every route and stage Job. */
@@ -78,21 +81,104 @@ export function chooseAssignee(
   return any === undefined ? undefined : { assignee: any, online: false };
 }
 
+/** What `planDispatch` plans for: a route's stage, or the repair agent (#778). */
+export interface DispatchTarget {
+  stage: IssueRoute["stage"] | "repair";
+  reason: FixReason | null;
+  assignees: readonly Actor[];
+}
+
+/**
+ * What `planDispatch` found: `none` (no runner of any Assignee, an ordinary
+ * assignment), `waiting` (a run with the title has not started yet), `consent`
+ * (`pause` and the consent comments were just written) or `ready` (dispatch to
+ * `assignee`).
+ */
+export type DispatchPlan =
+  | { kind: "none" }
+  | { kind: "waiting"; runId: number }
+  | { kind: "consent" }
+  | { kind: "ready"; assignee: number };
+
+/** A run of the execution repository with `title` that has not started, not this run. */
+export async function findWaitingRun(
+  scope: DispatchScope,
+  title: string,
+): Promise<QueuedRun | undefined> {
+  return (await readNotStartedRuns(scope.client, scope.runRepo)).find(
+    (run) => run.id !== scope.runId && run.title === title,
+  );
+}
+
+/**
+ * Plans the dispatch of `target`'s stage for the Issue (#739): it lists the execution
+ * repository's self-hosted runners and, in GitHub's Assignee order, takes the first
+ * Assignee with an online runner labelled `nibfin-<user id>` (case-insensitive, busy
+ * or not), else the first with any such runner (the Job queues until one is online).
+ * Without one the Issue is an ordinary assignment (`none`): nothing more is read and
+ * nothing is written. It is `waiting` when a run of the execution repository that has
+ * not started (`requested`, `waiting`, `pending`, `queued`) already has its title,
+ * even if another Assignee would now be chosen; a waiting run keeps its runner label
+ * and reads GitHub when it starts. Running runs never count. Then it asks for consent
+ * (#721): when an Assignee other than the execution repository's owner has no Nibfin
+ * comment `consent-<user id>` on the Issue yet, it adds `pause` and writes those
+ * comments (`consent`); removing `pause` is the go-ahead. The check comes after the
+ * waiting-run check so a queued run is never paused under itself. Otherwise `ready`.
+ */
+export async function planDispatch(
+  scope: DispatchScope,
+  repo: Repo,
+  issue: number,
+  target: DispatchTarget,
+): Promise<DispatchPlan> {
+  const name = `${repoName(repo)}#${issue}`;
+  const ids = target.assignees.map((assignee) => assignee.id);
+  const chosen = chooseAssignee(ids, await readRunners(scope.client, scope.runRepo));
+  if (chosen === undefined) {
+    scope.log(
+      `${name}: no runner of the execution repository has the label nibfin-<id> ` +
+        `of any Assignee (${ids.join(", ")}); an ordinary assignment, nothing dispatched`,
+    );
+    return { kind: "none" };
+  }
+  scope.log(
+    chosen.online
+      ? `${name}: Assignee ${chosen.assignee} has an online runner`
+      : `${name}: Assignee ${chosen.assignee} has only offline runners; ` +
+          "the Job queues until one is online",
+  );
+  const title = nibfinRunTitle(repo, issue, target.stage);
+  const waiting = await findWaitingRun(scope, title);
+  if (waiting !== undefined) {
+    scope.log(`Not dispatching ${title}: run ${waiting.id} is waiting to start`);
+    return { kind: "waiting", runId: waiting.id };
+  }
+  if (await askForConsent(scope, { ...repo, number: issue }, target.assignees)) {
+    return { kind: "consent" };
+  }
+  return { kind: "ready", assignee: chosen.assignee };
+}
+
+/** Dispatches `target`'s stage for the Issue to `assignee`, as `planDispatch` chose. */
+export async function dispatchPlanned(
+  scope: DispatchScope,
+  repo: Repo,
+  issue: number,
+  target: DispatchTarget,
+  assignee: number,
+): Promise<void> {
+  await dispatch(scope, nibfinRunTitle(repo, issue, target.stage), {
+    stage: target.stage,
+    repo: repoName(repo),
+    issue: String(issue),
+    reason: target.reason ?? "",
+    assignee: String(assignee),
+  });
+}
+
 /**
  * Dispatches the stage of `route` for the Issue to one of its Assignees (#739): it
- * lists the execution repository's self-hosted runners and, in GitHub's Assignee
- * order, takes the first Assignee with an online runner labelled `nibfin-<user id>`
- * (case-insensitive, busy or not), else the first with any such runner (the Job
- * queues until one is online). Without one the Issue is an ordinary assignment:
- * nothing more is read and nothing is written. It also skips when a run of the
- * execution repository that has not started (`requested`, `waiting`, `pending`,
- * `queued`) already has its title, even if another Assignee would now be chosen; a
- * waiting run keeps its runner label and reads GitHub when it starts. Running runs
- * never count. Then, before dispatching, it asks for consent (#721):
- * when an Assignee other than the execution repository's owner has no Nibfin
- * comment `consent-<user id>` on the Issue yet, it adds `pause`, writes those
- * comments and dispatches nothing; removing `pause` is the go-ahead. The check comes
- * after the waiting-run skip so a queued run is never paused under itself.
+ * plans the dispatch (`planDispatch`) and dispatches only when the plan is `ready`.
  * Returns whether it dispatched.
  */
 export async function dispatchStage(
@@ -101,39 +187,30 @@ export async function dispatchStage(
   issue: number,
   route: IssueRoute,
 ): Promise<boolean> {
-  const name = `${repoName(repo)}#${issue}`;
-  const ids = route.assignees.map((assignee) => assignee.id);
-  const chosen = chooseAssignee(ids, await readRunners(scope.client, scope.runRepo));
-  if (chosen === undefined) {
-    scope.log(
-      `${name}: no runner of the execution repository has the label nibfin-<id> ` +
-        `of any Assignee (${ids.join(", ")}); an ordinary assignment, nothing dispatched`,
-    );
+  const plan = await planDispatch(scope, repo, issue, route);
+  if (plan.kind !== "ready") {
     return false;
   }
-  scope.log(
-    chosen.online
-      ? `${name}: Assignee ${chosen.assignee} has an online runner`
-      : `${name}: Assignee ${chosen.assignee} has only offline runners; ` +
-          "the Job queues until one is online",
-  );
-  const title = nibfinRunTitle(repo, issue, route.stage);
-  const waiting = (await readNotStartedRuns(scope.client, scope.runRepo)).find(
-    (run) => run.id !== scope.runId && run.title === title,
-  );
-  if (waiting !== undefined) {
-    scope.log(`Not dispatching ${title}: run ${waiting.id} is waiting to start`);
-    return false;
-  }
-  if (await askForConsent(scope, { ...repo, number: issue }, route.assignees)) {
-    return false;
-  }
-  await dispatch(scope, title, {
-    stage: route.stage,
-    repo: repoName(repo),
-    issue: String(issue),
-    reason: route.reason ?? "",
-    assignee: String(chosen.assignee),
-  });
+  await dispatchPlanned(scope, repo, issue, route, plan.assignee);
   return true;
+}
+
+/**
+ * The repair stage's dispatcher for the Issue (#778): plans and dispatches the
+ * `repair` stage to one of `assignees`, and finds a repair run of the Issue that has
+ * not started.
+ */
+export function repairDispatcher(
+  scope: DispatchScope,
+  repo: Repo,
+  issue: number,
+  assignees: readonly Actor[],
+): RepairDispatcher {
+  const target: DispatchTarget = { stage: "repair", reason: null, assignees };
+  return {
+    plan: () => planDispatch(scope, repo, issue, target),
+    dispatch: (assignee) => dispatchPlanned(scope, repo, issue, target, assignee),
+    waitingRun: async () =>
+      (await findWaitingRun(scope, nibfinRunTitle(repo, issue, "repair")))?.id,
+  };
 }

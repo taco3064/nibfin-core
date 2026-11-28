@@ -12,6 +12,8 @@ import {
   type DispatchScope,
   dispatchStage,
   readRoute,
+  repairDispatcher,
+  rerouteIssue,
   routeEvent,
   type RouteTarget,
 } from "../route/index.ts";
@@ -125,8 +127,9 @@ export const lineLog = (io: CliIo) => (line: string) => void io.stdout.write(`${
  * Issue); the other Issues are still dispatched, and the command exits 1 when any
  * failed. For `--issue`, an Issue with `pending` and nothing to route runs the
  * repair stage (#777, `runRepair`); when it removes `pending`, the Issue is routed
- * and dispatched once more. A failure of the repair stage itself sets `pending`
- * with the line `- Stage: \`repair\`` (Proposal R4.50).
+ * and dispatched once more; a stop the code cannot decide goes to the repair agent
+ * in a `repair` stage Job (#778). A failure of the repair stage itself sets
+ * `pending` with the line `- Stage: \`repair\`` (Proposal R4.50).
  */
 export async function runRoute(
   args: readonly string[],
@@ -167,7 +170,8 @@ export async function runRoute(
           log(`${name}#${issue}: repair (${state.repair.kind})`);
           let outcome: RepairOutcome;
           try {
-            outcome = await runRepair(client, ref, state.repair, clock, log);
+            const dispatcher = repairDispatcher(scope, repo, issue, state.assignees);
+            outcome = await runRepair(client, ref, state.repair, clock, log, dispatcher);
           } catch (error) {
             // The repair stage failed: R4.5's comment names it, so it does not start
             // again for this stop (Proposal R4.50).
@@ -178,7 +182,7 @@ export async function runRoute(
           }
           if (outcome === "released") {
             freshReads(client);
-            await dispatchIssue(scope, repo, issue, name);
+            await rerouteIssue(scope, repo, issue);
           }
         } else if (state.route === null) {
           log(`${name}#${issue}: nothing to run (${describeStage(state.stage)})`);
@@ -210,21 +214,6 @@ export async function runRoute(
     }
   }
   return code;
-}
-
-/** After the repair stage released `pending`: the one re-dispatch (Proposal R4.42). */
-async function dispatchIssue(
-  scope: DispatchScope,
-  repo: Repo,
-  issue: number,
-  name: string,
-): Promise<void> {
-  const state = await readRoute(scope.client, repo, issue, scope.log);
-  if (state.route === null) {
-    scope.log(`${name}#${issue}: nothing to run (${describeStage(state.stage)})`);
-  } else {
-    await dispatchStage(scope, repo, issue, state.route);
-  }
 }
 
 /**

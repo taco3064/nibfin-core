@@ -60,6 +60,8 @@ export {
   jobLimitMinutes,
   type PendingComment,
   type RepairClock,
+  type RepairDispatcher,
+  type RepairDispatchPlan,
   type RepairNeed,
   type RepairOutcome,
   readRepairNeed,
@@ -82,6 +84,7 @@ export {
   type RepairStatusInput,
   type RepairText,
 } from "./repair-record.ts";
+export { runRepairStage, type RepairStageDeps } from "./repair-agent.ts";
 export { runFinishStage, runReviewStage } from "./review.ts";
 export {
   type ApprovalWait,

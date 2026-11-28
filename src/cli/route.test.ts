@@ -3,7 +3,12 @@ import { describe, it } from "node:test";
 import { failure, fakeToken, type Handler, paged } from "../github/fake-github.test.ts";
 import { pull } from "../github/fixtures.test.ts";
 import { freshReads, GitHubError } from "../github/index.ts";
-import { requestPerson, StageError } from "../stages/index.ts";
+import {
+  parseRepairRecord,
+  repairStatus,
+  requestPerson,
+  StageError,
+} from "../stages/index.ts";
 import { fakeBranches } from "../route/fake-branches.test.ts";
 import { fakeRunner, selfHostedRunner } from "../route/fake-runner.test.ts";
 import {
@@ -11,6 +16,7 @@ import {
   type FakeIssue,
   fakeIssues,
   seedComment,
+  unlabel,
 } from "../stages/fake-job.test.ts";
 import { capture } from "./fake-io.test.ts";
 import { readRouteInput } from "./route.ts";
@@ -37,6 +43,7 @@ function routeDeps(overrides: Partial<FakeIssue> = {}) {
       shape: () => Promise.reject(new Error("no stage runs in a route run")),
       deliver: () => Promise.reject(new Error("no stage runs in a route run")),
       review: () => Promise.reject(new Error("no stage runs in a route run")),
+      repair: () => Promise.reject(new Error("no stage runs in a route run")),
       finish: () => Promise.reject(new Error("no stage runs in a route run")),
     },
   };
@@ -511,5 +518,148 @@ describe("nibfin route --issue runs the repair stage", () => {
     const result = await capture([...route, "--issue", "1"], t.deps);
     assert.equal(result.stdout, "acme/app#1: nothing to run (ineligible (paused))\n");
     assert.deepEqual(t.issues.marked("repair"), []);
+  });
+});
+
+describe("nibfin route --issue hands undecided stops to the repair agent (#778)", () => {
+  const issue = { owner: "acme", repo: "app", number: 1 };
+  const repairTitle = "Nibfin · acme/app#1 · repair";
+  const blocked = () => new StageError("STAGE_BLOCKED", "Shape is blocked");
+
+  async function stopped(overrides: Partial<FakeIssue> = {}) {
+    const t = routeDeps({ labels: ["scope"], ...overrides });
+    const url = "https://github.com/acme/runner/actions/runs/800";
+    await requestPerson(t.issues.github.client, issue, blocked(), url);
+    return t;
+  }
+
+  /** What the Dashboard shows for the Issue (R9.52), from the fakes' state. */
+  function status(t: ReturnType<typeof routeDeps>) {
+    const [pending] = t.issues.marked("pending");
+    const [record] = t.issues.marked("repair");
+    const removed = (t.issues.main.events ?? []).filter(
+      (event) => event.event === "unlabeled" && event.label?.name === "pending",
+    );
+    return repairStatus({
+      hasPendingLabel: t.issues.main.labels.includes("pending"),
+      pendingComment:
+        pending === undefined
+          ? null
+          : { body: pending.body, updatedAt: pending.updatedAt! },
+      lastUnlabeledPendingAt: removed.at(-1)?.created_at ?? null,
+      record: record === undefined ? null : parseRepairRecord(record.body),
+    });
+  }
+
+  async function route(t: ReturnType<typeof routeDeps>) {
+    freshReads(t.issues.github.client);
+    return capture([...route1], t.deps);
+  }
+  const route1 = ["route", "--repo", "acme/app", "--issue", "1"];
+
+  it("writes the agent record, then dispatches the repair stage", async () => {
+    const t = await stopped();
+    const result = await route(t);
+    assert.equal(result.code, 0);
+    assert.deepEqual(t.runner.dispatched, [
+      { stage: "repair", repo: "acme/app", issue: "1", reason: "", assignee: "5" },
+    ]);
+    const lines = result.stdout.split("\n");
+    assert.equal(lines[0], "acme/app#1: repair (new)");
+    assert.equal(lines[1], "acme/app#1: Assignee 5 has an online runner");
+    assert.equal(lines[2], "acme/app#1: repair: being classified, agent");
+    assert.match(lines[3], /^Dispatched Nibfin · acme\/app#1 · repair: https:/);
+    assert.match(t.issues.marked("repair")[0].body, /status=repairing action=agent/);
+    assert.ok(t.issues.main.labels.includes("pending"));
+    assert.equal(status(t), "repairing");
+  });
+
+  it("writes the agent record without a dispatch when a repair run waits", async () => {
+    const t = await stopped();
+    t.runner.runs.push({ id: 3, status: "queued", display_title: repairTitle });
+    const result = await route(t);
+    assert.equal(result.code, 0);
+    assert.deepEqual(t.runner.dispatched, []);
+    assert.match(t.issues.marked("repair")[0].body, /action=agent/);
+    // A later wake while that run waits writes nothing.
+    const writes = t.issues.github.writes().length;
+    const again = await route(t);
+    assert.equal(again.code, 0);
+    assert.match(again.stdout, /repair: repair run 3 is waiting to start/);
+    assert.equal(t.issues.github.writes().length, writes);
+  });
+
+  it("asks an Assignee for consent, then dispatches once pause is removed", async () => {
+    const ann = { id: 6, login: "ann" };
+    const t = await stopped({ assignees: [ann] });
+    t.runner.runners = [selfHostedRunner(1, ["nibfin-6"])];
+    const [before] = t.issues.marked("pending");
+    const first = await route(t);
+    assert.equal(first.code, 0);
+    assert.ok(t.issues.main.labels.includes("pause"));
+    assert.equal(t.issues.marked("consent-6").length, 1);
+    assert.deepEqual(t.issues.marked("repair"), []);
+    assert.deepEqual(t.runner.dispatched, []);
+    assert.equal(status(t), "needs-person");
+    // Removing pause is the go-ahead: the next wake plans again and dispatches once.
+    t.issues.main.labels.splice(t.issues.main.labels.indexOf("pause"), 1);
+    unlabel(t.issues.main, "pause");
+    const second = await route(t);
+    assert.equal(second.code, 0);
+    assert.deepEqual(t.runner.dispatched, [
+      { stage: "repair", repo: "acme/app", issue: "1", reason: "", assignee: "6" },
+    ]);
+    assert.match(t.issues.marked("repair")[0].body, /action=agent/);
+    assert.equal(t.issues.marked("consent-6").length, 1);
+    // No false R4.50 result: the pending comment is the original stop.
+    assert.equal(t.issues.marked("pending")[0].body, before.body);
+    assert.equal(status(t), "repairing");
+  });
+
+  it("advises when no runner of an Assignee can run the agent", async () => {
+    const t = await stopped();
+    t.runner.runners = [];
+    const result = await route(t);
+    assert.equal(result.code, 0);
+    assert.deepEqual(t.runner.dispatched, []);
+    const [record] = t.issues.marked("repair");
+    assert.match(record.body, /status=needs-person action=advice/);
+    assert.match(record.body, /No runner of an Assignee can run the repair agent/);
+    assert.equal(status(t), "needs-person");
+  });
+
+  it("ends the stop when the repair Job ended without a result (R4.50)", async () => {
+    const t = await stopped();
+    await route(t);
+    assert.equal(t.runner.dispatched.length, 1);
+    // The repair run ended without writing; the next wake finds no waiting run.
+    const result = await route(t);
+    assert.equal(result.code, 1);
+    assert.match(result.stderr, /STAGE_REPAIR_ENDED: The repair Job for this stop ended/);
+    const [pending] = t.issues.marked("pending");
+    assert.match(
+      pending.body,
+      /- Code: `STAGE_REPAIR_ENDED`\n- Run: .*\n- Stage: `repair`\n/,
+    );
+    assert.ok(t.issues.main.labels.includes("pending"));
+    assert.equal(t.runner.dispatched.length, 1);
+    assert.equal(status(t), "needs-person");
+    // Repair does not start again for that stop.
+    const writes = t.issues.github.writes().length;
+    const again = await route(t);
+    assert.equal(again.code, 0);
+    assert.equal(again.stdout, "acme/app#1: nothing to run (ineligible (pending))\n");
+    assert.equal(t.issues.github.writes().length, writes);
+  });
+
+  it("sends a failed repair dispatch to R4.50", async () => {
+    const t = await stopped();
+    t.issues.github.routes.set(
+      "POST /repos/acme/runner/actions/workflows/nibfin-shared-runner.yml/dispatches",
+      failure(422),
+    );
+    const result = await route(t);
+    assert.equal(result.code, 1);
+    assert.match(t.issues.marked("pending")[0].body, /- Stage: `repair`/);
   });
 });

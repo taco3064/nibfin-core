@@ -17,6 +17,8 @@ import {
   chooseAssignee,
   dispatchRoute,
   dispatchStage,
+  planDispatch,
+  repairDispatcher,
   sharedRunnerWorkflow,
 } from "./dispatch.ts";
 import { dispatchPath, fakeRunner, selfHostedRunner } from "./fake-runner.test.ts";
@@ -417,6 +419,77 @@ describe("dispatchStage with several Assignees (#739)", () => {
       runner.dispatched.map((inputs) => inputs.assignee),
       ["5"],
     );
+  });
+});
+
+describe("planDispatch (#778)", () => {
+  const ann = { id: 7, login: "ann" };
+  const repair = { stage: "repair" as const, reason: null, assignees: [ann] };
+
+  function annWorld() {
+    const issues = fakeIssues(fakeIssue({ assignees: [ann] }));
+    const runner = fakeRunner(issues.github);
+    runner.runners = [selfHostedRunner(1, ["nibfin-7"])];
+    return { issues, runner };
+  }
+
+  it("plans none without a runner, writing nothing", async () => {
+    const { issues, runner } = annWorld();
+    runner.runners = [];
+    assert.deepEqual(await planDispatch(runner.scope, repo, 1, repair), { kind: "none" });
+    assert.deepEqual(issues.github.writes(), []);
+  });
+
+  it("plans waiting for a run with the title that has not started", async () => {
+    const { issues, runner } = annWorld();
+    const title = "Nibfin · acme/app#1 · repair";
+    runner.runs.push({ id: 3, status: "queued", display_title: title });
+    assert.deepEqual(await planDispatch(runner.scope, repo, 1, repair), {
+      kind: "waiting",
+      runId: 3,
+    });
+    assert.deepEqual(issues.github.writes(), []);
+  });
+
+  it("plans consent after writing pause and the consent comment", async () => {
+    const { issues, runner } = annWorld();
+    assert.deepEqual(await planDispatch(runner.scope, repo, 1, repair), {
+      kind: "consent",
+    });
+    assert.ok(issues.main.labels.includes("pause"));
+    assert.equal(issues.marked("consent-7").length, 1);
+    assert.deepEqual(runner.dispatched, []);
+  });
+
+  it("plans ready once the Assignee was asked, without dispatching", async () => {
+    const { issues, runner } = annWorld();
+    seedComment(issues, issues.main, "<!-- nibfin:consent-7 -->\nAsked.");
+    assert.deepEqual(await planDispatch(runner.scope, repo, 1, repair), {
+      kind: "ready",
+      assignee: 7,
+    });
+    assert.deepEqual(runner.dispatched, []);
+    assert.deepEqual(issues.github.writes(), []);
+  });
+
+  it("gives the repair stage a dispatcher and a waiting-run lookup", async () => {
+    const { issues, runner } = annWorld();
+    seedComment(issues, issues.main, "<!-- nibfin:consent-7 -->\nAsked.");
+    const dispatcher = repairDispatcher(runner.scope, repo, 1, [ann]);
+    assert.equal(await dispatcher.waitingRun(), undefined);
+    assert.deepEqual(await dispatcher.plan(), { kind: "ready", assignee: 7 });
+    await dispatcher.dispatch(7);
+    assert.deepEqual(runner.dispatched, [
+      { stage: "repair", repo: "acme/app", issue: "1", reason: "", assignee: "7" },
+    ]);
+    const title = "Nibfin · acme/app#1 · repair";
+    runner.runs.push(
+      { id: 900, status: "queued", display_title: title },
+      { id: 4, status: "in_progress", display_title: title },
+      { id: 5, status: "waiting", display_title: title },
+    );
+    freshReads(issues.github.client);
+    assert.equal(await dispatcher.waitingRun(), 5);
   });
 });
 

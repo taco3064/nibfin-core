@@ -70,6 +70,29 @@ describe("repair record", () => {
     }
   });
 
+  it("round-trips the repair agent's actions and shows details last (#778)", () => {
+    for (const [status, action] of [
+      ["repairing", "agent"],
+      ["repairing", "rerun"],
+      ["repairing", "amend"],
+      ["waiting-for-choice", "options"],
+    ] as const) {
+      const state: RepairState = { for: digest, status, action, handled: ["NONE"] };
+      assert.deepEqual(parseRepairRecord(formatRepairRecord(state, text)), state);
+    }
+    const state: RepairState = {
+      for: digest,
+      status: "waiting-for-choice",
+      action: "options",
+      handled: [],
+    };
+    const body = formatRepairRecord(state, {
+      ...text,
+      details: "\n### Options\n\n1. A\n",
+    });
+    assert.ok(body.endsWith("- Advice: None needed.\n\n### Options\n\n1. A"));
+  });
+
   it("refuses to write an invalid state", () => {
     const bad = { for: "x", status: "repairing", action: "retry", handled: [] } as const;
     assert.throws(() => formatRepairRecord(bad, text), TypeError);
