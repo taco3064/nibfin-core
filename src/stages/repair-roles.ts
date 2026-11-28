@@ -1,6 +1,7 @@
 // The repair agent's role and result (#778, Proposal R4.41–R4.48): Core accepts only
 // the four outcomes below, each with its classes, and checks every field.
 import { isRecord, type JsonRecord } from "../agent/json.ts";
+import type { IssueRef } from "../github/index.ts";
 import type { StageRole } from "./prompt.ts";
 import { invalidResult, parseAgentResult, resultFormat, textField } from "./result.ts";
 
@@ -112,6 +113,13 @@ export interface RepairParseContext {
 const issueUrlPattern =
   /^https:\/\/github\.com\/[A-Za-z0-9-]+\/[A-Za-z0-9._-]+\/issues\/[1-9]\d*$/;
 
+/** The Issue of a URL that matches `issueUrlPattern`. */
+export function parseIssueUrl(url: string): IssueRef {
+  const [, owner, repo, number] =
+    /^https:\/\/github\.com\/([^/]+)\/([^/]+)\/issues\/(\d+)$/.exec(url)!;
+  return { owner, repo, number: Number(number) };
+}
+
 function strings(
   result: JsonRecord,
   field: string,
@@ -144,11 +152,26 @@ function originLines(body: string): string[] {
     .filter((line) => line.startsWith("Origin: "));
 }
 
-function parseAmend(
+/** An Issue change an agent returned: the full new body or `null`, and edges to add. */
+export interface IssueAmendment {
+  body: string | null;
+  /** Issue URLs to add as native Blocked by. */
+  blockedBy: string[];
+  changeSummary: string;
+}
+
+/**
+ * Checks an Issue change in an agent result: `body` a string or null, `blockedBy`
+ * Issue URLs, every `Origin: ` line of `currentBody` kept (Scope relies on them), and
+ * a `changeSummary`. An empty change (no body, no edge) is invalid unless
+ * `allowEmpty`. Anything else is `STAGE_RESULT_INVALID`.
+ */
+export function parseIssueAmendment(
   result: JsonRecord,
-  context: RepairParseContext,
+  currentBody: string,
   finalMessage: string,
-) {
+  allowEmpty: boolean,
+): IssueAmendment {
   const raw = result.body ?? null;
   if (raw !== null && typeof raw !== "string") {
     throw invalidResult("body must be a string or null", finalMessage);
@@ -160,17 +183,17 @@ function parseAmend(
   if (!blockedBy.every((url) => issueUrlPattern.test(url))) {
     throw invalidResult("blockedBy must hold Issue URLs", finalMessage);
   }
-  if (raw === null && blockedBy.length === 0) {
+  if (!allowEmpty && raw === null && blockedBy.length === 0) {
     throw invalidResult("AMEND needs a body or a blockedBy", finalMessage);
   }
   if (raw !== null) {
     const kept = new Set(originLines(raw));
-    if (!originLines(context.body).every((line) => kept.has(line))) {
+    if (!originLines(currentBody).every((line) => kept.has(line))) {
       throw invalidResult("body must keep every Origin: line", finalMessage);
     }
   }
   const changeSummary = textField(result, "changeSummary", finalMessage);
-  return { outcome: "AMEND" as const, body: raw, blockedBy, changeSummary };
+  return { body: raw, blockedBy, changeSummary };
 }
 
 function parseOptions(result: JsonRecord, finalMessage: string): RepairOption[] {
@@ -281,7 +304,11 @@ export function parseRepairResult(
     case "RERUN":
       return { ...shared, outcome: "RERUN" };
     case "AMEND":
-      return { ...shared, ...parseAmend(result, context, finalMessage) };
+      return {
+        ...shared,
+        outcome: "AMEND",
+        ...parseIssueAmendment(result, context.body, finalMessage, false),
+      };
     case "DECIDE":
       return {
         ...shared,

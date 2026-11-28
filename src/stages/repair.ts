@@ -34,6 +34,7 @@ import {
   type RepairText,
 } from "./repair-record.ts";
 import { StageError } from "./errors.ts";
+import { keepChoice } from "./choice.ts";
 import { unconfirmed } from "./shape-wrong.ts";
 
 /** Nibfin's current `pending` comment, as REST reads it. */
@@ -384,7 +385,7 @@ async function handToAgent(
     return "stopped";
   }
   const decision = plan.kind === "none" ? noRunner(handled) : agentDecision(handled);
-  await writeRecord(client, issue, need.pending, decision);
+  await writeRecord(client, issue, need, decision);
   log(`${name}: repair: ${decision.text.category}, ${decision.action}`);
   if (plan.kind === "none") {
     return "advised";
@@ -395,13 +396,22 @@ async function handToAgent(
   return "agent";
 }
 
-/** W1: upserts the record of `decision` for `pending`'s stop. */
+/**
+ * W1: upserts the record of `decision` for the need's stop. When it replaces an
+ * options record, a decision on it not stored yet is saved first (`keepChoice`,
+ * #779), so a stop between the removal of `pending` and the next Shape run does not
+ * lose the choice.
+ */
 async function writeRecord(
   client: ActingClient,
   issue: IssueRef,
-  pending: PendingComment | null,
+  need: RepairNeed,
   decision: Decision,
 ): Promise<RepairState> {
+  const { pending } = need;
+  if (need.record?.action === "options") {
+    await keepChoice(client, issue);
+  }
   const state: RepairState = {
     for: pending?.digest ?? pendingDigest(""),
     status: decision.status,
@@ -511,7 +521,7 @@ export async function runRepair(
   if (decision === toAgent) {
     return handToAgent(client, issue, need, dispatcher, log);
   }
-  const state = await writeRecord(client, issue, pending, decision);
+  const state = await writeRecord(client, issue, need, decision);
   log(`${name}: repair: ${decision.text.category}, ${decision.action}`);
   if (decision.action === "advice") {
     return "advised";

@@ -1,6 +1,7 @@
 // The repair record and decision comment: the contract gh-nibfin parses (Proposal
 // R4.49, R4.51, R9.52). See "Repair stage" in README.md.
 import { createHash } from "node:crypto";
+import type { RepairOption } from "./repair-roles.ts";
 
 /** The comment key of the repair record (`<!-- nibfin:repair -->`). */
 export const repairCommentKey = "repair";
@@ -194,4 +195,79 @@ export function parseDecision(body: string): number | undefined {
   }
   const option = Number(value);
   return Number.isSafeInteger(option) ? option : undefined;
+}
+
+const oneLine = (text: string) => text.replace(/\s+/g, " ").trim();
+
+function indent(text: string): string {
+  return text
+    .trim()
+    .split("\n")
+    .map((line) => (line === "" ? "" : `   ${line}`))
+    .join("\n");
+}
+
+/**
+ * The `### Options` details of an options record (#778): per option a line
+ * `N. **<title>**[ (recommended)]`, then its consequence and `Issue change: <text>`,
+ * both indented, so no line inside them starts an option.
+ */
+export function formatOptions(options: readonly RepairOption[]): string {
+  const items = options.map((option, index) =>
+    [
+      `${index + 1}. **${oneLine(option.title)}**` +
+        (option.recommended ? " (recommended)" : ""),
+      indent(option.consequence),
+      indent(`Issue change: ${option.issueChange}`),
+    ].join("\n"),
+  );
+  return ["### Options", "", ...items].join("\n");
+}
+
+/** One option of an options record as `formatOptions` wrote it. */
+export interface RecordOption {
+  number: number;
+  /** Its lines, from `N. **…**` up to the next option or section, trimmed. */
+  text: string;
+}
+
+const optionStart = /^([1-9][0-9]*)\. \*\*/;
+
+/**
+ * The options of a record body: in its `### Options` section, an option starts at a
+ * line matching `N. **` and runs to the next such line, a `### ` line or the end.
+ * Empty without that section.
+ */
+export function parseOptions(recordBody: string): RecordOption[] {
+  const lines = recordBody.split("\n");
+  const start = lines.indexOf("### Options");
+  if (start === -1) {
+    return [];
+  }
+  const options: RecordOption[] = [];
+  let current: { number: number; lines: string[] } | undefined;
+  const close = () => {
+    if (current !== undefined) {
+      options.push({ number: current.number, text: current.lines.join("\n").trim() });
+    }
+  };
+  for (const line of lines.slice(start + 1)) {
+    if (line.startsWith("### ")) {
+      break;
+    }
+    const match = optionStart.exec(line);
+    if (match === null) {
+      current?.lines.push(line);
+      continue;
+    }
+    close();
+    current = { number: Number(match[1]), lines: [line] };
+  }
+  close();
+  return options;
+}
+
+/** The record's one-line `- Reason: ` text, or `undefined` without one. */
+export function recordReason(recordBody: string): string | undefined {
+  return /^- Reason: (.*)$/m.exec(recordBody)?.[1];
 }

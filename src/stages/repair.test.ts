@@ -14,6 +14,8 @@ import {
   seedComment,
   unlabel,
 } from "./fake-job.test.ts";
+import { parseChoice, readChoice } from "./choice.ts";
+import { decide, permissions, writeOptionsRecord } from "./fake-choice.test.ts";
 import { requestPerson } from "./pending.ts";
 import {
   jobLimitMinutes,
@@ -531,5 +533,63 @@ describe("runRepair", () => {
     assert.equal(typeof systemClock.now(), "number");
     assert.ok(systemClock.jobStart <= systemClock.now());
     await systemClock.sleep(0);
+  });
+});
+
+describe("runRepair and a chosen option (#779)", () => {
+  async function chosenThenStopped() {
+    const issues = fakeIssues(fakeIssue({ labels: ["scope"] }));
+    permissions(issues);
+    await writeOptionsRecord(issues);
+    const decision = decide(issues, 2);
+    await stopAgain(issues, gitFailed(), 901);
+    freshReads(issues.github.client);
+    const before = issues.github.writes().length;
+    return { issues, decision, before };
+  }
+
+  it("saves the choice before a later stop replaces the options record", async () => {
+    const { issues, decision, before } = await chosenThenStopped();
+    assert.equal(await repair(issues, testClock().clock), "released");
+    const options = issues.main.comments.find((comment) =>
+      comment.body.startsWith("<!-- nibfin:repair -->"),
+    )!;
+    assert.deepEqual(
+      issues.github
+        .writes()
+        .slice(before, before + 2)
+        .map((call) => `${call.method} ${call.path}`),
+      [
+        "POST /repos/acme/app/issues/1/comments",
+        `PATCH /repos/acme/app/issues/comments/${options.id}`,
+      ],
+    );
+    assert.equal(record(issues).state.action, "retry");
+    const [stored] = issues.marked("choice");
+    const choice = parseChoice(stored.body);
+    assert.equal(choice?.status, "chosen");
+    assert.equal(choice?.comment, decision.id);
+    assert.equal(choice?.option, 2);
+    freshReads(issues.github.client);
+    const state = await readChoice(issues.github.client, issue);
+    assert.equal(state?.status, "chosen");
+  });
+
+  it("saves nothing when no decision was taken (R4.52)", async () => {
+    const issues = fakeIssues(fakeIssue({ labels: ["scope"] }));
+    permissions(issues);
+    await writeOptionsRecord(issues);
+    await stopAgain(issues, gitFailed(), 901);
+    freshReads(issues.github.client);
+    assert.equal(await repair(issues, testClock().clock), "released");
+    assert.deepEqual(issues.marked("choice"), []);
+  });
+
+  it("saves the choice before handing a stop to the agent", async () => {
+    const { issues } = await chosenThenStopped();
+    await stopAgain(issues, new Error("odd"), 902);
+    freshReads(issues.github.client);
+    assert.equal(await repair(issues, testClock().clock), "agent");
+    assert.equal(issues.marked("choice").length, 1);
   });
 });

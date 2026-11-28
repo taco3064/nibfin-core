@@ -58,3 +58,39 @@ export async function readLastUnlabeled(
   }
   return latest;
 }
+
+/** An Issue comment as the REST comment list gives it, with its author's login. */
+export interface ListedComment {
+  id: number;
+  /** `null` for a deleted account. */
+  login: string | null;
+  body: string;
+  /** REST `created_at` (ISO 8601). */
+  createdAt: string;
+  url: string;
+}
+
+/**
+ * Every comment of `issue`, oldest first
+ * (`GET /repos/{owner}/{repo}/issues/{issue_number}/comments`, every page).
+ */
+export async function listIssueComments(
+  client: ActingClient,
+  issue: IssueRef,
+): Promise<ListedComment[]> {
+  const comments = await read(`list comments of ${formatIssue(issue)}`, () =>
+    client.paginate("GET /repos/{owner}/{repo}/issues/{issue_number}/comments", {
+      owner: issue.owner,
+      repo: issue.repo,
+      issue_number: issue.number,
+      per_page: 100,
+    }),
+  );
+  return comments.map((comment) => ({
+    id: comment.id,
+    login: comment.user?.login ?? null,
+    body: comment.body ?? "",
+    createdAt: comment.created_at,
+    url: comment.html_url,
+  }));
+}
