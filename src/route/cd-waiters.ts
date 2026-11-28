@@ -53,7 +53,7 @@ export async function cdWaiters(
         continue;
       }
       log(`${name}#${issue}: its red merge ${candidate} may wait on ${sha}; waking it`);
-      await dispatchRoute(scope, repo, issue);
+      await dispatchRoute(scope, repo, { issue });
       woken.push(issue);
     }
   }

@@ -50,7 +50,7 @@ export async function continueAfterStage(
   // The route reads the state the stage left, not what it read before.
   freshReads(scope.client);
   for (const target of record.wake ?? []) {
-    await dispatchRoute(scope, parseRepo(target.repo), target.issue);
+    await dispatchRoute(scope, parseRepo(target.repo), { issue: target.issue });
   }
   const { repo, issue } = finished;
   if (finished.stage === "scope") {

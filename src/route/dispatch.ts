@@ -3,6 +3,7 @@ import {
   type Actor,
   dispatchWorkflow,
   nibfinRunTitle,
+  nibfinWorkflowPrefix,
   type QueuedRun,
   readNotStartedRuns,
   readRunners,
@@ -12,6 +13,7 @@ import {
 } from "../github/index.ts";
 import { askForConsent } from "./consent.ts";
 import type { FixReason, RepairDispatcher } from "../stages/index.ts";
+import type { RouteTarget } from "./event-issues.ts";
 import type { IssueRoute } from "./route.ts";
 
 /** The execution repository's workflow that runs every route and stage Job. */
@@ -43,14 +45,26 @@ async function dispatch(
   scope.log(`Dispatched ${title}${url === undefined ? "" : `: ${url}`}`);
 }
 
-/** Dispatches a route run for the Issue; never deduplicated, so no wake is lost. */
+/**
+ * Dispatches a route run for the target; never deduplicated, so no wake is lost. An
+ * Issue is sent as `issue`; a commit as `sha` and a branch as `branch`, each also as
+ * `ref`, which names the run `Nibfin · <owner>/<repo>@<ref> · route` as the shared
+ * runner does.
+ */
 export async function dispatchRoute(
   scope: DispatchScope,
   repo: Repo,
-  issue: number,
+  target: RouteTarget,
 ): Promise<void> {
-  const inputs = { stage: "route", repo: repoName(repo), issue: String(issue) };
-  await dispatch(scope, nibfinRunTitle(repo, issue, "route"), inputs);
+  const inputs = { stage: "route", repo: repoName(repo) };
+  if ("issue" in target) {
+    const title = nibfinRunTitle(repo, target.issue, "route");
+    await dispatch(scope, title, { ...inputs, issue: String(target.issue) });
+    return;
+  }
+  const [name, ref] = "sha" in target ? ["sha", target.sha] : ["branch", target.branch];
+  const title = `${nibfinWorkflowPrefix} ${repoName(repo)}@${ref} · route`;
+  await dispatch(scope, title, { ...inputs, [name]: ref, ref });
 }
 
 /** The Assignee a stage is dispatched to, and whether one of its runners is online. */

@@ -193,7 +193,7 @@ export async function runRoute(
           await wakeAfterClose(scope, repo, issue);
         }
       } else {
-        await dispatchRoute(scope, repo, issue);
+        await dispatchRoute(scope, repo, { issue });
       }
     } catch (error) {
       printFailure(io, error);
