@@ -42,6 +42,7 @@ import { pendingEvidence, readRepairNeed, release, type RepairNeed } from "./rep
 import {
   formatOptions,
   formatRepairRecord,
+  indent,
   type RepairAction,
   repairCommentKey,
   type RepairStatus,
@@ -117,14 +118,6 @@ function stoppedText(snapshot: IssueSnapshot): { what: string; next: string } {
 
 function oneLine(text: string): string {
   return text.replace(/\s+/g, " ").trim();
-}
-
-function indent(text: string): string {
-  return text
-    .trim()
-    .split("\n")
-    .map((line) => (line === "" ? "" : `   ${line}`))
-    .join("\n");
 }
 
 const categoryOf = (kind: RepairClass) => `${kind}, ${repairClasses[kind]}`;

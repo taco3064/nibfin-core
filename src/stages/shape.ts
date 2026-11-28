@@ -4,7 +4,6 @@ import {
   type IssueRef,
   readIssueSnapshot,
   type Stage,
-  upsertMarkedComment,
 } from "../github/index.ts";
 import {
   defaultStageDeps,
@@ -15,11 +14,12 @@ import {
   type StageJob,
 } from "./agent.ts";
 import type { JobContext } from "./context.ts";
-import { StageError } from "./errors.ts";
 import { type NextAction, noNextAction, writeNextAction } from "./next.ts";
 import { trackProgress } from "./progress.ts";
 import type { PromptSection, StageRole } from "./prompt.ts";
-import { notAtShape, publishShape, shapeBlockedCommentKey } from "./shape-publish.ts";
+import { pendingChoice, readChoice } from "./choice.ts";
+import { applyChoice } from "./shape-choice.ts";
+import { blockShape, notAtShape, publishShape } from "./shape-publish.ts";
 import {
   parseAuthorResult,
   parseValidatorResult,
@@ -33,6 +33,7 @@ import {
   sourceSections,
 } from "./shape-sources.ts";
 import {
+  isDeliveryStage,
   readCurrentShape,
   readShapeWrong,
   type ShapeWrongReport,
@@ -47,14 +48,23 @@ function describeStage(stage: Stage): string {
 
 type SnapshotReader = Pick<StageJob, "context" | "client" | "deps">;
 
-/** The current snapshot and its derived stage; logs a stage other than Shape. */
-async function readStage(job: SnapshotReader) {
-  const { context, client, deps } = job;
+/** Logs that the Issue is at a stage other than Shape. */
+function logNotAtShape(job: SnapshotReader, stage: Stage): void {
+  const { context, deps } = job;
+  const where = `${context.repo.owner}/${context.repo.repo}#${context.issue}`;
+  deps.log(`${where} is not at the shape stage: ${describeStage(stage)}`);
+}
+
+/**
+ * The current snapshot and its derived stage; logs a stage other than Shape unless
+ * `quiet`.
+ */
+async function readStage(job: SnapshotReader, quiet = false) {
+  const { context, client } = job;
   const snapshot = await readIssueSnapshot(client, context.repo, context.issue);
   const stage = deriveStage(snapshot);
-  if (stage.stage !== "shape") {
-    const where = `${context.repo.owner}/${context.repo.repo}#${context.issue}`;
-    deps.log(`${where} is not at the shape stage: ${describeStage(stage)}`);
+  if (stage.stage !== "shape" && !quiet) {
+    logNotAtShape(job, stage);
   }
   return { snapshot, stage };
 }
@@ -64,17 +74,13 @@ function listFindings(findings: readonly string[]): string {
 }
 
 /** Reports a blocked role on the Issue and stops with `STAGE_BLOCKED`. */
-async function block(
+function block(
   job: StageJob,
   issue: IssueRef,
   role: StageRole,
   reason: string,
 ): Promise<never> {
-  const body = `The Shape is blocked (${role.title}).\n\n${reason}`;
-  const { client } = job;
-  const comment = await upsertMarkedComment(client, issue, shapeBlockedCommentKey, body);
-  const message = `${role.title} returned blocked (${comment.url}):\n${reason}`;
-  throw new StageError("STAGE_BLOCKED", message);
+  return blockShape(job.client, issue, role.title, reason);
 }
 
 interface Revision {
@@ -215,12 +221,24 @@ async function shapeStage(
   deps: StageDeps,
 ): Promise<NextAction> {
   const issue = issueOf(context);
-  const { snapshot, stage } = await readStage({ context, client, deps });
-  if (stage.stage !== "shape") {
-    return notAtShape({ client, issue, log: deps.log }, stage);
+  const reader = { context, client, deps };
+  const read = await readStage(reader, true);
+  const choice = await readChoice(client, issue);
+  const apply = pendingChoice(choice);
+  if (read.stage.stage !== "shape" && !(apply && isDeliveryStage(read.stage))) {
+    logNotAtShape(reader, read.stage);
+    return notAtShape({ client, issue, log: deps.log }, read.stage);
   }
   const skills = [shapeAuthorRole.skill, shapeValidatorRole.skill];
   const job = await prepareStageJob(context, client, deps, skills);
+  let { snapshot } = read;
+  if (apply) {
+    const after = await applyChoice(job, issue, choice);
+    if (after === undefined) {
+      return noNextAction;
+    }
+    snapshot = after;
+  }
   const sources = await readShapeSources(client, snapshot);
   const current = await readCurrentShape(client, issue);
   const report = await readShapeWrong(client, issue, current?.version, deps.log);

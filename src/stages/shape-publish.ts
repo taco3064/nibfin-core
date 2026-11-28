@@ -10,6 +10,7 @@ import {
   type Stage,
   upsertMarkedComment,
 } from "../github/index.ts";
+import { StageError } from "./errors.ts";
 import { type NextAction, noNextAction } from "./next.ts";
 import { shapeCommentKey } from "./shape-sources.ts";
 import {
@@ -23,6 +24,22 @@ import {
 
 /** The comment key of the report a blocked Shape leaves on the Issue. */
 export const shapeBlockedCommentKey = "shape-blocked";
+
+/**
+ * Reports a blocked Shape role (titled `title`) in the `shape-blocked` comment and
+ * stops with `STAGE_BLOCKED`.
+ */
+export async function blockShape(
+  client: ActingClient,
+  issue: IssueRef,
+  title: string,
+  reason: string,
+): Promise<never> {
+  const body = `The Shape is blocked (${title}).\n\n${reason}`;
+  const comment = await upsertMarkedComment(client, issue, shapeBlockedCommentKey, body);
+  const message = `${title} returned blocked (${comment.url}):\n${reason}`;
+  throw new StageError("STAGE_BLOCKED", message);
+}
 
 const blockedResolvedBody = "Resolved: the Shape was approved and published.";
 

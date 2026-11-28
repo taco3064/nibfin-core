@@ -199,7 +199,8 @@ export function parseDecision(body: string): number | undefined {
 
 const oneLine = (text: string) => text.replace(/\s+/g, " ").trim();
 
-function indent(text: string): string {
+/** Indents every non-empty line of `text` by three spaces, under a list item. */
+export function indent(text: string): string {
   return text
     .trim()
     .split("\n")
