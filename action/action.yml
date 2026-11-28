@@ -1,0 +1,23 @@
+name: Nibfin
+description: >-
+  Core's steps for the Nibfin workflows that run where the Nibfin image is not
+  available. Built from nibfin-core's src/action/; see src/action/README.md.
+inputs:
+  command:
+    description: "What to run: job-failed"
+    required: true
+  token:
+    description: The gh login token of the Nibfin account
+    required: true
+  repo:
+    description: "job-failed: the Issue's repository, <owner>/<repo>"
+    required: false
+  issue:
+    description: "job-failed: the Issue number"
+    required: false
+  stage:
+    description: "job-failed: the stage of the Job that failed"
+    required: false
+runs:
+  using: node24
+  main: main.mjs

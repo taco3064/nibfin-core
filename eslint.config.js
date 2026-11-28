@@ -2,13 +2,13 @@ import { defineConfig, globalIgnores } from "eslint/config";
 import tseslint from "typescript-eslint";
 
 export default defineConfig(
-  globalIgnores(["dist/", "coverage/", "skills/"]),
+  globalIgnores(["dist/", "coverage/", "skills/", "action/main.mjs"]),
   tseslint.configs.recommendedTypeChecked,
   {
     languageOptions: {
       parserOptions: {
         projectService: {
-          allowDefaultProject: ["eslint.config.js"],
+          allowDefaultProject: ["eslint.config.js", "action/rollup.config.mjs"],
         },
         tsconfigRootDir: import.meta.dirname,
       },
