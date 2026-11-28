@@ -29,9 +29,12 @@ true`; a stale one falls to rule 4) → `deliver review`; `review` whose PR has 
 its repair need (`readRepairNeed`, see "Repair stage" in `src/stages`), else `null`.
 `continueAfterStage` ignores it. `nibfin route --issue` runs `runRepair` when the
 route is `null` and `repair` is not; when it removes `pending`, the command reads the
-route again and dispatches it through `dispatchStage` (the one re-dispatch, R4.42). A
-failure inside the repair stage sets `pending` with ``- Stage: `repair` `` (R4.50);
-any other failure takes the usual path. `--sha` and `--branch` are unchanged: their
+route again and dispatches it through `dispatchStage` (`rerouteIssue`, the one
+re-dispatch, R4.42). A stop the code cannot decide is handed to the repair agent: the
+route plans the `repair` dispatch with `state.assignees` (`RouteState` carries the
+Issue's Assignees for that) before it writes any record (see "Repair agent" in
+`src/stages`). A failure inside the repair stage sets `pending` with
+``- Stage: `repair` `` (R4.50); any other failure takes the usual path. `--sha` and `--branch` are unchanged: their
 route run per Issue does the repair.
 
 `assignees` holds all the Issue's Assignees (`{ id, login }`, GitHub's order); without
@@ -68,7 +71,9 @@ URL. A dispatch cannot be confirmed by a re-read: no response or a 5xx is
 - `dispatchRoute`: inputs `stage: route`, `repo`, `issue`. Never deduplicated, so no
   wake is lost.
 - `dispatchStage`: inputs `stage`, `repo`, `issue`, `reason` (empty for none) and
-  `assignee`, the chosen Assignee's user id. It first lists the execution
+  `assignee`, the chosen Assignee's user id. It is `planDispatch` followed by
+  `dispatchPlanned` when the plan is `ready`, and returns whether it dispatched; its
+  results, writes and logs are those of the steps below. `planDispatch` first lists the execution
   repository's self-hosted runners (`readRunners`, all pages; the token needs admin
   there) and `chooseAssignee` goes through `route.assignees` in GitHub's order
   (#739): the first Assignee with an online runner labelled `runnerLabel(id)` =
@@ -96,6 +101,17 @@ URL. A dispatch cannot be confirmed by a re-read: no response or a 5xx is
   the waiting-run skip, so a queued run is never paused under itself; reassignment
   during a queued or running run is not detected, and the next dispatch follows the
   Assignees then.
+- `planDispatch(scope, repo, issue, target)` (#778) runs those checks in that order
+  and returns `none` (no runner of any Assignee), `waiting` (with the run id),
+  `consent` (`pause` and the comments were written) or `ready` (with the chosen
+  Assignee); it never dispatches. `dispatchPlanned` dispatches a `ready` plan.
+  `target.stage` may also be `repair`: `repairDispatcher` gives the repair stage
+  (`runRepair`) the plan and dispatch of `stage: repair` with the Issue's Assignees,
+  and `waitingRun`, the id of a not-started run titled
+  `Nibfin · <owner>/<repo>#<n> · repair` (`findWaitingRun`), for lost-Job detection.
+- `rerouteIssue`: after the repair stage removed `pending` (in the route Job or the
+  repair Job), reads the route again and dispatches it through `dispatchStage`, or
+  logs that nothing runs.
 
 ## Commands
 
