@@ -499,10 +499,35 @@ describe("dispatchRoute", () => {
     const runner = fakeRunner(github);
     const route = "Nibfin · acme/app#1 · route";
     runner.runs.push({ id: 7, status: "queued", display_title: route });
-    await dispatchRoute(runner.scope, repo, 1);
+    await dispatchRoute(runner.scope, repo, { issue: 1 });
     assert.deepEqual(runner.dispatched, [
       { stage: "route", repo: "acme/app", issue: "1" },
     ]);
     assert.ok(!github.calls.some((call) => call.path.endsWith("/actions/runs")));
+    assert.deepEqual(runner.logs, [
+      "Dispatched Nibfin · acme/app#1 · route: " +
+        "https://github.com/acme/runner/actions/runs/1001",
+    ]);
+  });
+
+  it("sends a commit or a branch also as ref and names the run by it", async () => {
+    const runner = fakeRunner(fakeGitHub());
+    await dispatchRoute(runner.scope, repo, { sha: "abc1234" });
+    await dispatchRoute(runner.scope, repo, { branch: "nibfin/issue-3" });
+    assert.deepEqual(runner.dispatched, [
+      { stage: "route", repo: "acme/app", sha: "abc1234", ref: "abc1234" },
+      {
+        stage: "route",
+        repo: "acme/app",
+        branch: "nibfin/issue-3",
+        ref: "nibfin/issue-3",
+      },
+    ]);
+    assert.deepEqual(runner.logs, [
+      "Dispatched Nibfin · acme/app@abc1234 · route: " +
+        "https://github.com/acme/runner/actions/runs/1001",
+      "Dispatched Nibfin · acme/app@nibfin/issue-3 · route: " +
+        "https://github.com/acme/runner/actions/runs/1002",
+    ]);
   });
 });
