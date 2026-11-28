@@ -19,8 +19,10 @@ peers: their events wake their Issues by dispatching to the execution repository
 - `nibfin-runner-request.yml` (nibfin-core): installs `age`, then one step of Core's
   Action (`command: runner-request`) answers a collaborator's runner request Issue
   with a registration token encrypted to their SSH key.
-- `nibfin-e2e-notify.yml` (every repository): asks nibfin-e2e to retest a delivered
-  Issue.
+- `nibfin-e2e-notify.yml` (every repository): when an Issue with `delivered` closes,
+  one step of Core's Action (`command: repository-dispatch`) asks nibfin-e2e to
+  retest it (`repository_dispatch` type `issue-delivered`, payload `repository` and
+  `issue`).
 
 nibfin-core's `nibfin-*.yml` files are rendered from `templates/workflows/` by
 `npm run render:workflows` (the own execution set of `nibfin render-workflows`; see

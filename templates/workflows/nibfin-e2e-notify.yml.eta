@@ -18,19 +18,12 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: Dispatch to nibfin-e2e
-        env:
-          GH_TOKEN: ${{ secrets.NIBFIN_GITHUB_TOKEN }}
-          REPOSITORY: ${{ github.repository }}
-          ISSUE: ${{ github.event.issue.number }}
-        run: |
-          for attempt in 1 2 3; do
-            if gh api -X POST repos/taco3064/nibfin-e2e/dispatches \
-              -f event_type=issue-delivered \
-              -f "client_payload[repository]=$REPOSITORY" \
-              -F "client_payload[issue]=$ISSUE"; then
-              exit 0
-            fi
-            echo "dispatch attempt $attempt failed"
-            sleep $((attempt * 10))
-          done
-          exit 1
+        uses: <%~ it.actionUses %>
+        with:
+          command: repository-dispatch
+          token: ${{ secrets.NIBFIN_GITHUB_TOKEN }}
+          repository: taco3064/nibfin-e2e
+          event-type: issue-delivered
+          payload: >-
+            {"repository": ${{ toJSON(github.repository) }},
+            "issue": ${{ github.event.issue.number }}}
