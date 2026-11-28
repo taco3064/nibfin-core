@@ -8,6 +8,7 @@ import {
   type LogLine,
 } from "../github/client.ts";
 import { formatIssue } from "../github/repo.ts";
+import { dispatchRepository } from "../github/workflow-dispatch.ts";
 import { runWake } from "../route/wake.ts";
 import { type Age, createAge } from "../runner-request/age.ts";
 import { answerRequest } from "../runner-request/answer.ts";
@@ -18,6 +19,7 @@ import {
   inputName,
   readCommand,
   readJobFailedInputs,
+  readRepositoryDispatchInputs,
   readRunnerRequestInputs,
   readWakeInputs,
 } from "./inputs.ts";
@@ -104,8 +106,24 @@ async function runnerRequest(io: ActionIo, deps: ActionDeps): Promise<number> {
   return 0;
 }
 
+/**
+ * `repository-dispatch`: sends the `event-type` event with the JSON `payload` to
+ * `repository` (`dispatchRepository`), as `nibfin-e2e-notify.yml` asks nibfin-e2e to
+ * retest a delivered Issue. The log names the event and the repository, never the
+ * payload.
+ */
+async function repositoryDispatch(io: ActionIo, deps: ActionDeps): Promise<number> {
+  const inputs = readRepositoryDispatchInputs(deps.env);
+  const client = await deps.connect(inputs.token, lineLog(io));
+  const { repository, eventType, payload } = inputs;
+  await dispatchRepository(client, repository, eventType, payload);
+  io.stdout.write(`Sent ${eventType} to ${repository.owner}/${repository.repo}\n`);
+  return 0;
+}
+
 const commands: Record<ActionCommand, Command> = {
   "job-failed": jobFailed,
+  "repository-dispatch": repositoryDispatch,
   "runner-request": runnerRequest,
   wake,
 };

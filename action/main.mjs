@@ -6650,6 +6650,97 @@ function formatIssue(issue) {
     return `${issue.owner}/${issue.repo}#${issue.number}`;
 }
 
+/**
+ * Runs a write and retries it on any error up to `maxRetries` times (Proposal
+ * R4.37–R4.38). A 4xx that `recover` shows as the intended state is success and is
+ * not retried. Before each re-send the client's retry wait passes, then `confirm`
+ * re-reads GitHub: a write that already took effect is not sent again. A failing
+ * pre-read ends the write without a re-send. After the last retry an unknown outcome
+ * (no response, or 5xx) is re-read once more and is `GITHUB_WRITE_UNCONFIRMED`; any
+ * other failure is `GITHUB_WRITE_REJECTED`. The cause is the write's last error.
+ */
+async function write(client, operation, run, recovery) {
+    for (let k = 1;; k += 1) {
+        let error;
+        try {
+            return await run();
+        }
+        catch (caught) {
+            error = caught;
+        }
+        const unknown = isUnknownOutcome(error);
+        if (!unknown) {
+            const recovered = await recovery.recover?.(error);
+            if (recovered !== undefined) {
+                return recovered;
+            }
+        }
+        const code = unknown ? "GITHUB_WRITE_UNCONFIRMED" : "GITHUB_WRITE_REJECTED";
+        const what = requestName(error, operation);
+        if (k > maxRetries) {
+            const confirmed = unknown
+                ? await recovery.confirm().catch(() => undefined)
+                : undefined;
+            if (confirmed !== undefined) {
+                return confirmed;
+            }
+            logGiveUp(client, what, retryCause(error));
+            throw new GitHubError(code, operation, error);
+        }
+        await waitToRetry(client, what, error, k);
+        let confirmed;
+        try {
+            confirmed = await recovery.confirm();
+        }
+        catch {
+            throw new GitHubError(code, operation, error);
+        }
+        if (confirmed !== undefined) {
+            return confirmed;
+        }
+    }
+}
+
+/** `GET /repos/{owner}/{repo}`; within a run the read cache shares one request. */
+async function readRepo$1(client, repo) {
+    const { data } = await read(`read ${repo.owner}/${repo.repo}`, () => client.request("GET /repos/{owner}/{repo}", { ...repo }));
+    return data;
+}
+/** The default branch of `repo`. */
+async function readDefaultBranch(client, repo) {
+    return (await readRepo$1(client, repo)).default_branch;
+}
+/**
+ * Dispatches `workflow` of `repo` on its default branch with `inputs` and returns
+ * the new run's URL when GitHub reports it. A dispatch only wakes an Issue, so a
+ * repeated one is harmless (R4.35), and it cannot be confirmed by a re-read: any
+ * failure is re-sent without a pre-read up to `maxRetries` times. Then no response
+ * or a 5xx is `GITHUB_WRITE_UNCONFIRMED`, any other failure `GITHUB_WRITE_REJECTED`.
+ */
+async function dispatchWorkflow(client, repo, workflow, inputs) {
+    const ref = await readDefaultBranch(client, repo);
+    return write(client, `dispatch ${workflow} of ${repo.owner}/${repo.repo}`, async () => {
+        const { data } = await client.request("POST /repos/{owner}/{repo}/actions/workflows/{workflow_id}/dispatches", { ...repo, workflow_id: workflow, ref, inputs, return_run_details: true });
+        return data?.html_url;
+    }, { confirm: () => Promise.resolve(undefined) });
+}
+/**
+ * Sends the `repository_dispatch` event `eventType` to `repo` with `payload` as its
+ * `client_payload`. Like `dispatchWorkflow`, it cannot be confirmed by a re-read and
+ * a repeated event is harmless (a repeated retest), so any failure is re-sent
+ * without a pre-read up to `maxRetries` times. Then no response or a 5xx is
+ * `GITHUB_WRITE_UNCONFIRMED`, any other failure `GITHUB_WRITE_REJECTED`.
+ */
+async function dispatchRepository(client, repo, eventType, payload) {
+    await write(client, `send ${eventType} to ${repo.owner}/${repo.repo}`, async () => {
+        await client.request("POST /repos/{owner}/{repo}/dispatches", {
+            ...repo,
+            event_type: eventType,
+            client_payload: payload,
+        });
+    }, { confirm: () => Promise.resolve(undefined) });
+}
+
 /** The branch that delivers Issue `n`. */
 function deliveryBranch(issueNumber) {
     return `nibfin/issue-${issueNumber}`;
@@ -6839,7 +6930,7 @@ function positiveInteger(value, field) {
     }
     return number;
 }
-function readRepo$1(value, field) {
+function readRepo(value, field) {
     const match = repoPattern.exec(required(value, field));
     if (match === null) {
         throw invalid$1(field, "must be <owner>/<repo>");
@@ -7166,57 +7257,6 @@ async function issuesOfCommit(client, repo, sha) {
     return [...new Set(issues)];
 }
 
-/**
- * Runs a write and retries it on any error up to `maxRetries` times (Proposal
- * R4.37–R4.38). A 4xx that `recover` shows as the intended state is success and is
- * not retried. Before each re-send the client's retry wait passes, then `confirm`
- * re-reads GitHub: a write that already took effect is not sent again. A failing
- * pre-read ends the write without a re-send. After the last retry an unknown outcome
- * (no response, or 5xx) is re-read once more and is `GITHUB_WRITE_UNCONFIRMED`; any
- * other failure is `GITHUB_WRITE_REJECTED`. The cause is the write's last error.
- */
-async function write(client, operation, run, recovery) {
-    for (let k = 1;; k += 1) {
-        let error;
-        try {
-            return await run();
-        }
-        catch (caught) {
-            error = caught;
-        }
-        const unknown = isUnknownOutcome(error);
-        if (!unknown) {
-            const recovered = await recovery.recover?.(error);
-            if (recovered !== undefined) {
-                return recovered;
-            }
-        }
-        const code = unknown ? "GITHUB_WRITE_UNCONFIRMED" : "GITHUB_WRITE_REJECTED";
-        const what = requestName(error, operation);
-        if (k > maxRetries) {
-            const confirmed = unknown
-                ? await recovery.confirm().catch(() => undefined)
-                : undefined;
-            if (confirmed !== undefined) {
-                return confirmed;
-            }
-            logGiveUp(client, what, retryCause(error));
-            throw new GitHubError(code, operation, error);
-        }
-        await waitToRetry(client, what, error, k);
-        let confirmed;
-        try {
-            confirmed = await recovery.confirm();
-        }
-        catch {
-            throw new GitHubError(code, operation, error);
-        }
-        if (confirmed !== undefined) {
-            return confirmed;
-        }
-    }
-}
-
 /** The Issue comment `id` of `repo`, by `GET …/issues/comments/{comment_id}`. */
 async function readIssueComment(client, repo, id) {
     const { data } = await read(`read comment ${id} of ${repo.owner}/${repo.repo}`, () => client.request("GET /repos/{owner}/{repo}/issues/comments/{comment_id}", {
@@ -7398,30 +7438,6 @@ async function setLabels(client, issue, changes) {
         });
     }
     return readLabels(client, issue);
-}
-
-/** `GET /repos/{owner}/{repo}`; within a run the read cache shares one request. */
-async function readRepo(client, repo) {
-    const { data } = await read(`read ${repo.owner}/${repo.repo}`, () => client.request("GET /repos/{owner}/{repo}", { ...repo }));
-    return data;
-}
-/** The default branch of `repo`. */
-async function readDefaultBranch(client, repo) {
-    return (await readRepo(client, repo)).default_branch;
-}
-/**
- * Dispatches `workflow` of `repo` on its default branch with `inputs` and returns
- * the new run's URL when GitHub reports it. A dispatch only wakes an Issue, so a
- * repeated one is harmless (R4.35), and it cannot be confirmed by a re-read: any
- * failure is re-sent without a pre-read up to `maxRetries` times. Then no response
- * or a 5xx is `GITHUB_WRITE_UNCONFIRMED`, any other failure `GITHUB_WRITE_REJECTED`.
- */
-async function dispatchWorkflow(client, repo, workflow, inputs) {
-    const ref = await readDefaultBranch(client, repo);
-    return write(client, `dispatch ${workflow} of ${repo.owner}/${repo.repo}`, async () => {
-        const { data } = await client.request("POST /repos/{owner}/{repo}/actions/workflows/{workflow_id}/dispatches", { ...repo, workflow_id: workflow, ref, inputs, return_run_details: true });
-        return data?.html_url;
-    }, { confirm: () => Promise.resolve(undefined) });
 }
 
 // The repair record and decision comment: the contract gh-nibfin parses (Proposal
@@ -7816,7 +7832,7 @@ function executionRepoOf(value) {
     if (value === undefined || value.trim() === "") {
         throw new StageError("STAGE_INPUT_INVALID", "The variable NIBFIN_EXECUTION_REPO is not set (input execution-repo)");
     }
-    return readRepo$1(value, "NIBFIN_EXECUTION_REPO");
+    return readRepo(value, "NIBFIN_EXECUTION_REPO");
 }
 const skip = (reason) => ({ kind: "skip", reason });
 function issuesWake(payload, name, executionRepo) {
@@ -8382,7 +8398,12 @@ async function answerRequest(input, deps) {
 }
 
 /** The commands of the Action's `command` input. */
-const actionCommands = ["job-failed", "runner-request", "wake"];
+const actionCommands = [
+    "job-failed",
+    "repository-dispatch",
+    "runner-request",
+    "wake",
+];
 /** The environment variable of the Action input `name`. */
 function inputName(name) {
     return `INPUT_${name.toUpperCase()}`;
@@ -8409,13 +8430,13 @@ const stagePattern = /^[a-z][a-z-]*$/;
  * `STAGE_INPUT_INVALID` naming the field, never its value.
  */
 function readJobFailedInputs(env) {
-    const repo = readRepo$1(input(env, "repo"), inputName("repo"));
+    const repo = readRepo(input(env, "repo"), inputName("repo"));
     const number = positiveInteger(input(env, "issue"), inputName("issue"));
     const stage = required(input(env, "stage"), inputName("stage"));
     if (!stagePattern.test(stage)) {
         throw invalid(inputName("stage"), "must be a stage name");
     }
-    const runRepo = readRepo$1(env.GITHUB_REPOSITORY, "GITHUB_REPOSITORY");
+    const runRepo = readRepo(env.GITHUB_REPOSITORY, "GITHUB_REPOSITORY");
     const runId = positiveInteger(env.GITHUB_RUN_ID, "GITHUB_RUN_ID");
     return {
         token: required(input(env, "token"), inputName("token")),
@@ -8424,15 +8445,22 @@ function readJobFailedInputs(env) {
         url: runUrl(runRepo, runId),
     };
 }
-function readPayload(text) {
-    let payload;
+/** `text` parsed as a JSON object, or `undefined` for anything else. */
+function jsonObject(text) {
+    let value;
     try {
-        payload = JSON.parse(text);
+        value = JSON.parse(text);
     }
     catch {
-        payload = undefined;
+        return undefined;
     }
-    if (typeof payload !== "object" || payload === null || Array.isArray(payload)) {
+    return typeof value === "object" && value !== null && !Array.isArray(value)
+        ? value
+        : undefined;
+}
+function readPayload(text) {
+    const payload = jsonObject(text);
+    if (payload === undefined) {
         throw invalid("GITHUB_EVENT_PATH", "must be the event's JSON payload");
     }
     return payload;
@@ -8446,7 +8474,7 @@ function readPayload(text) {
 function readRunEvent(env, readFile) {
     const eventName = required(env.GITHUB_EVENT_NAME, "GITHUB_EVENT_NAME");
     const path = required(env.GITHUB_EVENT_PATH, "GITHUB_EVENT_PATH");
-    const repo = readRepo$1(env.GITHUB_REPOSITORY, "GITHUB_REPOSITORY");
+    const repo = readRepo(env.GITHUB_REPOSITORY, "GITHUB_REPOSITORY");
     const runId = positiveInteger(env.GITHUB_RUN_ID, "GITHUB_RUN_ID");
     let text;
     try {
@@ -8511,6 +8539,25 @@ function readRunnerRequestInputs(env, readFile) {
         jobToken,
     };
 }
+/**
+ * The inputs of `repository-dispatch`: `token`, `repository` (`<owner>/<repo>`),
+ * `event-type` and `payload`, a JSON object. A missing or invalid field is
+ * `STAGE_INPUT_INVALID` naming the field, never its value.
+ */
+function readRepositoryDispatchInputs(env) {
+    const repository = readRepo(input(env, "repository"), inputName("repository"));
+    const eventType = required(input(env, "event-type"), inputName("event-type"));
+    const payload = jsonObject(required(input(env, "payload"), inputName("payload")));
+    if (payload === undefined) {
+        throw invalid(inputName("payload"), "must be a JSON object");
+    }
+    return {
+        token: required(input(env, "token"), inputName("token")),
+        repository,
+        eventType,
+        payload,
+    };
+}
 
 // The Action's commands (#776). Rules live in their Core modules; this file only
 // connects them to the inputs and the log.
@@ -8565,8 +8612,23 @@ async function runnerRequest(io, deps) {
     await answerRequest(input, { job, connect, age: deps.age(deps.env), log });
     return 0;
 }
+/**
+ * `repository-dispatch`: sends the `event-type` event with the JSON `payload` to
+ * `repository` (`dispatchRepository`), as `nibfin-e2e-notify.yml` asks nibfin-e2e to
+ * retest a delivered Issue. The log names the event and the repository, never the
+ * payload.
+ */
+async function repositoryDispatch(io, deps) {
+    const inputs = readRepositoryDispatchInputs(deps.env);
+    const client = await deps.connect(inputs.token, lineLog(io));
+    const { repository, eventType, payload } = inputs;
+    await dispatchRepository(client, repository, eventType, payload);
+    io.stdout.write(`Sent ${eventType} to ${repository.owner}/${repository.repo}\n`);
+    return 0;
+}
 const commands = {
     "job-failed": jobFailed,
+    "repository-dispatch": repositoryDispatch,
     "runner-request": runnerRequest,
     wake,
 };

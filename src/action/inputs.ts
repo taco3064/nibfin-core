@@ -10,7 +10,12 @@ import { StageError } from "../stages/errors.ts";
 import { runUrl } from "../stages/pending.ts";
 
 /** The commands of the Action's `command` input. */
-export const actionCommands = ["job-failed", "runner-request", "wake"] as const;
+export const actionCommands = [
+  "job-failed",
+  "repository-dispatch",
+  "runner-request",
+  "wake",
+] as const;
 export type ActionCommand = (typeof actionCommands)[number];
 
 /** The environment variable of the Action input `name`. */
@@ -77,17 +82,25 @@ export interface WakeInputs extends WakeInput {
   token: string | undefined;
 }
 
-function readPayload(text: string): Record<string, unknown> {
-  let payload: unknown;
+/** `text` parsed as a JSON object, or `undefined` for anything else. */
+function jsonObject(text: string): Record<string, unknown> | undefined {
+  let value: unknown;
   try {
-    payload = JSON.parse(text);
+    value = JSON.parse(text);
   } catch {
-    payload = undefined;
+    return undefined;
   }
-  if (typeof payload !== "object" || payload === null || Array.isArray(payload)) {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : undefined;
+}
+
+function readPayload(text: string): Record<string, unknown> {
+  const payload = jsonObject(text);
+  if (payload === undefined) {
     throw invalid("GITHUB_EVENT_PATH", "must be the event's JSON payload");
   }
-  return payload as Record<string, unknown>;
+  return payload;
 }
 
 /** The run's event: its name, payload and repository, and the run URL. */
@@ -190,5 +203,38 @@ export function readRunnerRequestInputs(
     url: event.url,
     token: input(env, "token"),
     jobToken,
+  };
+}
+
+/** What `repository-dispatch` needs. */
+export interface RepositoryDispatchInputs {
+  /** The Nibfin token; only for the GitHub client. */
+  token: string;
+  /** The repository the event goes to. */
+  repository: Repo;
+  eventType: string;
+  /** The event's `client_payload`. */
+  payload: Record<string, unknown>;
+}
+
+/**
+ * The inputs of `repository-dispatch`: `token`, `repository` (`<owner>/<repo>`),
+ * `event-type` and `payload`, a JSON object. A missing or invalid field is
+ * `STAGE_INPUT_INVALID` naming the field, never its value.
+ */
+export function readRepositoryDispatchInputs(
+  env: NodeJS.ProcessEnv,
+): RepositoryDispatchInputs {
+  const repository = readRepo(input(env, "repository"), inputName("repository"));
+  const eventType = required(input(env, "event-type"), inputName("event-type"));
+  const payload = jsonObject(required(input(env, "payload"), inputName("payload")));
+  if (payload === undefined) {
+    throw invalid(inputName("payload"), "must be a JSON object");
+  }
+  return {
+    token: required(input(env, "token"), inputName("token")),
+    repository,
+    eventType,
+    payload,
   };
 }
