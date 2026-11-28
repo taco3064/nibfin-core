@@ -9,7 +9,8 @@ export type StageErrorCode =
   | "STAGE_PROTECTED_PATH"
   | "STAGE_HOST_MEMORY_LOW"
   | "STAGE_NO_PROGRESS"
-  | "STAGE_REPAIR_ENDED";
+  | "STAGE_REPAIR_ENDED"
+  | "STAGE_CHOICE_INTERRUPTED";
 
 /** A stage that stopped for a named reason. `cause` keeps the original error, if any. */
 export class StageError extends Error {

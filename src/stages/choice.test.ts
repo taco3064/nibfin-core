@@ -71,6 +71,7 @@ describe("formatChoice and parseChoice", () => {
   it("reads no choice from a body missing a part", () => {
     const body = formatChoice(choice, "chosen");
     assert.equal(parseChoice(""), undefined);
+    assert.equal(parseChoice("<!-- nibfin:choice -->"), undefined);
     assert.equal(parseChoice(body.replace("status=chosen", "status=done")), undefined);
     assert.equal(parseChoice(body.replace("was chosen by", "by")), undefined);
     assert.equal(parseChoice(body.replace("- Reason of the stop", "- Why")), undefined);
