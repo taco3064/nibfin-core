@@ -1,12 +1,13 @@
 import { readFileSync } from 'node:fs';
 import { setTimeout as setTimeout$1 } from 'node:timers/promises';
-import 'node:path';
+import { join } from 'node:path';
 import { createHash } from 'node:crypto';
-import 'node:fs/promises';
-import { execFile } from 'node:child_process';
+import { mkdtemp, writeFile, rm } from 'node:fs/promises';
+import { execFile, spawn } from 'node:child_process';
 import { promisify } from 'node:util';
-import 'node:readline';
-import 'node:stream';
+import { createInterface } from 'node:readline';
+import { pipeline, Readable } from 'node:stream';
+import { tmpdir } from 'node:os';
 
 var commonjsGlobal = typeof globalThis !== 'undefined' ? globalThis : typeof window !== 'undefined' ? window : typeof global !== 'undefined' ? global : typeof self !== 'undefined' ? self : {};
 
@@ -6628,6 +6629,21 @@ async function connectClient(token, options = {}, log = noLog) {
     const octokit = buildOctokit(token, options, log);
     return withActor(octokit, await readActor(octokit));
 }
+/** The account `login`, read with `GET /users/{login}`. */
+async function readUser(client, login) {
+    const { data } = await read(`read the user ${login}`, () => client.request("GET /users/{username}", { username: login }));
+    return { id: Number(data.id), login: data.login };
+}
+/**
+ * A client for `token` that writes as the account `login`, read once with
+ * `GET /users/{login}` through the same instance. For a token whose account
+ * `GET /user` cannot read, such as a job's `GITHUB_TOKEN`, which writes as
+ * `github-actions[bot]`.
+ */
+async function connectAs(token, login, options = {}, log = noLog) {
+    const octokit = buildOctokit(token, options, log);
+    return withActor(octokit, await readUser(octokit, login));
+}
 
 /** `owner/repo#n`, used in operation names. */
 function formatIssue(issue) {
@@ -6665,18 +6681,29 @@ function summarizePullRequest(pull) {
 }
 
 /**
- * Whether `login` has write access to the repository: its collaborator permission is
- * `admin` or `write` (`maintain` reads as `write`). A 404 (not a collaborator) is no
- * access; any other failure is `GITHUB_READ_FAILED`.
+ * The collaborator permission of `login` on the repository as GitHub states it
+ * (`admin`, `write`, `read` or `none`; `maintain` reads as `write`). A 404 (not a
+ * collaborator) is `none`; any other failure is `GITHUB_READ_FAILED`.
  */
-async function hasWritePermission(client, repo, login) {
+async function readCollaboratorPermission(client, repo, login) {
     const answer = await readOptional(`read the permission of ${login} on ${repo.owner}/${repo.repo}`, () => client.request("GET /repos/{owner}/{repo}/collaborators/{username}/permission", {
         ...repo,
         username: login,
         request: absentProbe,
     }));
-    const permission = answer?.data.permission;
+    return answer?.data.permission ?? "none";
+}
+/** Whether a collaborator permission gives write access: `admin` or `write`. */
+function isWritePermission(permission) {
     return permission === "admin" || permission === "write";
+}
+/**
+ * Whether `login` has write access to the repository: its collaborator permission
+ * (`readCollaboratorPermission`) is `admin` or `write`. A 404 (not a collaborator) is
+ * no access; any other failure is `GITHUB_READ_FAILED`.
+ */
+async function hasWritePermission(client, repo, login) {
+    return isWritePermission(await readCollaboratorPermission(client, repo, login));
 }
 /**
  * The merged pull requests whose `merge_commit_sha` is `sha` (#771). GitHub's
@@ -6729,6 +6756,46 @@ class AgentError extends Error {
 }
 
 promisify(execFile);
+
+function describeExit(status) {
+    return status.exitCode === null
+        ? `signal ${status.signal}`
+        : `exit code ${status.exitCode}`;
+}
+function start(request, stdio) {
+    return spawn(request.command.command, [...request.command.args, ...request.args], {
+        cwd: request.cwd,
+        env: request.env,
+        stdio,
+    });
+}
+function waitForExit(child) {
+    return new Promise((resolve, reject) => {
+        child.once("error", reject);
+        child.once("close", (exitCode, signal) => {
+            resolve({ exitCode, signal });
+        });
+    });
+}
+/**
+ * Feeds `stdin` to the process, forwards its output unchanged and reports each
+ * stdout line to `onLine`.
+ */
+function runStreaming(request) {
+    const child = start(request, "pipe");
+    const exit = waitForExit(child);
+    // A CLI that stops reading its prompt reports that through its exit status.
+    pipeline(Readable.from([request.stdin]), child.stdin, () => undefined);
+    child.stdout.on("data", (chunk) => request.stdout.write(chunk));
+    child.stderr.on("data", (chunk) => request.stderr.write(chunk));
+    createInterface({ input: child.stdout, crlfDelay: Infinity }).on("line", (line) => {
+    });
+    return exit;
+}
+/** Runs the process for its exit status only; its output is discarded. */
+function runQuiet(request) {
+    return waitForExit(start(request, "ignore"));
+}
 
 /** A stage that stopped for a named reason. `cause` keeps the original error, if any. */
 class StageError extends Error {
@@ -7944,8 +8011,378 @@ async function runWake(input, connect, log) {
     }
 }
 
+// `age` for a runner request (#776): the registration token is encrypted to the
+// requester's SSH key. `age` runs with only `PATH` in its environment, so no token
+// of the Action's own environment (`INPUT_*`) reaches it (R3.49).
+/** `age` could not run, or failed; the message never carries its input or output. */
+class AgeError extends Error {
+    code = "RUNNER_AGE_FAILED";
+    constructor(what, reason) {
+        super(`${what} failed (${reason})`);
+        this.name = "AgeError";
+    }
+}
+/** The only variable `age` gets. */
+function ageEnv(env) {
+    return env.PATH === undefined ? {} : { PATH: env.PATH };
+}
+async function exitOf(what, run) {
+    let status;
+    try {
+        status = await run();
+    }
+    catch (error) {
+        // A process that did not start: Node's error code, such as ENOENT.
+        throw new AgeError(what, String(error.code));
+    }
+    if (status.exitCode !== 0) {
+        throw new AgeError(what, describeExit(status));
+    }
+}
+/**
+ * `age` as `command` runs it (`age` from `PATH` by default), with only `PATH` from
+ * `env`. `encrypt` runs `age -a -R <file>` with the recipient in a file of a fresh
+ * temporary directory, removed afterwards, and the plaintext on stdin.
+ */
+function createAge(env, command = { command: "age", args: [] }) {
+    const request = { command, cwd: tmpdir(), env: ageEnv(env) };
+    return {
+        check: () => exitOf("age --version", () => runQuiet({ ...request, args: ["--version"] })),
+        async encrypt(recipient, plaintext) {
+            const dir = await mkdtemp(join(tmpdir(), "nibfin-age-"));
+            try {
+                const file = join(dir, "recipient.pub");
+                await writeFile(file, `${recipient}\n`);
+                let stdout = "";
+                await exitOf("age -a -R", () => runStreaming({
+                    ...request,
+                    args: ["-a", "-R", file],
+                    stdin: plaintext,
+                    stdout: { write: (chunk) => (stdout += Buffer.from(chunk).toString()) },
+                    stderr: { write: () => undefined },
+                    onLine: () => undefined,
+                }));
+                return stdout;
+            }
+            finally {
+                await rm(dir, { recursive: true, force: true });
+            }
+        },
+    };
+}
+
+/** Whether the Issue is `open` or `closed`, read with REST `GET`. */
+async function readIssueState(client, issue) {
+    const { data } = await read(`read the state of ${formatIssue(issue)}`, () => client.request("GET /repos/{owner}/{repo}/issues/{issue_number}", {
+        owner: issue.owner,
+        repo: issue.repo,
+        issue_number: issue.number,
+    }));
+    return data.state;
+}
+/**
+ * Closes the Issue as not planned with REST `PATCH` through `write()`. Its confirm
+ * drops the kept reads (`freshReads`) and reads the state again, so a close that took
+ * effect is not sent again; an Issue already closed is left as it is.
+ */
+async function closeIssueNotPlanned(client, issue) {
+    const closed = async () => {
+        freshReads(client);
+        return (await readIssueState(client, issue)) === "closed" ? true : undefined;
+    };
+    if (await closed()) {
+        return;
+    }
+    await write(client, `close ${formatIssue(issue)} as not planned`, async () => {
+        await client.request("PATCH /repos/{owner}/{repo}/issues/{issue_number}", {
+            owner: issue.owner,
+            repo: issue.repo,
+            issue_number: issue.number,
+            state: "closed",
+            state_reason: "not_planned",
+        });
+        return true;
+    }, { confirm: closed });
+}
+
+/** The public SSH keys of the account `login`, all pages (`GET /users/{login}/keys`). */
+async function readUserKeys(client, login) {
+    const keys = await read(`list the SSH keys of ${login}`, () => client.paginate("GET /users/{username}/keys", { username: login, per_page: 100 }));
+    return keys.map(({ id, key }) => ({ id, key }));
+}
+/** The base64 part of a public key `<type> <base64> [comment]`. */
+function keyBlob(key) {
+    return key.split(" ")[1];
+}
+/** The deploy key of `repo` whose key blob equals the blob of `key`, all pages. */
+async function findDeployKey(client, repo, key) {
+    const blob = keyBlob(key);
+    const keys = await read(`list the deploy keys of ${repo.owner}/${repo.repo}`, () => client.paginate("GET /repos/{owner}/{repo}/keys", { ...repo, per_page: 100 }));
+    const found = keys.find((candidate) => keyBlob(candidate.key) === blob);
+    return found === undefined ? undefined : { id: found.id, readOnly: found.read_only };
+}
+/**
+ * Adds `key` as a read-only deploy key titled `title` to `repo` through `write()`.
+ * Its confirm lists the deploy keys and matches the key blob, so a key that is
+ * already a deploy key of `repo`, also one an earlier attempt added, is success.
+ * Returns the deploy key and whether this call added it.
+ */
+async function addDeployKey(client, repo, title, key) {
+    return write(client, `add a deploy key to ${repo.owner}/${repo.repo}`, async () => {
+        const { data } = await client.request("POST /repos/{owner}/{repo}/keys", {
+            ...repo,
+            title,
+            key,
+            read_only: true,
+        });
+        return { id: data.id, readOnly: data.read_only, added: true };
+    }, {
+        confirm: async () => {
+            const found = await findDeployKey(client, repo, key);
+            return found === undefined ? undefined : { ...found, added: false };
+        },
+    });
+}
+/**
+ * Creates a runner registration token for `repo`
+ * (`POST /repos/{owner}/{repo}/actions/runners/registration-token`). A token cannot
+ * be confirmed by a re-read and a new one per send is harmless (each expires unused),
+ * so any failure is re-sent without a pre-read up to `maxRetries` times.
+ */
+async function createRegistrationToken(client, repo) {
+    return write(client, `create a runner registration token for ${repo.owner}/${repo.repo}`, async () => {
+        const { data } = await client.request("POST /repos/{owner}/{repo}/actions/runners/registration-token", { ...repo });
+        return { token: data.token, expiresAt: data.expires_at };
+    }, { confirm: () => Promise.resolve(undefined) });
+}
+
+/** The comment key of a registration token answer. */
+const registrationKey = "runner-registration";
+/** The comment key of a refusal, also of a failed request. */
+const refusedKey = "runner-request-refused";
+/** The body of a refusal: its reason and what the requester does next. */
+function refusalBody(refusal) {
+    return `reason: ${refusal.reason}\n\n${refusal.next}\n`;
+}
+/** The refusal of a request whose workflow failed, naming the run. */
+function failedRefusal(url) {
+    return {
+        reason: `the request workflow failed (${url ?? "unknown"})`,
+        next: "Read the run's log; run gh nibfin runner add again when the cause is fixed.",
+    };
+}
+/** The body of a registration answer. */
+function registrationBody(repo, registration) {
+    const { login, keyId, expiresAt, ciphertext } = registration;
+    return [
+        `requester: ${login}`,
+        `ssh-key-id: ${keyId}`,
+        `expires-at: ${expiresAt}`,
+        "",
+        `A runner registration token for ${repo.owner}/${repo.repo}, encrypted to the ` +
+            `SSH key ${keyId} of @${login}. gh nibfin runner add decrypts it and registers ` +
+            "the runner.",
+        "",
+        "```text",
+        ciphertext.replace(/\n+$/, ""),
+        "```",
+        "",
+    ].join("\n");
+}
+
+/** The line every runner request body carries; the workflow's job filters on it. */
+const requestMarker = "<!-- nibfin:runner-request -->";
+/** The title gh-nibfin's `runner add` gives a request. */
+const requestTitle = "Nibfin runner request";
+const openAgain = "Open the request with gh nibfin runner add.";
+const keyIdLine = /^ssh-key-id: ([1-9][0-9]{0,18})$/;
+const deployKeyLine = /^deploy-key: ssh-ed25519 ([A-Za-z0-9+/]+={0,2})$/;
+/** The wire format of an ssh-ed25519 public key: length 11, the name, length 32. */
+const ed25519Prefix = Buffer.from("0000000b7373682d6564323535313900000020", "hex");
+const ed25519Length = ed25519Prefix.length + 32;
+const refused = (reason, next = openAgain) => ({
+    kind: "refused",
+    refusal: { reason, next },
+});
+/** Whether `blob` is the base64 of an ssh-ed25519 public key, down to its bytes. */
+function isEd25519(blob) {
+    if (blob.length % 4 !== 0) {
+        return false;
+    }
+    const bytes = Buffer.from(blob, "base64");
+    return (bytes.length === ed25519Length &&
+        bytes.subarray(0, ed25519Prefix.length).equals(ed25519Prefix));
+}
+/**
+ * Checks a request as the event gave it, in this order: the title, an author of type
+ * `User`, exactly one `ssh-key-id: <id>` line (`<id>` is `[1-9][0-9]{0,18}`), and at
+ * most one `deploy-key: ssh-ed25519 <base64>` line whose key decodes to the
+ * ssh-ed25519 wire format. Carriage returns are removed first.
+ */
+function checkRequest(issue, repo) {
+    if (issue.title !== requestTitle) {
+        return refused(`the title is not "${requestTitle}"`);
+    }
+    if (issue.userType !== "User") {
+        return refused(`the author ${issue.login} is a ${issue.userType} account, not a user`, `A user with write access to ${repo.owner}/${repo.repo} opens the request ` +
+            "with gh nibfin runner add.");
+    }
+    const lines = issue.body.replaceAll("\r", "").split("\n");
+    const keyLines = lines.filter((line) => line.startsWith("ssh-key-id:"));
+    if (keyLines.length !== 1) {
+        return refused(`the body has ${keyLines.length} ssh-key-id lines, want exactly one`);
+    }
+    const keyId = keyIdLine.exec(keyLines[0])?.[1];
+    if (keyId === undefined) {
+        return refused('the ssh-key-id line is not "ssh-key-id: <id>"');
+    }
+    const deployLines = lines.filter((line) => line.startsWith("deploy-key:"));
+    if (deployLines.length > 1) {
+        return refused(`the body has ${deployLines.length} deploy-key lines, want at most one`);
+    }
+    if (deployLines.length === 0) {
+        return { kind: "ok", keyId, deployKey: undefined };
+    }
+    const blob = deployKeyLine.exec(deployLines[0])?.[1];
+    if (blob === undefined || !isEd25519(blob)) {
+        return refused("the deploy-key line is not an ssh-ed25519 public key");
+    }
+    return { kind: "ok", keyId, deployKey: `ssh-ed25519 ${blob}` };
+}
+/** The refusal for an author without write or admin permission. */
+function permissionRefusal(login, permission, repo) {
+    const name = `${repo.owner}/${repo.repo}`;
+    return {
+        reason: `${login} has ${permission} permission on ${name}, not write or admin`,
+        next: `Ask the owner of ${name} to make you a collaborator with write access, then ` +
+            "run gh nibfin runner add again.",
+    };
+}
+/** The type of a public key `<type> <base64>`: the text before the first space. */
+function keyType(key) {
+    return key.split(" ")[0];
+}
+/**
+ * Checks the SSH key the request names, `undefined` when the account has no key with
+ * that id: only ssh-ed25519 and ssh-rsa keys are taken. Returns the refusal, if any.
+ */
+function checkKey(login, keyId, key) {
+    if (key === undefined || key === "") {
+        return {
+            reason: `${login} has no SSH key with id ${keyId} on GitHub`,
+            next: "Add the SSH key to your GitHub account, then run gh nibfin runner add " +
+                "again.",
+        };
+    }
+    if (!key.startsWith("ssh-ed25519 ") && !key.startsWith("ssh-rsa ")) {
+        return {
+            reason: `the SSH key ${keyId} of ${login} is ${keyType(key)}, ` +
+                "not ssh-ed25519 or ssh-rsa",
+            next: "Use an ssh-ed25519 or ssh-rsa key of your GitHub account with " +
+                "gh nibfin runner add.",
+        };
+    }
+    return undefined;
+}
+
+/** The answer of a request that passed the body checks, or why it is refused. */
+async function prepare(input, deps, checked) {
+    const { repo, issue } = input;
+    const { login } = issue;
+    const { keyId, deployKey } = checked;
+    const name = `${repo.owner}/${repo.repo}`;
+    const nibfin = await deps.connect();
+    const permission = await readCollaboratorPermission(nibfin, repo, login);
+    if (!isWritePermission(permission)) {
+        return { kind: "refused", refusal: permissionRefusal(login, permission, repo) };
+    }
+    const keys = await readUserKeys(deps.job, login);
+    const key = keys.find((candidate) => String(candidate.id) === keyId)?.key;
+    const keyRefusal = checkKey(login, keyId, key);
+    if (keyRefusal !== undefined) {
+        return { kind: "refused", refusal: keyRefusal };
+    }
+    deps.log(`Request of ${login} for the SSH key ${keyId} (${keyType(key)})`);
+    // Before any write: without age no deploy key or token is created.
+    await deps.age.check();
+    if (deployKey !== undefined) {
+        const title = `nibfin-runner-${login}`;
+        deps.log("The request has a deploy key");
+        const added = await addDeployKey(nibfin, repo, title, deployKey);
+        deps.log(added.added
+            ? `Added the read-only deploy key ${title} to ${name} (id ${added.id})`
+            : `The key is already a deploy key of ${name} ` +
+                `(id ${added.id}, read_only ${added.readOnly})`);
+    }
+    const token = await createRegistrationToken(nibfin, repo);
+    if (!token.token) {
+        throw new Error("GitHub returned no registration token");
+    }
+    // Masked before anything else is printed; only its ciphertext leaves this function.
+    deps.log(`::add-mask::${token.token}`);
+    const ciphertext = await deps.age.encrypt(key, token.token);
+    deps.log(`Encrypted a registration token that expires at ${token.expiresAt}`);
+    const registration = { login, keyId, expiresAt: token.expiresAt, ciphertext };
+    return { kind: "answered", body: registrationBody(repo, registration) };
+}
+/**
+ * Writes the answer as `github-actions[bot]`'s marked comment (the REST comment
+ * list, so the job token needs only the Issues permission); a refusal also closes
+ * the Issue as not planned.
+ */
+async function writeAnswer(deps, issue, answer) {
+    const refused = answer.kind === "refused";
+    const key = refused ? refusedKey : registrationKey;
+    const body = refused ? refusalBody(answer.refusal) : answer.body;
+    const comment = await upsertMarkedComment(deps.job, issue, key, body, "pull-request");
+    deps.log(`Answered ${formatIssue(issue)}: ${comment.url}`);
+    if (refused) {
+        await closeIssueNotPlanned(deps.job, issue);
+        deps.log(`Closed ${formatIssue(issue)} as not planned`);
+    }
+}
+/**
+ * Answers a runner request: a body without the request marker is not one; a request
+ * that is no longer open is not answered again. Otherwise the request's checks
+ * (`checkRequest`), the author's write or admin permission, and the SSH key it names
+ * (`checkKey`) decide a refusal; else `age --version` runs before any write, the
+ * optional deploy key is added, and a registration token is created, masked,
+ * encrypted to that key and answered. A refusal closes the Issue as not planned. Any
+ * failure is answered as "the request workflow failed (<run URL>)" with that close
+ * and then thrown.
+ */
+async function answerRequest(input, deps) {
+    const { repo, issue } = input;
+    const ref = { ...repo, number: issue.number };
+    const name = formatIssue(ref);
+    if (!issue.body.includes(requestMarker)) {
+        deps.log(`${name} is not a runner request; nothing to answer`);
+        return "not-a-request";
+    }
+    let answer;
+    try {
+        const state = await readIssueState(deps.job, ref);
+        if (state !== "open") {
+            deps.log(`${name} is ${state}; nothing to answer`);
+            return "not-open";
+        }
+        const check = checkRequest(issue, repo);
+        answer = check.kind === "refused" ? check : await prepare(input, deps, check);
+    }
+    catch (error) {
+        deps.log(`The request failed: ${describeFailure(error)}`);
+        await writeAnswer(deps, ref, { kind: "refused", refusal: failedRefusal(input.url) });
+        throw error;
+    }
+    if (answer.kind === "refused") {
+        deps.log(`Refused: ${answer.refusal.reason}`);
+    }
+    await writeAnswer(deps, ref, answer);
+    return answer.kind;
+}
+
 /** The commands of the Action's `command` input. */
-const actionCommands = ["job-failed", "wake"];
+const actionCommands = ["job-failed", "runner-request", "wake"];
 /** The environment variable of the Action input `name`. */
 function inputName(name) {
     return `INPUT_${name.toUpperCase()}`;
@@ -8001,13 +8438,12 @@ function readPayload(text) {
     return payload;
 }
 /**
- * The inputs of `wake`: the event from `GITHUB_EVENT_NAME` and the runner's event
- * file (`GITHUB_EVENT_PATH`, read with `readFile`), its repository
- * (`GITHUB_REPOSITORY`), the run URL, and the `token` and `execution-repo` inputs as
- * given: the wake checks them only once it needs them. A missing or invalid runner
- * variable or event file is `STAGE_INPUT_INVALID` naming it, never its content.
+ * The event from `GITHUB_EVENT_NAME` and the runner's event file
+ * (`GITHUB_EVENT_PATH`, read with `readFile`), its repository (`GITHUB_REPOSITORY`)
+ * and the run URL. A missing or invalid runner variable or event file is
+ * `STAGE_INPUT_INVALID` naming it, never its content.
  */
-function readWakeInputs(env, readFile) {
+function readRunEvent(env, readFile) {
     const eventName = required(env.GITHUB_EVENT_NAME, "GITHUB_EVENT_NAME");
     const path = required(env.GITHUB_EVENT_PATH, "GITHUB_EVENT_PATH");
     const repo = readRepo$1(env.GITHUB_REPOSITORY, "GITHUB_REPOSITORY");
@@ -8019,22 +8455,73 @@ function readWakeInputs(env, readFile) {
     catch {
         throw invalid("GITHUB_EVENT_PATH", "cannot be read");
     }
+    return { eventName, payload: readPayload(text), repo, url: runUrl(repo, runId) };
+}
+/**
+ * The inputs of `wake`: the run's event (`readRunEvent`) and the `token` and
+ * `execution-repo` inputs as given: the wake checks them only once it needs them.
+ */
+function readWakeInputs(env, readFile) {
+    const event = readRunEvent(env, readFile);
     return {
-        eventName,
-        payload: readPayload(text),
-        repo,
+        ...event,
         executionRepo: input(env, "execution-repo"),
-        url: runUrl(repo, runId),
         token: input(env, "token"),
+    };
+}
+function text(value, field, empty = false) {
+    if (typeof value !== "string" || (!empty && value === "")) {
+        throw invalid("GITHUB_EVENT_PATH", `has no ${field}`);
+    }
+    return value;
+}
+/** The request Issue of an `issues` event payload; a missing field is invalid. */
+function readRequestIssue(payload) {
+    const issue = Object(payload.issue);
+    const user = Object(issue.user);
+    const number = issue.number;
+    if (typeof number !== "number" || !Number.isSafeInteger(number) || number < 1) {
+        throw invalid("GITHUB_EVENT_PATH", "has no issue.number");
+    }
+    return {
+        number,
+        title: text(issue.title, "issue.title", true),
+        // GitHub sends `null` for an Issue without a body.
+        body: issue.body === null ? "" : text(issue.body, "issue.body", true),
+        login: text(user.login, "issue.user.login"),
+        userType: text(user.type, "issue.user.type"),
+    };
+}
+/**
+ * The inputs of `runner-request`: the run's event, which must be `issues`, with the
+ * request Issue's number, title, body and author (login and type) from its payload,
+ * the `job-token` input (required) and the `token` input as given.
+ */
+function readRunnerRequestInputs(env, readFile) {
+    const jobToken = required(input(env, "job-token"), inputName("job-token"));
+    const event = readRunEvent(env, readFile);
+    if (event.eventName !== "issues") {
+        throw invalid("GITHUB_EVENT_NAME", "must be issues");
+    }
+    return {
+        repo: event.repo,
+        issue: readRequestIssue(event.payload),
+        url: event.url,
+        token: input(env, "token"),
+        jobToken,
     };
 }
 
 // The Action's commands (#776). Rules live in their Core modules; this file only
 // connects them to the inputs and the log.
+/** The account a job's `GITHUB_TOKEN` writes as; gh-nibfin takes answers only from it. */
+const jobTokenLogin = "github-actions[bot]";
 const defaultActionDeps = {
     env: process.env,
     connect: (token, log) => connectClient(token, {}, log),
+    connectJob: (token, log) => connectAs(token, jobTokenLogin, {}, log),
     readFile: (path) => readFileSync(path, "utf8"),
+    age: (env) => createAge(env),
 };
 const lineLog = (io) => (line) => void io.stdout.write(`${line}\n`);
 /**
@@ -8064,7 +8551,25 @@ async function wake(io, deps) {
     await runWake(input, connect, log);
     return 0;
 }
-const commands = { "job-failed": jobFailed, wake };
+/**
+ * `runner-request`: the step of `nibfin-runner-request.yml`. It answers the request
+ * (`answerRequest`) with a client for `job-token` that writes as
+ * `github-actions[bot]`; the `token` input is required only once the request passed
+ * its body checks.
+ */
+async function runnerRequest(io, deps) {
+    const { token, jobToken, ...input } = readRunnerRequestInputs(deps.env, deps.readFile);
+    const log = lineLog(io);
+    const job = await deps.connectJob(jobToken, log);
+    const connect = () => deps.connect(required(token, inputName("token")), log);
+    await answerRequest(input, { job, connect, age: deps.age(deps.env), log });
+    return 0;
+}
+const commands = {
+    "job-failed": jobFailed,
+    "runner-request": runnerRequest,
+    wake,
+};
 /**
  * Runs the command the `command` input names and returns the exit code: 0 when it
  * did its work, 1 with the failure on stderr (its code and message, never an input's

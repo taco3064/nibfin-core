@@ -25,18 +25,51 @@ environment, with no `@actions/core`.
   `src/route/README.md`). `execution-repo` is `${{ vars.NIBFIN_EXECUTION_REPO }}`.
   `token` is read only when the event wakes an Issue, so a skipped event, such as a
   review on a fork pull request (which gets no secret), needs none.
+- `runner-request` (inputs `token`, `job-token`): the step of
+  `nibfin-runner-request.yml`, after its "Install age" step (also when that failed).
+  It reads the request Issue (number, title, body, author login and type) from the
+  `issues` event file and runs `answerRequest` (`src/runner-request/answer.ts`):
+  - a body without `<!-- nibfin:runner-request -->` is not a request (the job's `if:`
+    is only a cost filter), and a request that is no longer open is not answered;
+  - the checks of `checkRequest` (title, author type `User`, exactly one
+    `ssh-key-id: <id>` with `<id>` matching `[1-9][0-9]{0,18}`, at most one
+    `deploy-key: ssh-ed25519 <base64>` in the ssh-ed25519 wire format), the author's
+    write or admin permission (`readCollaboratorPermission`, refused as "`<login>` has
+    `<permission>` permission on `<repo>`, not write or admin") and the SSH key the
+    request names (refused when the account has no such key, or one that is not
+    ssh-ed25519 or ssh-rsa) decide a refusal, with today's texts;
+  - otherwise `age --version` runs before any write; then the optional deploy key is
+    added read-only as `nibfin-runner-<login>`, and a registration token is created,
+    masked (`::add-mask::`) before anything else is printed, and encrypted with
+    `age -a -R <file>` (the requester's key in a file of a fresh temporary directory,
+    removed afterwards) to the answer `<!-- nibfin:runner-registration -->`;
+  - a refusal is answered as `<!-- nibfin:runner-request-refused -->` and closes the
+    Issue as not planned; so does any failure, as "the request workflow failed
+    (`<run URL>`)", after which the command exits 1.
 
-Both commands build the run URL with Core's `runUrl` from `GITHUB_REPOSITORY` and
+  The answer is written by a client for `job-token` that writes as
+  `github-actions[bot]` (`connectAs`), the only author gh-nibfin's `runner add`
+  accepts: it reads the state, lists the comments, writes the answer and closes over
+  REST Issues endpoints only (`readIssueState`, `upsertMarkedComment` with
+  `"pull-request"`, `closeIssueNotPlanned`), so `permissions: issues: write` is
+  enough. The `token` client (Nibfin's) is connected only once the body checks
+  passed; it reads the permission, adds the deploy key and creates the token. `age`
+  runs with only `PATH` in its environment, so no `INPUT_*` token reaches it.
+
+All commands build the run URL with Core's `runUrl` from `GITHUB_REPOSITORY` and
 `GITHUB_RUN_ID`; in a reusable workflow these and the event are the caller's. They
 exit 0 when they did their work (`job-failed`: added `pending` or left a standing
-stop as it is; `wake`: dispatched, or skipped the event), and 1 when an input is
-invalid or GitHub could not be read or written (a failed wake does so after asking a
-person on its Issues); the log then has the failure's code and message, never an
-input's value.
+stop as it is; `wake`: dispatched, or skipped the event; `runner-request`: answered,
+refused, or found nothing to answer), and 1 when an input is invalid or GitHub could
+not be read or written (a failed wake does so after asking a person on its Issues, a
+failed runner request after answering that it failed); the log then has the
+failure's code and message, never an input's value.
 
-Every GitHub call goes through Core's client (`connectClient`): up to 3 retries with
-Core's delays and rate-limit waits, log lines that name the call and path only. The
-Action reads only its environment and GitHub, never the workspace.
+Every GitHub call goes through Core's client (`connectClient`, or `connectAs` for the
+job token): up to 3 retries with Core's delays and rate-limit waits, log lines that
+name the call and path only. The Action reads only its environment, the runner's
+event file and GitHub, never the workspace; the runner request writes only the
+recipient file `age` reads, in the system's temporary directory.
 
 ## Source and bundle
 

@@ -1,14 +1,16 @@
 // The Action's inputs (#776). The runner gives each `with:` input as the environment
 // variable `INPUT_<NAME>`, upper cased with hyphens kept; the run is described by
 // the runner's own `GITHUB_*` variables. This module only reads and checks them.
-import type { IssueRef } from "../github/repo.ts";
-import type { WakeInput, WakePayload } from "../route/wake.ts";
+import type { IssueRef, Repo } from "../github/repo.ts";
+import type { WakeInput } from "../route/wake.ts";
+import type { RunnerRequestInput } from "../runner-request/answer.ts";
+import type { RequestIssue } from "../runner-request/check.ts";
 import { positiveInteger, readRepo, required } from "../stages/context.ts";
 import { StageError } from "../stages/errors.ts";
 import { runUrl } from "../stages/pending.ts";
 
 /** The commands of the Action's `command` input. */
-export const actionCommands = ["job-failed", "wake"] as const;
+export const actionCommands = ["job-failed", "runner-request", "wake"] as const;
 export type ActionCommand = (typeof actionCommands)[number];
 
 /** The environment variable of the Action input `name`. */
@@ -75,7 +77,7 @@ export interface WakeInputs extends WakeInput {
   token: string | undefined;
 }
 
-function readPayload(text: string): WakePayload {
+function readPayload(text: string): Record<string, unknown> {
   let payload: unknown;
   try {
     payload = JSON.parse(text);
@@ -85,20 +87,27 @@ function readPayload(text: string): WakePayload {
   if (typeof payload !== "object" || payload === null || Array.isArray(payload)) {
     throw invalid("GITHUB_EVENT_PATH", "must be the event's JSON payload");
   }
-  return payload;
+  return payload as Record<string, unknown>;
+}
+
+/** The run's event: its name, payload and repository, and the run URL. */
+interface RunEvent {
+  eventName: string;
+  payload: Record<string, unknown>;
+  repo: Repo;
+  url: string | undefined;
 }
 
 /**
- * The inputs of `wake`: the event from `GITHUB_EVENT_NAME` and the runner's event
- * file (`GITHUB_EVENT_PATH`, read with `readFile`), its repository
- * (`GITHUB_REPOSITORY`), the run URL, and the `token` and `execution-repo` inputs as
- * given: the wake checks them only once it needs them. A missing or invalid runner
- * variable or event file is `STAGE_INPUT_INVALID` naming it, never its content.
+ * The event from `GITHUB_EVENT_NAME` and the runner's event file
+ * (`GITHUB_EVENT_PATH`, read with `readFile`), its repository (`GITHUB_REPOSITORY`)
+ * and the run URL. A missing or invalid runner variable or event file is
+ * `STAGE_INPUT_INVALID` naming it, never its content.
  */
-export function readWakeInputs(
+function readRunEvent(
   env: NodeJS.ProcessEnv,
   readFile: (path: string) => string,
-): WakeInputs {
+): RunEvent {
   const eventName = required(env.GITHUB_EVENT_NAME, "GITHUB_EVENT_NAME");
   const path = required(env.GITHUB_EVENT_PATH, "GITHUB_EVENT_PATH");
   const repo = readRepo(env.GITHUB_REPOSITORY, "GITHUB_REPOSITORY");
@@ -109,12 +118,77 @@ export function readWakeInputs(
   } catch {
     throw invalid("GITHUB_EVENT_PATH", "cannot be read");
   }
+  return { eventName, payload: readPayload(text), repo, url: runUrl(repo, runId) };
+}
+
+/**
+ * The inputs of `wake`: the run's event (`readRunEvent`) and the `token` and
+ * `execution-repo` inputs as given: the wake checks them only once it needs them.
+ */
+export function readWakeInputs(
+  env: NodeJS.ProcessEnv,
+  readFile: (path: string) => string,
+): WakeInputs {
+  const event = readRunEvent(env, readFile);
   return {
-    eventName,
-    payload: readPayload(text),
-    repo,
+    ...event,
     executionRepo: input(env, "execution-repo"),
-    url: runUrl(repo, runId),
     token: input(env, "token"),
+  };
+}
+
+/** What `runner-request` needs: the request as the event gave it, and the tokens. */
+export interface RunnerRequestInputs extends RunnerRequestInput {
+  /** The Nibfin token; read only once the request passed its body checks. */
+  token: string | undefined;
+  /** The job's `GITHUB_TOKEN`, which writes the answer as `github-actions[bot]`. */
+  jobToken: string;
+}
+
+function text(value: unknown, field: string, empty = false): string {
+  if (typeof value !== "string" || (!empty && value === "")) {
+    throw invalid("GITHUB_EVENT_PATH", `has no ${field}`);
+  }
+  return value;
+}
+
+/** The request Issue of an `issues` event payload; a missing field is invalid. */
+function readRequestIssue(payload: Record<string, unknown>): RequestIssue {
+  const issue = Object(payload.issue) as Record<string, unknown>;
+  const user = Object(issue.user) as Record<string, unknown>;
+  const number = issue.number;
+  if (typeof number !== "number" || !Number.isSafeInteger(number) || number < 1) {
+    throw invalid("GITHUB_EVENT_PATH", "has no issue.number");
+  }
+  return {
+    number,
+    title: text(issue.title, "issue.title", true),
+    // GitHub sends `null` for an Issue without a body.
+    body: issue.body === null ? "" : text(issue.body, "issue.body", true),
+    login: text(user.login, "issue.user.login"),
+    userType: text(user.type, "issue.user.type"),
+  };
+}
+
+/**
+ * The inputs of `runner-request`: the run's event, which must be `issues`, with the
+ * request Issue's number, title, body and author (login and type) from its payload,
+ * the `job-token` input (required) and the `token` input as given.
+ */
+export function readRunnerRequestInputs(
+  env: NodeJS.ProcessEnv,
+  readFile: (path: string) => string,
+): RunnerRequestInputs {
+  const jobToken = required(input(env, "job-token"), inputName("job-token"));
+  const event = readRunEvent(env, readFile);
+  if (event.eventName !== "issues") {
+    throw invalid("GITHUB_EVENT_NAME", "must be issues");
+  }
+  return {
+    repo: event.repo,
+    issue: readRequestIssue(event.payload),
+    url: event.url,
+    token: input(env, "token"),
+    jobToken,
   };
 }

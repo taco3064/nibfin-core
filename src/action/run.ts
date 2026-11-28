@@ -1,9 +1,16 @@
 // The Action's commands (#776). Rules live in their Core modules; this file only
 // connects them to the inputs and the log.
 import { readFileSync } from "node:fs";
-import { type ActingClient, connectClient, type LogLine } from "../github/client.ts";
+import {
+  type ActingClient,
+  connectAs,
+  connectClient,
+  type LogLine,
+} from "../github/client.ts";
 import { formatIssue } from "../github/repo.ts";
 import { runWake } from "../route/wake.ts";
+import { type Age, createAge } from "../runner-request/age.ts";
+import { answerRequest } from "../runner-request/answer.ts";
 import { required } from "../stages/context.ts";
 import { askPersonOnce, describeFailure, JobFailedError } from "../stages/pending.ts";
 import {
@@ -11,8 +18,12 @@ import {
   inputName,
   readCommand,
   readJobFailedInputs,
+  readRunnerRequestInputs,
   readWakeInputs,
 } from "./inputs.ts";
+
+/** The account a job's `GITHUB_TOKEN` writes as; gh-nibfin takes answers only from it. */
+export const jobTokenLogin = "github-actions[bot]";
 
 export interface OutputStream {
   write(text: string): unknown;
@@ -27,14 +38,20 @@ export interface ActionIo {
 export interface ActionDeps {
   env: NodeJS.ProcessEnv;
   connect: (token: string, log: LogLine) => Promise<ActingClient>;
+  /** A client for a job's `GITHUB_TOKEN`, writing as `jobTokenLogin`. */
+  connectJob: (token: string, log: LogLine) => Promise<ActingClient>;
   /** Reads the runner's event file. */
   readFile: (path: string) => string;
+  /** `age`, run with only `PATH` from `env`. */
+  age: (env: NodeJS.ProcessEnv) => Age;
 }
 
 export const defaultActionDeps: ActionDeps = {
   env: process.env,
   connect: (token, log) => connectClient(token, {}, log),
+  connectJob: (token, log) => connectAs(token, jobTokenLogin, {}, log),
   readFile: (path) => readFileSync(path, "utf8"),
+  age: (env) => createAge(env),
 };
 
 type Command = (io: ActionIo, deps: ActionDeps) => Promise<number>;
@@ -72,7 +89,26 @@ async function wake(io: ActionIo, deps: ActionDeps): Promise<number> {
   return 0;
 }
 
-const commands: Record<ActionCommand, Command> = { "job-failed": jobFailed, wake };
+/**
+ * `runner-request`: the step of `nibfin-runner-request.yml`. It answers the request
+ * (`answerRequest`) with a client for `job-token` that writes as
+ * `github-actions[bot]`; the `token` input is required only once the request passed
+ * its body checks.
+ */
+async function runnerRequest(io: ActionIo, deps: ActionDeps): Promise<number> {
+  const { token, jobToken, ...input } = readRunnerRequestInputs(deps.env, deps.readFile);
+  const log = lineLog(io);
+  const job = await deps.connectJob(jobToken, log);
+  const connect = () => deps.connect(required(token, inputName("token")), log);
+  await answerRequest(input, { job, connect, age: deps.age(deps.env), log });
+  return 0;
+}
+
+const commands: Record<ActionCommand, Command> = {
+  "job-failed": jobFailed,
+  "runner-request": runnerRequest,
+  wake,
+};
 
 /**
  * Runs the command the `command` input names and returns the exit code: 0 when it
