@@ -7442,6 +7442,10 @@ async function setLabels(client, issue, changes) {
 
 // The repair record and decision comment: the contract gh-nibfin parses (Proposal
 // R4.49, R4.51, R9.52). See "Repair stage" in README.md.
+/** The comment key of the note that asks a person to act (`requestPerson`). */
+const pendingCommentKey = "pending";
+/** The comment key of the Scope stage's comment on a request. */
+const scopeRequestCommentKey = "scope-request";
 /** The comment key of the repair record (`<!-- nibfin:repair -->`). */
 const repairCommentKey = "repair";
 /** What a stop says when a repair Job under an `amend` record ended unfinished. */
@@ -7497,17 +7501,41 @@ function parseRepairRecord(body) {
         ...(reset === undefined ? {} : { reset }),
     };
 }
+/** Whether a comment changed at `updatedAt` came after `pending` was last removed. */
+function changedSince(updatedAt, lastUnlabeledPendingAt) {
+    return (lastUnlabeledPendingAt === null ||
+        Date.parse(updatedAt) > Date.parse(lastUnlabeledPendingAt));
+}
 /**
- * Whether the `pending` comment belongs to the current `pending` label: it exists and
+ * Whether the cause comment belongs to the current `pending` label: it exists and
  * changed after `pending` was last removed (or `pending` never was).
  */
 function isPendingCurrent(input) {
     const { pendingComment, lastUnlabeledPendingAt } = input;
     return (pendingComment !== null &&
-        (lastUnlabeledPendingAt === null ||
-            Date.parse(pendingComment.updatedAt) > Date.parse(lastUnlabeledPendingAt)));
+        changedSince(pendingComment.updatedAt, lastUnlabeledPendingAt));
 }
-/** Whether the record covers the current `pending` comment. */
+/**
+ * The comment that explains the current `pending` stop, from Nibfin's marked `pending`
+ * and `scope-request` comments (either may be absent): of those changed after
+ * `pending` was last removed (any, when it never was), the one changed last; on a tie
+ * the `pending` comment, since every flow writes it after a Scope comment for the same
+ * stop. `null` when none is current, so an old cause never explains a new stop.
+ */
+function currentCause(candidates, lastUnlabeledPendingAt) {
+    let best = null;
+    for (const candidate of candidates) {
+        if (candidate == null || !changedSince(candidate.updatedAt, lastUnlabeledPendingAt)) {
+            continue;
+        }
+        const delta = best === null ? 1 : Date.parse(candidate.updatedAt) - Date.parse(best.updatedAt);
+        if (delta > 0 || (delta === 0 && candidate.key === pendingCommentKey)) {
+            best = candidate;
+        }
+    }
+    return best;
+}
+/** Whether the record covers the current cause comment. */
 function recordApplies(input) {
     return (input.hasPendingLabel &&
         isPendingCurrent(input) &&
@@ -7519,8 +7547,6 @@ function unconfirmed(operation, reason) {
     return new GitHubError("GITHUB_WRITE_UNCONFIRMED", operation, new Error(reason));
 }
 
-/** The comment key of the note that asks a person to act (#674). */
-const pendingCommentKey = "pending";
 /** Failures that usually pass on their own: network, GitHub or a single agent run. */
 const temporaryCodes = new Set([
     "GITHUB_READ_FAILED",
@@ -7570,8 +7596,7 @@ const temporarySentence = "This looks temporary (network, GitHub or a single age
 /** The start of the usage-limit note; `it resets at` follows when the CLI said so. */
 const usageLimitLead = "The provider's usage limit was reached;";
 /** When to remove `pending` after a usage-limit stop, outside the fenced message. */
-function usageLimitNote(error) {
-    const reset = error instanceof AgentError ? error.usageLimitReset : undefined;
+function usageLimitNote(reset) {
     return reset === undefined
         ? `${usageLimitLead} the CLI did not report when it ` +
             "resets. Remove the `pending` label after the limit resets to continue."
@@ -7609,6 +7634,72 @@ function readPendingCause(body) {
         fromRepair: header.includes("- Stage: `repair`"),
     };
 }
+const stopLead = "<!-- nibfin:stop at=";
+/**
+ * The hidden stop line Core writes right after the marker of a cause comment: when it
+ * was written (so every write for a new stop changes the body and its `updated_at`)
+ * and, with `facts`, the stop's code, run, temporary flag and reset. Values are
+ * URI-encoded, so they hold no space and no `-->`.
+ */
+function stopLine(at, facts) {
+    const parts = [`${stopLead}${at.toISOString()}`];
+    return `${parts.join(" ")} -->`;
+}
+function decoded(value) {
+    if (value === undefined) {
+        return undefined;
+    }
+    try {
+        return decodeURIComponent(value);
+    }
+    catch {
+        return undefined;
+    }
+}
+/** The facts of a stop line as `stopLine` writes it; `undefined` for any other line. */
+function parseStopLine(line) {
+    const match = /^<!-- nibfin:stop at=\S+((?: [a-z]+=\S+)*) -->$/.exec(line);
+    if (match === null) {
+        return undefined;
+    }
+    const fields = new Map(match[1]
+        .split(" ")
+        .filter((part) => part !== "")
+        .map((part) => {
+        const split = part.indexOf("=");
+        return [part.slice(0, split), part.slice(split + 1)];
+    }));
+    const code = fields.get("code");
+    return {
+        code: code !== undefined && /^[A-Z0-9_]+$/.test(code) ? code : undefined,
+        run: decoded(fields.get("run")),
+        temporary: fields.get("temporary") === "true",
+        reset: decoded(fields.get("reset")),
+    };
+}
+/**
+ * What Core's own lines of a cause comment say. A `pending` comment is read by
+ * `readPendingCause`. A `scope-request` comment also holds the Scope agent's reason
+ * and request text, so only its first two lines count: the exact marker, then a stop
+ * line, whose facts it returns (a failed write's code, run, temporary flag and reset).
+ * Anything from line 3 on is never read, and a comment without that stop line (one
+ * written before Core wrote it) has no code. A Scope comment never names the repair
+ * stage.
+ */
+function readCause(comment) {
+    if (comment.key !== scopeRequestCommentKey) {
+        return readPendingCause(comment.body);
+    }
+    const [marker, line = ""] = comment.body.split("\n");
+    const facts = marker === commentMarker(scopeRequestCommentKey) ? parseStopLine(line) : undefined;
+    return {
+        code: facts?.code,
+        run: facts?.run,
+        temporary: facts?.temporary ?? false,
+        reset: facts?.reset,
+        fromRepair: false,
+    };
+}
 function isTemporary(error, code) {
     if (error instanceof NoProgressError) {
         return error.temporary;
@@ -7619,11 +7710,22 @@ function isTemporary(error, code) {
     return code !== undefined && temporaryCodes.has(code);
 }
 /**
+ * The facts `pendingBody` states for `error` in run `url`: its code, the run, whether
+ * it looks temporary and, for a usage limit only, the reset the CLI reported.
+ */
+function pendingCauseOf(error, url) {
+    const code = codeOf(error);
+    const reset = code === usageLimitCode && error instanceof AgentError
+        ? error.usageLimitReset
+        : undefined;
+    return { code, run: url, temporary: isTemporary(error, code), reset };
+}
+/**
  * The `pending` comment body for `error`. Without `withMessage` the fenced message
  * block is replaced by a pointer to the run log, where the full message always goes.
  */
 function pendingBody(error, url, withMessage = true, stage) {
-    const code = codeOf(error);
+    const { code, temporary, reset } = pendingCauseOf(error, url);
     const message = error instanceof Error ? error.message : String(error);
     const lines = [
         "Nibfin stopped and needs a person.",
@@ -7638,9 +7740,9 @@ function pendingBody(error, url, withMessage = true, stage) {
         "",
     ];
     if (code === usageLimitCode) {
-        lines.push(usageLimitNote(error), "");
+        lines.push(usageLimitNote(reset), "");
     }
-    if (isTemporary(error, code)) {
+    if (temporary) {
         lines.push(temporarySentence, "");
     }
     lines.push("Remove the `pending` label to continue.");
@@ -7664,6 +7766,17 @@ async function upsertPersonComment(client, issue, key, render) {
     }
 }
 /**
+ * Upserts the cause comment `key` of a new stop on `issue`: a fresh stop line (`stopLine`
+ * at `now()`, with `facts` when given) right after the marker, then `render`'s text,
+ * through `upsertPersonComment` (both bodies share the stop line). The stop line makes
+ * every write for a new stop change the body, even when the text is the same as before,
+ * so its `updated_at` moves past the last removal of `pending`.
+ */
+async function upsertCauseComment(client, issue, key, render, facts, now = () => new Date()) {
+    const line = stopLine(now());
+    return upsertPersonComment(client, issue, key, (withMessage) => `${line}\n${render(withMessage)}`);
+}
+/**
  * Asks a person to act on `issue` after `error`: upserts the marked `pending`
  * comment and adds `pending`, confirmed by the read-back labels. Nothing runs for
  * the Issue while `pending` is present; removing it is the go-ahead. A
@@ -7678,7 +7791,7 @@ async function requestPerson(client, issue, error, url, stage) {
     if (isWait(error)) {
         return false;
     }
-    await upsertPersonComment(client, issue, pendingCommentKey, (withMessage) => pendingBody(error, url, withMessage, stage));
+    await upsertCauseComment(client, issue, pendingCommentKey, (withMessage) => pendingBody(error, url, withMessage, stage));
     await addPendingLabel(client, issue);
     return true;
 }
@@ -7689,20 +7802,29 @@ async function addPendingLabel(client, issue) {
         throw unconfirmed("add pending", "The read-back labels lack pending");
     }
 }
+/** Nibfin's marked comment `key` on `issue` by REST (for `updated_at`), if any. */
+async function readCauseComment(client, issue, key) {
+    const marked = await findMarkedComment(client, issue, key);
+    return marked === undefined
+        ? null
+        : { ...(await readIssueComment(client, issue, marked.id)), key };
+}
 /**
- * Reads the reader rule's inputs for `issue`: Nibfin's marked `pending` comment (by
- * REST, for `updated_at`), when `pending` was last removed, and Nibfin's marked
- * `repair` comment, parsed. `hasPendingLabel` is passed through as the caller read it.
+ * Reads the reader rule's inputs for `issue`: Nibfin's marked `pending` and
+ * `scope-request` comments (by REST, for `updated_at`), when `pending` was last
+ * removed, and Nibfin's marked `repair` comment, parsed. `pendingComment` is the one
+ * `currentCause` picks, or the `pending` comment (not current) when neither is.
+ * `hasPendingLabel` is passed through as the caller read it.
  */
 async function readRepairInput(client, issue, hasPendingLabel) {
-    const marked = await findMarkedComment(client, issue, pendingCommentKey);
-    const comment = marked === undefined ? null : await readIssueComment(client, issue, marked.id);
+    const pending = await readCauseComment(client, issue, pendingCommentKey);
+    const scope = await readCauseComment(client, issue, scopeRequestCommentKey);
     const lastUnlabeled = await readLastUnlabeled(client, issue, nibfinLabels.pending);
     const repair = await findMarkedComment(client, issue, repairCommentKey);
     const record = repair === undefined ? null : (parseRepairRecord(repair.body) ?? null);
     return {
         hasPendingLabel,
-        pendingComment: comment,
+        pendingComment: currentCause([pending, scope], lastUnlabeled) ?? pending,
         lastUnlabeledPendingAt: lastUnlabeled,
         record,
     };
@@ -7734,10 +7856,11 @@ const repairInProgress = new Set(["agent", "amend"]);
  *
  * 1. Not `repair` and `pending` is there: nothing; the standing stop's comment stays.
  *    For `repair` it goes on only while Nibfin's repair record covers the current
- *    `pending` comment as `repairing` `agent` or `amend` (the repair has not done its
+ *    cause comment as `repairing` `agent` or `amend` (the repair has not done its
  *    step); otherwise nothing, so a late failure never undoes the repair's result.
- * 2. Nibfin's current `pending` comment (`isPendingCurrent`) names this run: only
- *    `pending` is added, so Core's specific cause is never overwritten.
+ * 2. The current cause comment (`currentCause`) names this run (`readCause`; a Scope
+ *    comment only after a failed write): only `pending` is added, so Core's specific
+ *    cause is never overwritten.
  * 3. Otherwise `requestPerson`, naming the repair stage for `repair`. Under an `amend`
  *    record a `JobFailedError` adds that the amendment may be partly applied.
  *
@@ -7768,7 +7891,7 @@ async function askPersonOnce(client, issue, error, url, stage) {
     if (url !== undefined &&
         comment !== null &&
         isPendingCurrent(input) &&
-        readPendingCause(comment.body).run === url) {
+        readCause(comment).run === url) {
         await addPendingLabel(client, issue);
         return true;
     }
