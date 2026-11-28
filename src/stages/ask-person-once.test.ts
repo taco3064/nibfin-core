@@ -7,9 +7,12 @@ import {
   askPersonOnce,
   JobFailedError,
   pendingBody,
+  pendingCauseOf,
   readPendingCause,
   requestPerson,
+  scopeRequestCommentKey,
   temporarySentence,
+  upsertCauseComment,
 } from "./pending.ts";
 import {
   amendmentNote,
@@ -171,6 +174,51 @@ describe("askPersonOnce for a Job that is not the repair stage", () => {
     const cause = readPendingCause(pendingComment(issues).body);
     assert.equal(cause.code, "STAGE_GIT_FAILED");
     assert.equal(cause.temporary, true);
+  });
+});
+
+describe("askPersonOnce after a Scope comment", () => {
+  const person = "Only a person can decide how this request continues.";
+  const unconfirmed = new StageError("STAGE_GIT_FAILED", "push failed");
+
+  /** Scope wrote its comment for this run, and adding `pending` failed. */
+  async function scopeStopped(failed: boolean): Promise<FakeIssues> {
+    const issues = fakeIssues(fakeIssue({ labels: ["scope"] }));
+    await upsertCauseComment(
+      issues.github.client,
+      issue,
+      scopeRequestCommentKey,
+      (withMessage) =>
+        failed ? `${person}\n\n${pendingBody(unconfirmed, url, withMessage)}` : person,
+      failed ? pendingCauseOf(unconfirmed, url) : undefined,
+    );
+    freshReads(issues.github.client);
+    return issues;
+  }
+
+  it("only adds pending after the failed-write comment of this run", async () => {
+    const issues = await scopeStopped(true);
+    const [before] = issues.marked(scopeRequestCommentKey);
+    const body = before.body;
+    assert.equal(await once(issues, new JobFailedError("scope"), url, "scope"), true);
+    assert.ok(issues.main.labels.includes("pending"));
+    assert.deepEqual(issues.marked("pending"), []);
+    assert.equal(issues.marked(scopeRequestCommentKey)[0].body, body);
+  });
+
+  it("writes the generic cause after a failed-write comment of another run", async () => {
+    const issues = await scopeStopped(true);
+    assert.equal(await once(issues, new JobFailedError("scope"), other, "scope"), true);
+    assert.equal(readPendingCause(pendingComment(issues).body).code, "JOB_FAILED");
+  });
+
+  it("writes the generic cause after a plain Scope comment", async () => {
+    const issues = await scopeStopped(false);
+    assert.equal(await once(issues, new JobFailedError("scope"), url, "scope"), true);
+    const cause = readPendingCause(pendingComment(issues).body);
+    assert.equal(cause.code, "JOB_FAILED");
+    assert.equal(cause.run, url);
+    assert.ok(issues.main.labels.includes("pending"));
   });
 });
 

@@ -3,6 +3,12 @@
 import { createHash } from "node:crypto";
 import type { RepairOption } from "./repair-roles.ts";
 
+/** The comment key of the note that asks a person to act (`requestPerson`). */
+export const pendingCommentKey = "pending";
+
+/** The comment key of the Scope stage's comment on a request. */
+export const scopeRequestCommentKey = "scope-request";
+
 /** The comment key of the repair record (`<!-- nibfin:repair -->`). */
 export const repairCommentKey = "repair";
 
@@ -26,7 +32,7 @@ export const amendmentNote =
 
 /** The state line of a repair record. */
 export interface RepairState {
-  /** `pendingDigest` of the `pending` comment body the record covers. */
+  /** `pendingDigest` of the cause comment body the record covers. */
   for: string;
   status: RepairStatus;
   action: RepairAction;
@@ -134,7 +140,7 @@ export function parseRepairRecord(body: string): RepairState | undefined {
 /** What a reader needs to say whether a `pending` Issue is being repaired. */
 export interface RepairStatusInput {
   hasPendingLabel: boolean;
-  /** Nibfin's marked `pending` comment: its `body` and `updated_at`. */
+  /** The current cause comment (`currentCause`): its `body` and `updated_at`. */
   pendingComment: { body: string; updatedAt: string } | null;
   /** `created_at` of the latest `unlabeled` event for the label `pending`. */
   lastUnlabeledPendingAt: string | null;
@@ -142,20 +148,59 @@ export interface RepairStatusInput {
   record: RepairState | null | undefined;
 }
 
+/** Whether a comment changed at `updatedAt` came after `pending` was last removed. */
+function changedSince(updatedAt: string, lastUnlabeledPendingAt: string | null) {
+  return (
+    lastUnlabeledPendingAt === null ||
+    Date.parse(updatedAt) > Date.parse(lastUnlabeledPendingAt)
+  );
+}
+
 /**
- * Whether the `pending` comment belongs to the current `pending` label: it exists and
+ * Whether the cause comment belongs to the current `pending` label: it exists and
  * changed after `pending` was last removed (or `pending` never was).
  */
 export function isPendingCurrent(input: RepairStatusInput): boolean {
   const { pendingComment, lastUnlabeledPendingAt } = input;
   return (
     pendingComment !== null &&
-    (lastUnlabeledPendingAt === null ||
-      Date.parse(pendingComment.updatedAt) > Date.parse(lastUnlabeledPendingAt))
+    changedSince(pendingComment.updatedAt, lastUnlabeledPendingAt)
   );
 }
 
-/** Whether the record covers the current `pending` comment. */
+/** A comment that may explain a `pending` stop: its marker key and `updated_at`. */
+export interface CauseCandidate {
+  /** `pendingCommentKey` or `scopeRequestCommentKey`. */
+  key: string;
+  updatedAt: string;
+}
+
+/**
+ * The comment that explains the current `pending` stop, from Nibfin's marked `pending`
+ * and `scope-request` comments (either may be absent): of those changed after
+ * `pending` was last removed (any, when it never was), the one changed last; on a tie
+ * the `pending` comment, since every flow writes it after a Scope comment for the same
+ * stop. `null` when none is current, so an old cause never explains a new stop.
+ */
+export function currentCause<T extends CauseCandidate>(
+  candidates: ReadonlyArray<T | null | undefined>,
+  lastUnlabeledPendingAt: string | null,
+): T | null {
+  let best: T | null = null;
+  for (const candidate of candidates) {
+    if (candidate == null || !changedSince(candidate.updatedAt, lastUnlabeledPendingAt)) {
+      continue;
+    }
+    const delta =
+      best === null ? 1 : Date.parse(candidate.updatedAt) - Date.parse(best.updatedAt);
+    if (delta > 0 || (delta === 0 && candidate.key === pendingCommentKey)) {
+      best = candidate;
+    }
+  }
+  return best;
+}
+
+/** Whether the record covers the current cause comment. */
 export function recordApplies(input: RepairStatusInput): boolean {
   return (
     input.hasPendingLabel &&
@@ -167,9 +212,9 @@ export function recordApplies(input: RepairStatusInput): boolean {
 
 /**
  * The reader rule (R9.52), shared by the stage and gh-nibfin: `null` without the
- * `pending` label; the record's `status` when it covers the current `pending`
- * comment; otherwise `needs-person`. A record not tied to the current `pending`
- * comment is never `repairing`.
+ * `pending` label; the record's `status` when it covers the current cause comment
+ * (pass the one `currentCause` picks as `pendingComment`); otherwise `needs-person`.
+ * A record not tied to the current cause comment is never `repairing`.
  */
 export function repairStatus(input: RepairStatusInput): RepairStatus | null {
   if (!input.hasPendingLabel) {

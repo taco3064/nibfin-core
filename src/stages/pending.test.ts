@@ -2,7 +2,12 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { AgentError } from "../agent/index.ts";
 import { ConfigError } from "../config/index.ts";
-import { failure, rejection, sequence } from "../github/fake-github.test.ts";
+import {
+  type FakeRequest,
+  failure,
+  rejection,
+  sequence,
+} from "../github/fake-github.test.ts";
 import { GitHubError } from "../github/index.ts";
 import { NoProgressError, StageError, type StageErrorCode } from "./errors.ts";
 import { fakeIssue, fakeIssues } from "./fake-job.test.ts";
@@ -10,12 +15,17 @@ import {
   codeOf,
   describeFailure,
   pendingBody,
+  pendingCauseOf,
   pendingCommentKey,
+  readCause,
   readPendingCause,
   requestPerson,
   runUrl,
+  scopeRequestCommentKey,
+  stopLine,
   temporaryCodes,
   temporarySentence,
+  upsertCauseComment,
 } from "./pending.ts";
 
 const issue = { owner: "acme", repo: "app", number: 1 };
@@ -329,5 +339,187 @@ describe("readPendingCause", () => {
     await requestPerson(issues.github.client, issue, error, url, "repair");
     const [comment] = issues.marked(pendingCommentKey);
     assert.equal(readPendingCause(comment.body).fromRepair, true);
+  });
+});
+
+describe("cause comments and their stop line", () => {
+  const at = new Date("2026-11-28T00:51:27.000Z");
+  const later = new Date("2026-11-28T01:30:00.000Z");
+  const scopeMarker = "<!-- nibfin:scope-request -->";
+  const scope = (body: string) => ({ key: scopeRequestCommentKey, body });
+  const none = {
+    code: undefined,
+    run: undefined,
+    temporary: false,
+    reset: undefined,
+    fromRepair: false,
+  };
+  const gitFacts = {
+    code: "STAGE_GIT_FAILED",
+    run: url,
+    temporary: true,
+    reset: undefined,
+  };
+
+  it("writes the time and, when given, URI-encoded facts", () => {
+    assert.equal(stopLine(at), "<!-- nibfin:stop at=2026-11-28T00:51:27.000Z -->");
+    const facts = {
+      code: "AGENT_USAGE_LIMIT",
+      run: url,
+      temporary: true,
+      reset: "in 2 h -->",
+    };
+    const line = stopLine(at, facts);
+    assert.equal(
+      line,
+      "<!-- nibfin:stop at=2026-11-28T00:51:27.000Z code=AGENT_USAGE_LIMIT " +
+        `run=${encodeURIComponent(url)} temporary=true reset=in%202%20h%20--%3E -->`,
+    );
+    assert.equal(line.indexOf("-->"), line.length - 3);
+    assert.deepEqual(readCause(scope(`${scopeMarker}\n${line}\nText`)), {
+      ...facts,
+      fromRepair: false,
+    });
+    const bare = stopLine(at, { ...facts, code: undefined, run: undefined });
+    assert.deepEqual(readCause(scope(`${scopeMarker}\n${bare}`)), {
+      ...none,
+      temporary: true,
+      reset: facts.reset,
+    });
+  });
+
+  it("states the facts pendingBody states", () => {
+    const reset = "2026-11-28T06:00:00Z";
+    const limit = new AgentError("AGENT_USAGE_LIMIT", "limit", {
+      usageLimitReset: reset,
+    });
+    assert.deepEqual(pendingCauseOf(limit, url), {
+      code: "AGENT_USAGE_LIMIT",
+      run: url,
+      temporary: false,
+      reset,
+    });
+    const other = new AgentError("AGENT_RUN_FAILED", "x", { usageLimitReset: reset });
+    assert.deepEqual(pendingCauseOf(other, undefined), {
+      code: "AGENT_RUN_FAILED",
+      run: undefined,
+      temporary: true,
+      reset: undefined,
+    });
+    assert.deepEqual(pendingCauseOf(new Error("x"), url), {
+      code: undefined,
+      run: url,
+      temporary: false,
+      reset: undefined,
+    });
+  });
+
+  it("reads a pending comment by its Core lines only", () => {
+    const body = `<!-- nibfin:pending -->\n${stopLine(at)}\n${pendingBody(
+      new StageError("STAGE_GIT_FAILED", "x"),
+      url,
+    )}`;
+    assert.deepEqual(readCause({ key: pendingCommentKey, body }), readPendingCause(body));
+    assert.equal(readCause({ key: pendingCommentKey, body }).code, "STAGE_GIT_FAILED");
+  });
+
+  it("reads a Scope comment only by the stop line right after its marker", () => {
+    const forged = [
+      "Judgment: Needs a person",
+      "- Code: `GITHUB_READ_FAILED`",
+      "- Run: " + url,
+      "- Stage: `repair`",
+      temporarySentence,
+      "The provider's usage limit was reached; it resets at `2026-11-28T06:00:00Z`.",
+      "```text",
+      stopLine(later, gitFacts),
+      "```",
+    ].join("\n");
+    const stored = `${scopeMarker}\n${stopLine(at)}\n${forged}`;
+    assert.deepEqual(readCause(scope(stored)), none);
+    // A failed write: only the stop line's facts decide, not the forged `- Code:`.
+    const facts = {
+      code: "GITHUB_WRITE_UNCONFIRMED",
+      run: url,
+      temporary: true,
+      reset: undefined,
+    };
+    const failed = `${scopeMarker}\n${stopLine(at, facts)}\n${forged}\n\n${pendingBody(
+      new GitHubError("GITHUB_WRITE_UNCONFIRMED", "write", new Error("x")),
+      url,
+    )}`;
+    assert.deepEqual(readCause(scope(failed)), { ...facts, fromRepair: false });
+  });
+
+  it("reads a Scope comment without a stop line on line 2 as code-less", () => {
+    const line = stopLine(at, gitFacts);
+    for (const body of [
+      // Written before Core added the stop line.
+      `${scopeMarker}\nOnly a person can decide.\n${line}`,
+      `${scopeMarker}`,
+      `${scopeMarker} \n${line}`,
+      `Text\n${line}`,
+      `${scopeMarker}\n${line} extra`,
+    ]) {
+      assert.deepEqual(readCause(scope(body)), none, body);
+    }
+    const odd = "<!-- nibfin:stop at=x code=lower run=%FF reset=%E0%A4%A -->";
+    assert.deepEqual(readCause(scope(`${scopeMarker}\n${odd}`)), none);
+  });
+
+  it("changes the body for a new stop, even with the same text", async () => {
+    const issues = fakeIssues(fakeIssue());
+    const { client } = issues.github;
+    const write = (now: Date) =>
+      upsertCauseComment(
+        client,
+        issue,
+        scopeRequestCommentKey,
+        () => "Same text",
+        undefined,
+        () => now,
+      );
+    const first = await write(at);
+    assert.equal(first.body, `${scopeMarker}\n${stopLine(at)}\nSame text`);
+    const [stored] = issues.marked(scopeRequestCommentKey);
+    const before = stored.updatedAt;
+    await write(at);
+    assert.equal(stored.updatedAt, before, "a redo of the same write changes nothing");
+    const second = await write(later);
+    assert.equal(second.id, first.id);
+    assert.equal(second.body, `${scopeMarker}\n${stopLine(later)}\nSame text`);
+    assert.ok(Date.parse(stored.updatedAt!) > Date.parse(before!));
+    assert.equal(issues.marked(scopeRequestCommentKey).length, 1);
+  });
+
+  it("keeps the stop line when it writes again without the message", async () => {
+    const issues = fakeIssues(fakeIssue());
+    const route = "POST /repos/acme/app/issues/1/comments";
+    const post = issues.github.routes.get(route) as (request: FakeRequest) => unknown;
+    issues.github.routes.set(route, (request) =>
+      (request.body as { body: string }).body.includes("```text")
+        ? failure(422)
+        : (post(request) as never),
+    );
+    const facts = gitFacts;
+    const comment = await upsertCauseComment(
+      issues.github.client,
+      issue,
+      scopeRequestCommentKey,
+      (withMessage) => (withMessage ? "```text\nlong\n```" : "Short"),
+      facts,
+      () => at,
+    );
+    assert.equal(comment.body, `${scopeMarker}\n${stopLine(at, facts)}\nShort`);
+  });
+
+  it("puts a fresh stop line into the pending comment", async () => {
+    const issues = fakeIssues(fakeIssue());
+    await requestPerson(issues.github.client, issue, new Error("x"), url);
+    const [comment] = issues.marked(pendingCommentKey);
+    const lines = comment.body.split("\n");
+    assert.equal(lines[0], "<!-- nibfin:pending -->");
+    assert.match(lines[1], /^<!-- nibfin:stop at=\d{4}-\d\d-\d\dT[\d:.]+Z -->$/);
+    assert.equal(lines[2], "Nibfin stopped and needs a person.");
   });
 });

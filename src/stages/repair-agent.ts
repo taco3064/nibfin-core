@@ -36,7 +36,7 @@ import {
 import type { JobContext } from "./context.ts";
 import { jobLogTail } from "./fix-context.ts";
 import { redactToken } from "./git.ts";
-import { readPendingCause } from "./pending.ts";
+import { readCause } from "./pending.ts";
 import { fenced, type PromptSection } from "./prompt.ts";
 import { pendingEvidence, readRepairNeed, release, type RepairNeed } from "./repair.ts";
 import {
@@ -314,7 +314,7 @@ async function readRepairSources(
   const ref = issueOf(context);
   const issue = await readIssueRecord(client, ref);
   const pendingBody = need.pending!.body;
-  const cause = readPendingCause(pendingBody);
+  const cause = readCause(need.pending!);
   const key = cause.code ?? noCodeKey;
   const runId = runOf(cause.run, context.runRepo);
   const runDetails =

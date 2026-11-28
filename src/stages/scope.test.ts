@@ -16,6 +16,7 @@ import {
   makeCommittedWorkspace,
   seedComment,
 } from "./fake-job.test.ts";
+import { readCause } from "./pending.ts";
 import { publishRequestPlan } from "./scope-publish.ts";
 import {
   defaultScopeDeps,
@@ -34,6 +35,10 @@ before(async () => {
 const requestUrl = "https://github.com/acme/app/issues/1";
 const marker = "<!-- nibfin:scope-request -->";
 const ownUrl = "https://github.com/acme/lib/issues/7";
+/** A stop line without facts, as Core writes it right after the marker. */
+const plainStop = /^<!-- nibfin:stop at=\d{4}-\d\d-\d\dT[\d:.]+Z -->$/;
+const lineTwo = (body: string) => body.split("\n")[1];
+const causeOf = (body: string) => readCause({ key: "scope-request", body });
 
 const page = <T>(nodes: T[]) => ({
   pageInfo: { hasNextPage: false, endCursor: null },
@@ -269,6 +274,7 @@ describe("runScopeStage Investigation", () => {
     assert.match(comment.body, /already covered, so it is closed as not planned/);
     assert.match(comment.body, new RegExp(`Covering Issue: ${covering}`));
     assert.match(comment.body, /main already parses X\./);
+    assert.doesNotMatch(comment.body, /nibfin:stop/);
     assert.equal(t.main.state, "closed");
     assert.ok(!t.main.labels.includes("pending"));
     const close = t.issues.github.writes().find((call) => call.method === "PATCH");
@@ -329,6 +335,8 @@ describe("runScopeStage Investigation", () => {
       assert.match(comment.body, /R3\.9 needs an Owner call\./);
       assert.ok(comment.body.includes(`- ${ownUrl} (${listed})`));
       assert.match(comment.body, /remove `pending`; the Scope stage then starts again/);
+      assert.match(lineTwo(comment.body), plainStop);
+      assert.equal(causeOf(comment.body).code, undefined);
       assert.ok(t.main.labels.includes("pending"));
       assert.equal(t.main.state, "open");
       assert.equal(t.fake.runs.length, 1);
@@ -341,10 +349,12 @@ describe("runScopeStage Investigation", () => {
 
   it("updates the same comment on a redo", async () => {
     const t = setup([agentResult({ outcome: "not-feasible", reason: "New reason" })]);
-    seedComment(t.issues, t.main, `${marker}\nOld reason`);
+    const seeded = seedComment(t.issues, t.main, `${marker}\nOld reason`);
     assert.equal(await t.run(), 0);
     const comments = t.issues.marked("scope-request");
     assert.equal(comments.length, 1);
+    assert.equal(comments[0].id, seeded.id);
+    assert.match(lineTwo(comments[0].body), plainStop);
     assert.match(comments[0].body, /New reason/);
     assert.match(comments[0].body, /None yet\./);
   });
@@ -577,6 +587,7 @@ describe("runScopeStage publication", () => {
     assert.ok(comment.body.includes("Issues published so far:\n- parser: " + createdUrl));
     assert.ok(comment.body.includes("- " + ownUrl + " (open)"));
     assert.doesNotMatch(comment.body, /Code:/);
+    assert.match(lineTwo(comment.body), plainStop);
     assert.ok(t.main.labels.includes("pending"));
     assert.deepEqual(t.issues.marked("pending"), []);
   });
@@ -605,6 +616,13 @@ describe("runScopeStage publication", () => {
     assert.ok(body.includes("- Run: " + runUrl));
     assert.ok(body.includes("```text\n" + unconfirmed.message + "\n```"));
     assert.match(body, /This looks temporary .*removing the label retries it/s);
+    assert.deepEqual(causeOf(body), {
+      code: "GITHUB_WRITE_UNCONFIRMED",
+      run: runUrl,
+      temporary: true,
+      reset: undefined,
+      fromRepair: false,
+    });
     assert.ok(t.main.labels.includes("pending"));
     assert.deepEqual(t.issues.marked("pending"), []);
   });
@@ -631,6 +649,7 @@ describe("runScopeStage publication", () => {
     const [comment] = t.issues.marked("scope-request");
     assert.ok(comment.body.includes("The full message is in the run log."));
     assert.ok(comment.body.includes("Issues published so far:\nNone."));
+    assert.equal(causeOf(comment.body).code, "GITHUB_WRITE_UNCONFIRMED");
     assert.ok(t.main.labels.includes("pending"));
   });
 

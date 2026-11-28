@@ -37,12 +37,14 @@ export {
   writeNextAction,
 } from "./next.ts";
 export {
+  type CauseText,
   codeOf,
   describeFailure,
   isWait,
   type PendingCause,
   pendingCommentKey,
   type PendingStage,
+  readCause,
   readPendingCause,
   requestPerson,
   runUrl,
@@ -77,6 +79,8 @@ export {
   readChoice,
 } from "./choice.ts";
 export {
+  type CauseCandidate,
+  currentCause,
   formatDecision,
   formatRepairRecord,
   isPendingCurrent,

@@ -25,7 +25,13 @@ import {
 } from "./agent.ts";
 import type { JobContext } from "./context.ts";
 import { type NextAction, noNextAction, writeNextAction } from "./next.ts";
-import { describeFailure, pendingBody, runUrl, upsertPersonComment } from "./pending.ts";
+import {
+  describeFailure,
+  pendingBody,
+  pendingCauseOf,
+  runUrl,
+  upsertCauseComment,
+} from "./pending.ts";
 import { trackProgress } from "./progress.ts";
 import type { PromptSection } from "./prompt.ts";
 import {
@@ -395,10 +401,12 @@ async function publish(acting: Acting, plan: RequestPlan): Promise<ScopeEnd> {
 
 /**
  * A person outcome of publication: the `scope-request` comment with the verdict, the
- * reason and the Issues published so far, then `pending`. After a failed write the
- * comment also carries the generic `pending` comment's content (code, run URL,
- * message, temporary note), the Job log the original failure (R1.14), and the run
- * exits 1, so the CLI adds no second comment. When that comment or label cannot be
+ * reason and the Issues published so far, then `pending`. The comment starts with a
+ * fresh stop line (`upsertCauseComment`). After a failed write the comment also
+ * carries the generic `pending` comment's content (code, run URL, message, temporary
+ * note) and its stop line the same facts, which the repair stage reads; the Job log
+ * gets the original failure (R1.14), and the run exits 1, so the CLI adds no second
+ * comment. When that comment or label cannot be
  * written, the original failure is thrown for the CLI's generic `pending`.
  */
 async function askAfterPublish(
@@ -410,11 +418,11 @@ async function askAfterPublish(
   const issue = issueOf(context);
   const person = personBody(outcome, sources.origins);
   if (!("error" in outcome)) {
-    const comment = await upsertMarkedComment(
+    const comment = await upsertCauseComment(
       client,
       issue,
       scopeRequestCommentKey,
-      person,
+      () => person,
     );
     await addPending(client, issue);
     deps.log(`${outcome.verdict}: a person must decide (${comment.url})`);
@@ -424,11 +432,12 @@ async function askAfterPublish(
   deps.log(`nibfin: ${describeFailure(error)}`);
   const url = runUrl(context.runRepo, context.runId);
   try {
-    const comment = await upsertPersonComment(
+    const comment = await upsertCauseComment(
       client,
       issue,
       scopeRequestCommentKey,
       (withMessage) => `${person}\n\n${pendingBody(error, url, withMessage)}`,
+      pendingCauseOf(error, url),
     );
     await addPending(client, issue);
     deps.log(`${outcome.verdict}: a person must decide (${comment.url})`);
@@ -463,7 +472,12 @@ async function act(acting: Acting, decision: Decision): Promise<ScopeEnd> {
     return ended;
   }
   const body = personBody(decision, sources.origins);
-  const comment = await upsertMarkedComment(client, issue, scopeRequestCommentKey, body);
+  const comment = await upsertCauseComment(
+    client,
+    issue,
+    scopeRequestCommentKey,
+    () => body,
+  );
   await addPending(client, issue);
   deps.log(`${decision.verdict}: a person must decide (${comment.url})`);
   return ended;
