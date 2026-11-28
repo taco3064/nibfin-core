@@ -7945,7 +7945,10 @@ async function routeEvent(client, repo, target) {
 }
 
 const issueBranchPrefix = "nibfin/issue-";
-/** Labels Nibfin's own stages add and remove; their changes wake nothing. */
+/**
+ * Labels Nibfin's own stages add and remove; their changes wake nothing, except
+ * `delivered` added to an Issue that is not open (`deliveredByHand`).
+ */
 const ownLabels = new Set(["shaped", "delivered"]);
 function invalidEvent(eventName, field) {
     return new StageError("STAGE_INPUT_INVALID", `The ${eventName} event has no ${field}`);
@@ -7958,6 +7961,18 @@ function executionRepoOf(value) {
     return readRepo(value, "NIBFIN_EXECUTION_REPO");
 }
 const skip = (reason) => ({ kind: "skip", reason });
+/**
+ * Whether the event adds `delivered` to an Issue that is not open: a person closed
+ * it first and marked it delivered afterwards, so the route's wake-only redo has to
+ * run. Nibfin's own close adds the label while the Issue is still open. A payload
+ * without the state also wakes; the route decides from GitHub, and an extra wake
+ * does no repeated work (R4.35).
+ */
+function deliveredByHand(payload, label) {
+    return (payload.action === "labeled" &&
+        label === "delivered" &&
+        payload.issue?.state !== "open");
+}
 function issuesWake(payload, name, executionRepo) {
     const number = payload.issue?.number;
     if (number === undefined) {
@@ -7971,7 +7986,8 @@ function issuesWake(payload, name, executionRepo) {
     const label = payload.label?.name;
     if ((action === "labeled" || action === "unlabeled") &&
         label !== undefined &&
-        ownLabels.has(label)) {
+        ownLabels.has(label) &&
+        !deliveredByHand(payload, label)) {
         return skip(`Nibfin's own label change (${action} ${label}); not routed`);
     }
     const writer = payload.sender?.login;
@@ -8056,11 +8072,13 @@ function targetOf(eventName, payload, name) {
 }
 /**
  * What an event of `repo` wakes, decided from its payload alone, before any token is
- * used, with the workflows' rules in their order (#776):
+ * used, with the workflows' rules in their order:
  *
  * - every event but `pull_request_review` first needs the execution repository;
  * - `issues`: the Issue needs `scope` or `request`, and a `labeled` or `unlabeled`
- *   `shaped` or `delivered` wakes nothing; then `{ issue }`, if the sender writes;
+ *   `shaped` or `delivered` wakes nothing, except `labeled delivered` on an Issue
+ *   whose state is not `open` (delivered by hand after the close); then
+ *   `{ issue }`, if the sender writes;
  * - `pull_request_review`: a `nibfin/issue-*` head of the same repository, then the
  *   execution repository; `{ branch }`, if the sender writes;
  * - `workflow_run`: of a `pull_request`, a `nibfin/issue-*` head of the same
