@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
-import { failure, sequence } from "../github/fake-github.test.ts";
+import { failure, paged, sequence } from "../github/fake-github.test.ts";
 import type { ActingClient } from "../github/index.ts";
 import { dispatchPath, fakeRunner } from "../route/fake-runner.test.ts";
 import { fakeIssue, fakeIssues } from "../stages/fake-job.test.ts";
@@ -47,7 +47,15 @@ function depsFor(
       log("GET /user");
       return Promise.resolve(client);
     },
+    connectJob: (token) => {
+      tokens.push(token);
+      return Promise.resolve(client);
+    },
     readFile: () => event,
+    age: () => ({
+      check: () => Promise.resolve(),
+      encrypt: () => Promise.resolve("CIPHER\n"),
+    }),
   };
   return { deps, tokens };
 }
@@ -119,8 +127,79 @@ describe("runAction job-failed", () => {
     assert.equal(result.code, 1);
     assert.equal(
       result.stderr,
-      "nibfin: STAGE_INPUT_INVALID: INPUT_COMMAND must be one of job-failed, wake\n",
+      "nibfin: STAGE_INPUT_INVALID: INPUT_COMMAND must be one of job-failed, " +
+        "runner-request, wake\n",
     );
+  });
+});
+
+describe("runAction runner-request", () => {
+  const requestEnv = {
+    INPUT_COMMAND: "runner-request",
+    "INPUT_JOB-TOKEN": "secret-job-token",
+    GITHUB_EVENT_NAME: "issues",
+    GITHUB_EVENT_PATH: "/runner/event.json",
+    GITHUB_REPOSITORY: "acme/app",
+  };
+  const event = JSON.stringify({
+    action: "opened",
+    issue: {
+      number: 1,
+      title: "Nibfin runner request",
+      body: "<!-- nibfin:runner-request -->\nssh-key-id: 5\n",
+      user: { login: "ann", type: "User" },
+    },
+  });
+
+  function requestWorld(token: string | null = "secret-token") {
+    const issues = fakeIssues(fakeIssue({ labels: [] }));
+    const { github } = issues;
+    github.routes.set("GET /repos/acme/app/collaborators/ann/permission", {
+      data: { permission: "write" },
+    });
+    github.routes.set("GET /users/ann/keys", paged([{ id: 5, key: "ssh-rsa AAAA" }]));
+    github.routes.set("POST /repos/acme/app/actions/runners/registration-token", {
+      status: 201,
+      data: { token: "REG", expires_at: "2026-11-28T01:00:00Z" },
+    });
+    github.routes.set("PATCH /repos/acme/app/issues/1", (request) => {
+      issues.main.state = (request.body as { state: "closed" }).state;
+      return { data: { number: 1, state: issues.main.state } };
+    });
+    const overrides = { ...requestEnv, INPUT_TOKEN: token ?? undefined };
+    return { issues, ...depsFor(github.client, overrides, event) };
+  }
+
+  it("answers the request with both tokens and exits 0", async () => {
+    const world = requestWorld();
+    const result = await capture(world.deps);
+    assert.equal(result.code, 0);
+    assert.equal(result.stderr, "");
+    assert.ok(result.stdout.includes("::add-mask::REG\n"));
+    assert.deepEqual(world.tokens, ["secret-job-token", "secret-token"]);
+    const [answer] = world.issues.marked("runner-registration");
+    assert.ok(answer.body.includes("\nCIPHER\n"));
+  });
+
+  it("answers as failed and exits 1 when the Nibfin token is missing", async () => {
+    const world = requestWorld(null);
+    const result = await capture(world.deps);
+    assert.equal(result.code, 1);
+    assert.equal(result.stderr, "nibfin: STAGE_INPUT_INVALID: INPUT_TOKEN is missing\n");
+    assert.equal(world.issues.marked("runner-request-refused").length, 1);
+    assert.equal(world.issues.main.state, "closed");
+  });
+
+  it("exits 1 on invalid input before it connects", async () => {
+    const world = requestWorld();
+    const env = { ...world.deps.env, "INPUT_JOB-TOKEN": undefined };
+    const result = await capture({ ...world.deps, env });
+    assert.deepEqual(result, {
+      code: 1,
+      stdout: "",
+      stderr: "nibfin: STAGE_INPUT_INVALID: INPUT_JOB-TOKEN is missing\n",
+    });
+    assert.deepEqual(world.tokens, []);
   });
 });
 
@@ -236,5 +315,28 @@ describe("defaultActionDeps", () => {
       globalThis.fetch = original;
     }
     assert.deepEqual(fetches, ["https://api.github.com/user"]);
+  });
+
+  it("connects the job token's client as github-actions[bot]", async () => {
+    const fetches: string[] = [];
+    const original = globalThis.fetch;
+    globalThis.fetch = (input) => {
+      fetches.push(input instanceof Request ? input.url : input.toString());
+      return Promise.resolve(
+        Response.json({ id: 41898282, login: "github-actions[bot]" }),
+      );
+    };
+    try {
+      const client = await defaultActionDeps.connectJob("t", () => {});
+      assert.deepEqual(client.actor, { id: 41898282, login: "github-actions[bot]" });
+    } finally {
+      globalThis.fetch = original;
+    }
+    assert.deepEqual(fetches, ["https://api.github.com/users/github-actions%5Bbot%5D"]);
+  });
+
+  it("runs age from PATH", async () => {
+    const age = defaultActionDeps.age({ PATH: "/nibfin-no-such-directory" });
+    await assert.rejects(age.check(), /^AgeError: age --version failed/);
   });
 });
