@@ -225,3 +225,56 @@ describe("a closed fixer without a fix (#772)", () => {
     assert.equal((await red.stage(1)).stage, "cd-failed");
   });
 });
+
+describe("a newer main counts only when it contains the merge (#795)", () => {
+  it("a green ancestor with a newer push run does not finish a red merge", async () => {
+    // gh-nibfin #509: A's merge M1 is an ancestor of B's M2 but its push run is
+    // newer by run id; B's own CD is red.
+    const red = await redMain();
+    red.addIssue(2);
+    red.merge(7, bBranch, sha.m2, { CI: "failure" });
+    red.merge(5, aBranch, sha.m1, { CI: "success" });
+    red.world.ancestry = [sha.m0, sha.m1, sha.m2];
+    const b = await red.route(1);
+    assert.ok(b.stage.stage === "cd-failed");
+    assert.equal(b.stage.pullRequest.mergeCommitSha, sha.m2);
+    assert.equal(b.stage.failedOn, undefined);
+    assert.deepEqual(
+      b.stage.runs.map((run) => [run.name, run.conclusion]),
+      [["CI", "failure"]],
+    );
+    assert.deepEqual(b.route && [b.route.stage, b.route.reason], [
+      "deliver",
+      "cd-failure",
+    ]);
+    assert.equal(red.world.issues.main.state, "open");
+    assert.ok(!red.world.issues.main.labels.includes("delivered"));
+    assert.deepEqual(red.world.issues.marked("delivered"), []);
+  });
+
+  it("a green descendant of a red merge still finishes it", async () => {
+    const red = await redMain();
+    red.addIssue(2);
+    red.merge(7, bBranch, sha.m1, { CI: "failure" });
+    red.merge(5, aBranch, sha.m2, { CI: "success" });
+    const b = await red.route(1);
+    assert.ok(b.stage.stage === "done");
+    assert.equal(b.stage.passedOn?.mergeCommitSha, sha.m2);
+    assert.deepEqual(b.route && b.route.stage, "finish");
+  });
+
+  it("does not use a green fix of the previous Issue that lacks the merge", async () => {
+    const red = await twoRedMerges();
+    red.merge(6, aFix, sha.f, { CI: "success" });
+    // F's push run is newer, but in Git F is not on top of B's merge M2.
+    red.world.ancestry = [sha.m0, sha.m1, sha.f, sha.m2];
+    const b = await red.route(1);
+    assert.ok(b.stage.stage === "cd-failed");
+    assert.equal(b.stage.pullRequest.mergeCommitSha, sha.m2);
+    assert.equal(b.stage.failedOn, undefined);
+    assert.deepEqual(b.route && [b.route.stage, b.route.reason], [
+      "deliver",
+      "cd-failure",
+    ]);
+  });
+});
