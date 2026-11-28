@@ -173,7 +173,11 @@ Nothing below is done by Nibfin; the Owner does it once.
   `.github/workflows/` change, such an edit is delivered by hand.
 - The workflows run `@main` and the image `:main`. After a merge that changes the
   CLI or the templates they can differ until the Image workflow finishes. A failure
-  in that window that Core can see sets `pending`; a failure before Core runs
-  (checkout, image pull or start, an option the older CLI lacks, or the very first
-  rollout before `:main` exists) leaves a failed Actions run, which GitHub notifies
-  the owner about.
+  in that window that Core can see sets `pending`. A Job that fails before Core can
+  report (checkout, image pull or start, an option the older CLI lacks, or the very
+  first rollout before `:main` exists) ends with Core's Action
+  (`taco3064/nibfin-core/action@main`, command `job-failed`): it adds `pending` with
+  the code `JOB_FAILED` unless Core already reported for the Issue (see "Pending" in
+  `src/stages/README.md`). Only what that step cannot do (the Action cannot be
+  fetched, the token is invalid, the `pending` write fails, the run has no Issue)
+  leaves just a failed Actions run, which GitHub notifies the owner about.

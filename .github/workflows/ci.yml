@@ -31,6 +31,18 @@ jobs:
       - run: npm run check
       - run: npm test
       - run: npm run build
+      # The committed Action bundle must be what its sources build, as GitHub's
+      # check-dist does; an extra or changed file under action/ fails.
+      - name: Check the Action bundle
+        run: |
+          npm run bundle:action
+          git diff --exit-code -- action/
+          untracked=$(git status --porcelain --untracked-files=all -- action/)
+          if [ -n "$untracked" ]; then
+            echo "$untracked"
+            echo "Run npm run bundle:action and commit action/" >&2
+            exit 1
+          fi
       # Pre-merge image evidence: build the amd64 image and smoke-test it.
       # Publishing happens only after merge, in image.yml.
       - if: github.event_name == 'pull_request'
