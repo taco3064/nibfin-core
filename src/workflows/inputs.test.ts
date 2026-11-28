@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 import { flow, type RenderRequest, templateData, WorkflowInputError } from "./inputs.ts";
 
 const digest = `ghcr.io/taco3064/nibfin@sha256:${"0".repeat(64)}`;
+const commit = "0123456789abcdef0123456789abcdef01234567";
 
 function request(overrides: Partial<RenderRequest> = {}): RenderRequest {
   return {
@@ -37,6 +38,7 @@ describe("templateData", () => {
       workflows: '["CI", "Image"]',
       eventsToken: "${{ secrets.token }}",
       eventsUses: "./.github/workflows/nibfin-events.yml",
+      actionUses: "taco3064/nibfin-core/action@main",
     });
   });
 
@@ -47,11 +49,20 @@ describe("templateData", () => {
       "taco3064/nibfin-core/.github/workflows/nibfin-events.yml@main",
     );
     assert.equal(data.imageTag, undefined);
+    assert.equal(data.actionUses, "taco3064/nibfin-core/action@main");
+  });
+
+  it("pins the Action by commit for a user peer set", () => {
+    const data = templateData(
+      request({ set: "peer", channel: "user", image: undefined, commit }),
+    );
+    assert.equal(data.actionUses, `taco3064/nibfin-core/action@${commit}`);
   });
 
   it("builds the user channel's data", () => {
-    const data = templateData(request({ channel: "user", image: digest }));
+    const data = templateData(request({ channel: "user", image: digest, commit }));
     assert.equal(data.imageRef, digest);
+    assert.equal(data.actionUses, `taco3064/nibfin-core/action@${commit}`);
     assert.equal(data.imageTag, undefined);
     assert.equal(data.eventsToken, "${{ secrets.NIBFIN_GITHUB_TOKEN }}");
     assert.equal(data.eventsUses, undefined);
@@ -100,6 +111,27 @@ describe("templateData", () => {
       "a tag of 129 characters",
       { image: `ghcr.io/taco3064/nibfin:${"a".repeat(129)}` },
       /:<tag>/,
+    ],
+    ["a commit for the own channel", { commit }, /^the own channel takes no commit/],
+    [
+      "a user channel without a commit",
+      { channel: "user", image: digest },
+      /^the user channel needs a commit$/,
+    ],
+    [
+      "a short commit",
+      { channel: "user", image: digest, commit: commit.slice(1) },
+      /^commit "[0-9a-f]{39}" is not a full 40-character SHA$/,
+    ],
+    [
+      "an upper-case commit",
+      { channel: "user", image: digest, commit: commit.toUpperCase() },
+      /is not a full 40-character SHA/,
+    ],
+    [
+      "a commit with a line break",
+      { channel: "user", image: digest, commit: `${commit}\n` },
+      /is not a full 40-character SHA/,
     ],
     ["an empty branch", { defaultBranch: "" }, /^default branch "" is empty/],
     ["a double quote in the branch", { defaultBranch: 'a"b' }, /quote or control/],

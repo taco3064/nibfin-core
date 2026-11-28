@@ -38,7 +38,7 @@ export const usage = `Usage: nibfin <option>
        nibfin run --stage finish --repo <owner>/<repo> --issue <n>
        nibfin route --repo <owner>/<repo> (--issue <n> | --sha <sha> | --branch <b>)
        nibfin render-workflows --set execution|peer --channel own|user [--image <ref>]
-                  --default-branch <branch> [--workflow <name>]...
+                  [--commit <sha>] --default-branch <branch> [--workflow <name>]...
 
 Options:
   --help     Show this help

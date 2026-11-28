@@ -21,6 +21,7 @@ export function renderWorkflowsCommand(
         set: { type: "string", default: "" },
         channel: { type: "string", default: "" },
         image: { type: "string" },
+        commit: { type: "string" },
         "default-branch": { type: "string", default: "" },
         workflow: { type: "string", multiple: true, default: [] },
       },
@@ -31,6 +32,7 @@ export function renderWorkflowsCommand(
       set: values.set,
       channel: values.channel,
       image: values.image,
+      commit: values.commit,
       defaultBranch: values["default-branch"],
       workflows: values.workflow,
     };
