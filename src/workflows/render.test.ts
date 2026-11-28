@@ -377,6 +377,55 @@ describe("renderWorkflows nibfin-runner-request.yml", () => {
   });
 });
 
+describe("renderWorkflows nibfin-e2e-notify.yml", () => {
+  it("notifies nibfin-e2e through one step of Core's Action", () => {
+    for (const name of ["own execution", "own peer"]) {
+      const content = file(requests[name], "nibfin-e2e-notify.yml");
+      assert.ok(
+        content.endsWith(
+          "    if: contains(github.event.issue.labels.*.name, 'delivered')\n" +
+            "    runs-on: ubuntu-24.04\n" +
+            "    timeout-minutes: 5\n" +
+            "    steps:\n" +
+            "      - name: Dispatch to nibfin-e2e\n" +
+            "        uses: taco3064/nibfin-core/action@main\n" +
+            "        with:\n" +
+            "          command: repository-dispatch\n" +
+            "          token: ${{ secrets.NIBFIN_GITHUB_TOKEN }}\n" +
+            "          repository: taco3064/nibfin-e2e\n" +
+            "          event-type: issue-delivered\n" +
+            "          payload: >-\n" +
+            '            {"repository": ${{ toJSON(github.repository) }},\n' +
+            '            "issue": ${{ github.event.issue.number }}}\n',
+        ),
+      );
+      assert.equal(count(content, "uses: "), 1);
+      for (const part of ["run: |", "gh api", "sleep", "attempt", "env:"]) {
+        assert.ok(!content.includes(part), part);
+      }
+    }
+  });
+});
+
+describe("renderWorkflows GitHub calls", () => {
+  it("leaves every GitHub call and retry of every render to Core's Action", () => {
+    for (const request of Object.values(requests)) {
+      for (const [path, content] of Object.entries(renderWorkflows(request))) {
+        for (const part of [
+          "gh api",
+          "gh_retry",
+          "rate_limit_delay",
+          "curl",
+          "for attempt",
+          "api.github.com",
+        ]) {
+          assert.ok(!content.includes(part), `${path}: ${part}`);
+        }
+      }
+    }
+  });
+});
+
 describe("workflow templates", () => {
   it("hold no Eta delimiter outside an Eta tag", async () => {
     const sources = await templateSources(defaultTemplateDir);
