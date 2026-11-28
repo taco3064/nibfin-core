@@ -93,6 +93,17 @@ resumes from GitHub state. `requestPerson(..., stage)` and `askPerson(..., stage
 add the header line ``- Stage: `repair` `` after `- Run:` when the repair stage
 itself failed; without `stage` the body is unchanged.
 
+Both comments that can explain a stop, the `pending` comment and the Scope stage's
+`scope-request` person comment, are written by `upsertCauseComment`: right after the
+marker it writes a hidden stop line, `<!-- nibfin:stop at=<ISO 8601 UTC> -->`, with
+the time of that write. Every write for a new stop therefore changes the body and its
+`updated_at`, even when the visible text is the same as before (an unchanged body is
+not written again). Scope's comment after a failed write also carries the stop's facts
+in that line (`code=`, `run=`, `temporary=true`, `reset=`, URI-encoded), the same
+ones its embedded `pendingBody` shows (`pendingCauseOf`). One call writes one stop
+line, also when GitHub rejects the body with the message and it is written again
+without it.
+
 A Job that fails before Core can report (checkout, image pull, container start or clean
 up) ends with the `job-failed` step of Core's Action (`src/action/README.md`). It calls
 `askPersonOnce(client, issue, new JobFailedError(stage), runUrl, stage)`, which reads
@@ -100,12 +111,15 @@ the labels first and writes at most once per stop:
 
 1. For any Job but `repair`, an Issue that already has `pending` is left as it is: a
    stop stands and its comment (cause, repair record digest) stays. A `repair` Job goes
-   on only while Nibfin's repair record covers the current `pending` comment
+   on only while Nibfin's repair record covers the current cause comment
    (`recordApplies`) as `repairing` with action `agent` or `amend`, so the repair has
    not done its step; otherwise nothing is written and the repair's result stands.
-2. When Nibfin's `pending` comment is current (`isPendingCurrent`: changed after
-   `pending` was last removed) and its `- Run:` is this run, Core already wrote this
-   stop's cause and only the label write failed: only `pending` is added.
+2. When the current cause comment (`currentCause`, see Reader rule) names this run
+   (`readCause`), Core already wrote this stop's cause and only the label write
+   failed: only `pending` is added. A `pending` comment names its run on `- Run:`;
+   a `scope-request` comment names it only after a failed write, in its stop line, so
+   Scope's own cause of that run is kept. After a plain Scope person comment, which
+   names no run, rule 3 writes the generic cause.
 3. Otherwise `requestPerson` with `JOB_FAILED` ("The `<stage>` Job failed before
    Nibfin could report a cause …; see the run log."), naming ``- Stage: `repair` ``
    for a `repair` Job, so that stop ends at once (R4.50). Under an `amend` record the
@@ -133,24 +147,35 @@ else is routed. What the code cannot decide goes to the read-only repair agent i
 `labeled:pending` wake are separate work; until that wake exists, any other routed
 wake of the Issue reaches the stage.
 
-### Reading the `pending` comment
+### Reading the cause comment
 
-`readPendingCause(body)` reads only Core's own lines of Nibfin's marked `pending`
-comment: the header before the first ` ```text ` line and the trailer after
+`readCause({ key, body })` reads the comment that explains the stop, `body` as stored
+(marker line included). For a `pending` comment it is `readPendingCause(body)`,
+which reads only Core's own lines: the header before the first ` ```text ` line and the trailer after
 the last ` ``` ` line (the whole body without a fence). It gives `code` (the
 first ``- Code: `X` ``; `none` is no code), `run` (the `- Run:` URL),
 `temporary` (the trailer has the temporary sentence, `temporarySentence`, which only
 `pendingBody` writes, a failed wake's comment included, #776), `reset` (``it resets at
 `<reset>` `` in the usage-limit note) and `fromRepair` (``- Stage: `repair` ``).
-Text inside the fenced failure message never counts.
+Text inside the fenced failure message never counts; the stop line matches none of
+these lines.
+
+A `scope-request` comment also holds the Scope agent's reason and the request's Issue
+titles, unfenced. Only its first two lines count: line 1 must be exactly the
+`scope-request` marker and line 2 a stop line, whose `code`, `run`, `temporary` and
+`reset` it returns. Core writes line 2 before any agent or request text, so nothing
+from line 3 on (a forged `- Code:`, temporary sentence, `- Stage:`, `- Run:`, fence
+or stop line) is read. Without such a line (a comment written before the stop line
+existed) the comment has no code. A Scope comment never has `fromRepair`.
 
 ### What decides (`readRepairNeed`, `runRepair`)
 
-`readRepairNeed` reads Nibfin's marked `pending` comment (its id from the Issue
-record, then `GET …/issues/comments/{id}` for `body` and `updated_at`), the latest
-`unlabeled` event for `pending`, and Nibfin's marked `repair` comment. The `pending`
-comment is **current** when its `updated_at` is later than that event (or there is
-none). Then:
+`readRepairNeed` reads Nibfin's marked `pending` and `scope-request` comments (each
+id from the Issue record, then `GET …/issues/comments/{id}` for `body` and
+`updated_at`), the latest `unlabeled` event for `pending`, and Nibfin's marked
+`repair` comment (`readRepairInput`). The **current** cause comment is the one
+`currentCause` picks (see Reader rule). Only Core's lines decide (`readCause`): for a
+`scope-request` comment only its stop line, the line right after the marker. Then:
 
 - the current comment has ``- Stage: `repair` `` (the stage failed for this stop,
   R4.50) → nothing;
@@ -206,8 +231,8 @@ Its next line is the state line:
 ```
 
 - `for`: `pendingDigest(body)`, the first 16 hex characters of the SHA-256 of the
-  exact `pending` comment body (UTF-8, as the API's `body`, marker line included)
-  the record covers. Without a current comment it is the digest of `""`.
+  exact body of the cause comment the record covers (UTF-8, as the API's `body`,
+  marker and stop lines included). Without a current comment it is the digest of `""`.
 - `status`: `repairing`, `needs-person`, or `waiting-for-choice` (the repair agent's
   options).
 - `action`: `retry`, `wait` (with `reset`), `advice`, and for the repair agent (#778)
@@ -220,8 +245,9 @@ Its next line is the state line:
   `NONE`.
 
 No value contains `--`. Then the visible lines (R4.49): `- Category:`, `- Reason:`
-(one line), `- Evidence:` (the code, a link to the `pending` comment and its run; the
-repair agent's evidence follows as nested items), `- Done:` and `- Advice:`, then the
+(one line), `- Evidence:` (the code, a link to the cause comment named by its key,
+such as ``the `scope-request` comment``, and its run; the repair agent's evidence
+follows as nested items), `- Done:` and `- Advice:`, then the
 repair agent's options or follow-up steps. It never quotes the failure message.
 `formatRepairRecord(state, text)` writes it and `parseRepairRecord(body)` reads the
 state; a missing or unparseable state line, or `wait` without `reset`, is no record.
@@ -314,17 +340,26 @@ detected on the Issue's next wake; until then the reader shows `repairing`.
 is what the Dashboard shows for a `pending` Issue (R9.52):
 
 1. no `pending` label → `null`;
-2. the `pending` comment is current only if it exists and its `updated_at` is later
-   than the latest `unlabeled` event for `pending` (or there is none);
+2. `pendingComment` is the cause comment `currentCause([pending, scopeRequest],
+   lastUnlabeledPendingAt)` picks: of Nibfin's marked `pending` and `scope-request`
+   comments, those whose `updated_at` is later than the latest `unlabeled` event for
+   `pending` (any, when there is none) are current, and the one changed last explains
+   the stop; on a tie the `pending` comment, which every flow writes after a Scope
+   comment for the same stop. A comment last changed before that event is never
+   current, so an old cause never explains a new stop. The stop line Core writes into
+   both comments (see Pending) makes a rewrite for a new stop always move `updated_at`;
 3. the record applies only if the comment is current and `for` equals the digest of
-   its body;
+   its body (stop line included);
 4. the record applies → its `status`; otherwise `needs-person`.
 
-Inputs: Nibfin's marked `pending` comment's `body` and `updated_at`, the latest
-`unlabeled` event for the label `pending` from `GET …/issues/{n}/events`, and
-Nibfin's marked `repair` comment (both comments by Nibfin's account only). A record
-not tied to the current `pending` comment means `needs-person`, never `repairing`;
-only `repairing` is left out of R9.1's count of Issues that need a person.
+Inputs: Nibfin's marked `pending` and `scope-request` comments' `key`, `body` and
+`updated_at`, the latest `unlabeled` event for the label `pending` from
+`GET …/issues/{n}/events`, and Nibfin's marked `repair` comment (all comments by
+Nibfin's account only). `RepairStatusInput` keeps its shape: a reader passes the
+comment `currentCause` picks as `pendingComment` and reads it with `readCause`; one
+that passes only the `pending` comment shows a Scope stop as `needs-person`. A record
+not tied to the current cause comment means `needs-person`, never `repairing`; only
+`repairing` is left out of R9.1's count of Issues that need a person.
 
 ### Decision comment
 
@@ -437,8 +472,9 @@ title, body, blockedBy}` or reused `{key, reuse, blockedBy}`), or `PLAN_BLOCKED`
    - not feasible, needs a person, `PLAN_BLOCKED`, `AUTHORITY_UPDATE_REQUIRED` or
      `PLAN_READY` with unverified deduplication: the comment says only a person can
      decide, with the verdict, the reason (or the report), the request's own Issues
-     with their state and that removing `pending` restarts the feasibility check; then
-     `pending` (read back, else `GITHUB_WRITE_UNCONFIRMED`). The Job exits 0, so the
+     with their state and that removing `pending` restarts the feasibility check,
+     after the stop line (see Pending); then `pending` (read back, else
+     `GITHUB_WRITE_UNCONFIRMED`). The Job exits 0, so the
      generic `pending` comment is not added (R3.9, R3.10, R4.3);
    - a verified `PLAN_READY`: `deps.publish(scope, plan)` gets the `RequestPlan`
      (request URL, Investigation reason, report, Issues) in memory, never from Issue
@@ -476,15 +512,18 @@ title, body, blockedBy}` or reused `{key, reuse, blockedBy}`), or `PLAN_BLOCKED`
 
    Any other end asks a person on the request with the `scope-request` comment and
    `pending` (R3.9, R3.10, R4.3, R4.5). The comment has the verdict, the reason, the
-   Issues published so far by key and URL and the request's own Issues:
+   Issues published so far by key and URL and the request's own Issues, after the
+   stop line (see Pending):
    - `REPLAN_REQUIRED` or `PUBLICATION_BLOCKED` from the refresh: nothing else is
      written; the Job exits 0.
    - a write that fails or cannot be confirmed (from step 2 on): the verdict is
      `PARTIAL_PUBLICATION` when a write took or may have taken effect, otherwise
      `PUBLICATION_BLOCKED`. The Job log gets `nibfin: <code>: <message>` (R1.14); the
      comment also carries the generic `pending` comment's content (`pendingBody`:
-     code, run URL, message, usage-limit and temporary notes) and is written once more
-     with a pointer to the run log when GitHub rejects it (`upsertPersonComment`).
+     code, run URL, message, usage-limit and temporary notes), its stop line the same
+     code, run, temporary flag and reset, which the repair stage reads (see Reading the
+     cause comment), and it is written once more with a pointer to the run log when
+     GitHub rejects it (`upsertCauseComment`).
      After `pending` the Job exits 1, so the CLI adds no second comment and does not
      route after the stage. When that comment or label cannot be written, the original
      failure is thrown and the CLI's generic `pending` applies.
