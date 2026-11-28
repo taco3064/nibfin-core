@@ -334,6 +334,49 @@ describe("renderWorkflows other files", () => {
   });
 });
 
+describe("renderWorkflows nibfin-runner-request.yml", () => {
+  it("installs age and answers through one step of Core's Action", () => {
+    const action = "taco3064/nibfin-core/action";
+    for (const [name, uses] of [
+      ["own execution", `${action}@main`],
+      ["user execution", `${action}@${commit}`],
+    ]) {
+      const content = file(requests[name], "nibfin-runner-request.yml");
+      assert.ok(
+        content.endsWith(
+          "    steps:\n" +
+            "      - name: Install age\n" +
+            "        run: |\n" +
+            "          set -euo pipefail\n" +
+            "          sudo apt-get update\n" +
+            "          sudo apt-get install -y age\n" +
+            "          age --version\n" +
+            "      # Also after a failed install: the Action then answers that the " +
+            "request failed.\n" +
+            "      - name: Answer the request\n" +
+            "        if: ${{ !cancelled() }}\n" +
+            `        uses: ${uses}\n` +
+            "        with:\n" +
+            "          command: runner-request\n" +
+            "          token: ${{ secrets.NIBFIN_GITHUB_TOKEN }}\n" +
+            "          job-token: ${{ github.token }}\n",
+        ),
+      );
+      assert.ok(
+        content.includes(
+          "    if: contains(github.event.issue.body, '<!-- nibfin:runner-request -->')\n",
+        ),
+      );
+      assert.ok(content.includes("\npermissions:\n  issues: write\n\n"));
+      assert.equal(count(content, "uses: "), 1);
+      assert.equal(count(content, "run: |"), 1);
+      for (const part of ["gh_retry", "gh api", "jq ", "GITHUB_OUTPUT", "steps.check"]) {
+        assert.ok(!content.includes(part), part);
+      }
+    }
+  });
+});
+
 describe("workflow templates", () => {
   it("hold no Eta delimiter outside an Eta tag", async () => {
     const sources = await templateSources(defaultTemplateDir);
