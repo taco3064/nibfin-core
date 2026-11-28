@@ -114,3 +114,27 @@ export async function connectClient(
   const octokit = buildOctokit(token, options, log);
   return withActor(octokit, await readActor(octokit));
 }
+
+/** The account `login`, read with `GET /users/{login}`. */
+export async function readUser(client: GitHubClient, login: string): Promise<Actor> {
+  const { data } = await read(`read the user ${login}`, () =>
+    client.request("GET /users/{username}", { username: login }),
+  );
+  return { id: Number(data.id), login: data.login };
+}
+
+/**
+ * A client for `token` that writes as the account `login`, read once with
+ * `GET /users/{login}` through the same instance. For a token whose account
+ * `GET /user` cannot read, such as a job's `GITHUB_TOKEN`, which writes as
+ * `github-actions[bot]`.
+ */
+export async function connectAs(
+  token: string,
+  login: string,
+  options: ClientOptions = {},
+  log: LogLine = noLog,
+): Promise<NibfinOctokit & ActingClient> {
+  const octokit = buildOctokit(token, options, log);
+  return withActor(octokit, await readUser(octokit, login));
+}

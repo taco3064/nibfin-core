@@ -13,6 +13,7 @@ import { pull } from "./fixtures.test.ts";
 import {
   hasWritePermission,
   readApprovalCount,
+  readCollaboratorPermission,
   readCommitPullRequests,
   readCommitsAhead,
   readForcePushedHeads,
@@ -258,6 +259,26 @@ describe("hasWritePermission", () => {
   it("fails on any other failure", async () => {
     const github = fakeGitHub({ [path]: failure(500) });
     await expectReadFailure(hasWritePermission(github.client, repo, "ann"));
+  });
+});
+
+describe("readCollaboratorPermission", () => {
+  const path = "GET /repos/acme/app/collaborators/ann/permission";
+
+  it("reads GitHub's permission value", async () => {
+    const github = fakeGitHub({ [path]: { data: { permission: "read" } } });
+    assert.equal(await readCollaboratorPermission(github.client, repo, "ann"), "read");
+  });
+
+  it("reads a non-collaborator (404) as none, without retrying it", async () => {
+    const github = fakeGitHub();
+    assert.equal(await readCollaboratorPermission(github.client, repo, "ann"), "none");
+    assert.equal(github.calls.length, 1);
+  });
+
+  it("fails on any other failure", async () => {
+    const github = fakeGitHub({ [path]: failure(500) });
+    await expectReadFailure(readCollaboratorPermission(github.client, repo, "ann"));
   });
 });
 

@@ -197,15 +197,15 @@ export async function readRequestedReviewers(
 }
 
 /**
- * Whether `login` has write access to the repository: its collaborator permission is
- * `admin` or `write` (`maintain` reads as `write`). A 404 (not a collaborator) is no
- * access; any other failure is `GITHUB_READ_FAILED`.
+ * The collaborator permission of `login` on the repository as GitHub states it
+ * (`admin`, `write`, `read` or `none`; `maintain` reads as `write`). A 404 (not a
+ * collaborator) is `none`; any other failure is `GITHUB_READ_FAILED`.
  */
-export async function hasWritePermission(
+export async function readCollaboratorPermission(
   client: GitHubClient,
   repo: Repo,
   login: string,
-): Promise<boolean> {
+): Promise<string> {
   const answer = await readOptional(
     `read the permission of ${login} on ${repo.owner}/${repo.repo}`,
     () =>
@@ -215,8 +215,25 @@ export async function hasWritePermission(
         request: absentProbe,
       }),
   );
-  const permission = answer?.data.permission;
+  return answer?.data.permission ?? "none";
+}
+
+/** Whether a collaborator permission gives write access: `admin` or `write`. */
+export function isWritePermission(permission: string): boolean {
   return permission === "admin" || permission === "write";
+}
+
+/**
+ * Whether `login` has write access to the repository: its collaborator permission
+ * (`readCollaboratorPermission`) is `admin` or `write`. A 404 (not a collaborator) is
+ * no access; any other failure is `GITHUB_READ_FAILED`.
+ */
+export async function hasWritePermission(
+  client: GitHubClient,
+  repo: Repo,
+  login: string,
+): Promise<boolean> {
+  return isWritePermission(await readCollaboratorPermission(client, repo, login));
 }
 
 const forcePushQuery = `query(

@@ -16,7 +16,10 @@ instance and returns the client (#674): Nibfin's token is a user's gh login toke
 which `GET /user` works (it does not for installation tokens or `GITHUB_TOKEN`). The
 token is used only here; Octokit sends it as the `authorization` header and redacts it
 from request errors. No timeout is added. The other modules take
-`Pick<Octokit, "request" | "paginate">`.
+`Pick<Octokit, "request" | "paginate">`. `connectAs(token, login, options?, log?)`
+reads the actor of a token `GET /user` cannot read, such as a job's `GITHUB_TOKEN`,
+by its account (`readUser`, `GET /users/{login}`): the runner request (#776) answers
+as `github-actions[bot]`.
 
 Retries (#748, Proposal R4.37–R4.39): every GitHub API call is retried on any error up
 to 3 times (`maxRetries`) after its first attempt, whatever the error is: no
@@ -48,7 +51,8 @@ operation, run)` reruns the whole read up to 3 times. Each retry is logged as
 - A 404 that the caller reads as "absent" is an answer and is not retried: the read
   passes `request: absentProbe` (`{ absent404: true }`, which Octokit does not
   send). The five `readOptional` reads do: `branchExists`, the base branch of
-  `readRequiredChecks`, `hasWritePermission`, `readCommitsAhead` and `readJobLog`.
+  `readRequiredChecks`, `readCollaboratorPermission` (under `hasWritePermission`),
+  `readCommitsAhead` and `readJobLog`.
   Any other failure of these reads is retried.
 - Writes are retried by `write()` (see Writes), merges by `mergeReviewed`
   (`src/stages`).
@@ -302,6 +306,11 @@ attempt with the same `confirm`/`recover` handling and no retry.
 - `closeIssueAs(client, issue, reason)`: closes with `state_reason` `completed` or
   `not_planned` (the Scope stage's already-covered request, #735). A closed Issue is
   not written again; the close is confirmed by reading the state back.
+- `readIssueState(client, issue)` and `closeIssueNotPlanned(client, issue)` (#776,
+  `issue-state.ts`): the same over REST only (`GET` and `PATCH` of
+  `…/issues/{n}`), for a token with only the Issues permission (the runner request's
+  job token). The close goes through `write()`; its confirm drops the kept reads
+  (`freshReads`) and reads the state again. A closed Issue is not written again.
 - `mergePullRequest(client, repo, { number, sha, method })` (#673):
   `PUT …/pulls/{n}/merge` with `sha` and `merge_method`, so GitHub merges only at that
   head and enforces the repository's own rules. Results: `merged` (with the merge
@@ -367,6 +376,20 @@ so it is re-sent on any error without a pre-read.
   organisation's id when it owns it), from the same `GET /repos/{owner}/{repo}`
   read as `readDefaultBranch`, so within a run it costs no extra request.
 
+## Runner access (#776)
+
+`runner-access.ts` holds what a runner request (`src/runner-request`) needs:
+
+- `readUserKeys(client, login)`: the account's public SSH keys
+  (`GET /users/{login}/keys`, all pages) as `{ id, key }`.
+- `addDeployKey(client, repo, title, key)`: adds `key` as a read-only deploy key
+  through `write()`. Its confirm lists the deploy keys (all pages) and matches the
+  key blob, so a key that is already a deploy key of the repository, also one an
+  earlier attempt added, is success (`added: false`).
+- `createRegistrationToken(client, repo)`: `POST …/actions/runners/registration-token`
+  through `write()` with a confirm that never confirms: a new token per send is
+  harmless, each expires unused. Returns `{ token, expiresAt }`.
+
 ## Merge admission (#673)
 
 - `readPullRequest(client, repo, n)`: the pull request with `mergeable` (`null` while
@@ -391,9 +414,11 @@ so it is re-sent on any error without a pre-read.
   (`path`, `line` or `null`, `body`, `url`), all pages.
 - `readRequestedReviewers(client, repo, n)`: the logins and team slugs a pull
   request still requests a review from (`GET …/pulls/{n}/requested_reviewers`).
-- `hasWritePermission(client, repo, login)`: whether the collaborator permission
-  (`GET …/collaborators/{login}/permission`) is `admin` or `write`; a 404 is
-  `false`, any other failure `GITHUB_READ_FAILED`.
+- `readCollaboratorPermission(client, repo, login)`: the collaborator permission
+  (`GET …/collaborators/{login}/permission`) as GitHub states it (`admin`, `write`,
+  `read` or `none`); a 404 is `none`, any other failure `GITHUB_READ_FAILED`.
+  `hasWritePermission(client, repo, login)`: whether it is `admin` or `write`
+  (`isWritePermission`).
 - `readPullRequestCommits(client, repo, n)`: the SHAs of the pull request's current
   commits (heads removed by a force push are not listed).
 - `readForcePushedHeads(client, repo, n)`: the head right before each force push,
@@ -452,7 +477,10 @@ for the Writer check. The review stage (#673) merges, which needs Contents write
 Pull requests write, plus the workflows permission when the pull request changes
 `.github/workflows/`. The GitHub client itself only reads Contents. Dispatching a
 workflow needs Actions write (classic: `repo`); Nibfin's own token is a gh login
-token with `repo` and `workflow` (#674). Reading Issues in
+token with `repo` and `workflow` (#674). The runner request (#776) creates a runner
+registration token and adds a deploy key with that token, which needs admin access to
+the repository, as the workflow did before; its job token keeps only
+`issues: write`. Reading Issues in
 other repositories needs a credential that covers them (#674); without it the read
 fails with `GITHUB_READ_FAILED`.
 
