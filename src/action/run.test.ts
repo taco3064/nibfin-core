@@ -1,7 +1,13 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
-import { failure, paged, sequence } from "../github/fake-github.test.ts";
+import {
+  failure,
+  fakeGitHub,
+  paged,
+  type Route,
+  sequence,
+} from "../github/fake-github.test.ts";
 import type { ActingClient } from "../github/index.ts";
 import { dispatchPath, fakeRunner } from "../route/fake-runner.test.ts";
 import { fakeIssue, fakeIssues } from "../stages/fake-job.test.ts";
@@ -128,7 +134,7 @@ describe("runAction job-failed", () => {
     assert.equal(
       result.stderr,
       "nibfin: STAGE_INPUT_INVALID: INPUT_COMMAND must be one of job-failed, " +
-        "runner-request, wake\n",
+        "repository-dispatch, runner-request, wake\n",
     );
   });
 });
@@ -287,6 +293,65 @@ describe("runAction wake", () => {
     assert.ok(result.stdout.endsWith("Added pending to acme/app#1\n"));
     assert.match(result.stderr, /^nibfin: GITHUB_WRITE_REJECTED: /);
     assert.ok(!result.stderr.includes("secret-token"));
+  });
+});
+
+describe("runAction repository-dispatch", () => {
+  const dispatchEnv = {
+    INPUT_COMMAND: "repository-dispatch",
+    INPUT_REPOSITORY: "acme/e2e",
+    "INPUT_EVENT-TYPE": "issue-delivered",
+    INPUT_PAYLOAD: '{"repository": "acme/app", "issue": 7}',
+  };
+  const path = "POST /repos/acme/e2e/dispatches";
+
+  function dispatchWorld(route: Route = { status: 204 }) {
+    const github = fakeGitHub({ [path]: route });
+    return { github, ...depsFor(github.client, dispatchEnv) };
+  }
+
+  it("sends the event with its payload and exits 0", async () => {
+    const world = dispatchWorld();
+    const result = await capture(world.deps);
+    assert.deepEqual(result, {
+      code: 0,
+      stdout: "GET /user\nSent issue-delivered to acme/e2e\n",
+      stderr: "",
+    });
+    assert.deepEqual(world.tokens, ["secret-token"]);
+    assert.deepEqual(
+      world.github.writes().map((call) => call.body),
+      [
+        {
+          event_type: "issue-delivered",
+          client_payload: { repository: "acme/app", issue: 7 },
+        },
+      ],
+    );
+  });
+
+  it("exits 1 with the failure after the retries, never the payload", async () => {
+    const world = dispatchWorld(failure(422));
+    const result = await capture(world.deps);
+    assert.equal(result.code, 1);
+    assert.match(result.stderr, /^nibfin: GITHUB_WRITE_REJECTED: /);
+    assert.equal(world.github.writes().length, 4);
+    for (const text of [result.stdout, result.stderr]) {
+      assert.ok(!text.includes("secret-token"));
+      assert.ok(!text.includes("acme/app"));
+    }
+  });
+
+  it("exits 1 on invalid input before it connects", async () => {
+    const world = dispatchWorld();
+    const env = { ...world.deps.env, INPUT_PAYLOAD: "[]" };
+    const result = await capture({ ...world.deps, env });
+    assert.deepEqual(result, {
+      code: 1,
+      stdout: "",
+      stderr: "nibfin: STAGE_INPUT_INVALID: INPUT_PAYLOAD must be a JSON object\n",
+    });
+    assert.deepEqual(world.tokens, []);
   });
 });
 

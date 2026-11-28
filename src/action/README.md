@@ -56,11 +56,20 @@ environment, with no `@actions/core`.
   passed; it reads the permission, adds the deploy key and creates the token. `age`
   runs with only `PATH` in its environment, so no `INPUT_*` token reaches it.
 
-All commands build the run URL with Core's `runUrl` from `GITHUB_REPOSITORY` and
-`GITHUB_RUN_ID`; in a reusable workflow these and the event are the caller's. They
-exit 0 when they did their work (`job-failed`: added `pending` or left a standing
-stop as it is; `wake`: dispatched, or skipped the event; `runner-request`: answered,
-refused, or found nothing to answer), and 1 when an input is invalid or GitHub could
+- `repository-dispatch` (inputs `token`, `repository`, `event-type`, `payload`): the
+  step of `nibfin-e2e-notify.yml`. It sends the `repository_dispatch` event
+  `event-type` to `repository` (`<owner>/<repo>`) with `payload`, a JSON object, as
+  its `client_payload` (`dispatchRepository` in `src/github/workflow-dispatch.ts`).
+  The target, the event type and the payload come from the workflow, so Core's code
+  names no repository of Nibfin's own (R8.23). The log names the event and the
+  repository, never the payload.
+
+`job-failed`, `wake` and `runner-request` build the run URL with Core's `runUrl` from
+`GITHUB_REPOSITORY` and `GITHUB_RUN_ID`; in a reusable workflow these and the event
+are the caller's. Every command exits 0 when it did its work (`job-failed`: added
+`pending` or left a standing stop as it is; `wake`: dispatched, or skipped the event;
+`runner-request`: answered, refused, or found nothing to answer;
+`repository-dispatch`: sent the event), and 1 when an input is invalid or GitHub could
 not be read or written (a failed wake does so after asking a person on its Issues, a
 failed runner request after answering that it failed); the log then has the
 failure's code and message, never an input's value.

@@ -4,7 +4,7 @@ description: >-
   available. Built from nibfin-core's src/action/; see src/action/README.md.
 inputs:
   command:
-    description: "What to run: job-failed, runner-request or wake"
+    description: "What to run: job-failed, repository-dispatch, runner-request or wake"
     required: true
   token:
     description: >-
@@ -28,6 +28,15 @@ inputs:
     description: >-
       runner-request: the job's GITHUB_TOKEN, which reads the request and writes the
       answer as github-actions[bot]
+    required: false
+  repository:
+    description: "repository-dispatch: the repository the event goes to, <owner>/<repo>"
+    required: false
+  event-type:
+    description: "repository-dispatch: the event's type (event_type)"
+    required: false
+  payload:
+    description: "repository-dispatch: the event's client_payload, a JSON object"
     required: false
 runs:
   using: node24

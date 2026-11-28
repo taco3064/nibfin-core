@@ -4,6 +4,7 @@ import {
   inputName,
   readCommand,
   readJobFailedInputs,
+  readRepositoryDispatchInputs,
   readRunnerRequestInputs,
   readWakeInputs,
 } from "./inputs.ts";
@@ -36,17 +37,22 @@ describe("inputName", () => {
 });
 
 describe("readCommand", () => {
-  it("reads job-failed, runner-request and wake", () => {
+  it("reads job-failed, repository-dispatch, runner-request and wake", () => {
     assert.equal(readCommand(env), "job-failed");
     assert.equal(readCommand({ INPUT_COMMAND: "runner-request" }), "runner-request");
     assert.equal(readCommand({ INPUT_COMMAND: "wake" }), "wake");
+    assert.equal(
+      readCommand({ INPUT_COMMAND: "repository-dispatch" }),
+      "repository-dispatch",
+    );
   });
 
   it("rejects a missing or unknown command", () => {
     rejects(() => readCommand({}), "INPUT_COMMAND is missing");
     rejects(
       () => readCommand({ INPUT_COMMAND: "deploy" }),
-      "INPUT_COMMAND must be one of job-failed, runner-request, wake",
+      "INPUT_COMMAND must be one of job-failed, repository-dispatch, runner-request, " +
+        "wake",
     );
   });
 });
@@ -239,6 +245,50 @@ describe("readRunnerRequestInputs", () => {
         ? message
         : `GITHUB_EVENT_PATH ${message}`;
       rejects(() => read(payload), full);
+    });
+  }
+});
+
+describe("readRepositoryDispatchInputs", () => {
+  const dispatchEnv = {
+    INPUT_COMMAND: "repository-dispatch",
+    INPUT_TOKEN: "secret-token",
+    INPUT_REPOSITORY: "acme/e2e",
+    "INPUT_EVENT-TYPE": "issue-delivered",
+    INPUT_PAYLOAD: '{"repository": "acme/app", "issue": 7}\n',
+  };
+
+  it("reads the repository, the event type, the payload and the token", () => {
+    assert.deepEqual(readRepositoryDispatchInputs(dispatchEnv), {
+      token: "secret-token",
+      repository: { owner: "acme", repo: "e2e" },
+      eventType: "issue-delivered",
+      payload: { repository: "acme/app", issue: 7 },
+    });
+  });
+
+  const invalid: [string, Record<string, string | undefined>, string][] = [
+    [
+      "a missing repository",
+      { INPUT_REPOSITORY: undefined },
+      "INPUT_REPOSITORY is missing",
+    ],
+    [
+      "a bad repository",
+      { INPUT_REPOSITORY: "e2e" },
+      "INPUT_REPOSITORY must be <owner>/<repo>",
+    ],
+    ["a missing event type", { "INPUT_EVENT-TYPE": " " }, "INPUT_EVENT-TYPE is missing"],
+    ["a missing payload", { INPUT_PAYLOAD: "" }, "INPUT_PAYLOAD is missing"],
+    ["a payload that is not JSON", { INPUT_PAYLOAD: "{" }, "must be a JSON object"],
+    ["a JSON array payload", { INPUT_PAYLOAD: "[7]" }, "must be a JSON object"],
+    ["a null payload", { INPUT_PAYLOAD: "null" }, "must be a JSON object"],
+    ["a missing token", { INPUT_TOKEN: undefined }, "INPUT_TOKEN is missing"],
+  ];
+  for (const [name, overrides, message] of invalid) {
+    it(`rejects ${name}`, () => {
+      const full = message.startsWith("INPUT_") ? message : `INPUT_PAYLOAD ${message}`;
+      rejects(() => readRepositoryDispatchInputs({ ...dispatchEnv, ...overrides }), full);
     });
   }
 });
