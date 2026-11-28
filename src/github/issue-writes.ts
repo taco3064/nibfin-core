@@ -214,3 +214,34 @@ export async function addAssignees(
   }
   return true;
 }
+
+/**
+ * Replaces the body of `issue` (`PATCH …/issues/{n}` with `body` only; the repair
+ * agent's amendment, #778). Before a re-send `confirm` re-reads the Issue record;
+ * afterwards the body must read back exactly, else `GITHUB_WRITE_UNCONFIRMED`.
+ */
+export async function updateIssueBody(
+  client: ActingClient,
+  issue: IssueRef,
+  body: string,
+): Promise<void> {
+  const operation = `update the body of ${formatIssue(issue)}`;
+  const current = async () => (await readIssueRecord(client, issue)).body === body;
+  await write(
+    client,
+    operation,
+    async () => {
+      await client.request("PATCH /repos/{owner}/{repo}/issues/{issue_number}", {
+        owner: issue.owner,
+        repo: issue.repo,
+        issue_number: issue.number,
+        body,
+      });
+      return true;
+    },
+    { confirm: async () => ((await current()) ? true : undefined) },
+  );
+  if (!(await current())) {
+    throw unconfirmed(operation, "The read-back body differs");
+  }
+}

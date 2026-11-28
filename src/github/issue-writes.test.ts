@@ -10,6 +10,7 @@ import {
   createIssue,
   findCreatedIssue,
   readIssueId,
+  updateIssueBody,
 } from "./issue-writes.ts";
 
 const lib = { owner: "acme", repo: "lib" };
@@ -304,5 +305,61 @@ describe("addAssignees", () => {
       "GITHUB_WRITE_UNCONFIRMED",
     );
     assert.match(String((error.cause as Error).message), /did not assign mika/);
+  });
+});
+
+describe("updateIssueBody", () => {
+  const ref = { ...lib, number: 3 };
+
+  it("replaces the body and reads it back", async () => {
+    const world = fakeWorld();
+    const issue = world.add({ repo: "lib", number: 3, body: "Old." });
+    await updateIssueBody(world.github.client, ref, "New.");
+    assert.equal(issue.body, "New.");
+    const [patch] = world.github.writes();
+    assert.deepEqual(patch.body, { body: "New." });
+  });
+
+  it("is not sent again when an unanswered write took effect", async () => {
+    const world = fakeWorld();
+    const issue = world.add({ repo: "lib", number: 3, body: "Old." });
+    world.hook = (request, apply) => {
+      if (request.method === "PATCH") {
+        void apply();
+        throw new TypeError("fetch failed");
+      }
+      return apply();
+    };
+    await updateIssueBody(world.github.client, ref, "New.");
+    assert.equal(issue.body, "New.");
+    assert.equal(world.github.writes().length, 1);
+  });
+
+  it("sends again when an unanswered write did not take effect", async () => {
+    const world = fakeWorld();
+    const issue = world.add({ repo: "lib", number: 3, body: "Old." });
+    let lost = false;
+    world.hook = (request, apply) => {
+      if (request.method === "PATCH" && !lost) {
+        lost = true;
+        throw new TypeError("fetch failed");
+      }
+      return apply();
+    };
+    await updateIssueBody(world.github.client, ref, "New.");
+    assert.equal(issue.body, "New.");
+    assert.equal(world.github.writes().length, 2);
+  });
+
+  it("fails unconfirmed when the body does not read back", async () => {
+    const world = fakeWorld();
+    world.add({ repo: "lib", number: 3, body: "Old." });
+    world.hook = (request, apply) =>
+      request.method === "PATCH" ? { data: {} } : apply();
+    const error = await expectCode(
+      updateIssueBody(world.github.client, ref, "New."),
+      "GITHUB_WRITE_UNCONFIRMED",
+    );
+    assert.match(error.message, /update the body of acme\/lib#3/);
   });
 });

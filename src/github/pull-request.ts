@@ -57,6 +57,27 @@ export async function readPullRequestCommits(
   return commits.map((commit) => commit.sha);
 }
 
+/**
+ * The file names a pull request changes (`GET …/pulls/{n}/files`, all pages; GitHub
+ * lists at most 3000 files).
+ */
+export async function readPullRequestFiles(
+  client: GitHubClient,
+  repo: Repo,
+  number: number,
+): Promise<string[]> {
+  const files = await read(
+    `list files of pull request ${repo.owner}/${repo.repo}#${number}`,
+    () =>
+      client.paginate("GET /repos/{owner}/{repo}/pulls/{pull_number}/files", {
+        ...repo,
+        pull_number: number,
+        per_page: 100,
+      }),
+  );
+  return files.map((file) => file.filename);
+}
+
 /** A reviewer's latest submitted review that approved, dismissed or requested changes. */
 export interface LatestReview {
   id: number;

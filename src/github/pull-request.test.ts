@@ -19,6 +19,7 @@ import {
   readPullRequest,
   readLatestReviews,
   readPullRequestCommits,
+  readPullRequestFiles,
   readRequestedReviewers,
   readReviewComments,
 } from "./pull-request.ts";
@@ -76,6 +77,21 @@ describe("readCommitPullRequests", () => {
   it("fails when they cannot be read", async () => {
     const github = fakeGitHub();
     await expectReadFailure(readCommitPullRequests(github.client, repo, "abc"));
+  });
+});
+
+describe("readPullRequestFiles", () => {
+  it("lists every changed file name, all pages", async () => {
+    const files = Array.from({ length: 101 }, (_, index) => ({ filename: `f${index}` }));
+    const github = fakeGitHub({ "GET /repos/acme/app/pulls/7/files": paged(files) });
+    const names = await readPullRequestFiles(github.client, repo, 7);
+    assert.equal(names.length, 101);
+    assert.equal(names.at(-1), "f100");
+  });
+
+  it("fails when a page cannot be read", async () => {
+    const github = fakeGitHub();
+    await expectReadFailure(readPullRequestFiles(github.client, repo, 7));
   });
 });
 

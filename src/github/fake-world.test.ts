@@ -218,12 +218,18 @@ export function fakeWorld(): FakeWorld {
       return { data: issue.labels.map((name) => ({ name })) };
     });
     route(`PATCH ${base}`, (request) => {
-      const { state, state_reason } = request.body as {
-        state: "closed";
-        state_reason: string;
+      const { state, state_reason, body } = request.body as {
+        state?: "closed";
+        state_reason?: string;
+        body?: string;
       };
-      issue.state = state;
-      issue.stateReason = state_reason;
+      if (state !== undefined) {
+        issue.state = state;
+        issue.stateReason = state_reason!;
+      }
+      if (body !== undefined) {
+        issue.body = body;
+      }
       return { data: json(issue) };
     });
     route(`GET ${base}/comments`, (request) =>
