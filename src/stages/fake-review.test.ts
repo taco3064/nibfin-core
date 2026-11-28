@@ -166,8 +166,10 @@ function routePullDetails(world: ReviewWorld) {
         ? { status: 404, data: { message: "Not Found" } }
         : { data: { commits: commits.map((sha) => ({ sha })) } };
     }
-    if (/^GET \/repos\/acme\/app\/issues\/comments\/\d+$/.test(key)) {
-      const id = Number(/(\d+)$/.exec(key)?.[1]);
+    const byId = /^GET \/repos\/acme\/app\/issues\/comments\/(\d+)$/.exec(key);
+    const id = Number(byId?.[1]);
+    // A comment of the main Issue keeps its own route (with `updated_at`).
+    if (byId !== null && !world.issues.main.comments.some((item) => item.id === id)) {
       return { data: { id, node_id: `IC_${id}` } };
     }
     return permissionRead(world, key) ?? fallback(key) ?? pullCommentWrite(world, key);

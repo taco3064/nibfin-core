@@ -148,7 +148,10 @@ A new stop is decided in this order:
 6. anything else (a second stop for another handled code, R4.47, or a code no rule
    decides) → the repair agent (see Repair agent).
 
-Writes: W1 upserts the record. `advice` ends there (`pending` stays). `retry` then
+Writes: W1 upserts the record; when it replaces an `options` record, `keepChoice`
+first stores a decision on it that is not stored yet as `chosen` (see Chosen option
+under Shape stage), so a stop between the removal of `pending` and the next Shape run
+does not lose the choice. `advice` ends there (`pending` stays). `retry` then
 removes `pending` (W2, confirmed by the read-back labels, else
 `GITHUB_WRITE_UNCONFIRMED`). `wait` sleeps until reset + 1 minute, drops the read
 cache, and continues to W2 only while the Issue still derives `ineligible (pending)`
@@ -195,6 +198,13 @@ repair agent's evidence follows as nested items), `- Done:` and `- Advice:`, the
 repair agent's options or follow-up steps. It never quotes the failure message.
 `formatRepairRecord(state, text)` writes it and `parseRepairRecord(body)` reads the
 state; a missing or unparseable state line, or `wait` without `reset`, is no record.
+
+The options of an `options` record are `formatOptions(options)`: a `### Options`
+heading, then per option a line `N. **<title>**[ (recommended)]` and its consequence
+and `Issue change: <text>`, both indented by three spaces. `parseOptions(body)` reads
+them back as `{ number, text }`: an option starts at a line matching `N. **` and runs
+to the next such line, a `### ` line or the end, so a number inside the indented text
+never starts one. `recordReason(body)` gives the `- Reason:` line.
 
 ### Repair agent
 
@@ -293,10 +303,16 @@ only `repairing` is left out of R9.1's count of Issues that need a person.
 `formatDecision(n)` is `<!-- nibfin:decision option=n -->` (n ≥ 1), what the
 Dashboard writes for option n (R4.51). `parseDecision(body)` gives n when that marker
 is the first line, or when the trimmed body is only a number; anything else is no
-decision. Checking the author is a Collaborator and applying the option belong to the
-Shape stage (separate Issue). Removing `pending` without a decision is one more run
-(R4.52): the route continues as usual, and the removal makes that `pending` comment
-stale, so it is not repaired later.
+decision.
+
+The decision on an `options` record (`readLiveDecision`, #779) is, among the
+Issue's comments (REST, every page) created after the record's `updated_at`, newest
+first, the first that `parseDecision` reads as an option the record lists and whose
+author has write access to the Issue's repository (`hasWritePermission`: `admin` or
+`write`, which covers `maintain`; one read per login). Later chat does not cancel a
+decision. Applying it belongs to the Shape stage (see Chosen option). Removing
+`pending` without a decision is one more run (R4.52): the route continues as usual,
+and the removal makes that `pending` comment stale, so it is not repaired later.
 
 ## Harness
 
@@ -441,9 +457,12 @@ After a Scope run Core dispatches only its wakes, never the request's own route 
 
 `runShapeStage(context, client, deps?)`:
 
-1. Reads the snapshot. When `deriveStage` is not `shape`, it logs the actual stage
-   and exits 0 without running a role, so a run after publication does nothing (at
-   a delivery stage it may still name a next action, see Shape reported wrong).
+1. Reads the snapshot and the choice (`readChoice`). When `deriveStage` is not
+   `shape`, and is not a delivery stage with a pending choice, it logs the actual
+   stage and exits 0 without running a role, so a run after publication does nothing
+   (at a delivery stage it may still name a next action, see Shape reported wrong).
+   A pending choice is applied first (see Chosen option); the steps below run on the
+   Issue as it is afterwards, and only when it then derives `shape`.
 2. Reads the sources: the Issue's title, body and URL, and for each Blocked by Issue
    its URL, title, body and marked `shape` comment. An upstream Issue in another
    repository is flagged: its source is not in the workspace, so the Author reports a
@@ -486,6 +505,73 @@ list; `shape` must not start with `<!-- nibfin:`. A `blocked` result from either
 writes the marked `shape-blocked` comment with the reason and stops with
 `STAGE_BLOCKED`. The prompt tells both roles that `shape` and `reason` are posted as
 written, so they follow the skill's Disclosure rules.
+
+### Chosen option
+
+When a Collaborator chose an option on Nibfin's `options` repair record (see Decision
+comment) and `pending` is removed, the next Shape run applies the option's Issue
+change before it shapes (Proposal R4.51, #779).
+
+Nibfin's marked comment `<!-- nibfin:choice -->` (one per Issue) stores the choice
+and records the change. Its next line is the state line:
+
+```text
+<!-- nibfin:choice-state for=<record digest> option=<N> comment=<id> status=<status> -->
+```
+
+`for` is the options record's `for`, `comment` the decision comment's id. Then who
+chose which option in which comment (the login in backticks, no `@`), `- Reason of
+the stop:` (the record's Reason), `- Status:` and, while applying or once applied,
+`- Change:` with the role's one-line summary and `- Blocked by to add:`; `dropped`
+says why. The chosen option's text from the record comes last, under `### Chosen
+option`, so the choice survives a later record. `formatChoice` writes it,
+`parseChoice` reads it; a missing part is no choice.
+
+`readChoice` gives the state: one decision per options record, so a stored choice
+for the live record that is `applying`, `applied` or `dropped` stands; otherwise a
+live decision is `new`, or `chosen` when it is the stored one (a newer decision
+replaces a stored `chosen` one). Without a live decision (the record was replaced by
+a later stop), a stored `chosen` or `applying` choice stands. A choice is pending
+while `new`, `chosen` or `applying`; the route sends a delivery-stage Issue with a
+pending choice to Shape (see `src/route`).
+
+`applyChoice` runs after `prepareStageJob`:
+
+1. `new`: W0 stores it as `chosen`.
+2. `applying` (an earlier run stopped after W1): W writes `dropped` and the run stops
+   with `STAGE_CHOICE_INTERRUPTED` (not temporary): the option may be partly applied,
+   so a person checks the Issue against the `choice` comment and removes `pending`.
+   An Issue edit is never repeated blindly.
+3. `chosen`: the read-only role `shape-choice` ("Shape Author (chosen option)",
+   skill `shape`) gets the Shape sources and the chosen option (number, text, the
+   record's Reason and the decision comment's URL), and returns
+   `{ outcome: "amend", body, blockedBy, changeSummary }` (`body` the complete new
+   body or `null`, `blockedBy` Issue URLs to add) or `blocked`. `parseIssueAmendment`
+   checks it as for the repair agent's AMEND, except that an empty change is valid:
+   the option may leave the Issue as it is. A dropped `Origin:` line or another URL is
+   `STAGE_RESULT_INVALID` (the choice stays `chosen`).
+4. `blocked`: W `dropped` with the reason, then the `shape-blocked` comment and
+   `STAGE_BLOCKED`.
+5. Recheck from GitHub: paused, closed or `pending` → nothing written, no next
+   action (the wake that clears it routes Shape again); a newer decision, or a change
+   of the Issue body, title or Blocked by → back to 1 with the fresh reads, without a
+   limit; a choice no longer pending → nothing applied.
+6. W1 `applying` with the change; W2 `updateIssueBody` when the body differs; W3
+   `addBlockedBy` per URL (an existing edge is skipped); W4 only when W2 or W3 changed
+   something on a `shaped` Issue: removes `shaped` (R3.39's precedent), checked by
+   the read-back labels; W5 `applied` with what changed or "No Issue change." Agent
+   text is redacted of the token.
+7. The run reads the Issue again. At `shape` (no `shaped`, or W4 removed it) the
+   usual flow follows on the changed Issue: an existing Shape is validated first,
+   publication adds `shaped` back and delivery continues. At a delivery stage (the
+   option left a shaped Issue as it was) no Shape round runs: the run writes no next
+   action with `progressed` true, and the re-route after the stage
+   (`continueAfterStage`) dispatches what the route asks for that delivery stage on
+   the same wake (Review, a Deliver fix, finish, or nothing while an approval wait
+   waits).
+
+A crash before W1 runs the role again on the next wake. The repair stage keeps a
+decision that was not stored yet before it replaces its record (see What decides).
 
 ## Deliver stage
 

@@ -11,11 +11,20 @@ import {
   seedComment,
   shapeVersion,
 } from "../stages/fake-job.test.ts";
+import { failedActionsCheck } from "../stages/fake-delivery.test.ts";
 import {
   addPullComment,
   requireApprovals,
   reviewWorld,
 } from "../stages/fake-review.test.ts";
+import { readLiveDecision, saveChoice } from "../stages/choice.ts";
+import {
+  decide,
+  issueRef,
+  permissions,
+  writeOptionsRecord,
+} from "../stages/fake-choice.test.ts";
+import { freshReads } from "../github/index.ts";
 import { continueAfterStage, type FinishedStage } from "./after-stage.ts";
 import { fakeRunner, selfHostedRunner } from "./fake-runner.test.ts";
 
@@ -200,5 +209,58 @@ describe("continueAfterStage", () => {
     assert.ok(error instanceof NoProgressError);
     assert.equal(error.temporary, true);
     assert.match(error.message, /computing mergeability/);
+  });
+});
+
+describe("continueAfterStage after a Shape run that applied a choice (#779)", () => {
+  async function choose(
+    world: Awaited<ReturnType<typeof reviewWorld>>,
+    status: "chosen" | "applied",
+  ) {
+    const { issues } = world;
+    permissions(issues);
+    await writeOptionsRecord(issues);
+    decide(issues, 2);
+    freshReads(issues.github.client);
+    const live = await readLiveDecision(issues.github.client, issueRef);
+    await saveChoice(issues.github.client, issueRef, live!, status);
+  }
+
+  it("dispatches the review an unchanged shaped Issue still needs", async () => {
+    const world = await reviewWorld();
+    await choose(world, "applied");
+    const runner = fakeRunner(world.issues.github);
+    await continueAfterStage(runner.scope, finished("shape"), record(true));
+    assert.deepEqual(runner.dispatched, [
+      { stage: "review", repo: "acme/app", issue: "1", reason: "", assignee: "5" },
+    ]);
+  });
+
+  it("dispatches the CI fix at ci-failed", async () => {
+    const world = await reviewWorld();
+    world.required = ["test"];
+    world.checkRuns.set(world.head, [failedActionsCheck(1, "test")]);
+    await choose(world, "applied");
+    const runner = fakeRunner(world.issues.github);
+    await continueAfterStage(runner.scope, finished("shape"), record(true));
+    assert.deepEqual(runner.dispatched, [
+      {
+        stage: "deliver",
+        repo: "acme/app",
+        issue: "1",
+        reason: "ci-failure",
+        assignee: "5",
+      },
+    ]);
+  });
+
+  it("dispatches Shape again for a choice still pending after progress", async () => {
+    const world = await reviewWorld();
+    await choose(world, "chosen");
+    const runner = fakeRunner(world.issues.github);
+    await continueAfterStage(runner.scope, finished("shape"), record(true));
+    assert.deepEqual(runner.dispatched, [
+      { stage: "shape", repo: "acme/app", issue: "1", reason: "", assignee: "5" },
+    ]);
   });
 });

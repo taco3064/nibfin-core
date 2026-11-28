@@ -16,6 +16,8 @@ import {
   type FixReason,
   isDeliveryStage,
   type NextAction,
+  pendingChoice,
+  readChoice,
   readApprovalWait,
   readPendingReport,
   readRepairNeed,
@@ -55,15 +57,15 @@ const nothing: NextAction = { stage: null, reason: null };
 
 /**
  * The next action GitHub state asks for, composed from the stages' own rules:
- * `scope` → Scope (#734); `shape` → Shape; a delivery stage with a pending
- * `shape-wrong` report → Deliver (its start removes `shaped`); `review` with a
- * current review comment → the Deliver `review` fix; `review` whose current
- * `approval-wait` comment still waits for approvals → none (a submitted review wakes
- * it); `review` whose current
- * `approval-wait` comment has its approvals or a writer's request for changes on the
- * head → finish (the Shape review already passed, so no agent runs); any other
- * delivery stage → `shapeNextAction` (`done` → finish); closed as delivered →
- * finish (wake only); anything else → none.
+ * `scope` → Scope (#734); `shape` → Shape; a delivery stage with a choice on a
+ * repair record not yet applied → Shape (it applies the choice first, #779); a
+ * delivery stage with a pending `shape-wrong` report → Deliver (its start removes
+ * `shaped`); `review` with a current review comment → the Deliver `review` fix;
+ * `review` whose current `approval-wait` comment still waits for approvals → none (a
+ * submitted review wakes it); `review` whose current `approval-wait` comment has its
+ * approvals or a writer's request for changes on the head → finish (the Shape review
+ * already passed, so no agent runs); any other delivery stage → `shapeNextAction`
+ * (`done` → finish); closed as delivered → finish (wake only); anything else → none.
  */
 async function nextFor(
   client: ActingClient,
@@ -79,6 +81,9 @@ async function nextFor(
     return { stage: "shape", reason: null };
   }
   if (isDeliveryStage(stage)) {
+    if (pendingChoice(await readChoice(client, issue))) {
+      return { stage: "shape", reason: null };
+    }
     if (await readPendingReport(client, issue, log)) {
       return { stage: "deliver", reason: null };
     }
