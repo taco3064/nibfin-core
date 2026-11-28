@@ -349,9 +349,9 @@ The Scope stage publishes a request's plan with these (`issue-writes.ts`, #736):
   silently ignores an Assignee it cannot add, so every login must read back, else
   `GITHUB_WRITE_UNCONFIRMED`.
 
-`dispatchWorkflow` (Workflow runs) goes through `write()` with a `confirm` that never
-confirms: a dispatch has no run to re-read, and a repeated wake is harmless (R4.35),
-so it is re-sent on any error without a pre-read.
+`dispatchWorkflow` and `dispatchRepository` (Workflow runs) go through `write()` with
+a `confirm` that never confirms: a dispatch has no run to re-read, and a repeated
+wake (R4.35) or retest is harmless, so it is re-sent on any error without a pre-read.
 
 ## Workflow runs (#674)
 
@@ -372,6 +372,10 @@ so it is re-sent on any error without a pre-read.
   without a pre-read (see Writes); then no response or a 5xx is
   `GITHUB_WRITE_UNCONFIRMED` (a dispatch cannot be confirmed by a re-read), any
   other failure `GITHUB_WRITE_REJECTED`.
+- `dispatchRepository(client, repo, eventType, payload)` (#776): sends the
+  `repository_dispatch` event `eventType` to `repo` with `payload` as its
+  `client_payload` (`POST /repos/{owner}/{repo}/dispatches`), re-sent and reported
+  like `dispatchWorkflow`. The Action's `repository-dispatch` command uses it.
 - `readRepoOwnerId(client, repo)` (#721): the repository's `owner.id` (an
   organisation's id when it owns it), from the same `GET /repos/{owner}/{repo}`
   read as `readDefaultBranch`, so within a run it costs no extra request.
