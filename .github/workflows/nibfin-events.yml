@@ -188,7 +188,7 @@ jobs:
               fi
               case "$ACTION:$LABEL" in
                 labeled:shaped | unlabeled:shaped | labeled:delivered | \
-                  unlabeled:delivered | labeled:pending)
+                  unlabeled:delivered)
                   echo "Nibfin's own label change ($ACTION $LABEL); not routed"
                   exit 0
                   ;;
