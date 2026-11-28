@@ -23,7 +23,9 @@ true`; a stale one falls to rule 4) → `deliver review`; `review` whose PR has 
    #726); approvals met or changes requested on the head → `finish` (#755);
 4. any other delivery stage → `shapeNextAction(stage, issue)` (`done` → `finish`,
    `conflict` → `deliver conflict`, `awaiting-*` → `null`);
-5. closed as delivered (`closedAsDelivered`) → `finish` (wake-only redo);
+5. closed as delivered (`closedAsDelivered`: Closed + `delivered`, whoever closed
+   it, also by hand without Nibfin's closing comment, R4.11) → `finish` (wake-only
+   redo, R4.29, R5.74);
 6. anything else (paused, `pending`, neither `scope` nor `request`, blocked, no
    Assignee) → `null`.
 
@@ -77,7 +79,10 @@ alone, before any token is used, in this order:
 1. every event but `pull_request_review` first needs `NIBFIN_EXECUTION_REPO`;
 2. `issues`: the Issue needs `scope` or `request`; a `labeled` or `unlabeled`
    `shaped` or `delivered` wakes nothing (any other label change, such as re-adding a
-   flow label or removing `pause`, and `assigned`/`unassigned` wake); target
+   flow label or removing `pause`, and `assigned`/`unassigned` wake), except a
+   `labeled delivered` on an Issue whose payload state is not `open`: a person closed
+   it and marked it delivered afterwards. Nibfin adds `delivered` while the Issue is
+   still open, so its own label add stays filtered; target
    `{ issue }`, if the sender has admin or write permission;
 3. `pull_request_review`: a `nibfin/issue-*` head of the same repository, then
    `NIBFIN_EXECUTION_REPO`; target `{ branch }`, if the reviewer has admin or write
