@@ -12,6 +12,7 @@ import { defaultTemplateDir, renderWorkflows, TemplateValueError } from "./rende
 const repoRoot = fileURLToPath(new URL("../../", import.meta.url));
 const zero = `ghcr.io/taco3064/nibfin@sha256:${"0".repeat(64)}`;
 const real = `ghcr.io/taco3064/nibfin@sha256:${"ab".repeat(32)}`;
+const commit = "0123456789abcdef0123456789abcdef01234567";
 const hookLine = /^ {2}IMAGE_REF: ghcr\.io\/taco3064\/nibfin@sha256:([0-9a-f]{64})$/;
 
 const requests: Record<string, RenderRequest> = {
@@ -29,8 +30,15 @@ const requests: Record<string, RenderRequest> = {
     image: real,
     defaultBranch: "trunk",
     workflows: ["Build x", "CI"],
+    commit,
   },
-  "user peer": { set: "peer", channel: "user", defaultBranch: "trunk", workflows: [] },
+  "user peer": {
+    set: "peer",
+    channel: "user",
+    defaultBranch: "trunk",
+    workflows: [],
+    commit,
+  },
 };
 
 function file(request: RenderRequest, name: string): string {
@@ -251,15 +259,28 @@ describe("renderWorkflows nibfin-job.yml", () => {
     assert.ok(!own().includes("\n  IMAGE_REF: "));
   });
 
-  it("renders the one pending fragment in all three Jobs", async () => {
-    const fragment = await readFile(
-      join(defaultTemplateDir, "fragments", "ask-person.eta"),
-      "utf8",
-    );
-    for (const content of [user(), own()]) {
-      assert.equal(count(content, fragment), 3);
+  it("renders the one pending step, Core's Action, in all three Jobs", () => {
+    const step = (uses: string) =>
+      "      - name: Ask a person to act\n" +
+      "        if: failure() && inputs.issue != ''\n" +
+      `        uses: ${uses}\n` +
+      "        with:\n" +
+      "          command: job-failed\n" +
+      "          token: ${{ secrets.token }}\n" +
+      "          repo: ${{ inputs.repo }}\n" +
+      "          issue: ${{ inputs.issue }}\n" +
+      "          stage: ${{ inputs.stage }}\n";
+    const action = "taco3064/nibfin-core/action";
+    for (const [content, uses] of [
+      [user(), `${action}@${commit}`],
+      [own(), `${action}@main`],
+    ]) {
+      assert.equal(count(content, step(uses)), 3);
       assert.equal(count(content, "      - name: Ask a person to act\n"), 3);
-      assert.equal(count(content, "          STAGE: ${{ inputs.stage }}\n"), 4);
+      assert.equal(count(content, "uses: taco3064/nibfin-core/action@"), 3);
+      for (const part of ["curl", "call()", "GITHUB_SERVER_URL"]) {
+        assert.ok(!content.includes(part), part);
+      }
     }
   });
 

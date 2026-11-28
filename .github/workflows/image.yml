@@ -13,6 +13,7 @@ on:
       - src/**
       - skills/**
       - templates/**
+      - action/**
       - .github/workflows/image.yml
       - .github/scripts/smoke-image.sh
   workflow_dispatch:

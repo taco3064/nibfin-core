@@ -97,50 +97,13 @@ jobs:
       # image pull or a container that never started.
       - name: Ask a person to act
         if: failure() && inputs.issue != ''
-        env:
-          TOKEN: ${{ secrets.token }}
-          REPO: ${{ inputs.repo }}
-          ISSUE: ${{ inputs.issue }}
-          STAGE: ${{ inputs.stage }}
-        run: |
-          api="https://api.github.com/repos/$REPO/issues/$ISSUE"
-          headers=(-H "Authorization: Bearer $TOKEN" -H "Accept: application/vnd.github+json"
-            -H "X-GitHub-Api-Version: 2022-11-28")
-          # Sends one call again up to 3 times on any error (1, 2 and 4 s apart).
-          call() {
-            local attempt out
-            for attempt in 1 2 3 4; do
-              if out=$(curl -fsS "${headers[@]}" "$@"); then
-                printf '%s' "$out"
-                return 0
-              fi
-              [ "$attempt" != 4 ] || return 1
-              echo "nibfin: GitHub API call failed; retry $attempt of 3" >&2
-              sleep $((1 << (attempt - 1)))
-            done
-          }
-          labels=$(call "$api/labels?per_page=100")
-          if grep -Eq '"name": *"pending"' <<< "$labels"; then
-            echo "$REPO#$ISSUE already has pending"
-            exit 0
-          fi
-          run="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
-          call -X POST "$api/labels" -d '{"labels":["pending"]}' > /dev/null
-          body="Nibfin's $STAGE Job failed: $run. Fix the cause, then remove the \`pending\` label to continue."
-          # A comment whose reply was lost is found by its run link and not posted twice.
-          since=$(date -u -d '-1 minute' +%Y-%m-%dT%H:%M:%SZ)
-          for attempt in 1 2 3 4; do
-            curl -fsS "${headers[@]}" -X POST "$api/comments" -d "{\"body\": \"$body\"}" > /dev/null && break
-            [ "$attempt" != 4 ] || exit 1
-            echo "nibfin: GitHub API comment failed; retry $attempt of 3" >&2
-            sleep $((1 << (attempt - 1)))
-            # A failed re-read fails the step rather than risk a second comment.
-            found=$(call "$api/comments?per_page=100&since=$since") || exit 1
-            if grep -F "$run" <<< "$found" > /dev/null; then
-              break
-            fi
-          done
-          echo "Added pending to $REPO#$ISSUE"
+        uses: taco3064/nibfin-core/action@main
+        with:
+          command: job-failed
+          token: ${{ secrets.token }}
+          repo: ${{ inputs.repo }}
+          issue: ${{ inputs.issue }}
+          stage: ${{ inputs.stage }}
 
   finish:
     name: finish
@@ -184,50 +147,13 @@ jobs:
       # a container that never started.
       - name: Ask a person to act
         if: failure() && inputs.issue != ''
-        env:
-          TOKEN: ${{ secrets.token }}
-          REPO: ${{ inputs.repo }}
-          ISSUE: ${{ inputs.issue }}
-          STAGE: ${{ inputs.stage }}
-        run: |
-          api="https://api.github.com/repos/$REPO/issues/$ISSUE"
-          headers=(-H "Authorization: Bearer $TOKEN" -H "Accept: application/vnd.github+json"
-            -H "X-GitHub-Api-Version: 2022-11-28")
-          # Sends one call again up to 3 times on any error (1, 2 and 4 s apart).
-          call() {
-            local attempt out
-            for attempt in 1 2 3 4; do
-              if out=$(curl -fsS "${headers[@]}" "$@"); then
-                printf '%s' "$out"
-                return 0
-              fi
-              [ "$attempt" != 4 ] || return 1
-              echo "nibfin: GitHub API call failed; retry $attempt of 3" >&2
-              sleep $((1 << (attempt - 1)))
-            done
-          }
-          labels=$(call "$api/labels?per_page=100")
-          if grep -Eq '"name": *"pending"' <<< "$labels"; then
-            echo "$REPO#$ISSUE already has pending"
-            exit 0
-          fi
-          run="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
-          call -X POST "$api/labels" -d '{"labels":["pending"]}' > /dev/null
-          body="Nibfin's $STAGE Job failed: $run. Fix the cause, then remove the \`pending\` label to continue."
-          # A comment whose reply was lost is found by its run link and not posted twice.
-          since=$(date -u -d '-1 minute' +%Y-%m-%dT%H:%M:%SZ)
-          for attempt in 1 2 3 4; do
-            curl -fsS "${headers[@]}" -X POST "$api/comments" -d "{\"body\": \"$body\"}" > /dev/null && break
-            [ "$attempt" != 4 ] || exit 1
-            echo "nibfin: GitHub API comment failed; retry $attempt of 3" >&2
-            sleep $((1 << (attempt - 1)))
-            # A failed re-read fails the step rather than risk a second comment.
-            found=$(call "$api/comments?per_page=100&since=$since") || exit 1
-            if grep -F "$run" <<< "$found" > /dev/null; then
-              break
-            fi
-          done
-          echo "Added pending to $REPO#$ISSUE"
+        uses: taco3064/nibfin-core/action@main
+        with:
+          command: job-failed
+          token: ${{ secrets.token }}
+          repo: ${{ inputs.repo }}
+          issue: ${{ inputs.issue }}
+          stage: ${{ inputs.stage }}
 
   stage:
     name: stage
@@ -347,47 +273,10 @@ jobs:
       # rest: checkout, image pull, a container that never started, clean up.
       - name: Ask a person to act
         if: failure() && inputs.issue != ''
-        env:
-          TOKEN: ${{ secrets.token }}
-          REPO: ${{ inputs.repo }}
-          ISSUE: ${{ inputs.issue }}
-          STAGE: ${{ inputs.stage }}
-        run: |
-          api="https://api.github.com/repos/$REPO/issues/$ISSUE"
-          headers=(-H "Authorization: Bearer $TOKEN" -H "Accept: application/vnd.github+json"
-            -H "X-GitHub-Api-Version: 2022-11-28")
-          # Sends one call again up to 3 times on any error (1, 2 and 4 s apart).
-          call() {
-            local attempt out
-            for attempt in 1 2 3 4; do
-              if out=$(curl -fsS "${headers[@]}" "$@"); then
-                printf '%s' "$out"
-                return 0
-              fi
-              [ "$attempt" != 4 ] || return 1
-              echo "nibfin: GitHub API call failed; retry $attempt of 3" >&2
-              sleep $((1 << (attempt - 1)))
-            done
-          }
-          labels=$(call "$api/labels?per_page=100")
-          if grep -Eq '"name": *"pending"' <<< "$labels"; then
-            echo "$REPO#$ISSUE already has pending"
-            exit 0
-          fi
-          run="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
-          call -X POST "$api/labels" -d '{"labels":["pending"]}' > /dev/null
-          body="Nibfin's $STAGE Job failed: $run. Fix the cause, then remove the \`pending\` label to continue."
-          # A comment whose reply was lost is found by its run link and not posted twice.
-          since=$(date -u -d '-1 minute' +%Y-%m-%dT%H:%M:%SZ)
-          for attempt in 1 2 3 4; do
-            curl -fsS "${headers[@]}" -X POST "$api/comments" -d "{\"body\": \"$body\"}" > /dev/null && break
-            [ "$attempt" != 4 ] || exit 1
-            echo "nibfin: GitHub API comment failed; retry $attempt of 3" >&2
-            sleep $((1 << (attempt - 1)))
-            # A failed re-read fails the step rather than risk a second comment.
-            found=$(call "$api/comments?per_page=100&since=$since") || exit 1
-            if grep -F "$run" <<< "$found" > /dev/null; then
-              break
-            fi
-          done
-          echo "Added pending to $REPO#$ISSUE"
+        uses: taco3064/nibfin-core/action@main
+        with:
+          command: job-failed
+          token: ${{ secrets.token }}
+          repo: ${{ inputs.repo }}
+          issue: ${{ inputs.issue }}
+          stage: ${{ inputs.stage }}
