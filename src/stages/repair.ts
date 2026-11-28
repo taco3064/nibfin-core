@@ -1,6 +1,6 @@
 // The repair stage, deterministic part (#777, Proposal R4.40–R4.52): it runs inside
-// the `nibfin route --issue` Job for an Issue with `pending`, reads the `pending`
-// comment's code and clears the causes that need no person.
+// the `nibfin route --issue` Job for an Issue with `pending`, reads the code of the
+// comment that explains the stop and clears the causes that need no person.
 import { setTimeout as sleepFor } from "node:timers/promises";
 import {
   type ActingClient,
@@ -14,7 +14,7 @@ import {
 } from "../github/index.ts";
 import {
   type PendingCause,
-  readPendingCause,
+  readCause,
   readRepairInput,
   usageLimitCode,
 } from "./pending.ts";
@@ -34,8 +34,10 @@ import { StageError } from "./errors.ts";
 import { keepChoice } from "./choice.ts";
 import { unconfirmed } from "./shape-wrong.ts";
 
-/** Nibfin's current `pending` comment, as REST reads it. */
+/** The comment that explains the current stop (`currentCause`), as REST reads it. */
 export interface PendingComment {
+  /** Its marker key: `pending` or `scope-request`. */
+  key: string;
   id: number;
   body: string;
   url: string;
@@ -46,7 +48,7 @@ export interface PendingComment {
 
 /**
  * Why the repair stage runs: `new` decides for the current stop (`pending` is `null`
- * when no Nibfin `pending` comment was written since `pending` was last removed);
+ * when no Nibfin comment explaining it was written since `pending` was last removed);
  * `resume` continues the `repairing` record that covers it. `record` is the Issue's
  * latest record, whichever stop it covers (its `handled` list carries over).
  */
@@ -58,10 +60,11 @@ export interface RepairNeed {
 
 /**
  * The repair need of an Issue whose derived stage is `ineligible (pending)`:
- * `null` (nothing to do) when the current `pending` comment names the repair stage
+ * `null` (nothing to do) when the current cause comment names the repair stage
  * (R4.50) or a record covers it that is not `repairing`; `resume` when a `repairing`
- * record covers it; `new` otherwise. It reads the marked `pending` comment (by REST,
- * for `updated_at`), the Issue's events and the marked `repair` comment.
+ * record covers it; `new` otherwise. It reads the marked `pending` and
+ * `scope-request` comments (by REST, for `updated_at`), the Issue's events and the
+ * marked `repair` comment (`readRepairInput`).
  */
 export async function readRepairNeed(
   client: ActingClient,
@@ -73,7 +76,7 @@ export async function readRepairNeed(
     comment !== null && isPendingCurrent(input)
       ? { ...comment, digest: pendingDigest(comment.body) }
       : null;
-  if (pending !== null && readPendingCause(pending.body).fromRepair) {
+  if (pending !== null && readCause(pending).fromRepair) {
     return null;
   }
   if (recordApplies(input)) {
@@ -226,7 +229,8 @@ function decide(
     return advice(
       unknownCategory,
       handled,
-      "No Nibfin `pending` comment was written since `pending` was last removed.",
+      "No Nibfin comment explaining the stop was written since `pending` was last " +
+        "removed.",
       "Read the latest Nibfin comment on this Issue, fix what it names, then remove " +
         "the `pending` label.",
     );
@@ -272,13 +276,13 @@ function decide(
   return toAgent;
 }
 
-/** The record's evidence of the stop: its code, `pending` comment and run. */
+/** The record's evidence of the stop: its code, cause comment (by key) and run. */
 export function pendingEvidence(pending: PendingComment | null): string {
   if (pending === null) {
-    return "no Nibfin `pending` comment since `pending` was last removed";
+    return "no Nibfin comment explaining the stop since `pending` was last removed";
   }
-  const { code, run } = readPendingCause(pending.body);
-  const link = `[the \`pending\` comment](${pending.url})`;
+  const { code, run } = readCause(pending);
+  const link = `[the \`${pending.key}\` comment](${pending.url})`;
   return `code \`${code ?? "none"}\`, ${link}${run === undefined ? "" : `, run ${run}`}`;
 }
 
@@ -297,7 +301,7 @@ export async function release(
 /**
  * Sleeps until one minute after `reset`, then re-reads GitHub: it continues to W2 only
  * while the Issue still derives `ineligible (pending)` and its `repairing` record
- * still covers the same `pending` comment (`digest`); otherwise it stops unwritten.
+ * still covers the same cause comment (`digest`); otherwise it stops unwritten.
  */
 async function waitAndRelease(
   client: ActingClient,
@@ -463,7 +467,7 @@ async function resumeRerun(
 
 /**
  * Runs the repair stage for `need`. A new stop is decided in order: no current
- * `pending` comment → advice (`not classified`); a second `AGENT_USAGE_LIMIT` →
+ * cause comment → advice (`not classified`); a second `AGENT_USAGE_LIMIT` →
  * advice (R4.47); `AGENT_USAGE_LIMIT` → wait when its reset is ISO 8601 UTC and one
  * minute after it lies within `jobLimitMinutes` of the Job's start, else advice
  * (R4.43); the temporary sentence for a code not handled yet → retry (R4.42);
@@ -499,7 +503,7 @@ export async function runRepair(
     }
   }
   const { pending } = need;
-  const cause = pending === null ? null : readPendingCause(pending.body);
+  const cause = pending === null ? null : readCause(pending);
   const decision = decide(cause, need.record?.handled ?? [], clock);
   if (decision === toAgent) {
     return handToAgent(client, issue, need, dispatcher, log);

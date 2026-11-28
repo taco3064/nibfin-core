@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { describe, it } from "node:test";
 import {
+  currentCause,
   formatDecision,
   formatOptions,
   formatRepairRecord,
@@ -172,6 +173,66 @@ describe("repairStatus", () => {
       const stale = input({ lastUnlabeledPendingAt: at });
       assert.equal(repairStatus(stale), "needs-person", at);
     }
+  });
+
+  it("covers a Scope stop when given the comment currentCause picks", () => {
+    const scope = {
+      key: "scope-request",
+      body: "<!-- nibfin:scope-request -->\nOnly a person can decide.",
+      updatedAt: "2026-11-28T01:30:00Z",
+    };
+    const pending = {
+      key: "pending",
+      body: pendingBody,
+      updatedAt: "2026-11-27T10:00:00Z",
+    };
+    const removed = "2026-11-28T00:00:00Z";
+    const pendingComment = currentCause([pending, scope], removed);
+    assert.equal(pendingComment, scope);
+    const covered = input({
+      pendingComment,
+      lastUnlabeledPendingAt: removed,
+      record: record("repairing", pendingDigest(scope.body)),
+    });
+    assert.equal(repairStatus(covered), "repairing");
+    // A record for the old `pending` comment does not apply to the Scope stop.
+    const old = { ...covered, record: record("repairing") };
+    assert.equal(repairStatus(old), "needs-person");
+  });
+});
+
+describe("currentCause", () => {
+  const removed = "2026-11-28T00:00:00Z";
+  const at = (key: string, updatedAt: string) => ({ key, updatedAt });
+
+  it("picks a comment changed after pending was last removed, either key", () => {
+    // An updated (not newly created) comment counts by its `updated_at`.
+    const scope = at("scope-request", "2026-11-28T00:51:27Z");
+    const oldPending = at("pending", "2026-11-27T16:57:13Z");
+    assert.equal(currentCause([oldPending, scope], removed), scope);
+    const pending = at("pending", "2026-11-28T00:51:27Z");
+    const oldScope = at("scope-request", "2026-11-27T16:57:13Z");
+    assert.equal(currentCause([pending, oldScope], removed), pending);
+  });
+
+  it("is null when every comment predates the last removal", () => {
+    const before = [at("pending", "2026-11-27T10:00:00Z"), at("scope-request", removed)];
+    assert.equal(currentCause(before, removed), null);
+    assert.equal(currentCause([null, undefined], removed), null);
+    assert.equal(currentCause([], null), null);
+  });
+
+  it("picks the one changed last, and the pending comment on a tie", () => {
+    const scope = at("scope-request", "2026-11-28T01:00:00Z");
+    const newer = at("pending", "2026-11-28T01:00:01Z");
+    const older = at("pending", "2026-11-28T00:59:59Z");
+    const tie = at("pending", "2026-11-28T01:00:00Z");
+    assert.equal(currentCause([scope, newer], removed), newer);
+    assert.equal(currentCause([newer, scope], removed), newer);
+    assert.equal(currentCause([older, scope], removed), scope);
+    assert.equal(currentCause([scope, tie], removed), tie);
+    assert.equal(currentCause([tie, scope], removed), tie);
+    assert.equal(currentCause([older, scope], null), scope);
   });
 });
 

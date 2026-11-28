@@ -19,6 +19,7 @@ import {
 } from "../github/index.ts";
 import { codeOf } from "./pending.ts";
 import { trackProgress } from "./progress.ts";
+import { scopeRequestCommentKey } from "./repair-record.ts";
 import {
   isIssueUrl,
   type PlannedIssue,
@@ -26,8 +27,11 @@ import {
   type RequestPlan,
 } from "./scope-roles.ts";
 
-/** The marked comment the Scope stage keeps on the request (Proposal R3.42). */
-export const scopeRequestCommentKey = "scope-request";
+/**
+ * The marked comment the Scope stage keeps on the request (Proposal R3.42). Its key
+ * lives with the reader rule, which also reads it as a cause comment.
+ */
+export { scopeRequestCommentKey };
 
 /** What a re-read of the request found: still at Scope, no longer, or edited. */
 export type Recheck = "scope" | "stopped" | "changed";
