@@ -1,9 +1,18 @@
 // The Action's commands (#776). Rules live in their Core modules; this file only
 // connects them to the inputs and the log.
+import { readFileSync } from "node:fs";
 import { type ActingClient, connectClient, type LogLine } from "../github/client.ts";
 import { formatIssue } from "../github/repo.ts";
+import { runWake } from "../route/wake.ts";
+import { required } from "../stages/context.ts";
 import { askPersonOnce, describeFailure, JobFailedError } from "../stages/pending.ts";
-import { type ActionCommand, readCommand, readJobFailedInputs } from "./inputs.ts";
+import {
+  type ActionCommand,
+  inputName,
+  readCommand,
+  readJobFailedInputs,
+  readWakeInputs,
+} from "./inputs.ts";
 
 export interface OutputStream {
   write(text: string): unknown;
@@ -18,11 +27,14 @@ export interface ActionIo {
 export interface ActionDeps {
   env: NodeJS.ProcessEnv;
   connect: (token: string, log: LogLine) => Promise<ActingClient>;
+  /** Reads the runner's event file. */
+  readFile: (path: string) => string;
 }
 
 export const defaultActionDeps: ActionDeps = {
   env: process.env,
   connect: (token, log) => connectClient(token, {}, log),
+  readFile: (path) => readFileSync(path, "utf8"),
 };
 
 type Command = (io: ActionIo, deps: ActionDeps) => Promise<number>;
@@ -48,7 +60,19 @@ async function jobFailed(io: ActionIo, deps: ActionDeps): Promise<number> {
   return 0;
 }
 
-const commands: Record<ActionCommand, Command> = { "job-failed": jobFailed };
+/**
+ * `wake`: the job of `nibfin-events.yml` and of the user `nibfin-issue.yml`. It runs
+ * `runWake`; the `token` input is required only once an event wakes an Issue.
+ */
+async function wake(io: ActionIo, deps: ActionDeps): Promise<number> {
+  const { token, ...input } = readWakeInputs(deps.env, deps.readFile);
+  const log = lineLog(io);
+  const connect = () => deps.connect(required(token, inputName("token")), log);
+  await runWake(input, connect, log);
+  return 0;
+}
+
+const commands: Record<ActionCommand, Command> = { "job-failed": jobFailed, wake };
 
 /**
  * Runs the command the `command` input names and returns the exit code: 0 when it

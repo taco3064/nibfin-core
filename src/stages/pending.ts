@@ -79,8 +79,8 @@ export function runUrl(repo: Repo | undefined, id: number | undefined) {
 }
 
 /**
- * The sentence a `pending` comment carries for a failure that looks temporary. The wake
- * failure of `nibfin-events.yml` writes it word for word; the repair stage reads it.
+ * The sentence a `pending` comment carries for a failure that looks temporary. Only
+ * `pendingBody` writes it (a failed wake too, #776); the repair stage reads it.
  */
 export const temporarySentence =
   "This looks temporary (network, GitHub or a single agent run); removing the " +

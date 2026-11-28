@@ -2,12 +2,13 @@
 // variable `INPUT_<NAME>`, upper cased with hyphens kept; the run is described by
 // the runner's own `GITHUB_*` variables. This module only reads and checks them.
 import type { IssueRef } from "../github/repo.ts";
+import type { WakeInput, WakePayload } from "../route/wake.ts";
 import { positiveInteger, readRepo, required } from "../stages/context.ts";
 import { StageError } from "../stages/errors.ts";
 import { runUrl } from "../stages/pending.ts";
 
 /** The commands of the Action's `command` input. */
-export const actionCommands = ["job-failed"] as const;
+export const actionCommands = ["job-failed", "wake"] as const;
 export type ActionCommand = (typeof actionCommands)[number];
 
 /** The environment variable of the Action input `name`. */
@@ -65,5 +66,55 @@ export function readJobFailedInputs(env: NodeJS.ProcessEnv): JobFailedInputs {
     issue: { ...repo, number },
     stage,
     url: runUrl(runRepo, runId),
+  };
+}
+
+/** What `wake` needs: the event and its repository, and the inputs as given. */
+export interface WakeInputs extends WakeInput {
+  /** The Nibfin token; empty for a review on a fork pull request, read only to wake. */
+  token: string | undefined;
+}
+
+function readPayload(text: string): WakePayload {
+  let payload: unknown;
+  try {
+    payload = JSON.parse(text);
+  } catch {
+    payload = undefined;
+  }
+  if (typeof payload !== "object" || payload === null || Array.isArray(payload)) {
+    throw invalid("GITHUB_EVENT_PATH", "must be the event's JSON payload");
+  }
+  return payload;
+}
+
+/**
+ * The inputs of `wake`: the event from `GITHUB_EVENT_NAME` and the runner's event
+ * file (`GITHUB_EVENT_PATH`, read with `readFile`), its repository
+ * (`GITHUB_REPOSITORY`), the run URL, and the `token` and `execution-repo` inputs as
+ * given: the wake checks them only once it needs them. A missing or invalid runner
+ * variable or event file is `STAGE_INPUT_INVALID` naming it, never its content.
+ */
+export function readWakeInputs(
+  env: NodeJS.ProcessEnv,
+  readFile: (path: string) => string,
+): WakeInputs {
+  const eventName = required(env.GITHUB_EVENT_NAME, "GITHUB_EVENT_NAME");
+  const path = required(env.GITHUB_EVENT_PATH, "GITHUB_EVENT_PATH");
+  const repo = readRepo(env.GITHUB_REPOSITORY, "GITHUB_REPOSITORY");
+  const runId = positiveInteger(env.GITHUB_RUN_ID, "GITHUB_RUN_ID");
+  let text: string;
+  try {
+    text = readFile(path);
+  } catch {
+    throw invalid("GITHUB_EVENT_PATH", "cannot be read");
+  }
+  return {
+    eventName,
+    payload: readPayload(text),
+    repo,
+    executionRepo: input(env, "execution-repo"),
+    url: runUrl(repo, runId),
+    token: input(env, "token"),
   };
 }
