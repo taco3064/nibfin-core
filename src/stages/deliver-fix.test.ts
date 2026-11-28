@@ -331,8 +331,8 @@ describe("runDeliverStage for cd-failure", () => {
     assert.match(
       writerRun.prompt,
       new RegExp(
-        "#### Job deploy 31\n\nURL: .*\n\nLast 200 lines of the job log:\n\n" +
-          "```text\ndeploy failed\n```",
+        "#### Job deploy 31\n\nURL: .*\n\nJob log excerpt \\(1 of 1 lines\\):\n\n" +
+          "Lines 1–1:\n\n```text\ndeploy failed\n```\n\n",
       ),
     );
     assert.match(

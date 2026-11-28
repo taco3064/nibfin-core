@@ -34,7 +34,7 @@ import {
   type StageJob,
 } from "./agent.ts";
 import type { JobContext } from "./context.ts";
-import { jobLogTail } from "./fix-context.ts";
+import { jobLogExcerpt } from "./fix-context.ts";
 import { redactToken } from "./git.ts";
 import { readPendingCause } from "./pending.ts";
 import { fenced, type PromptSection } from "./prompt.ts";
@@ -252,8 +252,14 @@ async function describeFailedRun(job: StageJob, runId: number): Promise<string> 
       : jobs.map((item) => `- ${item.name}: ${item.state} (${item.url ?? "no URL"})`)),
   ];
   for (const failed of jobs.filter((item) => item.state === "failed")) {
-    const tail = await jobLogTail(job.client, runRepo, redactor(job), failed.id);
-    parts.push("", `### Job ${failed.name}`, "", tail);
+    const excerpt = await jobLogExcerpt(
+      job.client,
+      runRepo,
+      redactor(job),
+      failed.id,
+      failed.url,
+    );
+    parts.push("", `### Job ${failed.name}`, "", excerpt);
   }
   return parts.join("\n");
 }
@@ -299,8 +305,14 @@ async function describePullRequest(
     ...(files.length === 0 ? ["None."] : files.map((file) => `- ${file}`)),
   ];
   for (const check of failedActionsChecks(pull)) {
-    const tail = await jobLogTail(job.client, repo, redactor(job), check.checkRunId!);
-    parts.push("", `### Failed check ${check.context}`, "", tail);
+    const excerpt = await jobLogExcerpt(
+      job.client,
+      repo,
+      redactor(job),
+      check.checkRunId!,
+      check.url,
+    );
+    parts.push("", `### Failed check ${check.context}`, "", excerpt);
   }
   return parts.join("\n");
 }

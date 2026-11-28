@@ -74,7 +74,11 @@ function routeFailedRun(world: RepairWorld) {
     paged([job(31, "stage", "failure"), job(32, "route", "success")], "jobs"),
   );
   routes.set("GET /repos/acme/runner/actions/jobs/31/logs", {
-    data: `step 1\nShape blocked\ntoken ${fakeToken}\n`,
+    // A failure far from the tail, with the token on it: redacted before the cut.
+    data:
+      `fatal error: found pointer to free object; token ${fakeToken}\n` +
+      "ok\n".repeat(250) +
+      `step 1\nShape blocked\ntoken ${fakeToken}\n`,
   });
 }
 
@@ -128,6 +132,8 @@ describe("runRepairStage", () => {
       "- stage: failed (https://github.com/acme/runner/actions/runs/800/job/31)",
       "- route: success (no URL)",
       "Shape blocked\ntoken ***",
+      "Lines 1–6:\n\n```text\nfatal error: found pointer to free object; token ***\n",
+      "The full log is at https://github.com/acme/runner/actions/runs/800/job/31.",
       `Head: \`${sha}\` (nibfin/issue-1)`,
       "- verify: failed (https://github.com/acme/app/runs/55)",
       "- src/widget.ts",

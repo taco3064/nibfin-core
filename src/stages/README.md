@@ -257,9 +257,9 @@ concurrency group and has no post-stage route:
    and runs nothing; otherwise it writes nothing.
 2. It resolves the `repair` and `scope` skills and gives the read-only agent
    (`repairRole`): the Issue (body, labels, Assignees, Blocked by), the `pending`
-   comment, the failed run's jobs and the 200-line log tail of each failed job (only
+   comment, the failed run's jobs and the log excerpt of each failed job (only
    when `- Run:` names a run of the execution repository), the open pull request
-   (head, required checks, failed Actions checks' log tails, changed files), the
+   (head, required checks, failed Actions checks' log excerpts, changed files), the
    current record (with the R4.47 line when the stop's key is in `handled`), the
    repository's open Issues without bodies, where the product authority is, the scope
    skill's `### Small amendments` section and the visibility. Every section is
@@ -658,15 +658,23 @@ decision that was not stored yet before it replaces its record (see What decides
 
 Fix context: `ci-failure` lists the failed required checks with URLs and, for a
 GitHub Actions check run (app `github-actions`, whose check-run id is the job id),
-the last 200 lines of the job log; other checks and statuses get their URL only.
+the job log excerpt; other checks and statuses get their URL only.
 `review` gives the review comment. `cd-failure` at `cd-failed` lists the failed runs
 of the stage's own `runs`, with their merged PR and merge commit: the Issue's own
 merge, the previous Issue's fix on a newer base head (`failedOn`), or the Issue's
 failed runs on paths that fix did not re-run (#772). On a fix-branch redo it lists the
 failed CD runs of the newest merged PR whose CD failed. Each run comes with the log
-tails of its failed jobs (`filter=latest`). `conflict` gives the PR, that it conflicts with the base and what
+excerpts of its failed jobs (`filter=latest`). `conflict` gives the PR, that it conflicts with the base and what
 to do (as for a moved base), and the new base commits. Log text is redacted of the
 token.
+
+A job log excerpt (`logExcerpt`, shared with the repair stage) redacts the whole log
+first, then keeps its last 200 lines and, before them, every failing section: a line
+containing `--- FAIL`, `panic:`, `fatal error:`, `Exception 0x` or `##[error]`, with 5
+lines of context on each side, in log order, merged where sections overlap or touch,
+within 200 more lines. Each part is labelled with its line range; when lines were left
+out, a note says how many, which failure sections the bound cut, and that the full
+log is at the job URL.
 
 New base commits: the commits of `origin/<base>` the head lacks (`%h %s`, newest
 first, at most 50 and a count of the rest), each with the pull requests GitHub
